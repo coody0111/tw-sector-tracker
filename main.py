@@ -4,7 +4,7 @@ import sys
 from datetime import date
 from pathlib import Path
 
-from scrapers.moneydj import scrape_industry_sectors, scrape_concept_sectors
+from scrapers.moneydj import scrape_industry_sectors
 from scrapers.twse import fetch_daily_prices
 from processors.changes import detect_changes
 from processors.performance import calc_sector_performance
@@ -35,19 +35,16 @@ def run(trade_date: date = None, limit: int = None) -> None:
     yesterday_industry = writer.read_sector_stocks("industry")
     yesterday_concept = writer.read_sector_stocks("concept")
 
-    # 2. Scrape MoneyDJ
+    # 2. Scrape MoneyDJ industry sectors
+    # Note: concept sectors require JS rendering (future work)
     logger.info("Scraping MoneyDJ industry sectors...")
     industry_stocks = scrape_industry_sectors(limit=limit)
     logger.info("  -> %d records", len(industry_stocks))
 
-    logger.info("Scraping MoneyDJ concept sectors...")
-    concept_stocks = scrape_concept_sectors(limit=limit)
-    logger.info("  -> %d records", len(concept_stocks))
-
     all_records = [
         {"sector_type": s.sector_type, "sector_name": s.sector_name,
          "sector_code": s.sector_code, "stock_id": s.stock_id, "stock_name": s.stock_name}
-        for s in industry_stocks + concept_stocks
+        for s in industry_stocks
     ]
 
     # 3. Fetch TWSE prices

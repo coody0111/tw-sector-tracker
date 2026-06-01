@@ -11,6 +11,8 @@ class CsvWriter:
             (self.base / sub).mkdir(parents=True, exist_ok=True)
 
     def write_sector_stocks(self, records: List[Dict[str, Any]], trade_date: date) -> None:
+        if not records:
+            return
         df = pd.DataFrame(records)
         df.insert(0, "date", trade_date.isoformat())
 

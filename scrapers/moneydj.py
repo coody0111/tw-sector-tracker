@@ -1,3 +1,4 @@
+import re
 import requests
 import time
 import random
@@ -48,16 +49,20 @@ def _delay():
 
 
 def _parse_stock_table(soup: BeautifulSoup) -> List[tuple]:
-    """Return list of (stock_id, stock_name) from the first data table."""
     stocks = []
     for row in soup.select("table tr"):
         cells = row.find_all("td")
-        if len(cells) < 2:
+        if not cells:
             continue
-        stock_id = cells[0].get_text(strip=True)
-        stock_name = cells[1].get_text(strip=True)
-        if stock_id.isdigit() and 4 <= len(stock_id) <= 6:
-            stocks.append((stock_id, stock_name))
+        first = cells[0].get_text(strip=True)
+        m = re.match(r'^(\d{4,6})(.*)$', first)
+        if not m:
+            continue
+        stock_id = m.group(1)
+        stock_name = m.group(2).strip()
+        if not stock_name and len(cells) >= 2:
+            stock_name = cells[1].get_text(strip=True)
+        stocks.append((stock_id, stock_name))
     return stocks
 
 

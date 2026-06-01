@@ -1,3 +1,4 @@
+import argparse
 import logging
 import sys
 from datetime import date
@@ -22,11 +23,12 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def run(trade_date: date = None) -> None:
+def run(trade_date: date = None, limit: int = None) -> None:
     if trade_date is None:
         trade_date = date.today()
 
-    logger.info("=== TW Sector Tracker — %s ===", trade_date.isoformat())
+    limit_info = f" (limit={limit})" if limit else ""
+    logger.info("=== TW Sector Tracker — %s%s ===", trade_date.isoformat(), limit_info)
     writer = CsvWriter(base_dir="data")
 
     # 1. Read yesterday's sector data for change detection
@@ -35,11 +37,11 @@ def run(trade_date: date = None) -> None:
 
     # 2. Scrape MoneyDJ
     logger.info("Scraping MoneyDJ industry sectors...")
-    industry_stocks = scrape_industry_sectors()
+    industry_stocks = scrape_industry_sectors(limit=limit)
     logger.info("  -> %d records", len(industry_stocks))
 
     logger.info("Scraping MoneyDJ concept sectors...")
-    concept_stocks = scrape_concept_sectors()
+    concept_stocks = scrape_concept_sectors(limit=limit)
     logger.info("  -> %d records", len(concept_stocks))
 
     all_records = [
@@ -94,4 +96,8 @@ def run(trade_date: date = None) -> None:
 
 
 if __name__ == "__main__":
-    run()
+    parser = argparse.ArgumentParser(description="TW Sector Tracker")
+    parser.add_argument("--limit", type=int, default=None,
+                        help="Limit number of sectors per type (for testing)")
+    args = parser.parse_args()
+    run(limit=args.limit)

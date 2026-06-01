@@ -61,7 +61,7 @@ def _parse_stock_table(soup: BeautifulSoup) -> List[tuple]:
     return stocks
 
 
-def scrape_industry_sectors() -> List[SectorStock]:
+def scrape_industry_sectors(limit: int = None) -> List[SectorStock]:
     results = []
     soup = _get(INDUSTRY_INDEX_URL)
 
@@ -74,6 +74,9 @@ def scrape_industry_sectors() -> List[SectorStock]:
             full_url = BASE_URL + href if href.startswith("/") else href
             if sector_name:
                 sector_links.append((sector_name, sector_code, full_url))
+
+    if limit is not None:
+        sector_links = sector_links[:limit]
 
     for sector_name, sector_code, url in sector_links:
         _delay()
@@ -93,7 +96,7 @@ def scrape_industry_sectors() -> List[SectorStock]:
     return results
 
 
-def scrape_concept_sectors() -> List[SectorStock]:
+def scrape_concept_sectors(limit: int = None) -> List[SectorStock]:
     results = []
     soup = _get(CONCEPT_INDEX_URL)
 
@@ -105,6 +108,9 @@ def scrape_concept_sectors() -> List[SectorStock]:
             full_url = BASE_URL + href if href.startswith("/") else href
             if concept_name and concept_name not in ("E", ""):
                 concept_links.append((concept_name, full_url))
+
+    if limit is not None:
+        concept_links = concept_links[:limit]
 
     for concept_name, url in concept_links:
         _delay()

@@ -28,7 +28,7 @@ MOCK_CONCEPT_INDEX_HTML = """
 
 def _make_mock_response(html: str):
     mock = MagicMock()
-    mock.text = html
+    mock.content = html.encode("cp950", errors="replace")
     mock.raise_for_status.return_value = None
     return mock
 

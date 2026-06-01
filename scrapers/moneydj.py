@@ -35,8 +35,7 @@ def _get(url: str, retries: int = 3) -> BeautifulSoup:
         try:
             resp = requests.get(url, headers=HEADERS, timeout=30)
             resp.raise_for_status()
-            resp.encoding = "big5"
-            return BeautifulSoup(resp.text, "lxml")
+            return BeautifulSoup(resp.content, "lxml", from_encoding="cp950")
         except Exception as exc:
             logger.warning("GET %s attempt %d failed: %s", url, attempt + 1, exc)
             if attempt == retries - 1:

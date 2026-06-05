@@ -79,6 +79,9 @@ def scrape_industry_sectors(limit: int = None) -> List[SectorStock]:
             if sector_name:
                 sector_links.append((sector_name, sector_code, full_url))
 
+    from config import should_include_sector
+    sector_links = [s for s in sector_links if should_include_sector(s[1])]
+
     if limit is not None:
         sector_links = sector_links[:limit]
 

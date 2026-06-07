@@ -1,11 +1,12 @@
 import argparse
 import logging
 import sys
+import pandas as pd
 from datetime import date
 from pathlib import Path
 
 from scrapers.moneydj import scrape_industry_sectors
-from scrapers.twse import fetch_daily_prices
+from scrapers.finmind import fetch_prices_for_stocks
 from processors.changes import detect_changes
 from processors.performance import calc_sector_performance
 from storage.csv_writer import CsvWriter
@@ -36,7 +37,6 @@ def run(trade_date: date = None, limit: int = None) -> None:
     yesterday_concept = writer.read_sector_stocks("concept")
 
     # 2. Scrape MoneyDJ industry sectors
-    # Note: concept sectors require JS rendering (future work)
     logger.info("Scraping MoneyDJ industry sectors...")
     industry_stocks = scrape_industry_sectors(limit=limit)
     logger.info("  -> %d records", len(industry_stocks))
@@ -47,13 +47,14 @@ def run(trade_date: date = None, limit: int = None) -> None:
         for s in industry_stocks
     ]
 
-    # 3. Fetch TWSE prices
-    logger.info("Fetching TWSE daily prices for %s...", trade_date.isoformat())
+    # 3. Fetch prices for sector stocks via Yahoo Finance
+    unique_ids = list({s.stock_id for s in industry_stocks})
+    logger.info("Fetching prices for %d unique stocks via Yahoo Finance...", len(unique_ids))
     try:
-        prices_df = fetch_daily_prices(trade_date)
+        prices_df = fetch_prices_for_stocks(unique_ids, trade_date)
         logger.info("  -> %d stocks", len(prices_df))
     except Exception as exc:
-        logger.error("TWSE fetch failed: %s. Continuing without prices.", exc)
+        logger.error("Price fetch failed: %s. Continuing without prices.", exc)
         prices_df = None
 
     # 4. Write sector stocks
@@ -61,12 +62,11 @@ def run(trade_date: date = None, limit: int = None) -> None:
     logger.info("Sector stocks written.")
 
     # 5. Write daily prices
-    if prices_df is not None:
+    if prices_df is not None and not prices_df.empty:
         writer.write_daily_prices(prices_df, trade_date)
         logger.info("Daily prices written.")
 
     # 6. Detect changes
-    import pandas as pd
     today_df = pd.DataFrame(all_records)
     if not today_df.empty:
         today_df.insert(0, "date", trade_date.isoformat())
@@ -84,7 +84,7 @@ def run(trade_date: date = None, limit: int = None) -> None:
         logger.info("No composition changes detected.")
 
     # 7. Calculate and write performance
-    if prices_df is not None and not today_df.empty:
+    if prices_df is not None and not prices_df.empty and not today_df.empty:
         perf = calc_sector_performance(today_df, prices_df)
         writer.write_sector_performance(perf, trade_date)
         logger.info("Sector performance written (%d sectors).", len(perf))

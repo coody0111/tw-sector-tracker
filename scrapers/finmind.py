@@ -1,73 +1,38 @@
-import yfinance as yf
+import logging
 import pandas as pd
-from datetime import date, timedelta
-from typing import List
+from datetime import date
+
+from scrapers.twse import fetch_daily_prices as fetch_twse
+from scrapers.tpex import fetch_daily_prices as fetch_tpex
+
+logger = logging.getLogger(__name__)
 
 
-def _extract_row(raw: pd.DataFrame, ticker: str, sid: str, tickers: list) -> dict | None:
+def fetch_prices_for_stocks(stock_ids: list, trade_date: date) -> pd.DataFrame:
+    """Fetch prices from TWSE + TPEx, return only stocks in stock_ids."""
+    frames = []
+
     try:
-        if len(tickers) == 1:
-            close = float(raw["Close"].iloc[0].item())
-            prev_close = float(raw["Open"].iloc[0].item())
-            volume = int(raw["Volume"].iloc[0].item())
-        else:
-            close = float(raw["Close"][ticker].iloc[0])
-            prev_close = float(raw["Open"][ticker].iloc[0])
-            volume = int(raw["Volume"][ticker].iloc[0])
+        twse_df = fetch_twse(trade_date)
+        logger.info("  TWSE: %d stocks", len(twse_df))
+        frames.append(twse_df)
+    except Exception as exc:
+        logger.error("TWSE fetch failed: %s", exc)
 
-        if pd.isna(close):
-            return None
+    try:
+        tpex_df = fetch_tpex(trade_date)
+        logger.info("  TPEx: %d stocks", len(tpex_df))
+        frames.append(tpex_df)
+    except Exception as exc:
+        logger.error("TPEx fetch failed: %s", exc)
 
-        change = round(close - prev_close, 2)
-        change_pct = round(change / prev_close * 100, 2) if prev_close else 0.0
-        return {
-            "stock_id": sid,
-            "stock_name": sid,
-            "close": close,
-            "change": change,
-            "change_pct": change_pct,
-            "volume": volume // 1000,
-        }
-    except Exception:
-        return None
+    if not frames:
+        raise ValueError(f"Both TWSE and TPEx failed for {trade_date}")
 
+    all_prices = pd.concat(frames, ignore_index=True)
+    all_prices = all_prices.drop_duplicates(subset=["stock_id"])
 
-def fetch_prices_for_stocks(stock_ids: List[str], trade_date: date) -> pd.DataFrame:
-    if not stock_ids:
-        return pd.DataFrame()
+    if stock_ids:
+        all_prices = all_prices[all_prices["stock_id"].isin(stock_ids)]
 
-    start = trade_date.strftime("%Y-%m-%d")
-    end = (trade_date + timedelta(days=1)).strftime("%Y-%m-%d")
-
-    # Step 1: 全部先試 .TW
-    tw_tickers = [f"{sid}.TW" for sid in stock_ids]
-    raw_tw = yf.download(tw_tickers, start=start, end=end, progress=False, auto_adjust=True)
-
-    rows = {}
-    failed_ids = []
-
-    if not raw_tw.empty:
-        for sid in stock_ids:
-            row = _extract_row(raw_tw, f"{sid}.TW", sid, tw_tickers)
-            if row:
-                rows[sid] = row
-            else:
-                failed_ids.append(sid)
-    else:
-        failed_ids = list(stock_ids)
-
-    # Step 2: .TW 失敗的改試 .TWO（上櫃）
-    if failed_ids:
-        two_tickers = [f"{sid}.TWO" for sid in failed_ids]
-        raw_two = yf.download(two_tickers, start=start, end=end, progress=False, auto_adjust=True)
-
-        if not raw_two.empty:
-            for sid in failed_ids:
-                row = _extract_row(raw_two, f"{sid}.TWO", sid, two_tickers)
-                if row:
-                    rows[sid] = row
-
-    if not rows:
-        raise ValueError(f"No data returned for {trade_date} (non-trading day?)")
-
-    return pd.DataFrame(list(rows.values())).reset_index(drop=True)
+    return all_prices.reset_index(drop=True)

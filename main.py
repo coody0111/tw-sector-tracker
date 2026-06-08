@@ -82,6 +82,7 @@ def run(trade_date: date = None) -> None:
     logger.info("Fetching prices (TWSE + TPEx)...")
     try:
         prices_df = fetch_prices_for_stocks(unique_ids, trade_date)
+        prices_df["stock_id"] = prices_df["stock_id"].astype(str)
         logger.info("  TWSE+TPEx total: %d stocks", len(prices_df))
     except Exception as exc:
         logger.error("Price fetch failed: %s. Continuing without prices.", exc)
@@ -116,7 +117,9 @@ def run(trade_date: date = None) -> None:
 
     # 6. 產生 HTML + 推上 GitHub Pages
     if perf:
-        generate_html(trade_date, pd.DataFrame(perf))
+        generate_html(trade_date, pd.DataFrame(perf),
+                      sectors_df=sectors_df,
+                      prices_df=prices_df if prices_df is not None else pd.DataFrame())
         logger.info("HTML generated → docs/index.html")
         _push_html(trade_date)
 

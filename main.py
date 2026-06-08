@@ -27,12 +27,11 @@ logger = logging.getLogger(__name__)
 
 
 def _push_html(trade_date: date) -> None:
-    date_str = trade_date.isoformat()
     try:
         subprocess.run(["git", "add", "docs/index.html"], check=True)
         result = subprocess.run(["git", "diff", "--cached", "--quiet"])
         if result.returncode != 0:
-            subprocess.run(["git", "commit", "-m", f"update: sector performance {date_str}"], check=True)
+            subprocess.run(["git", "commit", "-m", f"update: sector performance {trade_date.isoformat()}"], check=True)
             subprocess.run(["git", "push"], check=True)
             logger.info("Pushed to GitHub Pages.")
         else:
@@ -41,73 +40,81 @@ def _push_html(trade_date: date) -> None:
         logger.warning("Git push failed: %s", exc)
 
 
-def run(trade_date: date = None, limit: int = None) -> None:
-    if trade_date is None:
-        trade_date = date.today()
-
-    limit_info = f" (limit={limit})" if limit else ""
-    logger.info("=== TW Sector Tracker — %s%s ===", trade_date.isoformat(), limit_info)
+def update_sectors(limit: int = None) -> None:
+    """從 MoneyDJ 更新族群成份股（耗時約 15 分鐘，每週跑一次即可）"""
     writer = CsvWriter(base_dir="data")
+    logger.info("=== Updating sectors from MoneyDJ ===")
 
-    # 1. Read yesterday's sector data for change detection
-    yesterday_industry = writer.read_sector_stocks("industry")
-    yesterday_concept = writer.read_sector_stocks("concept")
-
-    # 2. Scrape MoneyDJ industry sectors
-    logger.info("Scraping MoneyDJ industry sectors...")
     industry_stocks = scrape_industry_sectors(limit=limit)
-    logger.info("  -> %d records", len(industry_stocks))
+    logger.info("  -> %d records from %d sectors", len(industry_stocks),
+                len({s.sector_code for s in industry_stocks}))
 
     all_records = [
         {"sector_type": s.sector_type, "sector_name": s.sector_name,
          "sector_code": s.sector_code, "stock_id": s.stock_id, "stock_name": s.stock_name}
         for s in industry_stocks
     ]
+    writer.write_sector_stocks(all_records, date.today())
+    logger.info("Sectors saved to data/sectors/industry_sectors.csv")
+    logger.info("=== Done ===")
 
-    # 3. Fetch prices for sector stocks via Yahoo Finance
-    unique_ids = list({s.stock_id for s in industry_stocks})
-    logger.info("Fetching prices for %d unique stocks via Yahoo Finance...", len(unique_ids))
+
+def run(trade_date: date = None) -> None:
+    """每日執行：讀取已存族群 → 抓 TWSE+TPEx 行情 → 計算績效 → 更新網站（約 10 秒）"""
+    if trade_date is None:
+        trade_date = date.today()
+
+    logger.info("=== TW Sector Tracker — %s ===", trade_date.isoformat())
+    writer = CsvWriter(base_dir="data")
+
+    # 1. 讀取已儲存的族群成份股
+    sectors_df = writer.read_sector_stocks("industry")
+    if sectors_df.empty:
+        logger.error("No sector data found. Run with --update-sectors first.")
+        return
+
+    yesterday_df = sectors_df.copy()  # 用於異動偵測
+    all_records = sectors_df.drop(columns=["date"], errors="ignore").to_dict("records")
+    unique_ids = list(sectors_df["stock_id"].astype(str).unique())
+    logger.info("Loaded %d stocks across sectors from saved data.", len(unique_ids))
+
+    # 2. 抓 TWSE + TPEx 行情
+    logger.info("Fetching prices (TWSE + TPEx)...")
     try:
         prices_df = fetch_prices_for_stocks(unique_ids, trade_date)
-        logger.info("  -> %d stocks", len(prices_df))
+        logger.info("  TWSE+TPEx total: %d stocks", len(prices_df))
     except Exception as exc:
         logger.error("Price fetch failed: %s. Continuing without prices.", exc)
         prices_df = None
 
-    # 4. Write sector stocks
-    writer.write_sector_stocks(all_records, trade_date)
-    logger.info("Sector stocks written.")
-
-    # 5. Write daily prices
+    # 3. 寫入行情
     if prices_df is not None and not prices_df.empty:
         writer.write_daily_prices(prices_df, trade_date)
         logger.info("Daily prices written.")
 
-    # 6. Detect changes
+    # 4. 偵測成份股異動
     today_df = pd.DataFrame(all_records)
     if not today_df.empty:
         today_df.insert(0, "date", trade_date.isoformat())
 
     changes = []
-    if not yesterday_industry.empty:
-        changes += detect_changes(today_df, yesterday_industry, "industry", trade_date.isoformat())
-    if not yesterday_concept.empty:
-        changes += detect_changes(today_df, yesterday_concept, "concept", trade_date.isoformat())
+    if not yesterday_df.empty:
+        changes += detect_changes(today_df, yesterday_df, "industry", trade_date.isoformat())
 
     if changes:
         writer.append_changes(changes)
-        logger.info("%d composition changes detected and logged.", len(changes))
+        logger.info("%d composition changes detected.", len(changes))
     else:
         logger.info("No composition changes detected.")
 
-    # 7. Calculate and write performance
+    # 5. 計算族群績效
     perf = []
     if prices_df is not None and not prices_df.empty and not today_df.empty:
         perf = calc_sector_performance(today_df, prices_df)
         writer.write_sector_performance(perf, trade_date)
         logger.info("Sector performance written (%d sectors).", len(perf))
 
-    # 8. Generate HTML for GitHub Pages
+    # 6. 產生 HTML + 推上 GitHub Pages
     if perf:
         generate_html(trade_date, pd.DataFrame(perf))
         logger.info("HTML generated → docs/index.html")
@@ -118,7 +125,13 @@ def run(trade_date: date = None, limit: int = None) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="TW Sector Tracker")
+    parser.add_argument("--update-sectors", action="store_true",
+                        help="Re-scrape MoneyDJ sectors (~15 min). Run weekly.")
     parser.add_argument("--limit", type=int, default=None,
-                        help="Limit number of sectors per type (for testing)")
+                        help="Limit sectors for testing (use with --update-sectors)")
     args = parser.parse_args()
-    run(limit=args.limit)
+
+    if args.update_sectors:
+        update_sectors(limit=args.limit)
+    else:
+        run()

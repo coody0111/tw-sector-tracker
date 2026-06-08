@@ -6,8 +6,13 @@ def calc_sector_performance(
     sectors_df: pd.DataFrame,
     prices_df: pd.DataFrame,
 ) -> List[Dict[str, Any]]:
-    merged = sectors_df.merge(
-        prices_df[["stock_id", "change_pct"]],
+    sectors = sectors_df.copy()
+    prices = prices_df.copy()
+    sectors["stock_id"] = sectors["stock_id"].astype(str)
+    prices["stock_id"] = prices["stock_id"].astype(str)
+
+    merged = sectors.merge(
+        prices[["stock_id", "change_pct"]],
         on="stock_id",
         how="left",
     )

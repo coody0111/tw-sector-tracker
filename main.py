@@ -10,6 +10,7 @@ from scrapers.finmind import fetch_prices_for_stocks
 from processors.changes import detect_changes
 from processors.performance import calc_sector_performance
 from storage.csv_writer import CsvWriter
+from export.html_generator import generate as generate_html
 
 LOG_DIR = Path("logs")
 LOG_DIR.mkdir(exist_ok=True)
@@ -84,10 +85,16 @@ def run(trade_date: date = None, limit: int = None) -> None:
         logger.info("No composition changes detected.")
 
     # 7. Calculate and write performance
+    perf = []
     if prices_df is not None and not prices_df.empty and not today_df.empty:
         perf = calc_sector_performance(today_df, prices_df)
         writer.write_sector_performance(perf, trade_date)
         logger.info("Sector performance written (%d sectors).", len(perf))
+
+    # 8. Generate HTML for GitHub Pages
+    if perf:
+        generate_html(trade_date, pd.DataFrame(perf))
+        logger.info("HTML generated → docs/index.html")
 
     logger.info("=== Done ===")
 

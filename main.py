@@ -1,5 +1,6 @@
 import argparse
 import logging
+import subprocess
 import sys
 import pandas as pd
 from datetime import date
@@ -23,6 +24,21 @@ logging.basicConfig(
     ],
 )
 logger = logging.getLogger(__name__)
+
+
+def _push_html(trade_date: date) -> None:
+    date_str = trade_date.isoformat()
+    try:
+        subprocess.run(["git", "add", "docs/index.html"], check=True)
+        result = subprocess.run(["git", "diff", "--cached", "--quiet"])
+        if result.returncode != 0:
+            subprocess.run(["git", "commit", "-m", f"update: sector performance {date_str}"], check=True)
+            subprocess.run(["git", "push"], check=True)
+            logger.info("Pushed to GitHub Pages.")
+        else:
+            logger.info("No HTML changes to push.")
+    except Exception as exc:
+        logger.warning("Git push failed: %s", exc)
 
 
 def run(trade_date: date = None, limit: int = None) -> None:
@@ -95,6 +111,7 @@ def run(trade_date: date = None, limit: int = None) -> None:
     if perf:
         generate_html(trade_date, pd.DataFrame(perf))
         logger.info("HTML generated → docs/index.html")
+        _push_html(trade_date)
 
     logger.info("=== Done ===")
 

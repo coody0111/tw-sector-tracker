@@ -23,31 +23,44 @@ def _bar(up: int, down: int, flat: int) -> str:
     )
 
 
+def _fmt_price(val: float) -> str:
+    """格式化股價，去除多餘小數。"""
+    if val == int(val):
+        return f"{int(val):,}"
+    return f"{val:.2f}"
+
+
 def _stock_detail_rows(sector_name: str, sectors_df: pd.DataFrame, prices_df: pd.DataFrame) -> str:
     """個股展開列 HTML"""
     if sectors_df is None or prices_df is None:
         return ""
 
-    member_ids = sectors_df[sectors_df["sector_name"] == sector_name]["stock_id"].astype(str).tolist()
-    if not member_ids:
+    sector_stocks = sectors_df[sectors_df["sector_name"] == sector_name]
+    if sector_stocks.empty:
         return ""
+
+    # 以 sectors_df 的股票名稱為主（MoneyDJ 有中文名）
+    name_map = dict(zip(
+        sector_stocks["stock_id"].astype(str),
+        sector_stocks["stock_name"].astype(str)
+    ))
+    member_ids = list(name_map.keys())
 
     prices_map = prices_df.set_index("stock_id") if not prices_df.empty else pd.DataFrame()
     rows = []
     for sid in sorted(member_ids):
-        sid_str = str(sid)
-        if sid_str in prices_map.index:
-            p = prices_map.loc[sid_str]
-            name = str(p.get("stock_name", sid_str)) if p.get("stock_name", sid_str) != sid_str else sid_str
+        stock_name = name_map.get(sid, sid)
+        if sid in prices_map.index:
+            p = prices_map.loc[sid]
             close = float(p["close"])
             change = float(p["change"])
             pct = float(p["change_pct"])
             vol = int(p["volume"])
             rows.append(
                 f'<tr class="stock-row">'
-                f'<td class="stock-id">{sid_str}</td>'
-                f'<td class="stock-name">{name}</td>'
-                f'<td class="stock-close">{close:.2f}</td>'
+                f'<td class="stock-id">{sid}</td>'
+                f'<td class="stock-name">{stock_name}</td>'
+                f'<td class="stock-close">{_fmt_price(close)}</td>'
                 f'<td>{_pct_cell(pct, "sm")}</td>'
                 f'<td class="stock-vol">{vol:,}</td>'
                 f'</tr>'
@@ -55,8 +68,9 @@ def _stock_detail_rows(sector_name: str, sectors_df: pd.DataFrame, prices_df: pd
         else:
             rows.append(
                 f'<tr class="stock-row no-price">'
-                f'<td class="stock-id">{sid_str}</td>'
-                f'<td class="stock-name" colspan="4">（無行情資料）</td>'
+                f'<td class="stock-id">{sid}</td>'
+                f'<td class="stock-name">{stock_name}</td>'
+                f'<td class="stock-close" colspan="3" style="color:#334155">無行情</td>'
                 f'</tr>'
             )
 

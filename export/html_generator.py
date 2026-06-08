@@ -282,7 +282,10 @@ def generate(
     .sc-vol{{font-size:.7rem;color:#334155}}
 
     /* Groups */
-    .section-title{{font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;color:#475569;margin-bottom:10px}}
+    .section-bar{{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}}
+    .section-title{{font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;color:#475569}}
+    .collapse-all-btn{{background:none;border:1px solid #1e293b;color:#475569;padding:4px 12px;border-radius:6px;cursor:pointer;font-size:.75rem;transition:all .15s}}
+    .collapse-all-btn:hover{{border-color:#334155;color:#94a3b8}}
     .group-block{{border:1px solid #1e293b;border-radius:10px;margin-bottom:8px;overflow:hidden}}
     .group-header{{display:flex;align-items:center;gap:10px;padding:11px 16px;cursor:pointer;list-style:none;background:#0f1624;user-select:none}}
     .group-header:hover{{background:#141c2e}}
@@ -323,7 +326,10 @@ def generate(
     </div>
   </div>
 
-  <div class="section-title">所有族群 / 依分類</div>
+  <div class="section-bar">
+    <span class="section-title">所有族群 / 依分類</span>
+    <button class="collapse-all-btn" onclick="collapseAll()">⊟ 全部收合</button>
+  </div>
   {groups_html}
 
   <div class="footer">點擊族群名稱可展開個股 ｜ 台灣：漲紅跌綠</div>
@@ -341,6 +347,17 @@ def generate(
       const open = rest.style.display !== 'none';
       rest.style.display = open ? 'none' : '';
       btn.innerHTML = open ? '展開全部 <span style="font-size:.8rem">⌄</span>' : '收合 <span style="font-size:.8rem">⌃</span>';
+    }}
+    function collapseAll() {{
+      // 收合所有 <details> 分組
+      document.querySelectorAll('details.group-block').forEach(d => d.open = false);
+      // 收合所有展開的個股
+      document.querySelectorAll('.detail-row').forEach(r => r.style.display = 'none');
+      document.querySelectorAll('.clickable-sector.open').forEach(r => r.classList.remove('open'));
+      // 重置展開按鈕文字
+      document.querySelectorAll('.expand-btn').forEach(btn => {{
+        btn.innerHTML = btn.innerHTML.replace('收合', '展開全部').replace('⌃', '⌄');
+      }});
     }}
   </script>
 </body>

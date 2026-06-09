@@ -300,6 +300,37 @@ def generate(
     .expand-btn:hover{{border-color:#334155;color:#94a3b8}}
 
     .footer{{margin-top:28px;font-size:.7rem;color:#1e293b;text-align:center;padding-bottom:20px}}
+
+    /* ── RWD Mobile ── */
+    @media(max-width:540px){{
+      body{{padding:12px}}
+      h1{{font-size:.95rem}}
+      .mkt-bar{{gap:12px;padding:10px 12px}}
+      .mkt-avg{{font-size:1.1rem}}
+      .mkt-stat{{font-size:.75rem}}
+
+      /* Top 10: 隱藏漲跌平欄 */
+      .top-counts{{display:none}}
+      .top-pct{{padding:10px 10px 10px 4px}}
+      .top-name{{font-size:.82rem;max-width:none}}
+
+      /* 族群表: 隱藏分布欄，漲跌平縮小 */
+      .bar-cell{{display:none}}
+      th:last-child{{display:none}}
+      .cnt{{font-size:.72rem}}
+      .sector-table td,.sector-table th{{padding:7px 10px}}
+
+      /* 個股 card: 固定2欄 */
+      .stock-cards-wrap{{grid-template-columns:1fr 1fr;gap:8px}}
+      .sc-price{{font-size:.9rem}}
+      .sc-pct{{font-size:.75rem}}
+
+      /* 分組 */
+      .group-header{{padding:10px 12px}}
+      .g-name{{font-size:.85rem}}
+      .g-avg{{font-size:.9rem}}
+      .g-count{{display:none}}
+    }}
   </style>
 </head>
 <body>

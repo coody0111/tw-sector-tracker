@@ -227,7 +227,7 @@ def generate(
   <title>台股電子族群 {date_str}</title>
   <style>
     *{{box-sizing:border-box;margin:0;padding:0}}
-    body{{font-family:-apple-system,"Segoe UI",sans-serif;background:#0b0f18;color:#e2e8f0;padding:20px;max-width:1000px;margin:0 auto}}
+    body{{font-family:-apple-system,"Segoe UI",sans-serif;background:#0b0f18;color:#e2e8f0;padding:20px 32px;max-width:1440px;margin:0 auto}}
 
     /* Header */
     .header{{margin-bottom:24px}}
@@ -283,6 +283,8 @@ def generate(
 
     /* Groups */
     .section-bar{{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}}
+    .groups-grid{{display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:start}}
+    @media(max-width:900px){{.groups-grid{{grid-template-columns:1fr}}}}
     .section-title{{font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;color:#475569}}
     .collapse-all-btn{{background:none;border:1px solid #1e293b;color:#475569;padding:4px 12px;border-radius:6px;cursor:pointer;font-size:.75rem;transition:all .15s}}
     .collapse-all-btn:hover{{border-color:#334155;color:#94a3b8}}
@@ -361,7 +363,7 @@ def generate(
     <span class="section-title">所有族群 / 依分類</span>
     <button class="collapse-all-btn" onclick="collapseAll()">⊟ 全部收合</button>
   </div>
-  {groups_html}
+  <div class="groups-grid">{groups_html}</div>
 
   <div class="footer">點擊族群名稱可展開個股 ｜ 台灣：漲紅跌綠</div>
 

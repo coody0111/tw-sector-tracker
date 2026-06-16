@@ -13,7 +13,7 @@ from processors.changes import detect_changes
 from processors.performance import calc_sector_performance
 from storage.csv_writer import CsvWriter
 from export.html_generator import generate as generate_html
-from screener.database import init_db, import_csv_prices, import_sector_stocks
+from screener.database import init_db, import_csv_prices, import_sector_stocks, get_chips_today
 
 LOG_DIR = Path("logs")
 LOG_DIR.mkdir(exist_ok=True)
@@ -157,9 +157,15 @@ def run(trade_date: date = None) -> None:
 
     # 7. 產生 HTML + 推上 GitHub Pages
     if perf:
+        try:
+            chips_df = get_chips_today(trade_date.isoformat())
+        except Exception:
+            chips_df = pd.DataFrame()
+
         generate_html(trade_date, pd.DataFrame(perf),
                       sectors_df=sectors_df,
-                      prices_df=prices_df if prices_df is not None else pd.DataFrame())
+                      prices_df=prices_df if prices_df is not None else pd.DataFrame(),
+                      chips_df=chips_df)
         logger.info("HTML generated → docs/index.html")
         _push_html(trade_date)
 

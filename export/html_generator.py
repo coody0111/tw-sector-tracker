@@ -48,7 +48,34 @@ def _fmt_price(val: float) -> str:
     return f"{val:.2f}"
 
 
-def _stock_cards(sector_name: str, sectors_df: pd.DataFrame, prices_df: pd.DataFrame) -> str:
+def _fmt_chips_num(val) -> str:
+    """籌碼數字格式化：1,234,567 → +1,234K 或 -234K"""
+    try:
+        n = int(val)
+        if n == 0:
+            return "<span style='color:#475569'>─</span>"
+        k = n // 1000
+        sign = "+" if n > 0 else ""
+        color = "#f87171" if n > 0 else "#4ade80"
+        return f"<span style='color:{color}'>{sign}{k:,}K</span>"
+    except (TypeError, ValueError):
+        return "<span style='color:#334155'>-</span>"
+
+
+def _fmt_margin(balance, change) -> str:
+    """融資餘額 + 增減"""
+    try:
+        b = int(balance)
+        c = int(change)
+        sign = "+" if c > 0 else ""
+        color = "#f87171" if c > 0 else ("#4ade80" if c < 0 else "#475569")
+        arrow = "↑" if c > 0 else ("↓" if c < 0 else "─")
+        return f"{b:,} <span style='color:{color};font-size:.75rem'>{arrow}{sign}{c:,}</span>"
+    except (TypeError, ValueError):
+        return "-"
+
+
+def _stock_cards(sector_name: str, sectors_df: pd.DataFrame, prices_df: pd.DataFrame, chips_df: pd.DataFrame = None) -> str:
     if sectors_df is None or prices_df is None:
         return ""
     sector_stocks = sectors_df[sectors_df["sector_name"] == sector_name]
@@ -60,6 +87,7 @@ def _stock_cards(sector_name: str, sectors_df: pd.DataFrame, prices_df: pd.DataF
         sector_stocks["stock_name"].astype(str)
     ))
     prices_map = prices_df.set_index("stock_id") if not prices_df.empty else pd.DataFrame()
+    chips_map = chips_df.set_index("stock_id") if chips_df is not None and not chips_df.empty else pd.DataFrame()
 
     cards = []
     for sid in sorted(name_map.keys()):
@@ -72,6 +100,24 @@ def _stock_cards(sector_name: str, sectors_df: pd.DataFrame, prices_df: pd.DataF
             color = _pct_color(pct)
             sign = "+" if pct >= 0 else ""
             arrow = "▲" if pct > 0 else ("▼" if pct < 0 else "─")
+
+            # 籌碼區塊
+            chips_html = ""
+            if sid in chips_map.index:
+                c = chips_map.loc[sid]
+                foreign = _fmt_chips_num(c.get("foreign_net"))
+                trust = _fmt_chips_num(c.get("trust_net"))
+                margin = _fmt_margin(c.get("margin_balance"), c.get("margin_change"))
+                chips_html = (
+                    f'<div class="sc-chips">'
+                    f'<span class="chip-label">外資</span>{foreign} '
+                    f'<span class="chip-label">投信</span>{trust}'
+                    f'</div>'
+                    f'<div class="sc-chips">'
+                    f'<span class="chip-label">融資</span>{margin}'
+                    f'</div>'
+                )
+
             cards.append(
                 f'<div class="stock-card" style="border-color:{color}33">'
                 f'<div class="sc-header">'
@@ -83,6 +129,7 @@ def _stock_cards(sector_name: str, sectors_df: pd.DataFrame, prices_df: pd.DataF
                 f'<span class="sc-pct" style="color:{color}">{arrow} {sign}{pct:.2f}%</span>'
                 f'</div>'
                 f'<div class="sc-vol">{vol:,} 張</div>'
+                f'{chips_html}'
                 f'</div>'
             )
         else:
@@ -104,10 +151,10 @@ def _stock_cards(sector_name: str, sectors_df: pd.DataFrame, prices_df: pd.DataF
     )
 
 
-def _sector_row(row, sectors_df=None, prices_df=None, compact=False) -> str:
+def _sector_row(row, sectors_df=None, prices_df=None, chips_df=None, compact=False) -> str:
     pct = row["avg_change_pct"]
     up, down, flat = int(row["up_count"]), int(row["down_count"]), int(row["flat_count"])
-    detail = _stock_cards(row["sector_name"], sectors_df, prices_df)
+    detail = _stock_cards(row["sector_name"], sectors_df, prices_df, chips_df)
     has_detail = bool(detail)
 
     chevron = '<span class="chevron">›</span>' if has_detail else ""
@@ -127,10 +174,10 @@ def _sector_row(row, sectors_df=None, prices_df=None, compact=False) -> str:
     )
 
 
-def _top10_card(row, rank: int, sectors_df=None, prices_df=None) -> str:
+def _top10_card(row, rank: int, sectors_df=None, prices_df=None, chips_df=None) -> str:
     pct = row["avg_change_pct"]
     up, down, flat = int(row["up_count"]), int(row["down_count"]), int(row["flat_count"])
-    detail = _stock_cards(row["sector_name"], sectors_df, prices_df)
+    detail = _stock_cards(row["sector_name"], sectors_df, prices_df, chips_df)
     has_detail = bool(detail)
     onclick = ' onclick="toggleDetail(this)"' if has_detail else ""
     chevron = '<span class="chevron">›</span>' if has_detail else ""
@@ -155,6 +202,7 @@ def generate(
     perf_df: pd.DataFrame,
     sectors_df: pd.DataFrame = None,
     prices_df: pd.DataFrame = None,
+    chips_df: pd.DataFrame = None,
     output_path: str = "docs/index.html",
 ) -> None:
     if perf_df.empty:
@@ -180,8 +228,8 @@ def generate(
     mkt_sign = "+" if mkt_avg >= 0 else ""
 
     # Top 10
-    top10_html = "".join(_top10_card(r, i+1, sectors_df, prices_df) for i, (_, r) in enumerate(df.head(10).iterrows()))
-    bot10_html = "".join(_top10_card(r, i+1, sectors_df, prices_df) for i, (_, r) in enumerate(df.tail(10).iloc[::-1].iterrows()))
+    top10_html = "".join(_top10_card(r, i+1, sectors_df, prices_df, chips_df) for i, (_, r) in enumerate(df.head(10).iterrows()))
+    bot10_html = "".join(_top10_card(r, i+1, sectors_df, prices_df, chips_df) for i, (_, r) in enumerate(df.tail(10).iloc[::-1].iterrows()))
 
     # Groups
     df["group"] = df["sector_name"].apply(classify_sector)
@@ -195,9 +243,9 @@ def generate(
         g_color = _pct_color(avg)
         sign = "+" if avg >= 0 else ""
 
-        preview_rows = "".join(_sector_row(r, sectors_df, prices_df) for _, r in subset.head(3).iterrows())
+        preview_rows = "".join(_sector_row(r, sectors_df, prices_df, chips_df) for _, r in subset.head(3).iterrows())
         rest = subset.iloc[3:]
-        rest_rows = "".join(_sector_row(r, sectors_df, prices_df) for _, r in rest.iterrows()) if not rest.empty else ""
+        rest_rows = "".join(_sector_row(r, sectors_df, prices_df, chips_df) for _, r in rest.iterrows()) if not rest.empty else ""
         expand_btn = (
             f'<button class="expand-btn" onclick="toggleGroup(this)">展開全部（{count}）<span style="font-size:.8rem">⌄</span></button>'
             if not rest.empty else ""
@@ -280,6 +328,8 @@ def generate(
     .sc-price{{font-size:1rem;font-weight:700;color:#f1f5f9}}
     .sc-pct{{font-size:.82rem;font-weight:700}}
     .sc-vol{{font-size:.7rem;color:#334155}}
+    .sc-chips{{font-size:.72rem;color:#64748b;margin-top:4px;line-height:1.6}}
+    .chip-label{{color:#334155;margin-right:2px}}
 
     /* Groups */
     .section-bar{{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}}

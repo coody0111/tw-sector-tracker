@@ -149,6 +149,33 @@ def get_price_history(stock_id: str, days: int = 90) -> pd.DataFrame:
     return df.sort_values("date").reset_index(drop=True)
 
 
+def get_chips_today(trade_date: str) -> pd.DataFrame:
+    """
+    取今日籌碼資料（三大法人 + 融資融券），以 stock_id 為 key 回傳。
+    trade_date: 'YYYY-MM-DD'
+    """
+    con = get_conn()
+    df = con.execute("""
+        SELECT
+            COALESCE(i.stock_id, m.stock_id) AS stock_id,
+            i.foreign_net,
+            i.trust_net,
+            i.dealer_net,
+            i.total_net,
+            m.margin_balance,
+            m.margin_change,
+            m.short_balance,
+            m.short_change
+        FROM
+            (SELECT * FROM institutional WHERE date = ?) i
+            FULL OUTER JOIN
+            (SELECT * FROM margin WHERE date = ?) m
+            ON i.stock_id = m.stock_id
+    """, [trade_date, trade_date]).df()
+    con.close()
+    return df
+
+
 def get_all_stocks_latest(min_days: int = 10) -> pd.DataFrame:
     """取所有至少有 min_days 天資料的股票清單。"""
     con = get_conn()

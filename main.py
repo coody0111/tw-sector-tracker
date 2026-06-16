@@ -8,10 +8,12 @@ from pathlib import Path
 
 from scrapers.moneydj import scrape_industry_sectors
 from scrapers.finmind import fetch_prices_for_stocks
+from scrapers.chips import fetch_institutional, fetch_margin_all_today
 from processors.changes import detect_changes
 from processors.performance import calc_sector_performance
 from storage.csv_writer import CsvWriter
 from export.html_generator import generate as generate_html
+from screener.database import init_db, import_csv_prices, import_sector_stocks
 
 LOG_DIR = Path("logs")
 LOG_DIR.mkdir(exist_ok=True)
@@ -24,6 +26,41 @@ logging.basicConfig(
     ],
 )
 logger = logging.getLogger(__name__)
+
+
+def _update_chips_db(trade_date: date, stock_ids: list) -> None:
+    """每日收盤後更新籌碼資料庫。"""
+    try:
+        init_db()
+        n = import_csv_prices()
+        logger.info("DuckDB: 匯入行情 %d 筆", n)
+        import_sector_stocks()
+    except Exception as exc:
+        logger.warning("DuckDB 行情匯入失敗: %s", exc)
+
+    try:
+        inst_df = fetch_institutional(trade_date)
+        if not inst_df.empty:
+            import duckdb
+            con = duckdb.connect("data/screener.db")
+            con.execute("DELETE FROM institutional WHERE date = ?", [trade_date.isoformat()])
+            con.execute("INSERT INTO institutional SELECT * FROM inst_df")
+            con.close()
+            logger.info("三大法人寫入 %d 筆", len(inst_df))
+    except Exception as exc:
+        logger.warning("三大法人寫入失敗: %s", exc)
+
+    try:
+        margin_df = fetch_margin_all_today(trade_date, stock_ids[:50])  # 先抓前50支測試
+        if not margin_df.empty:
+            import duckdb
+            con = duckdb.connect("data/screener.db")
+            con.execute("DELETE FROM margin WHERE date = ?", [trade_date.isoformat()])
+            con.execute("INSERT INTO margin SELECT * FROM margin_df")
+            con.close()
+            logger.info("融資融券寫入 %d 筆", len(margin_df))
+    except Exception as exc:
+        logger.warning("融資融券寫入失敗: %s", exc)
 
 
 def _push_html(trade_date: date) -> None:
@@ -115,7 +152,10 @@ def run(trade_date: date = None) -> None:
         writer.write_sector_performance(perf, trade_date)
         logger.info("Sector performance written (%d sectors).", len(perf))
 
-    # 6. 產生 HTML + 推上 GitHub Pages
+    # 6. 籌碼資料寫入 DuckDB
+    _update_chips_db(trade_date, unique_ids)
+
+    # 7. 產生 HTML + 推上 GitHub Pages
     if perf:
         generate_html(trade_date, pd.DataFrame(perf),
                       sectors_df=sectors_df,

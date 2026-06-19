@@ -10,7 +10,7 @@ from scrapers.moneydj import scrape_industry_sectors
 from scrapers.finmind import fetch_prices_for_stocks
 from scrapers.chips import fetch_institutional, fetch_margin_all_today
 from processors.changes import detect_changes
-from processors.performance import calc_sector_performance
+from processors.performance import calc_sector_performance, calc_meta_performance
 from storage.csv_writer import CsvWriter
 from export.html_generator import generate as generate_html
 from screener.database import init_db, import_csv_prices, import_sector_stocks, get_chips_today
@@ -145,12 +145,14 @@ def run(trade_date: date = None) -> None:
     else:
         logger.info("No composition changes detected.")
 
-    # 5. 計算族群績效
+    # 5. 計算族群績效 + 主族群績效
     perf = []
+    meta_perf = []
     if prices_df is not None and not prices_df.empty and not today_df.empty:
         perf = calc_sector_performance(today_df, prices_df)
+        meta_perf = calc_meta_performance(perf)
         writer.write_sector_performance(perf, trade_date)
-        logger.info("Sector performance written (%d sectors).", len(perf))
+        logger.info("Sector performance written (%d sectors, %d meta).", len(perf), len(meta_perf))
 
     # 6. 籌碼資料寫入 DuckDB
     _update_chips_db(trade_date, unique_ids)
@@ -165,7 +167,8 @@ def run(trade_date: date = None) -> None:
         generate_html(trade_date, pd.DataFrame(perf),
                       sectors_df=sectors_df,
                       prices_df=prices_df if prices_df is not None else pd.DataFrame(),
-                      chips_df=chips_df)
+                      chips_df=chips_df,
+                      meta_perf=meta_perf)
         logger.info("HTML generated → docs/index.html")
         _push_html(trade_date)
 

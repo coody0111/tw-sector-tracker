@@ -197,12 +197,38 @@ def _top10_card(row, rank: int, sectors_df=None, prices_df=None, chips_df=None) 
     )
 
 
+def _meta_card(row: dict, rank: int) -> str:
+    """主族群 Top10 卡片（不可展開個股，只顯示小族群標籤）"""
+    pct = row["avg_change_pct"]
+    up, down, flat = int(row["up_count"]), int(row["down_count"]), int(row["flat_count"])
+    color = _pct_color(pct)
+    sub_tags = " · ".join(f'<span style="color:#475569">{s}</span>' for s in row["sub_names"][:4])
+    if len(row["sub_names"]) > 4:
+        sub_tags += f' <span style="color:#334155">+{len(row["sub_names"])-4}</span>'
+
+    return (
+        f'<tr>'
+        f'<td class="top-rank" style="color:{color}">{rank}</td>'
+        f'<td class="top-name">'
+        f'<div style="font-weight:600;color:#f1f5f9">{row["meta_name"]}</div>'
+        f'<div style="font-size:.7rem;margin-top:2px">{sub_tags}</div>'
+        f'</td>'
+        f'<td class="top-pct">{_pct_cell(pct, large=True)}</td>'
+        f'<td class="top-counts">'
+        f'<span style="color:#f87171">▲{up}</span> '
+        f'<span style="color:#4ade80">▼{down}</span>'
+        f'</td>'
+        f'</tr>'
+    )
+
+
 def generate(
     trade_date: date,
     perf_df: pd.DataFrame,
     sectors_df: pd.DataFrame = None,
     prices_df: pd.DataFrame = None,
     chips_df: pd.DataFrame = None,
+    meta_perf: list = None,
     output_path: str = "docs/index.html",
 ) -> None:
     if perf_df.empty:
@@ -228,8 +254,16 @@ def generate(
     mkt_sign = "+" if mkt_avg >= 0 else ""
 
     # Top 10
-    top10_html = "".join(_top10_card(r, i+1, sectors_df, prices_df, chips_df) for i, (_, r) in enumerate(df.head(10).iterrows()))
-    bot10_html = "".join(_top10_card(r, i+1, sectors_df, prices_df, chips_df) for i, (_, r) in enumerate(df.tail(10).iloc[::-1].iterrows()))
+    # Top10 優先用主族群，不足時補充小族群
+    if meta_perf:
+        meta_sorted = sorted(meta_perf, key=lambda r: r["avg_change_pct"], reverse=True)
+        top_source = meta_sorted[:10]
+        bot_source = list(reversed(meta_sorted))[:10]
+        top10_html = "".join(_meta_card(r, i+1) for i, r in enumerate(top_source))
+        bot10_html = "".join(_meta_card(r, i+1) for i, r in enumerate(bot_source))
+    else:
+        top10_html = "".join(_top10_card(r, i+1, sectors_df, prices_df, chips_df) for i, (_, r) in enumerate(df.head(10).iterrows()))
+        bot10_html = "".join(_top10_card(r, i+1, sectors_df, prices_df, chips_df) for i, (_, r) in enumerate(df.tail(10).iloc[::-1].iterrows()))
 
     # Groups
     df["group"] = df["sector_name"].apply(classify_sector)

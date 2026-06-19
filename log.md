@@ -7,18 +7,19 @@
 
 ## 目前狀態（2026-06-19）
 
-### 待 commit 的變更
-以下 4 個檔案已修改但**尚未 commit**：
-- `config.py` — 新增 `META_SECTORS` dict 與 `get_meta_sector()`
-- `processors/performance.py` — 新增 `calc_meta_performance()`
-- `export/html_generator.py` — 新增 `_meta_card()`，`generate()` 加入 `meta_perf` 參數
-- `main.py` — 串接 `calc_meta_performance` 並傳入 `generate_html`
+### Working tree 乾淨，無待 commit 變更。
 
-### 下一步
-- [ ] 跑 `python main.py` 確認輸出正確（Top10/Bottom10 顯示主族群）
-- [ ] 肉眼驗證 `docs/index.html` 的 Top10 排列無誤
-- [ ] 確認後 commit + push（含 `log.md`）
-- [ ] `META_SECTORS` 覆蓋率可持續擴充（冷僻分類尚未分組）
+### 下一步（待決定）
+- [ ] META_SECTORS 覆蓋率持續擴充（冷僻分類尚未分組）
+- [ ] 其他新功能
+
+---
+
+## 2026-06-19 — Top10 主族群卡片可展開個股細節
+
+- `export/html_generator.py` 大幅擴充（+85 行）
+- 主族群 Top10/Bottom10 卡片點擊後展開，顯示旗下個股細節
+- commit: `14879a9`
 
 ---
 

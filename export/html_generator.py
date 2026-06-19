@@ -197,8 +197,81 @@ def _top10_card(row, rank: int, sectors_df=None, prices_df=None, chips_df=None) 
     )
 
 
-def _meta_card(row: dict, rank: int) -> str:
-    """主族群 Top10 卡片（不可展開個股，只顯示小族群標籤）"""
+def _meta_stock_cards(sub_names: list, sectors_df, prices_df, chips_df=None) -> str:
+    """合併所有子族群的個股卡片"""
+    if sectors_df is None or prices_df is None:
+        return ""
+    sub_df = sectors_df[sectors_df["sector_name"].isin(sub_names)]
+    if sub_df.empty:
+        return ""
+
+    name_map = dict(zip(sub_df["stock_id"].astype(str), sub_df["stock_name"].astype(str)))
+    prices_map = prices_df.set_index("stock_id") if not prices_df.empty else pd.DataFrame()
+    chips_map = chips_df.set_index("stock_id") if chips_df is not None and not chips_df.empty else pd.DataFrame()
+
+    cards = []
+    for sid in sorted(name_map.keys()):
+        stock_name = name_map[sid]
+        if sid in prices_map.index:
+            p = prices_map.loc[sid]
+            close = float(p["close"])
+            pct = float(p["change_pct"])
+            vol = int(p["volume"])
+            color = _pct_color(pct)
+            sign = "+" if pct >= 0 else ""
+            arrow = "▲" if pct > 0 else ("▼" if pct < 0 else "─")
+
+            chips_html = ""
+            if sid in chips_map.index:
+                c = chips_map.loc[sid]
+                foreign = _fmt_chips_num(c.get("foreign_net"))
+                trust = _fmt_chips_num(c.get("trust_net"))
+                margin = _fmt_margin(c.get("margin_balance"), c.get("margin_change"))
+                chips_html = (
+                    f'<div class="sc-chips">'
+                    f'<span class="chip-label">外資</span>{foreign} '
+                    f'<span class="chip-label">投信</span>{trust}'
+                    f'</div>'
+                    f'<div class="sc-chips">'
+                    f'<span class="chip-label">融資</span>{margin}'
+                    f'</div>'
+                )
+
+            cards.append(
+                f'<div class="stock-card" style="border-color:{color}33">'
+                f'<div class="sc-header">'
+                f'<span class="sc-id">{sid}</span>'
+                f'<span class="sc-name">{stock_name}</span>'
+                f'</div>'
+                f'<div class="sc-body">'
+                f'<span class="sc-price">{_fmt_price(close)}</span>'
+                f'<span class="sc-pct" style="color:{color}">{arrow} {sign}{pct:.2f}%</span>'
+                f'</div>'
+                f'<div class="sc-vol">{vol:,} 張</div>'
+                f'{chips_html}'
+                f'</div>'
+            )
+        else:
+            cards.append(
+                f'<div class="stock-card no-data">'
+                f'<div class="sc-header">'
+                f'<span class="sc-id">{sid}</span>'
+                f'<span class="sc-name">{stock_name}</span>'
+                f'</div>'
+                f'<div class="sc-body"><span class="sc-price" style="color:#334155">無行情</span></div>'
+                f'</div>'
+            )
+
+    return (
+        f'<tr class="detail-row" style="display:none">'
+        f'<td colspan="4">'
+        f'<div class="stock-cards-wrap">{"".join(cards)}</div>'
+        f'</td></tr>'
+    )
+
+
+def _meta_card(row: dict, rank: int, sectors_df=None, prices_df=None, chips_df=None) -> str:
+    """主族群 Top10 卡片"""
     pct = row["avg_change_pct"]
     up, down, flat = int(row["up_count"]), int(row["down_count"]), int(row["flat_count"])
     color = _pct_color(pct)
@@ -206,11 +279,16 @@ def _meta_card(row: dict, rank: int) -> str:
     if len(row["sub_names"]) > 4:
         sub_tags += f' <span style="color:#334155">+{len(row["sub_names"])-4}</span>'
 
+    detail = _meta_stock_cards(row["sub_names"], sectors_df, prices_df, chips_df)
+    has_detail = bool(detail)
+    onclick = ' onclick="toggleDetail(this)"' if has_detail else ""
+    chevron = '<span class="chevron">›</span>' if has_detail else ""
+
     return (
-        f'<tr>'
+        f'<tr class="top-row clickable-sector"{onclick}>'
         f'<td class="top-rank" style="color:{color}">{rank}</td>'
         f'<td class="top-name">'
-        f'<div style="font-weight:600;color:#f1f5f9">{row["meta_name"]}</div>'
+        f'<div style="font-weight:600;color:#f1f5f9">{row["meta_name"]}{chevron}</div>'
         f'<div style="font-size:.7rem;margin-top:2px">{sub_tags}</div>'
         f'</td>'
         f'<td class="top-pct">{_pct_cell(pct, large=True)}</td>'
@@ -219,6 +297,7 @@ def _meta_card(row: dict, rank: int) -> str:
         f'<span style="color:#4ade80">▼{down}</span>'
         f'</td>'
         f'</tr>'
+        + detail
     )
 
 
@@ -259,8 +338,8 @@ def generate(
         meta_sorted = sorted(meta_perf, key=lambda r: r["avg_change_pct"], reverse=True)
         top_source = meta_sorted[:10]
         bot_source = list(reversed(meta_sorted))[:10]
-        top10_html = "".join(_meta_card(r, i+1) for i, r in enumerate(top_source))
-        bot10_html = "".join(_meta_card(r, i+1) for i, r in enumerate(bot_source))
+        top10_html = "".join(_meta_card(r, i+1, sectors_df, prices_df, chips_df) for i, r in enumerate(top_source))
+        bot10_html = "".join(_meta_card(r, i+1, sectors_df, prices_df, chips_df) for i, r in enumerate(bot_source))
     else:
         top10_html = "".join(_top10_card(r, i+1, sectors_df, prices_df, chips_df) for i, (_, r) in enumerate(df.head(10).iterrows()))
         bot10_html = "".join(_top10_card(r, i+1, sectors_df, prices_df, chips_df) for i, (_, r) in enumerate(df.tail(10).iloc[::-1].iterrows()))

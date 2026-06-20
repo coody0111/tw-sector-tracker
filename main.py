@@ -10,10 +10,12 @@ from scrapers.moneydj import scrape_industry_sectors
 from scrapers.finmind import fetch_prices_for_stocks
 from scrapers.chips import fetch_institutional, fetch_margin_all_today
 from processors.changes import detect_changes
-from processors.performance import calc_sector_performance, calc_meta_performance
+from processors.performance import calc_sector_performance, calc_meta_performance, calc_universe_performance
 from storage.csv_writer import CsvWriter
 from export.html_generator import generate as generate_html
 from screener.database import init_db, import_csv_prices, import_sector_stocks, get_chips_today
+
+UNIVERSE_PATH = Path("data/stock_universe.csv")
 
 LOG_DIR = Path("logs")
 LOG_DIR.mkdir(exist_ok=True)
@@ -104,15 +106,24 @@ def run(trade_date: date = None) -> None:
     logger.info("=== TW Sector Tracker — %s ===", trade_date.isoformat())
     writer = CsvWriter(base_dir="data")
 
-    # 1. 讀取已儲存的族群成份股
-    sectors_df = writer.read_sector_stocks("industry")
-    if sectors_df.empty:
-        logger.error("No sector data found. Run with --update-sectors first.")
-        return
+    # 1. 讀取股票清單（優先用 stock_universe.csv，fallback MoneyDJ sectors）
+    universe_df = None
+    if UNIVERSE_PATH.exists():
+        universe_df = pd.read_csv(UNIVERSE_PATH, encoding="utf-8-sig", dtype={"stock_id": str})
+        unique_ids = universe_df["stock_id"].tolist()
+        logger.info("Loaded %d stocks from stock_universe.csv.", len(unique_ids))
+        # 仍讀取 sectors_df 供舊版 HTML 函式 fallback
+        sectors_df = writer.read_sector_stocks("industry")
+    else:
+        sectors_df = writer.read_sector_stocks("industry")
+        if sectors_df.empty:
+            logger.error("No sector data found. Run with --update-sectors first.")
+            return
+        unique_ids = list(sectors_df["stock_id"].astype(str).unique())
+        logger.info("Loaded %d stocks across sectors from saved data.", len(unique_ids))
 
-    yesterday_df = sectors_df.copy()  # 用於異動偵測
-    all_records = sectors_df.drop(columns=["date"], errors="ignore").to_dict("records")
-    unique_ids = list(sectors_df["stock_id"].astype(str).unique())
+    yesterday_df = sectors_df.copy() if sectors_df is not None and not sectors_df.empty else pd.DataFrame()
+    all_records = sectors_df.drop(columns=["date"], errors="ignore").to_dict("records") if sectors_df is not None and not sectors_df.empty else []
     logger.info("Loaded %d stocks across sectors from saved data.", len(unique_ids))
 
     # 2. 抓 TWSE + TPEx 行情
@@ -148,11 +159,19 @@ def run(trade_date: date = None) -> None:
     # 5. 計算族群績效 + 主族群績效
     perf = []
     meta_perf = []
-    if prices_df is not None and not prices_df.empty and not today_df.empty:
-        perf = calc_sector_performance(today_df, prices_df)
-        meta_perf = calc_meta_performance(perf)
-        writer.write_sector_performance(perf, trade_date)
-        logger.info("Sector performance written (%d sectors, %d meta).", len(perf), len(meta_perf))
+    if prices_df is not None and not prices_df.empty:
+        if universe_df is not None:
+            # 新流程：stock_universe.csv 模式，每股只計一次
+            meta_perf = calc_universe_performance(universe_df, prices_df)
+            if not today_df.empty:
+                perf = calc_sector_performance(today_df, prices_df)
+                writer.write_sector_performance(perf, trade_date)
+            logger.info("Universe performance: %d META groups.", len(meta_perf))
+        elif not today_df.empty:
+            perf = calc_sector_performance(today_df, prices_df)
+            meta_perf = calc_meta_performance(perf)
+            writer.write_sector_performance(perf, trade_date)
+            logger.info("Sector performance written (%d sectors, %d meta).", len(perf), len(meta_perf))
 
     # 6. 籌碼資料寫入 DuckDB
     _update_chips_db(trade_date, unique_ids)
@@ -164,11 +183,12 @@ def run(trade_date: date = None) -> None:
         except Exception:
             chips_df = pd.DataFrame()
 
-        generate_html(trade_date, pd.DataFrame(perf),
+        generate_html(trade_date, pd.DataFrame(perf) if perf else pd.DataFrame(),
                       sectors_df=sectors_df,
                       prices_df=prices_df if prices_df is not None else pd.DataFrame(),
                       chips_df=chips_df,
-                      meta_perf=meta_perf)
+                      meta_perf=meta_perf,
+                      universe_df=universe_df)
         logger.info("HTML generated → docs/index.html")
         _push_html(trade_date)
 

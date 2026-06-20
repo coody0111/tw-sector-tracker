@@ -1,6 +1,6 @@
 import pandas as pd
 from typing import List, Dict, Any
-from config import META_SECTORS, get_meta_sector
+from config import META_SECTORS, get_meta_sector, META_PRIORITY_LIST
 
 
 def calc_sector_performance(
@@ -33,6 +33,50 @@ def calc_sector_performance(
         })
 
     return sorted(results, key=lambda r: r["avg_change_pct"], reverse=True)
+
+
+def calc_universe_performance(
+    universe_df: pd.DataFrame,
+    prices_df: pd.DataFrame,
+) -> List[Dict[str, Any]]:
+    """
+    基於 stock_universe.csv（每股只歸一個 META）計算族群績效。
+    每支股票不重複計算，徹底解決跨族群重疊問題。
+
+    回傳格式與 calc_meta_performance 相同，額外附 stock_ids 供 HTML 展開卡片用。
+    """
+    universe = universe_df.copy()
+    prices = prices_df.copy()
+    universe["stock_id"] = universe["stock_id"].astype(str)
+    prices["stock_id"] = prices["stock_id"].astype(str)
+
+    merged = universe.merge(
+        prices[["stock_id", "change_pct"]],
+        on="stock_id",
+        how="left",
+    )
+
+    meta_order = [m for m, _ in META_PRIORITY_LIST] + ["其他電子"]
+
+    results = []
+    for meta_name, group in merged.groupby("meta_sector"):
+        valid = group["change_pct"].dropna()
+        if valid.empty:
+            continue
+        results.append({
+            "meta_name":      meta_name,
+            "sub_names":      sorted(group["sub_sector"].dropna().unique().tolist()),
+            "avg_change_pct": round(valid.mean(), 2),
+            "up_count":       int((valid > 0).sum()),
+            "down_count":     int((valid < 0).sum()),
+            "flat_count":     int((valid == 0).sum()),
+            "stock_ids":      group["stock_id"].tolist(),
+        })
+
+    results.sort(key=lambda r: (
+        meta_order.index(r["meta_name"]) if r["meta_name"] in meta_order else 999
+    ))
+    return results
 
 
 def calc_meta_performance(

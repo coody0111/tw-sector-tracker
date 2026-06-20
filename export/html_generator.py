@@ -197,15 +197,29 @@ def _top10_card(row, rank: int, sectors_df=None, prices_df=None, chips_df=None) 
     )
 
 
-def _meta_stock_cards(sub_names: list, sectors_df, prices_df, chips_df=None) -> str:
-    """合併所有子族群的個股卡片"""
-    if sectors_df is None or prices_df is None:
-        return ""
-    sub_df = sectors_df[sectors_df["sector_name"].isin(sub_names)]
-    if sub_df.empty:
+def _meta_stock_cards(sub_names: list, sectors_df, prices_df, chips_df=None,
+                      universe_df=None, stock_ids: list = None) -> str:
+    """合併所有子族群的個股卡片。
+    若傳入 universe_df + stock_ids，直接從 universe 查詢（無重複）；
+    否則 fallback 到舊的 sectors_df + sub_names 查詢。
+    """
+    if prices_df is None:
         return ""
 
-    name_map = dict(zip(sub_df["stock_id"].astype(str), sub_df["stock_name"].astype(str)))
+    if universe_df is not None and stock_ids is not None:
+        sub_df = universe_df[universe_df["stock_id"].astype(str).isin(
+            [str(s) for s in stock_ids]
+        )]
+        if sub_df.empty:
+            return ""
+        name_map = dict(zip(sub_df["stock_id"].astype(str), sub_df["stock_name"].astype(str)))
+    elif sectors_df is not None:
+        sub_df = sectors_df[sectors_df["sector_name"].isin(sub_names)]
+        if sub_df.empty:
+            return ""
+        name_map = dict(zip(sub_df["stock_id"].astype(str), sub_df["stock_name"].astype(str)))
+    else:
+        return ""
     prices_map = prices_df.set_index("stock_id") if not prices_df.empty else pd.DataFrame()
     chips_map = chips_df.set_index("stock_id") if chips_df is not None and not chips_df.empty else pd.DataFrame()
 
@@ -270,7 +284,8 @@ def _meta_stock_cards(sub_names: list, sectors_df, prices_df, chips_df=None) -> 
     )
 
 
-def _meta_card(row: dict, rank: int, sectors_df=None, prices_df=None, chips_df=None) -> str:
+def _meta_card(row: dict, rank: int, sectors_df=None, prices_df=None, chips_df=None,
+               universe_df=None) -> str:
     """主族群 Top10 卡片"""
     pct = row["avg_change_pct"]
     up, down, flat = int(row["up_count"]), int(row["down_count"]), int(row["flat_count"])
@@ -279,7 +294,11 @@ def _meta_card(row: dict, rank: int, sectors_df=None, prices_df=None, chips_df=N
     if len(row["sub_names"]) > 4:
         sub_tags += f' <span style="color:#334155">+{len(row["sub_names"])-4}</span>'
 
-    detail = _meta_stock_cards(row["sub_names"], sectors_df, prices_df, chips_df)
+    stock_ids = row.get("stock_ids")
+    detail = _meta_stock_cards(
+        row["sub_names"], sectors_df, prices_df, chips_df,
+        universe_df=universe_df, stock_ids=stock_ids,
+    )
     has_detail = bool(detail)
     onclick = ' onclick="toggleDetail(this)"' if has_detail else ""
     chevron = '<span class="chevron">›</span>' if has_detail else ""
@@ -308,6 +327,7 @@ def generate(
     prices_df: pd.DataFrame = None,
     chips_df: pd.DataFrame = None,
     meta_perf: list = None,
+    universe_df: pd.DataFrame = None,
     output_path: str = "docs/index.html",
 ) -> None:
     if perf_df.empty:
@@ -338,8 +358,8 @@ def generate(
         meta_sorted = sorted(meta_perf, key=lambda r: r["avg_change_pct"], reverse=True)
         top_source = meta_sorted[:10]
         bot_source = list(reversed(meta_sorted))[:10]
-        top10_html = "".join(_meta_card(r, i+1, sectors_df, prices_df, chips_df) for i, r in enumerate(top_source))
-        bot10_html = "".join(_meta_card(r, i+1, sectors_df, prices_df, chips_df) for i, r in enumerate(bot_source))
+        top10_html = "".join(_meta_card(r, i+1, sectors_df, prices_df, chips_df, universe_df) for i, r in enumerate(top_source))
+        bot10_html = "".join(_meta_card(r, i+1, sectors_df, prices_df, chips_df, universe_df) for i, r in enumerate(bot_source))
     else:
         top10_html = "".join(_top10_card(r, i+1, sectors_df, prices_df, chips_df) for i, (_, r) in enumerate(df.head(10).iterrows()))
         bot10_html = "".join(_top10_card(r, i+1, sectors_df, prices_df, chips_df) for i, (_, r) in enumerate(df.tail(10).iloc[::-1].iterrows()))
@@ -507,7 +527,6 @@ def generate(
       <span class="mkt-stat">上漲 <span style="color:#d97070">{up_cnt}</span></span>
       <span class="mkt-stat">下跌 <span style="color:#009933">{dn_cnt}</span></span>
       <span class="mkt-stat">平盤 <span style="color:#475569">{flat_cnt}</span></span>
-      <span class="mkt-stat" style="margin-left:auto;color:#334155">MoneyDJ × TWSE/TPEx</span>
     </div>
   </div>
 

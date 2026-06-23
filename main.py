@@ -177,7 +177,7 @@ def run(trade_date: date = None) -> None:
     _update_chips_db(trade_date, unique_ids)
 
     # 7. 產生 HTML + 推上 GitHub Pages
-    if perf:
+    if perf or meta_perf:
         try:
             chips_df = get_chips_today(trade_date.isoformat())
         except Exception:

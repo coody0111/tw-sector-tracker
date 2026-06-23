@@ -5,13 +5,21 @@
 
 ---
 
-## 目前狀態（2026-06-19）
+## 目前狀態（2026-06-23）
 
 ### Working tree 乾淨，無待 commit 變更。
 
 ### 下一步（待決定）
 - [ ] META_SECTORS 覆蓋率持續擴充（冷僻分類尚未分組）
 - [ ] 其他新功能
+
+---
+
+## 2026-06-23 — 修正 universe 模式 HTML 未產生的 bug
+
+- 問題：`stock_universe.csv` 模式下 `perf`（小族群列表）為空，導致 `if perf:` 跳過 HTML 產生
+- 修法：`main.py` 改為 `if perf or meta_perf:`；`html_generator.py` 在 perf_df 為空時從 meta_perf 計算市場統計
+- 今日行情更新成功：1040 支股票、37 META 族群、commit `3d459d9`
 
 ---
 

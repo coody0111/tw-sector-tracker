@@ -30,6 +30,40 @@ def _pct_cell(pct: float, large: bool = False) -> str:
     return f'<span style="color:{color};{size};white-space:nowrap">{arrow} {sign}{pct:.2f}%</span>'
 
 
+def _heatmap_bg(pct: float) -> str:
+    abs_pct = abs(pct)
+    if pct > 0:
+        if abs_pct >= 5:   return "rgba(220,38,38,.85)"
+        if abs_pct >= 3:   return "rgba(220,38,38,.6)"
+        if abs_pct >= 1.5: return "rgba(220,38,38,.38)"
+        if abs_pct >= 0.5: return "rgba(220,38,38,.2)"
+        return "rgba(220,38,38,.1)"
+    elif pct < 0:
+        if abs_pct >= 5:   return "rgba(22,163,74,.85)"
+        if abs_pct >= 3:   return "rgba(22,163,74,.6)"
+        if abs_pct >= 1.5: return "rgba(22,163,74,.38)"
+        if abs_pct >= 0.5: return "rgba(22,163,74,.2)"
+        return "rgba(22,163,74,.1)"
+    return "rgba(100,116,139,.15)"
+
+
+def _heatmap(meta_perf: list) -> str:
+    if not meta_perf:
+        return ""
+    blocks = []
+    for r in sorted(meta_perf, key=lambda x: x["avg_change_pct"], reverse=True):
+        pct = r["avg_change_pct"]
+        bg = _heatmap_bg(pct)
+        sign = "+" if pct >= 0 else ""
+        blocks.append(
+            f'<div class="hm-block" style="background:{bg}" title="{r["meta_name"]} {sign}{pct:.2f}%">'
+            f'<div class="hm-name">{r["meta_name"]}</div>'
+            f'<div class="hm-pct">{sign}{pct:.2f}%</div>'
+            f'</div>'
+        )
+    return f'<div class="heatmap-wrap">{"".join(blocks)}</div>'
+
+
 def _bar(up: int, down: int, flat: int) -> str:
     total = up + down + flat or 1
     w_up = int(up / total * 60)
@@ -198,7 +232,7 @@ def _top10_card(row, rank: int, sectors_df=None, prices_df=None, chips_df=None) 
 
 
 def _meta_stock_cards(sub_names: list, sectors_df, prices_df, chips_df=None,
-                      universe_df=None, stock_ids: list = None) -> str:
+                      universe_df=None, stock_ids: list = None, as_row: bool = True) -> str:
     """合併所有子族群的個股卡片。
     若傳入 universe_df + stock_ids，直接從 universe 查詢（無重複）；
     否則 fallback 到舊的 sectors_df + sub_names 查詢。
@@ -276,47 +310,48 @@ def _meta_stock_cards(sub_names: list, sectors_df, prices_df, chips_df=None,
                 f'</div>'
             )
 
+    cards_html = f'<div class="stock-cards-wrap">{"".join(cards)}</div>'
+    if not as_row:
+        return cards_html
     return (
         f'<tr class="detail-row" style="display:none">'
-        f'<td colspan="4">'
-        f'<div class="stock-cards-wrap">{"".join(cards)}</div>'
-        f'</td></tr>'
+        f'<td colspan="4">{cards_html}</td></tr>'
     )
 
 
 def _meta_card(row: dict, rank: int, sectors_df=None, prices_df=None, chips_df=None,
                universe_df=None) -> str:
-    """主族群 Top10 卡片"""
+    """卡片式主族群 Top10 item"""
     pct = row["avg_change_pct"]
     up, down, flat = int(row["up_count"]), int(row["down_count"]), int(row["flat_count"])
     color = _pct_color(pct)
-    sub_tags = " · ".join(f'<span style="color:#475569">{s}</span>' for s in row["sub_names"][:4])
-    if len(row["sub_names"]) > 4:
-        sub_tags += f' <span style="color:#334155">+{len(row["sub_names"])-4}</span>'
+    bg = _heatmap_bg(pct)
+    sign = "+" if pct >= 0 else ""
+    arrow = "▲" if pct > 0 else ("▼" if pct < 0 else "─")
 
     stock_ids = row.get("stock_ids")
-    detail = _meta_stock_cards(
+    detail_inner = _meta_stock_cards(
         row["sub_names"], sectors_df, prices_df, chips_df,
-        universe_df=universe_df, stock_ids=stock_ids,
+        universe_df=universe_df, stock_ids=stock_ids, as_row=False,
     )
-    has_detail = bool(detail)
-    onclick = ' onclick="toggleDetail(this)"' if has_detail else ""
-    chevron = '<span class="chevron">›</span>' if has_detail else ""
+    panel = f'<div class="mc-panel" style="display:none">{detail_inner}</div>' if detail_inner else ""
+    onclick = ' onclick="toggleMcPanel(this)"' if panel else ""
 
     return (
-        f'<tr class="top-row clickable-sector"{onclick}>'
-        f'<td class="top-rank" style="color:{color}">{rank}</td>'
-        f'<td class="top-name">'
-        f'<div style="font-weight:600;color:#f1f5f9">{row["meta_name"]}{chevron}</div>'
-        f'<div style="font-size:.7rem;margin-top:2px">{sub_tags}</div>'
-        f'</td>'
-        f'<td class="top-pct">{_pct_cell(pct, large=True)}</td>'
-        f'<td class="top-counts">'
+        f'<div class="mc-item">'
+        f'<div class="mc-card" style="border-left:3px solid {color};background:{bg}"{onclick}>'
+        f'<div class="mc-top">'
+        f'<span class="mc-rank">{rank}</span>'
+        f'<span class="mc-pct" style="color:{color}">{arrow} {sign}{pct:.2f}%</span>'
+        f'</div>'
+        f'<div class="mc-name">{row["meta_name"]}</div>'
+        f'<div class="mc-counts">'
         f'<span style="color:#f87171">▲{up}</span> '
         f'<span style="color:#4ade80">▼{down}</span>'
-        f'</td>'
-        f'</tr>'
-        + detail
+        f'</div>'
+        f'</div>'
+        + panel
+        + f'</div>'
     )
 
 
@@ -362,17 +397,21 @@ def generate(
     mkt_color = _pct_color(mkt_avg)
     mkt_sign = "+" if mkt_avg >= 0 else ""
 
-    # Top 10
-    # Top10 優先用主族群，不足時補充小族群
+    # Heatmap
+    heatmap_html = _heatmap(meta_perf) if meta_perf else ""
+
+    # Top 10 / Bottom 10
     if meta_perf:
         meta_sorted = sorted(meta_perf, key=lambda r: r["avg_change_pct"], reverse=True)
         top_source = meta_sorted[:10]
         bot_source = list(reversed(meta_sorted))[:10]
         top10_html = "".join(_meta_card(r, i+1, sectors_df, prices_df, chips_df, universe_df) for i, r in enumerate(top_source))
         bot10_html = "".join(_meta_card(r, i+1, sectors_df, prices_df, chips_df, universe_df) for i, r in enumerate(bot_source))
+        top_container = lambda html: f'<div class="cards-list">{html}</div>'
     else:
         top10_html = "".join(_top10_card(r, i+1, sectors_df, prices_df, chips_df) for i, (_, r) in enumerate(df.head(10).iterrows()))
         bot10_html = "".join(_top10_card(r, i+1, sectors_df, prices_df, chips_df) for i, (_, r) in enumerate(df.tail(10).iloc[::-1].iterrows()))
+        top_container = lambda html: f'<table><tbody>{html}</tbody></table>'
 
     # Groups
     groups_html = ""
@@ -430,12 +469,35 @@ def generate(
     .mkt-stat{{font-size:.82rem;color:#64748b}}
     .mkt-stat span{{font-weight:600}}
 
+    /* Heatmap */
+    .heatmap-section{{margin-bottom:20px}}
+    .section-label{{font-size:.7rem;text-transform:uppercase;letter-spacing:.08em;color:#475569;margin-bottom:8px}}
+    .heatmap-wrap{{display:flex;flex-wrap:wrap;gap:4px;padding:14px;background:#0f1624;border-radius:12px;border:1px solid #1e293b}}
+    .hm-block{{padding:6px 10px;border-radius:6px;min-width:76px;text-align:center}}
+    .hm-name{{font-size:.65rem;color:#e2e8f0;font-weight:600;white-space:nowrap}}
+    .hm-pct{{font-size:.78rem;font-weight:800;color:#fff;margin-top:1px}}
+
     /* Top 10 */
     .top-section{{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:32px}}
     @media(max-width:600px){{.top-section{{grid-template-columns:1fr}}}}
     .top-card{{background:#0f1624;border:1px solid #1e293b;border-radius:12px;overflow:hidden}}
     .top-card-title{{padding:10px 16px;font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;border-bottom:1px solid #1e293b}}
     .up-title{{color:#d97070}} .down-title{{color:#009933}}
+
+    /* 卡片式 Top10 */
+    .cards-list{{}}
+    .mc-item{{border-bottom:1px solid #1e293b}}
+    .mc-item:last-child{{border-bottom:none}}
+    .mc-card{{padding:12px 16px;cursor:pointer;transition:filter .15s}}
+    .mc-card:hover{{filter:brightness(1.12)}}
+    .mc-top{{display:flex;align-items:center;gap:10px;margin-bottom:3px}}
+    .mc-rank{{font-size:.68rem;color:#334155;font-weight:700;min-width:16px}}
+    .mc-pct{{font-size:1.4rem;font-weight:800}}
+    .mc-name{{font-size:.88rem;font-weight:600;color:#cbd5e1;margin-bottom:3px}}
+    .mc-counts{{font-size:.75rem;color:#64748b}}
+    .mc-panel{{padding:12px 16px;background:#070b12;border-top:1px solid #1e293b}}
+
+    /* 舊版 table Top10（fallback）*/
     .top-row{{cursor:pointer}}
     .top-row:hover > td{{background:#1a2235}}
     .top-rank{{width:28px;padding:10px 0 10px 14px;font-size:.75rem;font-weight:700;color:#334155;text-align:center}}
@@ -541,14 +603,19 @@ def generate(
     </div>
   </div>
 
+  <div class="heatmap-section">
+    <div class="section-label">市場熱力圖</div>
+    {heatmap_html}
+  </div>
+
   <div class="top-section">
     <div class="top-card">
       <div class="top-card-title up-title">▲ 今日漲幅 Top 10</div>
-      <table><tbody>{top10_html}</tbody></table>
+      {top_container(top10_html)}
     </div>
     <div class="top-card">
       <div class="top-card-title down-title">▼ 今日跌幅 Top 10</div>
-      <table><tbody>{bot10_html}</tbody></table>
+      {top_container(bot10_html)}
     </div>
   </div>
 
@@ -561,6 +628,12 @@ def generate(
   <div class="footer">點擊族群名稱可展開個股 ｜ 台灣：漲紅跌綠</div>
 
   <script>
+    function toggleMcPanel(card) {{
+      const panel = card.nextElementSibling;
+      if (panel && panel.classList.contains('mc-panel')) {{
+        panel.style.display = panel.style.display === 'none' ? '' : 'none';
+      }}
+    }}
     function toggleDetail(row) {{
       const next = row.nextElementSibling;
       if (!next || !next.classList.contains('detail-row')) return;

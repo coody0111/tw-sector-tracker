@@ -47,21 +47,40 @@ def _heatmap_bg(pct: float) -> str:
     return "rgba(100,116,139,.15)"
 
 
-def _heatmap(meta_perf: list) -> str:
+def _breadth(meta_perf: list) -> str:
     if not meta_perf:
         return ""
-    blocks = []
-    for r in sorted(meta_perf, key=lambda x: x["avg_change_pct"], reverse=True):
-        pct = r["avg_change_pct"]
-        bg = _heatmap_bg(pct)
-        sign = "+" if pct >= 0 else ""
-        blocks.append(
-            f'<div class="hm-block" style="background:{bg}" title="{r["meta_name"]} {sign}{pct:.2f}%">'
-            f'<div class="hm-name">{r["meta_name"]}</div>'
-            f'<div class="hm-pct">{sign}{pct:.2f}%</div>'
-            f'</div>'
-        )
-    return f'<div class="heatmap-wrap">{"".join(blocks)}</div>'
+    total = len(meta_perf)
+    up   = sum(1 for r in meta_perf if r["avg_change_pct"] > 0)
+    dn   = sum(1 for r in meta_perf if r["avg_change_pct"] < 0)
+    flat = total - up - dn
+    best  = max(meta_perf, key=lambda r: r["avg_change_pct"])
+    worst = min(meta_perf, key=lambda r: r["avg_change_pct"])
+    b_s = "+" if best["avg_change_pct"] >= 0 else ""
+    w_s = "+" if worst["avg_change_pct"] >= 0 else ""
+    up_w = round(up / total * 100)
+    dn_w = round(dn / total * 100)
+    fl_w = 100 - up_w - dn_w
+    def bar(w, color):
+        return f'<div style="width:{w}%;background:{color};height:100%;border-radius:2px"></div>'
+    return (
+        f'<div class="breadth">'
+        f'<div class="br-bars">'
+        f'<div class="br-row"><span class="br-lbl up-c">上漲 {up}</span>'
+        f'<div class="br-track">{bar(up_w,"#b91c1c")}</div></div>'
+        f'<div class="br-row"><span class="br-lbl dn-c">下跌 {dn}</span>'
+        f'<div class="br-track">{bar(dn_w,"#15803d")}</div></div>'
+        f'<div class="br-row"><span class="br-lbl fl-c">平盤 {flat}</span>'
+        f'<div class="br-track">{bar(fl_w,"#334155")}</div></div>'
+        f'</div>'
+        f'<div class="br-ext">'
+        f'<span>最強 <b style="color:#f87171">{best["meta_name"]}</b>'
+        f' <span style="color:#f87171">{b_s}{best["avg_change_pct"]:.2f}%</span></span>'
+        f'<span>最弱 <b style="color:#4ade80">{worst["meta_name"]}</b>'
+        f' <span style="color:#4ade80">{w_s}{worst["avg_change_pct"]:.2f}%</span></span>'
+        f'</div>'
+        f'</div>'
+    )
 
 
 def _bar(up: int, down: int, flat: int) -> str:
@@ -319,40 +338,41 @@ def _meta_stock_cards(sub_names: list, sectors_df, prices_df, chips_df=None,
     )
 
 
-def _meta_card(row: dict, rank: int, sectors_df=None, prices_df=None, chips_df=None,
-               universe_df=None) -> str:
-    """卡片式主族群 Top10 item"""
+def _meta_card(row: dict, rank: int, card_id: str, sectors_df=None, prices_df=None,
+               chips_df=None, universe_df=None) -> tuple:
+    """小卡片，回傳 (card_html, panel_html)"""
     pct = row["avg_change_pct"]
-    up, down, flat = int(row["up_count"]), int(row["down_count"]), int(row["flat_count"])
+    up, down = int(row["up_count"]), int(row["down_count"])
     color = _pct_color(pct)
     bg = _heatmap_bg(pct)
     sign = "+" if pct >= 0 else ""
     arrow = "▲" if pct > 0 else ("▼" if pct < 0 else "─")
 
-    stock_ids = row.get("stock_ids")
     detail_inner = _meta_stock_cards(
         row["sub_names"], sectors_df, prices_df, chips_df,
-        universe_df=universe_df, stock_ids=stock_ids, as_row=False,
+        universe_df=universe_df, stock_ids=row.get("stock_ids"), as_row=False,
     )
-    panel = f'<div class="mc-panel" style="display:none">{detail_inner}</div>' if detail_inner else ""
-    onclick = ' onclick="toggleMcPanel(this)"' if panel else ""
+    onclick = f' onclick="selectMeta(\'{card_id}\')"' if detail_inner else ""
 
-    return (
-        f'<div class="mc-item">'
-        f'<div class="mc-card" style="border-left:3px solid {color};background:{bg}"{onclick}>'
-        f'<div class="mc-top">'
-        f'<span class="mc-rank">{rank}</span>'
-        f'<span class="mc-pct" style="color:{color}">{arrow} {sign}{pct:.2f}%</span>'
+    card = (
+        f'<div class="mc-card" data-meta="{card_id}"'
+        f' style="border-top:2px solid {color};background:{bg}"{onclick}>'
+        f'<div class="mc-hd">'
+        f'<span class="mc-rank">#{rank}</span>'
+        f'<span class="mc-pct" style="color:{color}">{arrow}{sign}{pct:.2f}%</span>'
         f'</div>'
         f'<div class="mc-name">{row["meta_name"]}</div>'
-        f'<div class="mc-counts">'
+        f'<div class="mc-cnt">'
         f'<span style="color:#f87171">▲{up}</span> '
         f'<span style="color:#4ade80">▼{down}</span>'
         f'</div>'
         f'</div>'
-        + panel
-        + f'</div>'
     )
+    panel = (
+        f'<div class="mc-panel" id="{card_id}" style="display:none">{detail_inner}</div>'
+        if detail_inner else ""
+    )
+    return card, panel
 
 
 def generate(
@@ -397,21 +417,43 @@ def generate(
     mkt_color = _pct_color(mkt_avg)
     mkt_sign = "+" if mkt_avg >= 0 else ""
 
-    # Heatmap
-    heatmap_html = _heatmap(meta_perf) if meta_perf else ""
+    # 廣度儀表板
+    breadth_html = _breadth(meta_perf) if meta_perf else ""
 
-    # Top 10 / Bottom 10
+    # Top10 / Bottom10
     if meta_perf:
         meta_sorted = sorted(meta_perf, key=lambda r: r["avg_change_pct"], reverse=True)
         top_source = meta_sorted[:10]
         bot_source = list(reversed(meta_sorted))[:10]
-        top10_html = "".join(_meta_card(r, i+1, sectors_df, prices_df, chips_df, universe_df) for i, r in enumerate(top_source))
-        bot10_html = "".join(_meta_card(r, i+1, sectors_df, prices_df, chips_df, universe_df) for i, r in enumerate(bot_source))
-        top_container = lambda html: f'<div class="cards-list">{html}</div>'
+
+        top_cards, top_panels = [], []
+        for i, r in enumerate(top_source):
+            c, p = _meta_card(r, i+1, f"t{i}", sectors_df, prices_df, chips_df, universe_df)
+            top_cards.append(c); top_panels.append(p)
+
+        bot_cards, bot_panels = [], []
+        for i, r in enumerate(bot_source):
+            c, p = _meta_card(r, i+1, f"b{i}", sectors_df, prices_df, chips_df, universe_df)
+            bot_cards.append(c); bot_panels.append(p)
+
+        top10_block = (
+            f'<div class="mc-label up-label">▲ 漲幅 Top 10</div>'
+            f'<div class="mc-grid">{"".join(top_cards)}</div>'
+            f'{"".join(top_panels)}'
+        )
+        bot10_block = (
+            f'<div class="mc-label dn-label">▼ 跌幅 Top 10</div>'
+            f'<div class="mc-grid">{"".join(bot_cards)}</div>'
+            f'{"".join(bot_panels)}'
+        )
+        top_section_inner = f'{top10_block}<div style="margin-top:10px">{bot10_block}</div>'
     else:
         top10_html = "".join(_top10_card(r, i+1, sectors_df, prices_df, chips_df) for i, (_, r) in enumerate(df.head(10).iterrows()))
         bot10_html = "".join(_top10_card(r, i+1, sectors_df, prices_df, chips_df) for i, (_, r) in enumerate(df.tail(10).iloc[::-1].iterrows()))
-        top_container = lambda html: f'<table><tbody>{html}</tbody></table>'
+        top_section_inner = (
+            f'<div class="top-card"><div class="top-card-title up-title">▲ 今日漲幅 Top 10</div><table><tbody>{top10_html}</tbody></table></div>'
+            f'<div class="top-card"><div class="top-card-title down-title">▼ 今日跌幅 Top 10</div><table><tbody>{bot10_html}</tbody></table></div>'
+        )
 
     # Groups
     groups_html = ""
@@ -458,7 +500,7 @@ def generate(
   <title>台股電子族群 {date_str}</title>
   <style>
     *{{box-sizing:border-box;margin:0;padding:0}}
-    body{{font-family:-apple-system,"Segoe UI",sans-serif;background:#0b0f18;color:#e2e8f0;padding:20px 32px;max-width:1440px;margin:0 auto}}
+    body{{font-family:-apple-system,"Segoe UI",sans-serif;background:#0b0f18;color:#e2e8f0;padding:12px 20px}}
 
     /* Header */
     .header{{margin-bottom:24px}}
@@ -469,37 +511,36 @@ def generate(
     .mkt-stat{{font-size:.82rem;color:#64748b}}
     .mkt-stat span{{font-weight:600}}
 
-    /* Heatmap */
-    .heatmap-section{{margin-bottom:20px}}
-    .section-label{{font-size:.7rem;text-transform:uppercase;letter-spacing:.08em;color:#475569;margin-bottom:8px}}
-    .heatmap-wrap{{display:flex;flex-wrap:wrap;gap:4px;padding:14px;background:#0f1624;border-radius:12px;border:1px solid #1e293b}}
-    .hm-block{{padding:6px 10px;border-radius:6px;min-width:76px;text-align:center}}
-    .hm-name{{font-size:.65rem;color:#e2e8f0;font-weight:600;white-space:nowrap}}
-    .hm-pct{{font-size:.78rem;font-weight:800;color:#fff;margin-top:1px}}
+    /* 廣度儀表板 */
+    .breadth{{display:flex;align-items:center;gap:24px;padding:10px 14px;background:#0f1624;border:1px solid #1e293b;border-radius:10px;margin-bottom:14px;flex-wrap:wrap}}
+    .br-bars{{display:flex;flex-direction:column;gap:5px;flex:1;min-width:200px}}
+    .br-row{{display:flex;align-items:center;gap:8px}}
+    .br-lbl{{font-size:.72rem;font-weight:600;min-width:52px}}
+    .br-track{{flex:1;height:6px;background:#1e293b;border-radius:3px;overflow:hidden}}
+    .up-c{{color:#f87171}} .dn-c{{color:#4ade80}} .fl-c{{color:#475569}}
+    .br-ext{{display:flex;flex-direction:column;gap:4px;font-size:.78rem;color:#94a3b8}}
 
-    /* Top 10 */
-    .top-section{{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:32px}}
-    @media(max-width:600px){{.top-section{{grid-template-columns:1fr}}}}
-    .top-card{{background:#0f1624;border:1px solid #1e293b;border-radius:12px;overflow:hidden}}
+    /* Top10 小卡片 */
+    .top-section{{margin-bottom:24px}}
+    .mc-label{{font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px}}
+    .up-label{{color:#f87171}} .dn-label{{color:#4ade80}}
+    .mc-grid{{display:grid;grid-template-columns:repeat(10,1fr);gap:5px}}
+    @media(max-width:1000px){{.mc-grid{{grid-template-columns:repeat(5,1fr)}}}}
+    @media(max-width:540px){{.mc-grid{{grid-template-columns:repeat(3,1fr)}}}}
+    .mc-card{{padding:8px 10px;border-radius:8px;border:1px solid #1e293b;cursor:pointer;transition:filter .12s}}
+    .mc-card:hover,.mc-card.active{{filter:brightness(1.15);border-color:#475569}}
+    .mc-hd{{display:flex;align-items:center;justify-content:space-between;margin-bottom:3px}}
+    .mc-rank{{font-size:.6rem;color:#475569;font-weight:600}}
+    .mc-pct{{font-size:.88rem;font-weight:800}}
+    .mc-name{{font-size:.72rem;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:3px}}
+    .mc-cnt{{font-size:.65rem;color:#64748b}}
+    .mc-panel{{background:#070b12;border:1px solid #1e293b;border-radius:8px;padding:12px 16px;margin-top:5px}}
+
+    /* Fallback table Top10 */
+    .top-card{{background:#0f1624;border:1px solid #1e293b;border-radius:12px;overflow:hidden;margin-bottom:10px}}
     .top-card-title{{padding:10px 16px;font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;border-bottom:1px solid #1e293b}}
     .up-title{{color:#d97070}} .down-title{{color:#009933}}
-
-    /* 卡片式 Top10 */
-    .cards-list{{}}
-    .mc-item{{border-bottom:1px solid #1e293b}}
-    .mc-item:last-child{{border-bottom:none}}
-    .mc-card{{padding:12px 16px;cursor:pointer;transition:filter .15s}}
-    .mc-card:hover{{filter:brightness(1.12)}}
-    .mc-top{{display:flex;align-items:center;gap:10px;margin-bottom:3px}}
-    .mc-rank{{font-size:.68rem;color:#334155;font-weight:700;min-width:16px}}
-    .mc-pct{{font-size:1.4rem;font-weight:800}}
-    .mc-name{{font-size:.88rem;font-weight:600;color:#cbd5e1;margin-bottom:3px}}
-    .mc-counts{{font-size:.75rem;color:#64748b}}
-    .mc-panel{{padding:12px 16px;background:#070b12;border-top:1px solid #1e293b}}
-
-    /* 舊版 table Top10（fallback）*/
-    .top-row{{cursor:pointer}}
-    .top-row:hover > td{{background:#1a2235}}
+    .top-row{{cursor:pointer}} .top-row:hover > td{{background:#1a2235}}
     .top-rank{{width:28px;padding:10px 0 10px 14px;font-size:.75rem;font-weight:700;color:#334155;text-align:center}}
     .top-name{{padding:10px 8px;font-size:.88rem;font-weight:500;color:#cbd5e1;max-width:120px}}
     .top-pct{{padding:10px 8px;text-align:right}}
@@ -603,21 +644,8 @@ def generate(
     </div>
   </div>
 
-  <div class="heatmap-section">
-    <div class="section-label">市場熱力圖</div>
-    {heatmap_html}
-  </div>
-
-  <div class="top-section">
-    <div class="top-card">
-      <div class="top-card-title up-title">▲ 今日漲幅 Top 10</div>
-      {top_container(top10_html)}
-    </div>
-    <div class="top-card">
-      <div class="top-card-title down-title">▼ 今日跌幅 Top 10</div>
-      {top_container(bot10_html)}
-    </div>
-  </div>
+  {breadth_html}
+  <div class="top-section">{top_section_inner}</div>
 
   <div class="section-bar">
     <span class="section-title">所有族群 / 依分類</span>
@@ -628,10 +656,14 @@ def generate(
   <div class="footer">點擊族群名稱可展開個股 ｜ 台灣：漲紅跌綠</div>
 
   <script>
-    function toggleMcPanel(card) {{
-      const panel = card.nextElementSibling;
-      if (panel && panel.classList.contains('mc-panel')) {{
-        panel.style.display = panel.style.display === 'none' ? '' : 'none';
+    function selectMeta(id) {{
+      const panel = document.getElementById(id);
+      const isOpen = panel && panel.style.display !== 'none';
+      document.querySelectorAll('.mc-panel').forEach(p => p.style.display = 'none');
+      document.querySelectorAll('.mc-card.active').forEach(c => c.classList.remove('active'));
+      if (!isOpen && panel) {{
+        panel.style.display = '';
+        document.querySelector('[data-meta="' + id + '"]').classList.add('active');
       }}
     }}
     function toggleDetail(row) {{

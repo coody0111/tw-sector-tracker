@@ -10,7 +10,7 @@ from scrapers.moneydj import scrape_industry_sectors
 from scrapers.finmind import fetch_prices_for_stocks
 from scrapers.chips import fetch_institutional, fetch_margin_all_today
 from processors.changes import detect_changes
-from processors.performance import calc_sector_performance, calc_meta_performance, calc_universe_performance
+from processors.performance import calc_sector_performance, calc_meta_performance, calc_universe_performance, calc_cumulative_meta, calc_meta_signals
 from storage.csv_writer import CsvWriter
 from export.html_generator import generate as generate_html
 from screener.database import init_db, import_csv_prices, import_sector_stocks, get_chips_today
@@ -192,12 +192,16 @@ def run(trade_date: date = None) -> None:
         except Exception:
             chips_df = pd.DataFrame()
 
+        cum_data = calc_cumulative_meta(universe_df) if universe_df is not None else []
+        meta_signals = calc_meta_signals(universe_df) if universe_df is not None else {}
         generate_html(trade_date, pd.DataFrame(perf) if perf else pd.DataFrame(),
                       sectors_df=sectors_df,
                       prices_df=prices_df if prices_df is not None else pd.DataFrame(),
                       chips_df=chips_df,
                       meta_perf=meta_perf,
-                      universe_df=universe_df)
+                      universe_df=universe_df,
+                      cum_data=cum_data,
+                      meta_signals=meta_signals)
         logger.info("HTML generated → docs/index.html")
         _push_html(trade_date)
 

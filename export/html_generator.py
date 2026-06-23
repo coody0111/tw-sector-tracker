@@ -33,54 +33,66 @@ def _pct_cell(pct: float, large: bool = False) -> str:
 def _heatmap_bg(pct: float) -> str:
     abs_pct = abs(pct)
     if pct > 0:
-        if abs_pct >= 5:   return "rgba(220,38,38,.85)"
-        if abs_pct >= 3:   return "rgba(220,38,38,.6)"
-        if abs_pct >= 1.5: return "rgba(220,38,38,.38)"
-        if abs_pct >= 0.5: return "rgba(220,38,38,.2)"
-        return "rgba(220,38,38,.1)"
+        if abs_pct >= 5:   return "rgba(127,29,29,.75)"
+        if abs_pct >= 3:   return "rgba(127,29,29,.45)"
+        if abs_pct >= 1.5: return "rgba(127,29,29,.22)"
+        if abs_pct >= 0.5: return "rgba(127,29,29,.10)"
+        return "rgba(127,29,29,.05)"
     elif pct < 0:
-        if abs_pct >= 5:   return "rgba(22,163,74,.85)"
-        if abs_pct >= 3:   return "rgba(22,163,74,.6)"
-        if abs_pct >= 1.5: return "rgba(22,163,74,.38)"
-        if abs_pct >= 0.5: return "rgba(22,163,74,.2)"
-        return "rgba(22,163,74,.1)"
-    return "rgba(100,116,139,.15)"
+        if abs_pct >= 5:   return "rgba(6,78,59,.75)"
+        if abs_pct >= 3:   return "rgba(6,78,59,.45)"
+        if abs_pct >= 1.5: return "rgba(6,78,59,.22)"
+        if abs_pct >= 0.5: return "rgba(6,78,59,.10)"
+        return "rgba(6,78,59,.05)"
+    return "rgba(100,116,139,.12)"
 
 
-def _breadth(meta_perf: list) -> str:
-    if not meta_perf:
+def _make_cum_ranks(cum_data: list) -> dict:
+    """建立各時間段的排名 lookup：{meta_name: rank}（1-based），回傳 dict of dicts。"""
+    if not cum_data:
+        return {"r3": {}, "r5": {}, "r7": {}, "v": {}}
+    r3 = {r["meta_name"]: i + 1 for i, r in enumerate(
+        sorted(cum_data, key=lambda x: x["cum3"], reverse=True))}
+    r5 = {r["meta_name"]: i + 1 for i, r in enumerate(
+        sorted(cum_data, key=lambda x: (x["cum5"] if x["cum5"] is not None else -999), reverse=True))}
+    r7 = {r["meta_name"]: i + 1 for i, r in enumerate(
+        sorted(cum_data, key=lambda x: (x["cum7"] if x["cum7"] is not None else -999), reverse=True))}
+    return {"r3": r3, "r5": r5, "r7": r7, "v": {r["meta_name"]: r for r in cum_data}}
+
+
+def _sparkline(daily_pct: list, dates: list) -> str:
+    """近 N 日每日漲跌幅 SVG bar chart，出現在展開面板頂部。"""
+    if not daily_pct:
         return ""
-    total = len(meta_perf)
-    up   = sum(1 for r in meta_perf if r["avg_change_pct"] > 0)
-    dn   = sum(1 for r in meta_perf if r["avg_change_pct"] < 0)
-    flat = total - up - dn
-    best  = max(meta_perf, key=lambda r: r["avg_change_pct"])
-    worst = min(meta_perf, key=lambda r: r["avg_change_pct"])
-    b_s = "+" if best["avg_change_pct"] >= 0 else ""
-    w_s = "+" if worst["avg_change_pct"] >= 0 else ""
-    up_w = round(up / total * 100)
-    dn_w = round(dn / total * 100)
-    fl_w = 100 - up_w - dn_w
-    def bar(w, color):
-        return f'<div style="width:{w}%;background:{color};height:100%;border-radius:2px"></div>'
-    return (
-        f'<div class="breadth">'
-        f'<div class="br-bars">'
-        f'<div class="br-row"><span class="br-lbl up-c">上漲 {up}</span>'
-        f'<div class="br-track">{bar(up_w,"#b91c1c")}</div></div>'
-        f'<div class="br-row"><span class="br-lbl dn-c">下跌 {dn}</span>'
-        f'<div class="br-track">{bar(dn_w,"#15803d")}</div></div>'
-        f'<div class="br-row"><span class="br-lbl fl-c">平盤 {flat}</span>'
-        f'<div class="br-track">{bar(fl_w,"#334155")}</div></div>'
-        f'</div>'
-        f'<div class="br-ext">'
-        f'<span>最強 <b style="color:#f87171">{best["meta_name"]}</b>'
-        f' <span style="color:#f87171">{b_s}{best["avg_change_pct"]:.2f}%</span></span>'
-        f'<span>最弱 <b style="color:#4ade80">{worst["meta_name"]}</b>'
-        f' <span style="color:#4ade80">{w_s}{worst["avg_change_pct"]:.2f}%</span></span>'
-        f'</div>'
-        f'</div>'
+    n = len(daily_pct)
+    h = 54          # SVG 總高
+    mid = 27        # 零線 y 座標
+    max_abs = max(abs(p) for p in daily_pct) or 1
+    bar_w = max(4, int(320 / n) - 2)
+    gap = 2
+    total_w = n * (bar_w + gap) - gap + 20
+
+    bars = []
+    labels = []
+    for i, (pct, label) in enumerate(zip(daily_pct, dates)):
+        x = 10 + i * (bar_w + gap)
+        bar_h = max(2, int(abs(pct) / max_abs * 20))
+        if pct >= 0:
+            y = mid - bar_h
+            color = "rgba(127,29,29,.85)" if pct >= 1 else "rgba(127,29,29,.4)"
+        else:
+            y = mid
+            color = "rgba(6,78,59,.85)" if pct <= -1 else "rgba(6,78,59,.4)"
+        bars.append(f'<rect x="{x}" y="{y}" width="{bar_w}" height="{bar_h}" fill="{color}" rx="1"/>')
+        labels.append(f'<text x="{x + bar_w//2}" y="{h - 1}" text-anchor="middle" fill="#334155" font-size="6">{label}</text>')
+
+    zero_line = f'<line x1="8" y1="{mid}" x2="{total_w - 8}" y2="{mid}" stroke="#1e293b" stroke-width="1"/>'
+    svg = (
+        f'<svg width="{total_w}" height="{h}" xmlns="http://www.w3.org/2000/svg">'
+        f'{zero_line}{"".join(bars)}{"".join(labels)}'
+        f'</svg>'
     )
+    return f'<div class="sparkline-wrap">{svg}</div>'
 
 
 def _bar(up: int, down: int, flat: int) -> str:
@@ -338,8 +350,62 @@ def _meta_stock_cards(sub_names: list, sectors_df, prices_df, chips_df=None,
     )
 
 
+_CUM_THRESHOLD = 15  # 累積排名超過此數字則不顯示 badge
+
+
+def _signal_badges(meta_name: str, cum_ranks: dict, meta_signals: dict, today_rank: int) -> str:
+    """合併所有 badge：累積排名 + 排名升降 + 連漲連跌 + 成交量異常。"""
+    badges = []
+
+    # 累積排名 badges (3d/5d/7d)
+    vals = cum_ranks.get("v", {}).get(meta_name, {}) if cum_ranks else {}
+    for period, key, val_key in [("3d", "r3", "cum3"), ("5d", "r5", "cum5"), ("7d", "r7", "cum7")]:
+        rank = (cum_ranks or {}).get(key, {}).get(meta_name)
+        val = vals.get(val_key)
+        if rank is None or rank > _CUM_THRESHOLD or val is None:
+            continue
+        sign = "+" if val > 0 else ""
+        title = f"{period}累積{sign}{val:.1f}%"
+        pct_color = "#f87171" if val > 0 else "#4ade80"
+        badges.append(
+            f'<span class="cum-badge" title="{title}">'
+            f'{period}<b>#{rank}</b>'
+            f'<span class="cum-val" style="color:{pct_color}">{sign}{val:.1f}%</span>'
+            f'</span>'
+        )
+
+    sig = (meta_signals or {}).get(meta_name, {})
+
+    # 排名升降
+    yest_rank = sig.get("yesterday_rank")
+    if yest_rank and today_rank:
+        delta = yest_rank - today_rank  # 正 = 今天名次更好
+        if delta > 0:
+            badges.append(f'<span class="sig-badge rank-up" title="昨日排名#{yest_rank}">↑{delta}</span>')
+        elif delta < 0:
+            badges.append(f'<span class="sig-badge rank-dn" title="昨日排名#{yest_rank}">↓{abs(delta)}</span>')
+
+    # 連漲/連跌
+    streak = sig.get("streak", 0)
+    if abs(streak) >= 2:
+        if streak > 0:
+            badges.append(f'<span class="sig-badge streak-up" title="連續上漲{streak}個交易日">連漲{streak}日</span>')
+        else:
+            badges.append(f'<span class="sig-badge streak-dn" title="連續下跌{abs(streak)}個交易日">連跌{abs(streak)}日</span>')
+
+    # 成交量異常
+    vol_ratio = sig.get("vol_ratio")
+    if vol_ratio and vol_ratio >= 1.5:
+        badges.append(f'<span class="sig-badge vol-spike" title="今日量能{vol_ratio}x 5日均量">量↑{vol_ratio:.1f}x</span>')
+
+    if not badges:
+        return ""
+    return f'<div class="mc-badges">{"".join(badges)}</div>'
+
+
 def _meta_card(row: dict, rank: int, card_id: str, sectors_df=None, prices_df=None,
-               chips_df=None, universe_df=None) -> tuple:
+               chips_df=None, universe_df=None, cum_ranks: dict = None,
+               meta_signals: dict = None) -> tuple:
     """小卡片，回傳 (card_html, panel_html)"""
     pct = row["avg_change_pct"]
     up, down = int(row["up_count"]), int(row["down_count"])
@@ -353,6 +419,12 @@ def _meta_card(row: dict, rank: int, card_id: str, sectors_df=None, prices_df=No
         universe_df=universe_df, stock_ids=row.get("stock_ids"), as_row=False,
     )
     onclick = f' onclick="selectMeta(\'{card_id}\')"' if detail_inner else ""
+    badges = _signal_badges(row["meta_name"], cum_ranks or {}, meta_signals or {}, rank)
+
+    # Sparkline 加在展開面板頂部
+    sig = (meta_signals or {}).get(row["meta_name"], {})
+    sparkline = _sparkline(sig.get("daily_pct", []), sig.get("dates", []))
+    panel_content = sparkline + detail_inner if (sparkline and detail_inner) else detail_inner
 
     card = (
         f'<div class="mc-card" data-meta="{card_id}"'
@@ -366,11 +438,12 @@ def _meta_card(row: dict, rank: int, card_id: str, sectors_df=None, prices_df=No
         f'<span style="color:#f87171">▲{up}</span> '
         f'<span style="color:#4ade80">▼{down}</span>'
         f'</div>'
+        f'{badges}'
         f'</div>'
     )
     panel = (
-        f'<div class="mc-panel" id="{card_id}" style="display:none">{detail_inner}</div>'
-        if detail_inner else ""
+        f'<div class="mc-panel" id="{card_id}" style="display:none">{panel_content}</div>'
+        if panel_content else ""
     )
     return card, panel
 
@@ -383,6 +456,8 @@ def generate(
     chips_df: pd.DataFrame = None,
     meta_perf: list = None,
     universe_df: pd.DataFrame = None,
+    cum_data: list = None,
+    meta_signals: dict = None,
     output_path: str = "docs/index.html",
 ) -> None:
     if perf_df.empty and not meta_perf:
@@ -417,8 +492,8 @@ def generate(
     mkt_color = _pct_color(mkt_avg)
     mkt_sign = "+" if mkt_avg >= 0 else ""
 
-    # 廣度儀表板
-    breadth_html = _breadth(meta_perf) if meta_perf else ""
+    # 累積排名 lookup（用於卡片上的 badge）
+    cum_ranks = _make_cum_ranks(cum_data) if cum_data else {}
 
     # Top10 / Bottom10
     if meta_perf:
@@ -428,12 +503,12 @@ def generate(
 
         top_cards, top_panels = [], []
         for i, r in enumerate(top_source):
-            c, p = _meta_card(r, i+1, f"t{i}", sectors_df, prices_df, chips_df, universe_df)
+            c, p = _meta_card(r, i+1, f"t{i}", sectors_df, prices_df, chips_df, universe_df, cum_ranks, meta_signals)
             top_cards.append(c); top_panels.append(p)
 
         bot_cards, bot_panels = [], []
         for i, r in enumerate(bot_source):
-            c, p = _meta_card(r, i+1, f"b{i}", sectors_df, prices_df, chips_df, universe_df)
+            c, p = _meta_card(r, i+1, f"b{i}", sectors_df, prices_df, chips_df, universe_df, cum_ranks, meta_signals)
             bot_cards.append(c); bot_panels.append(p)
 
         top10_block = (
@@ -511,14 +586,19 @@ def generate(
     .mkt-stat{{font-size:.82rem;color:#64748b}}
     .mkt-stat span{{font-weight:600}}
 
-    /* 廣度儀表板 */
-    .breadth{{display:flex;align-items:center;gap:24px;padding:10px 14px;background:#0f1624;border:1px solid #1e293b;border-radius:10px;margin-bottom:14px;flex-wrap:wrap}}
-    .br-bars{{display:flex;flex-direction:column;gap:5px;flex:1;min-width:200px}}
-    .br-row{{display:flex;align-items:center;gap:8px}}
-    .br-lbl{{font-size:.72rem;font-weight:600;min-width:52px}}
-    .br-track{{flex:1;height:6px;background:#1e293b;border-radius:3px;overflow:hidden}}
-    .up-c{{color:#f87171}} .dn-c{{color:#4ade80}} .fl-c{{color:#475569}}
-    .br-ext{{display:flex;flex-direction:column;gap:4px;font-size:.78rem;color:#94a3b8}}
+    /* 累積排名 badge */
+    .mc-badges{{display:flex;gap:3px;margin-top:5px;flex-wrap:wrap}}
+    .cum-badge{{font-size:.58rem;color:#475569;background:#0a0e18;border:1px solid #1e293b;border-radius:3px;padding:1px 5px;white-space:nowrap;cursor:default}}
+    .cum-badge b{{color:#94a3b8;font-weight:700;margin-left:1px}}
+    .cum-val{{font-size:.58rem;font-weight:600;margin-left:3px}}
+    .sig-badge{{font-size:.58rem;border-radius:3px;padding:1px 5px;white-space:nowrap;cursor:default;border:1px solid}}
+    .rank-up{{color:#f87171;background:rgba(127,29,29,.18);border-color:rgba(127,29,29,.4)}}
+    .rank-dn{{color:#4ade80;background:rgba(6,78,59,.18);border-color:rgba(6,78,59,.4)}}
+    .streak-up{{color:#fbbf24;background:rgba(120,53,15,.25);border-color:rgba(120,53,15,.5);font-weight:700}}
+    .streak-dn{{color:#60a5fa;background:rgba(30,58,138,.25);border-color:rgba(30,58,138,.5);font-weight:700}}
+    .vol-spike{{color:#fb923c;background:rgba(124,45,18,.25);border-color:rgba(124,45,18,.5);font-weight:700}}
+    /* Sparkline */
+    .sparkline-wrap{{padding:8px 0 4px;overflow-x:auto;margin-bottom:8px}}
 
     /* Top10 小卡片 */
     .top-section{{margin-bottom:24px}}
@@ -644,7 +724,6 @@ def generate(
     </div>
   </div>
 
-  {breadth_html}
   <div class="top-section">{top_section_inner}</div>
 
   <div class="section-bar">

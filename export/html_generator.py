@@ -330,7 +330,7 @@ def generate(
     universe_df: pd.DataFrame = None,
     output_path: str = "docs/index.html",
 ) -> None:
-    if perf_df.empty:
+    if perf_df.empty and not meta_perf:
         return
 
     if sectors_df is not None and not sectors_df.empty:
@@ -340,15 +340,25 @@ def generate(
         prices_df = prices_df.copy()
         prices_df["stock_id"] = prices_df["stock_id"].astype(str)
 
-    df = perf_df.sort_values("avg_change_pct", ascending=False).reset_index(drop=True)
+    df = perf_df.sort_values("avg_change_pct", ascending=False).reset_index(drop=True) if not perf_df.empty else pd.DataFrame()
     date_str = trade_date.strftime("%Y-%m-%d")
     weekday = ["一", "二", "三", "四", "五", "六", "日"][trade_date.weekday()]
 
-    total = len(df)
-    up_cnt = int((df["avg_change_pct"] > 0).sum())
-    dn_cnt = int((df["avg_change_pct"] < 0).sum())
-    flat_cnt = total - up_cnt - dn_cnt
-    mkt_avg = df["avg_change_pct"].mean()
+    if not df.empty:
+        total = len(df)
+        up_cnt = int((df["avg_change_pct"] > 0).sum())
+        dn_cnt = int((df["avg_change_pct"] < 0).sum())
+        flat_cnt = total - up_cnt - dn_cnt
+        mkt_avg = df["avg_change_pct"].mean()
+    elif meta_perf:
+        total = len(meta_perf)
+        up_cnt = sum(1 for r in meta_perf if r["avg_change_pct"] > 0)
+        dn_cnt = sum(1 for r in meta_perf if r["avg_change_pct"] < 0)
+        flat_cnt = total - up_cnt - dn_cnt
+        mkt_avg = sum(r["avg_change_pct"] for r in meta_perf) / total
+    else:
+        total = up_cnt = dn_cnt = flat_cnt = 0
+        mkt_avg = 0.0
     mkt_color = _pct_color(mkt_avg)
     mkt_sign = "+" if mkt_avg >= 0 else ""
 
@@ -365,9 +375,10 @@ def generate(
         bot10_html = "".join(_top10_card(r, i+1, sectors_df, prices_df, chips_df) for i, (_, r) in enumerate(df.tail(10).iloc[::-1].iterrows()))
 
     # Groups
-    df["group"] = df["sector_name"].apply(classify_sector)
     groups_html = ""
-    for group_name, _ in SECTOR_GROUPS:
+    if not df.empty:
+        df["group"] = df["sector_name"].apply(classify_sector)
+    for group_name, _ in (SECTOR_GROUPS if not df.empty else []):
         subset = df[df["group"] == group_name].copy()
         if subset.empty:
             continue

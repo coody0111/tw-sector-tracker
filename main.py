@@ -163,10 +163,19 @@ def run(trade_date: date = None) -> None:
         if universe_df is not None:
             # 新流程：stock_universe.csv 模式，每股只計一次
             meta_perf = calc_universe_performance(universe_df, prices_df)
-            if not today_df.empty:
-                perf = calc_sector_performance(today_df, prices_df)
-                writer.write_sector_performance(perf, trade_date)
-            logger.info("Universe performance: %d META groups.", len(meta_perf))
+            # 用 sub_sector 建立偽 sectors_df，計算小族群績效供分組區使用
+            sub_sectors_df = universe_df[["stock_id", "sub_sector"]].rename(
+                columns={"sub_sector": "sector_name"}
+            ).copy()
+            sub_sectors_df["sector_type"] = "industry"
+            perf = calc_sector_performance(sub_sectors_df, prices_df)
+            writer.write_sector_performance(perf, trade_date)
+            # 讓 HTML 分組的個股卡片可展開：用 universe_df 建 sectors_df-like
+            sectors_df = universe_df[["stock_id", "stock_name", "sub_sector"]].rename(
+                columns={"sub_sector": "sector_name"}
+            ).copy()
+            sectors_df["sector_type"] = "industry"
+            logger.info("Universe performance: %d META groups, %d sub-sectors.", len(meta_perf), len(perf))
         elif not today_df.empty:
             perf = calc_sector_performance(today_df, prices_df)
             meta_perf = calc_meta_performance(perf)

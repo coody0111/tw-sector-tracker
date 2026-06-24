@@ -278,6 +278,129 @@ def calc_meta_signals(
     return signals
 
 
+def calc_stock_sparklines(
+    universe_df: pd.DataFrame,
+    db_path: str = "data/screener.db",
+    lookback: int = 11,
+) -> Dict[str, list]:
+    """每支個股近 N 日漲跌幅 list，供 HTML 個股展開 sparkline 使用。"""
+    try:
+        con = duckdb.connect(db_path, read_only=True)
+        dates_df = con.execute(
+            f"SELECT DISTINCT date FROM daily_prices ORDER BY date DESC LIMIT {lookback}"
+        ).fetchdf()
+        prices_df = con.execute(
+            "SELECT stock_id, date, change_pct FROM daily_prices"
+        ).fetchdf()
+        con.close()
+    except Exception:
+        return {}
+
+    if prices_df.empty or len(dates_df) < 2:
+        return {}
+
+    all_dates = sorted(dates_df["date"].tolist())
+    stock_ids = set(universe_df["stock_id"].astype(str))
+    prices_df["stock_id"] = prices_df["stock_id"].astype(str)
+    prices_df = prices_df[prices_df["stock_id"].isin(stock_ids)]
+
+    pivot = (
+        prices_df.dropna(subset=["change_pct"])
+        .groupby(["stock_id", "date"])["change_pct"].mean()
+        .unstack(level="date")
+        .reindex(columns=all_dates)
+        .fillna(0)
+    )
+
+    return {sid: [round(float(pivot.loc[sid, d]), 2) for d in all_dates] for sid in pivot.index}
+
+
+def get_stock_chips_ranking(
+    universe_df: pd.DataFrame,
+    db_path: str = "data/screener.db",
+) -> Dict[str, Any]:
+    """
+    取個股今日籌碼排行，供 chips.html 使用。
+    回傳 {
+        "foreign_top_buy":  [{stock_id, stock_name, meta_sector, foreign_net, trust_net}, ...],
+        "foreign_top_sell": [...],
+        "margin_alerts":    [{..., margin_balance, margin_change, pct}, ...],
+        "chips_date":       "YYYY-MM-DD",
+    }
+    """
+    try:
+        con = duckdb.connect(db_path, read_only=True)
+        date_row = con.execute("SELECT MAX(date) AS d FROM institutional").fetchone()
+        if not date_row or not date_row[0]:
+            con.close()
+            return {}
+        latest_date = date_row[0]
+        inst_df = con.execute(
+            "SELECT stock_id, foreign_net, trust_net FROM institutional WHERE date = ?",
+            [latest_date],
+        ).fetchdf()
+        margin_df = con.execute(
+            "SELECT stock_id, margin_balance, margin_change FROM margin WHERE date = ?",
+            [latest_date],
+        ).fetchdf()
+        con.close()
+    except Exception:
+        return {}
+
+    universe = universe_df[["stock_id", "stock_name", "meta_sector"]].copy()
+    universe["stock_id"] = universe["stock_id"].astype(str)
+
+    foreign_top_buy: list = []
+    foreign_top_sell: list = []
+    if not inst_df.empty:
+        inst_df["stock_id"] = inst_df["stock_id"].astype(str)
+        merged = inst_df.merge(universe, on="stock_id", how="inner").dropna(subset=["foreign_net"])
+        merged["foreign_net"] = merged["foreign_net"].astype(int)
+        merged["trust_net"] = merged["trust_net"].fillna(0).astype(int)
+        sorted_df = merged.sort_values("foreign_net", ascending=False)
+
+        def _row(r: pd.Series) -> dict:
+            return {
+                "stock_id": r["stock_id"],
+                "stock_name": r["stock_name"],
+                "meta_sector": r["meta_sector"],
+                "foreign_net": int(r["foreign_net"]),
+                "trust_net": int(r["trust_net"]),
+            }
+
+        foreign_top_buy = [_row(r) for _, r in sorted_df.head(10).iterrows()]
+        sell_df = sorted_df[sorted_df["foreign_net"] < 0].tail(10).iloc[::-1]
+        foreign_top_sell = [_row(r) for _, r in sell_df.iterrows()]
+
+    margin_alerts: list = []
+    if not margin_df.empty:
+        margin_df["stock_id"] = margin_df["stock_id"].astype(str)
+        mm = margin_df.merge(universe, on="stock_id", how="inner").dropna(subset=["margin_balance", "margin_change"])
+        mm["margin_balance"] = mm["margin_balance"].astype(int)
+        mm["margin_change"] = mm["margin_change"].astype(int)
+        mask = (mm["margin_balance"] > 0) & (mm["margin_change"] > 0) & (
+            mm["margin_change"] / mm["margin_balance"] > 0.05
+        )
+        alerts = mm[mask].copy()
+        alerts["alert_pct"] = (alerts["margin_change"] / alerts["margin_balance"] * 100).round(2)
+        for _, r in alerts.sort_values("alert_pct", ascending=False).iterrows():
+            margin_alerts.append({
+                "stock_id": r["stock_id"],
+                "stock_name": r["stock_name"],
+                "meta_sector": r["meta_sector"],
+                "margin_balance": int(r["margin_balance"]),
+                "margin_change": int(r["margin_change"]),
+                "alert_pct": float(r["alert_pct"]),
+            })
+
+    return {
+        "foreign_top_buy": foreign_top_buy,
+        "foreign_top_sell": foreign_top_sell,
+        "margin_alerts": margin_alerts,
+        "chips_date": str(latest_date),
+    }
+
+
 def calc_meta_chips_signals(
     universe_df: pd.DataFrame,
     db_path: str = "data/screener.db",

@@ -1,3 +1,4 @@
+import json
 import pandas as pd
 from pathlib import Path
 from datetime import date
@@ -206,7 +207,7 @@ def _stock_cards(sector_name: str, sectors_df: pd.DataFrame, prices_df: pd.DataF
                 )
 
             cards.append(
-                f'<div class="stock-card" style="border-color:{color}33">'
+                f'<div class="stock-card" data-sid="{sid}" style="border-color:{color}33">'
                 f'<div class="sc-header">'
                 f'<span class="sc-id">{sid}</span>'
                 f'<span class="sc-name">{stock_name}</span>'
@@ -231,12 +232,9 @@ def _stock_cards(sector_name: str, sectors_df: pd.DataFrame, prices_df: pd.DataF
             )
 
     cards_html = f'<div class="stock-cards-wrap">{"".join(cards)}</div>'
-    if not as_row:
-        return cards_html
-    return (
-        f'<tr class="detail-row" style="display:none">'
-        f'<td colspan="4">{cards_html}</td></tr>'
-    )
+    if as_row:
+        return f'<tr class="detail-row" style="display:none"><td colspan="4">{cards_html}</td></tr>'
+    return cards_html
 
 
 def _sector_row(row, sectors_df=None, prices_df=None, chips_df=None, compact=False) -> str:
@@ -381,7 +379,7 @@ def _meta_stock_cards(sub_names: list, sectors_df, prices_df, chips_df=None,
                 )
 
             cards.append(
-                f'<div class="stock-card" style="border-color:{color}33">'
+                f'<div class="stock-card" data-sid="{sid}" style="border-color:{color}33">'
                 f'<div class="sc-header">'
                 f'<span class="sc-id">{sid}</span>'
                 f'<span class="sc-name">{stock_name}</span>'
@@ -406,12 +404,9 @@ def _meta_stock_cards(sub_names: list, sectors_df, prices_df, chips_df=None,
             )
 
     cards_html = f'<div class="stock-cards-wrap">{"".join(cards)}</div>'
-    if not as_row:
-        return cards_html
-    return (
-        f'<tr class="detail-row" style="display:none">'
-        f'<td colspan="4">{cards_html}</td></tr>'
-    )
+    if as_row:
+        return f'<tr class="detail-row" style="display:none"><td colspan="4">{cards_html}</td></tr>'
+    return cards_html
 
 
 _CUM_THRESHOLD = 15     # 累積排名超過此數字則不顯示 badge
@@ -599,6 +594,7 @@ def generate(
     cum_data: list = None,
     meta_signals: dict = None,
     meta_chips: dict = None,
+    stock_sparklines: dict = None,
     output_path: str = "docs/index.html",
 ) -> None:
     if perf_df.empty and not meta_perf:
@@ -632,6 +628,17 @@ def generate(
         mkt_avg = 0.0
     mkt_color = _pct_color(mkt_avg)
     mkt_sign = "+" if mkt_avg >= 0 else ""
+
+    # JS 資料：個股搜尋索引 + sparkline 資料
+    stock_index_js = "[]"
+    if universe_df is not None:
+        prices_map = prices_df.set_index("stock_id") if prices_df is not None and not prices_df.empty else pd.DataFrame()
+        idx = []
+        for _, r in universe_df.iterrows():
+            sid = str(r["stock_id"])
+            pct = round(float(prices_map.loc[sid]["change_pct"]), 2) if sid in prices_map.index else 0.0
+            idx.append({"id": sid, "name": str(r["stock_name"]), "meta": str(r["meta_sector"]), "pct": pct})
+        stock_index_js = json.dumps(idx, ensure_ascii=False)
 
     # 累積排名 lookup（用於卡片上的 badge）
     cum_ranks = _make_cum_ranks(cum_data) if cum_data else {}
@@ -829,6 +836,26 @@ def generate(
     .sc-mini-cnt{{font-size:.58rem;color:#64748b}}
     .sc-mini-panel{{background:#070b12;border:1px solid #1e293b;border-radius:8px;padding:12px 16px;margin:0 12px 10px}}
 
+    /* Search */
+    .search-wrap{{position:relative;margin-top:10px;max-width:360px}}
+    .stock-search{{width:100%;background:#0f1624;border:1px solid #1e293b;border-radius:8px;padding:8px 14px;color:#e2e8f0;font-size:.85rem;outline:none;transition:border-color .15s}}
+    .stock-search:focus{{border-color:#475569}}
+    .search-dropdown{{position:absolute;top:calc(100% + 4px);left:0;right:0;background:#0f1624;border:1px solid #1e293b;border-radius:8px;z-index:100;overflow:hidden;box-shadow:0 8px 24px rgba(0,0,0,.5)}}
+    .search-item{{display:flex;align-items:center;gap:8px;padding:8px 12px;cursor:pointer;font-size:.8rem;transition:background .1s}}
+    .search-item:hover{{background:#141c2e}}
+    .si-id{{color:#475569;font-size:.72rem;min-width:36px}}
+    .si-name{{color:#e2e8f0;flex:1;font-weight:500}}
+    .si-meta{{color:#334155;font-size:.7rem}}
+    .si-pct{{font-weight:700;font-size:.8rem;min-width:52px;text-align:right}}
+
+    .search-highlight{{outline:2px solid #475569;outline-offset:2px;border-radius:8px}}
+
+    /* Nav */
+    .nav-links{{display:flex;gap:8px;margin-top:10px}}
+    .nav-link{{font-size:.78rem;padding:5px 14px;border-radius:6px;border:1px solid #1e293b;color:#64748b;text-decoration:none;transition:all .15s}}
+    .nav-link:hover{{border-color:#475569;color:#94a3b8}}
+    .nav-link.active{{border-color:#475569;color:#e2e8f0;background:#141c2e}}
+
     .footer{{margin-top:28px;font-size:.7rem;color:#1e293b;text-align:center;padding-bottom:20px}}
 
     /* ── RWD Mobile ── */
@@ -875,6 +902,14 @@ def generate(
       <span class="mkt-stat">下跌 <span style="color:#009933">{dn_cnt}</span></span>
       <span class="mkt-stat">平盤 <span style="color:#475569">{flat_cnt}</span></span>
     </div>
+    <div class="search-wrap">
+      <input id="stock-search" class="stock-search" placeholder="🔍 搜尋股票代號 / 名稱…" oninput="searchStocks(this.value)" onblur="setTimeout(()=>hideSearch(),200)" autocomplete="off">
+      <div id="search-dropdown" class="search-dropdown" style="display:none"></div>
+    </div>
+    <div class="nav-links">
+      <a class="nav-link active" href="index.html">族群績效</a>
+      <a class="nav-link" href="chips.html">籌碼分析</a>
+    </div>
   </div>
 
   <div class="top-section">{top_section_inner}</div>
@@ -888,6 +923,56 @@ def generate(
   <div class="footer">點擊族群名稱可展開個股 ｜ 台灣：漲紅跌綠</div>
 
   <script>
+    const STOCK_INDEX = {stock_index_js};
+
+    /* ── Search ── */
+    function searchStocks(q) {{
+      const dd = document.getElementById('search-dropdown');
+      q = q.trim();
+      if (!q) {{ dd.style.display='none'; return; }}
+      const matches = STOCK_INDEX.filter(s => s.id.startsWith(q) || s.name.includes(q)).slice(0,10);
+      if (!matches.length) {{ dd.style.display='none'; return; }}
+      dd.innerHTML = matches.map(s => {{
+        const sign = s.pct>=0?'+':'', col = s.pct>0?'#f87171':(s.pct<0?'#4ade80':'#64748b');
+        return `<div class="search-item" onmousedown="selectSearchStock('${{s.id}}')">`+
+          `<span class="si-id">${{s.id}}</span>`+
+          `<span class="si-name">${{s.name}}</span>`+
+          `<span class="si-meta">${{s.meta}}</span>`+
+          `<span class="si-pct" style="color:${{col}}">${{sign}}${{s.pct.toFixed(2)}}%</span>`+
+          `</div>`;
+      }}).join('');
+      dd.style.display = '';
+    }}
+    function hideSearch() {{ document.getElementById('search-dropdown').style.display='none'; }}
+    function selectSearchStock(sid) {{
+      const card = document.querySelector('.stock-card[data-sid="'+sid+'"]');
+      if (card) {{
+        const mcPanel = card.closest('.mc-panel');
+        if (mcPanel) {{
+          document.querySelectorAll('.mc-panel').forEach(p=>p.style.display='none');
+          document.querySelectorAll('.mc-card.active').forEach(c=>c.classList.remove('active'));
+          mcPanel.style.display='';
+          const mc = document.querySelector('[data-meta="'+mcPanel.id+'"]');
+          if (mc) mc.classList.add('active');
+        }}
+        const miniPanel = card.closest('.sc-mini-panel');
+        if (miniPanel) {{
+          miniPanel.style.display='';
+          const det = miniPanel.closest('details');
+          if (det) det.open=true;
+        }}
+        const detRow = card.closest('.detail-row');
+        if (detRow) detRow.style.display='';
+        setTimeout(()=>{{
+          card.scrollIntoView({{behavior:'smooth',block:'center'}});
+          card.classList.add('search-highlight');
+          setTimeout(()=>card.classList.remove('search-highlight'),2000);
+        }},80);
+      }}
+      document.getElementById('search-dropdown').style.display='none';
+      document.getElementById('stock-search').value='';
+    }}
+
     function selectMeta(id) {{
       const panel = document.getElementById(id);
       const isOpen = panel && panel.style.display !== 'none';

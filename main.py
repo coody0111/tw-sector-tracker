@@ -11,9 +11,10 @@ from scrapers.finmind import fetch_prices_for_stocks
 from scrapers.chips import fetch_institutional, fetch_margin_all_today
 from scrapers.backfill import backfill_prices, backfill_twse_monthly
 from processors.changes import detect_changes
-from processors.performance import calc_sector_performance, calc_meta_performance, calc_universe_performance, calc_cumulative_meta, calc_meta_signals, calc_meta_chips_signals
+from processors.performance import calc_sector_performance, calc_meta_performance, calc_universe_performance, calc_cumulative_meta, calc_meta_signals, calc_meta_chips_signals, calc_stock_sparklines, get_stock_chips_ranking
 from storage.csv_writer import CsvWriter
 from export.html_generator import generate as generate_html
+from export.chips_generator import generate as generate_chips_html
 from screener.database import init_db, import_csv_prices, import_sector_stocks, get_chips_today
 
 UNIVERSE_PATH = Path("data/stock_universe.csv")
@@ -68,7 +69,7 @@ def _update_chips_db(trade_date: date, stock_ids: list) -> None:
 
 def _push_html(trade_date: date) -> None:
     try:
-        subprocess.run(["git", "add", "docs/index.html"], check=True)
+        subprocess.run(["git", "add", "docs/index.html", "docs/chips.html"], check=True)
         result = subprocess.run(["git", "diff", "--cached", "--quiet"])
         if result.returncode != 0:
             subprocess.run(["git", "commit", "-m", f"update: sector performance {trade_date.isoformat()}"], check=True)
@@ -229,6 +230,8 @@ def run(trade_date: date = None) -> None:
         cum_data = calc_cumulative_meta(universe_df) if universe_df is not None else []
         meta_signals = calc_meta_signals(universe_df) if universe_df is not None else {}
         meta_chips = calc_meta_chips_signals(universe_df) if universe_df is not None else {}
+        stock_sparklines = calc_stock_sparklines(universe_df) if universe_df is not None else {}
+        stock_chips = get_stock_chips_ranking(universe_df) if universe_df is not None else {}
         generate_html(trade_date, pd.DataFrame(perf) if perf else pd.DataFrame(),
                       sectors_df=sectors_df,
                       prices_df=prices_df if prices_df is not None else pd.DataFrame(),
@@ -237,8 +240,11 @@ def run(trade_date: date = None) -> None:
                       universe_df=universe_df,
                       cum_data=cum_data,
                       meta_signals=meta_signals,
-                      meta_chips=meta_chips)
+                      meta_chips=meta_chips,
+                      stock_sparklines=stock_sparklines)
         logger.info("HTML generated → docs/index.html")
+        generate_chips_html(trade_date, meta_chips, stock_chips)
+        logger.info("HTML generated → docs/chips.html")
         _push_html(trade_date)
 
     logger.info("=== Done ===")

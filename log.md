@@ -5,11 +5,31 @@
 
 ---
 
-## 目前狀態（2026-06-23）
+## 目前狀態（2026-06-24）
 
-### Working tree 乾淨，無待 commit 變更。
+### Working tree 乾淨，無待 commit 變更。commit 5b464b3
 
-### 下一步：持續觀察 GitHub Pages 視覺效果，依需調整
+### 已完成功能
+- **四項 signal badges**：3/5/7d 累積排名 badge + 漲跌方向 + 連漲連跌 + 量能異常
+- **sparkline**：展開面板頂部 10 日 SVG 條形圖
+- **籌碼 META 彙總**：`calc_meta_chips_signals()` — 外資/投信連買連賣 + 融資警示
+- **籌碼獨立分頁**：`docs/chips.html` — 五區塊籌碼分析，index.html 加導覽連結
+- **股票搜尋欄**：header 搜尋 → 自動展開並定位個股卡片
+- **先進封裝設備 META**：CoWoS 供應鏈 9 家（弘塑/均豪/萬潤/均華/印能/志聖/家登/群翊/辛耘）
+- **歷史補齊**：`scrapers/backfill.py` TWSE 月別補齊；`--backfill-twse 6` 可補半年
+- **訊號掃描器**：`screener/signals.py` 巨量換手三條件
+- **回測框架**：`screener/backtest.py`
+
+### chips.html 五區塊
+1. 外資連買/連賣 META 排行（左右對比）
+2. 外資大買/大賣個股 Top10（左右對比）
+3. 投信加碼 META 彙總
+4. 融資擴張警示（增幅 > 5%）
+5. META 外資籌碼集中度（買超股數/總股數）
+
+### 下一步（待討論）
+- 巨量換手訊號 HTML 區塊（需先 backfill 至 126 日資料）
+- dark/light 主題切換（低優先）
 
 ---
 

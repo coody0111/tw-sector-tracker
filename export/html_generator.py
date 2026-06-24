@@ -113,8 +113,11 @@ def _fmt_price(val: float) -> str:
     return f"{val:.2f}"
 
 
-def _fmt_chips_num(val) -> str:
-    """籌碼數字格式化：1,234,567 → +1,234K 或 -234K"""
+_CHIPS_BADGE_MIN = 1_000_000   # 外資/投信股數超過此值才加 badge 框
+_TRUST_BADGE_MIN = 500_000
+
+def _fmt_chips_num(val, badge_threshold: int = 0) -> str:
+    """籌碼數字格式化：1,234,567 → +1,234K；達門檻時加外框 badge"""
     try:
         n = int(val)
         if n == 0:
@@ -122,7 +125,16 @@ def _fmt_chips_num(val) -> str:
         k = n // 1000
         sign = "+" if n > 0 else ""
         color = "#f87171" if n > 0 else "#4ade80"
-        return f"<span style='color:{color}'>{sign}{k:,}K</span>"
+        text = f"{sign}{k:,}K"
+        if badge_threshold > 0 and abs(n) >= badge_threshold:
+            label = "大買" if n > 0 else "大賣"
+            return (
+                f'<span style="color:{color};background:{"rgba(127,29,29,.18)" if n > 0 else "rgba(6,78,59,.18)"}'
+                f';border:1px solid {"rgba(127,29,29,.5)" if n > 0 else "rgba(6,78,59,.5)"}'
+                f';border-radius:3px;padding:0 4px;font-size:.7rem;font-weight:700">'
+                f'{label}{text}</span>'
+            )
+        return f"<span style='color:{color}'>{text}</span>"
     except (TypeError, ValueError):
         return "<span style='color:#334155'>-</span>"
 
@@ -140,7 +152,7 @@ def _fmt_margin(balance, change) -> str:
         return "-"
 
 
-def _stock_cards(sector_name: str, sectors_df: pd.DataFrame, prices_df: pd.DataFrame, chips_df: pd.DataFrame = None) -> str:
+def _stock_cards(sector_name: str, sectors_df: pd.DataFrame, prices_df: pd.DataFrame, chips_df: pd.DataFrame = None, as_row: bool = True) -> str:
     if sectors_df is None or prices_df is None:
         return ""
     sector_stocks = sectors_df[sectors_df["sector_name"] == sector_name]
@@ -170,16 +182,26 @@ def _stock_cards(sector_name: str, sectors_df: pd.DataFrame, prices_df: pd.DataF
             chips_html = ""
             if sid in chips_map.index:
                 c = chips_map.loc[sid]
-                foreign = _fmt_chips_num(c.get("foreign_net"))
-                trust = _fmt_chips_num(c.get("trust_net"))
+                foreign = _fmt_chips_num(c.get("foreign_net"), _CHIPS_BADGE_MIN)
+                trust = _fmt_chips_num(c.get("trust_net"), _TRUST_BADGE_MIN)
                 margin = _fmt_margin(c.get("margin_balance"), c.get("margin_change"))
+                try:
+                    mc = int(c.get("margin_change", 0) or 0)
+                    mb = int(c.get("margin_balance", 0) or 0)
+                    margin_badge = (
+                        f' <span style="font-size:.65rem;color:#fb923c;background:rgba(124,45,18,.25);'
+                        f'border:1px solid rgba(124,45,18,.5);border-radius:3px;padding:0 4px">↑{mc/mb*100:.1f}%</span>'
+                        if mb > 0 and mc / mb > 0.05 else ""
+                    )
+                except (ZeroDivisionError, TypeError):
+                    margin_badge = ""
                 chips_html = (
                     f'<div class="sc-chips">'
                     f'<span class="chip-label">外資</span>{foreign} '
                     f'<span class="chip-label">投信</span>{trust}'
                     f'</div>'
                     f'<div class="sc-chips">'
-                    f'<span class="chip-label">融資</span>{margin}'
+                    f'<span class="chip-label">融資</span>{margin}{margin_badge}'
                     f'</div>'
                 )
 
@@ -208,11 +230,12 @@ def _stock_cards(sector_name: str, sectors_df: pd.DataFrame, prices_df: pd.DataF
                 f'</div>'
             )
 
+    cards_html = f'<div class="stock-cards-wrap">{"".join(cards)}</div>'
+    if not as_row:
+        return cards_html
     return (
         f'<tr class="detail-row" style="display:none">'
-        f'<td colspan="4">'
-        f'<div class="stock-cards-wrap">{"".join(cards)}</div>'
-        f'</td></tr>'
+        f'<td colspan="4">{cards_html}</td></tr>'
     )
 
 
@@ -237,6 +260,37 @@ def _sector_row(row, sectors_df=None, prices_df=None, chips_df=None, compact=Fal
         f'</tr>'
         + detail
     )
+
+
+def _sector_mini_card(row, card_id: str, sectors_df=None, prices_df=None, chips_df=None) -> tuple:
+    """分組區子族群 mini-card，回傳 (card_html, panel_html)"""
+    pct = row["avg_change_pct"]
+    up, down = int(row["up_count"]), int(row["down_count"])
+    color = _pct_color(pct)
+    bg = _heatmap_bg(pct)
+    sign = "+" if pct >= 0 else ""
+    arrow = "▲" if pct > 0 else ("▼" if pct < 0 else "─")
+
+    detail_inner = _stock_cards(row["sector_name"], sectors_df, prices_df, chips_df, as_row=False)
+    has_detail = bool(detail_inner)
+    onclick = f' onclick="selectMiniCard(\'{card_id}\')"' if has_detail else ""
+
+    card = (
+        f'<div class="sc-mini-card" data-mini="{card_id}"'
+        f' style="border-top:2px solid {color};background:{bg}"{onclick}>'
+        f'<div class="sc-mini-pct" style="color:{color}">{arrow}{sign}{pct:.2f}%</div>'
+        f'<div class="sc-mini-name">{row["sector_name"]}</div>'
+        f'<div class="sc-mini-cnt">'
+        f'<span style="color:#f87171">▲{up}</span> '
+        f'<span style="color:#4ade80">▼{down}</span>'
+        f'</div>'
+        f'</div>'
+    )
+    panel = (
+        f'<div class="sc-mini-panel" id="{card_id}" style="display:none">{detail_inner}</div>'
+        if has_detail else ""
+    )
+    return card, panel
 
 
 def _top10_card(row, rank: int, sectors_df=None, prices_df=None, chips_df=None) -> str:
@@ -303,16 +357,26 @@ def _meta_stock_cards(sub_names: list, sectors_df, prices_df, chips_df=None,
             chips_html = ""
             if sid in chips_map.index:
                 c = chips_map.loc[sid]
-                foreign = _fmt_chips_num(c.get("foreign_net"))
-                trust = _fmt_chips_num(c.get("trust_net"))
+                foreign = _fmt_chips_num(c.get("foreign_net"), _CHIPS_BADGE_MIN)
+                trust = _fmt_chips_num(c.get("trust_net"), _TRUST_BADGE_MIN)
                 margin = _fmt_margin(c.get("margin_balance"), c.get("margin_change"))
+                try:
+                    mc = int(c.get("margin_change", 0) or 0)
+                    mb = int(c.get("margin_balance", 0) or 0)
+                    margin_badge = (
+                        f' <span style="font-size:.65rem;color:#fb923c;background:rgba(124,45,18,.25);'
+                        f'border:1px solid rgba(124,45,18,.5);border-radius:3px;padding:0 4px">↑{mc/mb*100:.1f}%</span>'
+                        if mb > 0 and mc / mb > 0.05 else ""
+                    )
+                except (ZeroDivisionError, TypeError):
+                    margin_badge = ""
                 chips_html = (
                     f'<div class="sc-chips">'
                     f'<span class="chip-label">外資</span>{foreign} '
                     f'<span class="chip-label">投信</span>{trust}'
                     f'</div>'
                     f'<div class="sc-chips">'
-                    f'<span class="chip-label">融資</span>{margin}'
+                    f'<span class="chip-label">融資</span>{margin}{margin_badge}'
                     f'</div>'
                 )
 
@@ -350,7 +414,82 @@ def _meta_stock_cards(sub_names: list, sectors_df, prices_df, chips_df=None,
     )
 
 
-_CUM_THRESHOLD = 15  # 累積排名超過此數字則不顯示 badge
+_CUM_THRESHOLD = 15     # 累積排名超過此數字則不顯示 badge
+_CHIPS_STREAK_MIN = 2   # 外資/投信連買連賣最少幾日才顯示
+
+
+def _chips_summary(meta_name: str, meta_chips: dict) -> str:
+    """籌碼摘要 HTML block，置於展開面板 sparkline 下方。"""
+    c = (meta_chips or {}).get(meta_name)
+    if not c:
+        return ""
+
+    rows = []
+
+    fn = c.get("foreign_net_today", 0)
+    if fn != 0:
+        k = fn // 1000
+        sign = "+" if fn > 0 else ""
+        color = "#f87171" if fn > 0 else "#4ade80"
+        buy_count = c.get("foreign_buy_count", 0)
+        total = c.get("total_stocks", 0)
+        streak = c.get("foreign_streak", 0)
+
+        ratio_html = (
+            f'<span class="cs-sub">買超{buy_count}/{total}股</span>' if fn > 0 and total > 0
+            else (f'<span class="cs-sub">賣超{total - buy_count}/{total}股</span>' if fn < 0 and total > 0 else "")
+        )
+        streak_html = ""
+        if abs(streak) >= _CHIPS_STREAK_MIN:
+            cls = "cs-streak-up" if streak > 0 else "cs-streak-dn"
+            word = f"連買{streak}日" if streak > 0 else f"連賣{abs(streak)}日"
+            streak_html = f'<span class="{cls}">{word}</span>'
+
+        rows.append(
+            f'<div class="cs-row">'
+            f'<span class="cs-label">外資</span>'
+            f'<span style="color:{color};font-weight:700">{sign}{k:,}K</span>'
+            f'{ratio_html}{streak_html}'
+            f'</div>'
+        )
+
+    tn = c.get("trust_net_today", 0)
+    if tn != 0:
+        k = tn // 1000
+        sign = "+" if tn > 0 else ""
+        color = "#f87171" if tn > 0 else "#4ade80"
+        streak = c.get("trust_streak", 0)
+        streak_html = ""
+        if abs(streak) >= _CHIPS_STREAK_MIN:
+            cls = "cs-streak-up" if streak > 0 else "cs-streak-dn"
+            word = f"連買{streak}日" if streak > 0 else f"連賣{abs(streak)}日"
+            streak_html = f'<span class="{cls}">{word}</span>'
+        rows.append(
+            f'<div class="cs-row">'
+            f'<span class="cs-label">投信</span>'
+            f'<span style="color:{color};font-weight:700">{sign}{k:,}K</span>'
+            f'{streak_html}'
+            f'</div>'
+        )
+
+    mc = c.get("margin_change_today", 0)
+    mb = c.get("margin_balance_today", 0)
+    if mc != 0 and mb > 0:
+        pct = mc / mb * 100
+        arrow = "↑" if mc > 0 else "↓"
+        color = "#fb923c" if mc > 0 else "#64748b"
+        alert_html = '<span class="cs-alert">融資擴張</span>' if c.get("margin_alert") else ""
+        rows.append(
+            f'<div class="cs-row">'
+            f'<span class="cs-label">融資</span>'
+            f'<span style="color:{color};font-weight:700">{arrow}{abs(pct):.1f}%</span>'
+            f'{alert_html}'
+            f'</div>'
+        )
+
+    if not rows:
+        return ""
+    return f'<div class="chips-summary">{"".join(rows)}</div>'
 
 
 def _signal_badges(meta_name: str, cum_ranks: dict, meta_signals: dict, today_rank: int) -> str:
@@ -405,7 +544,7 @@ def _signal_badges(meta_name: str, cum_ranks: dict, meta_signals: dict, today_ra
 
 def _meta_card(row: dict, rank: int, card_id: str, sectors_df=None, prices_df=None,
                chips_df=None, universe_df=None, cum_ranks: dict = None,
-               meta_signals: dict = None) -> tuple:
+               meta_signals: dict = None, meta_chips: dict = None) -> tuple:
     """小卡片，回傳 (card_html, panel_html)"""
     pct = row["avg_change_pct"]
     up, down = int(row["up_count"]), int(row["down_count"])
@@ -421,10 +560,11 @@ def _meta_card(row: dict, rank: int, card_id: str, sectors_df=None, prices_df=No
     onclick = f' onclick="selectMeta(\'{card_id}\')"' if detail_inner else ""
     badges = _signal_badges(row["meta_name"], cum_ranks or {}, meta_signals or {}, rank)
 
-    # Sparkline 加在展開面板頂部
+    # Sparkline + 籌碼摘要加在展開面板頂部
     sig = (meta_signals or {}).get(row["meta_name"], {})
     sparkline = _sparkline(sig.get("daily_pct", []), sig.get("dates", []))
-    panel_content = sparkline + detail_inner if (sparkline and detail_inner) else detail_inner
+    chips_sum = _chips_summary(row["meta_name"], meta_chips)
+    panel_content = sparkline + chips_sum + detail_inner if (sparkline or chips_sum or detail_inner) else ""
 
     card = (
         f'<div class="mc-card" data-meta="{card_id}"'
@@ -458,6 +598,7 @@ def generate(
     universe_df: pd.DataFrame = None,
     cum_data: list = None,
     meta_signals: dict = None,
+    meta_chips: dict = None,
     output_path: str = "docs/index.html",
 ) -> None:
     if perf_df.empty and not meta_perf:
@@ -503,12 +644,12 @@ def generate(
 
         top_cards, top_panels = [], []
         for i, r in enumerate(top_source):
-            c, p = _meta_card(r, i+1, f"t{i}", sectors_df, prices_df, chips_df, universe_df, cum_ranks, meta_signals)
+            c, p = _meta_card(r, i+1, f"t{i}", sectors_df, prices_df, chips_df, universe_df, cum_ranks, meta_signals, meta_chips)
             top_cards.append(c); top_panels.append(p)
 
         bot_cards, bot_panels = [], []
         for i, r in enumerate(bot_source):
-            c, p = _meta_card(r, i+1, f"b{i}", sectors_df, prices_df, chips_df, universe_df, cum_ranks, meta_signals)
+            c, p = _meta_card(r, i+1, f"b{i}", sectors_df, prices_df, chips_df, universe_df, cum_ranks, meta_signals, meta_chips)
             bot_cards.append(c); bot_panels.append(p)
 
         top10_block = (
@@ -534,7 +675,7 @@ def generate(
     groups_html = ""
     if not df.empty:
         df["group"] = df["sector_name"].apply(classify_sector)
-    for group_name, _ in (SECTOR_GROUPS if not df.empty else []):
+    for g_idx, (group_name, _) in enumerate(SECTOR_GROUPS if not df.empty else []):
         subset = df[df["group"] == group_name].copy()
         if subset.empty:
             continue
@@ -543,13 +684,12 @@ def generate(
         g_color = _pct_color(avg)
         sign = "+" if avg >= 0 else ""
 
-        preview_rows = "".join(_sector_row(r, sectors_df, prices_df, chips_df) for _, r in subset.head(3).iterrows())
-        rest = subset.iloc[3:]
-        rest_rows = "".join(_sector_row(r, sectors_df, prices_df, chips_df) for _, r in rest.iterrows()) if not rest.empty else ""
-        expand_btn = (
-            f'<button class="expand-btn" onclick="toggleGroup(this)">展開全部（{count}）<span style="font-size:.8rem">⌄</span></button>'
-            if not rest.empty else ""
-        )
+        mini_cards, mini_panels = [], []
+        for s_idx, (_, r) in enumerate(subset.iterrows()):
+            cid = f"sg{g_idx}s{s_idx}"
+            mc, mp = _sector_mini_card(r, cid, sectors_df, prices_df, chips_df)
+            mini_cards.append(mc)
+            mini_panels.append(mp)
 
         groups_html += f"""
 <details class="group-block">
@@ -559,12 +699,8 @@ def generate(
     <span class="g-avg" style="color:{g_color}">{sign}{avg:.2f}%</span>
     <span class="g-count">{count} 族群</span>
   </summary>
-  <table class="sector-table">
-    <thead><tr><th>族群</th><th>漲跌幅</th><th>漲跌平</th><th>分布</th></tr></thead>
-    <tbody class="preview-rows">{preview_rows}</tbody>
-    <tbody class="rest-rows" style="display:none">{rest_rows}</tbody>
-  </table>
-  {f'<div class="group-footer">{expand_btn}</div>' if expand_btn else ''}
+  <div class="sc-mini-grid">{"".join(mini_cards)}</div>
+  {"".join(mini_panels)}
 </details>"""
 
     html = f"""<!DOCTYPE html>
@@ -599,6 +735,15 @@ def generate(
     .vol-spike{{color:#fb923c;background:rgba(124,45,18,.25);border-color:rgba(124,45,18,.5);font-weight:700}}
     /* Sparkline */
     .sparkline-wrap{{padding:8px 0 4px;overflow-x:auto;margin-bottom:8px}}
+
+    /* 籌碼摘要（展開面板頂部）*/
+    .chips-summary{{background:#0a0e18;border:1px solid #1e293b;border-radius:6px;padding:8px 12px;margin-bottom:8px}}
+    .cs-row{{display:flex;align-items:center;gap:8px;font-size:.75rem;line-height:2}}
+    .cs-label{{color:#475569;font-size:.65rem;text-transform:uppercase;letter-spacing:.05em;min-width:28px}}
+    .cs-sub{{color:#475569;font-size:.65rem}}
+    .cs-streak-up{{font-size:.65rem;color:#f87171;background:rgba(127,29,29,.18);border:1px solid rgba(127,29,29,.4);border-radius:3px;padding:0 5px}}
+    .cs-streak-dn{{font-size:.65rem;color:#4ade80;background:rgba(6,78,59,.18);border:1px solid rgba(6,78,59,.4);border-radius:3px;padding:0 5px}}
+    .cs-alert{{font-size:.65rem;color:#fb923c;background:rgba(124,45,18,.25);border:1px solid rgba(124,45,18,.5);border-radius:3px;padding:0 5px;font-weight:700}}
 
     /* Top10 小卡片 */
     .top-section{{margin-bottom:24px}}
@@ -660,8 +805,7 @@ def generate(
 
     /* Groups */
     .section-bar{{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}}
-    .groups-grid{{display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:start}}
-    @media(max-width:900px){{.groups-grid{{grid-template-columns:1fr}}}}
+    .groups-grid{{display:grid;grid-template-columns:1fr;gap:8px}}
     .section-title{{font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;color:#475569}}
     .collapse-all-btn{{background:none;border:1px solid #1e293b;color:#475569;padding:4px 12px;border-radius:6px;cursor:pointer;font-size:.75rem;transition:all .15s}}
     .collapse-all-btn:hover{{border-color:#334155;color:#94a3b8}}
@@ -673,10 +817,17 @@ def generate(
     .g-name{{font-weight:600;color:#e2e8f0;flex:1;font-size:.9rem}}
     .g-avg{{font-weight:800;font-size:1rem}}
     .g-count{{font-size:.72rem;color:#334155}}
-    .sector-table td,.sector-table th{{padding:8px 16px}}
-    .group-footer{{padding:8px 16px;text-align:right;background:#0b0f18}}
-    .expand-btn{{background:none;border:1px solid #1e293b;color:#475569;padding:5px 14px;border-radius:6px;cursor:pointer;font-size:.78rem;transition:all .15s}}
-    .expand-btn:hover{{border-color:#334155;color:#94a3b8}}
+
+    /* Sub-sector mini-card grid */
+    .sc-mini-grid{{display:grid;grid-template-columns:repeat(5,1fr);gap:4px;padding:10px 12px}}
+    @media(max-width:900px){{.sc-mini-grid{{grid-template-columns:repeat(4,1fr)}}}}
+    @media(max-width:540px){{.sc-mini-grid{{grid-template-columns:repeat(3,1fr)}}}}
+    .sc-mini-card{{padding:6px 8px;border-radius:6px;border:1px solid #1e293b;cursor:pointer;transition:filter .12s}}
+    .sc-mini-card:hover,.sc-mini-card.active{{filter:brightness(1.18);border-color:#475569}}
+    .sc-mini-pct{{font-size:.78rem;font-weight:800;white-space:nowrap}}
+    .sc-mini-name{{font-size:.62rem;color:#94a3b8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin:2px 0}}
+    .sc-mini-cnt{{font-size:.58rem;color:#64748b}}
+    .sc-mini-panel{{background:#070b12;border:1px solid #1e293b;border-radius:8px;padding:12px 16px;margin:0 12px 10px}}
 
     .footer{{margin-top:28px;font-size:.7rem;color:#1e293b;text-align:center;padding-bottom:20px}}
 
@@ -693,11 +844,11 @@ def generate(
       .top-pct{{padding:10px 10px 10px 4px}}
       .top-name{{font-size:.82rem;max-width:none}}
 
-      /* 族群表: 隱藏分布欄，漲跌平縮小 */
-      .bar-cell{{display:none}}
-      th:last-child{{display:none}}
-      .cnt{{font-size:.72rem}}
-      .sector-table td,.sector-table th{{padding:7px 10px}}
+      /* MC 卡片: 改 2 欄，縮小 padding */
+      .mc-grid{{grid-template-columns:repeat(2,1fr)}}
+      .mc-card{{padding:6px 8px}}
+      .mc-pct{{font-size:.78rem}}
+      .mc-name{{font-size:.65rem}}
 
       /* 個股 card: 固定2欄 */
       .stock-cards-wrap{{grid-template-columns:1fr 1fr;gap:8px}}
@@ -709,6 +860,8 @@ def generate(
       .g-name{{font-size:.85rem}}
       .g-avg{{font-size:.9rem}}
       .g-count{{display:none}}
+      .sc-mini-grid{{grid-template-columns:repeat(3,1fr)}}
+      .sc-mini-panel{{margin:0 6px 8px}}
     }}
   </style>
 </head>
@@ -752,22 +905,26 @@ def generate(
       next.style.display = open ? 'none' : '';
       row.classList.toggle('open', !open);
     }}
-    function toggleGroup(btn) {{
-      const rest = btn.closest('.group-block').querySelector('.rest-rows');
-      const open = rest.style.display !== 'none';
-      rest.style.display = open ? 'none' : '';
-      btn.innerHTML = open ? '展開全部 <span style="font-size:.8rem">⌄</span>' : '收合 <span style="font-size:.8rem">⌃</span>';
+    function selectMiniCard(id) {{
+      const panel = document.getElementById(id);
+      const isOpen = panel && panel.style.display !== 'none';
+      const card = document.querySelector('[data-mini="' + id + '"]');
+      const group = card ? card.closest('details') : null;
+      if (group) {{
+        group.querySelectorAll('.sc-mini-panel').forEach(p => p.style.display = 'none');
+        group.querySelectorAll('.sc-mini-card').forEach(c => c.classList.remove('active'));
+      }}
+      if (!isOpen && panel) {{
+        panel.style.display = '';
+        if (card) card.classList.add('active');
+      }}
     }}
     function collapseAll() {{
-      // 收合所有 <details> 分組
       document.querySelectorAll('details.group-block').forEach(d => d.open = false);
-      // 收合所有展開的個股
       document.querySelectorAll('.detail-row').forEach(r => r.style.display = 'none');
       document.querySelectorAll('.clickable-sector.open').forEach(r => r.classList.remove('open'));
-      // 重置展開按鈕文字
-      document.querySelectorAll('.expand-btn').forEach(btn => {{
-        btn.innerHTML = btn.innerHTML.replace('收合', '展開全部').replace('⌃', '⌄');
-      }});
+      document.querySelectorAll('.sc-mini-panel').forEach(p => p.style.display = 'none');
+      document.querySelectorAll('.sc-mini-card.active').forEach(c => c.classList.remove('active'));
     }}
   </script>
 </body>

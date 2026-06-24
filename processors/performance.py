@@ -276,3 +276,131 @@ def calc_meta_signals(
         }
 
     return signals
+
+
+def calc_meta_chips_signals(
+    universe_df: pd.DataFrame,
+    db_path: str = "data/screener.db",
+    lookback: int = 10,
+) -> Dict[str, Dict[str, Any]]:
+    """
+    從 DuckDB institutional + margin 歷史計算 META 層級籌碼訊號。
+    回傳 {meta_name: {
+        foreign_net_today, trust_net_today,  # 今日合計（原始股數）
+        foreign_buy_count, total_stocks,
+        foreign_buy_ratio,                    # 外資買超股數 / META 總股數
+        foreign_streak,                       # 正=連買天數, 負=連賣
+        trust_streak,
+        margin_change_today, margin_balance_today,
+        margin_alert,                         # bool
+    }}
+    """
+    try:
+        con = duckdb.connect(db_path, read_only=True)
+        dates_df = con.execute(
+            "SELECT DISTINCT date FROM institutional ORDER BY date DESC LIMIT ?",
+            [lookback],
+        ).fetchdf()
+        if dates_df.empty:
+            con.close()
+            return {}
+        min_date = dates_df["date"].min()
+        inst_df = con.execute(
+            "SELECT stock_id, date, foreign_net, trust_net FROM institutional WHERE date >= ?",
+            [min_date],
+        ).fetchdf()
+        margin_df = con.execute(
+            "SELECT stock_id, date, margin_balance, margin_change FROM margin WHERE date >= ?",
+            [min_date],
+        ).fetchdf()
+        con.close()
+    except Exception:
+        return {}
+
+    if inst_df.empty:
+        return {}
+
+    universe = universe_df[["stock_id", "meta_sector"]].copy()
+    universe["stock_id"] = universe["stock_id"].astype(str)
+    inst_df["stock_id"] = inst_df["stock_id"].astype(str)
+
+    inst_merged = inst_df.merge(universe, on="stock_id", how="inner")
+    inst_merged = inst_merged.dropna(subset=["foreign_net", "meta_sector"])
+    if inst_merged.empty:
+        return {}
+
+    all_dates = sorted(inst_merged["date"].unique().tolist())
+    today = all_dates[-1]
+    today_inst = inst_merged[inst_merged["date"] == today]
+
+    foreign_pivot = (
+        inst_merged.groupby(["meta_sector", "date"])["foreign_net"].sum()
+        .unstack(level="date").reindex(columns=all_dates).fillna(0)
+    )
+    trust_pivot = (
+        inst_merged.groupby(["meta_sector", "date"])["trust_net"].sum()
+        .unstack(level="date").reindex(columns=all_dates).fillna(0)
+    )
+
+    margin_by_meta: Dict[str, Any] = {}
+    if not margin_df.empty:
+        margin_df["stock_id"] = margin_df["stock_id"].astype(str)
+        margin_merged = margin_df.merge(universe, on="stock_id", how="inner")
+        today_margin = margin_merged[margin_merged["date"] == today]
+        if not today_margin.empty:
+            for meta_name, grp in today_margin.groupby("meta_sector"):
+                mc = int(grp["margin_change"].sum())
+                mb = int(grp["margin_balance"].sum())
+                margin_by_meta[meta_name] = {
+                    "margin_change_today": mc,
+                    "margin_balance_today": mb,
+                    "margin_alert": mb > 0 and mc / mb > 0.05,
+                }
+
+    meta_stock_count = universe.groupby("meta_sector")["stock_id"].count().to_dict()
+
+    def _streak(vals: list) -> int:
+        if not vals:
+            return 0
+        today_dir = 1 if vals[-1] > 0 else (-1 if vals[-1] < 0 else 0)
+        if today_dir == 0:
+            return 0
+        count = 1
+        for v in reversed(vals[:-1]):
+            d = 1 if v > 0 else (-1 if v < 0 else 0)
+            if d == today_dir:
+                count += 1
+            else:
+                break
+        return count * today_dir
+
+    signals: Dict[str, Dict[str, Any]] = {}
+    for meta_name in foreign_pivot.index:
+        f_row = foreign_pivot.loc[meta_name]
+        t_row = trust_pivot.loc[meta_name]
+
+        foreign_net_today = int(f_row.get(today, 0))
+        trust_net_today = int(t_row.get(today, 0))
+
+        meta_today = today_inst[today_inst["meta_sector"] == meta_name]
+        total_stocks = meta_stock_count.get(meta_name, 1)
+        buy_count = int((meta_today["foreign_net"] > 0).sum())
+
+        foreign_streak = _streak([float(f_row.get(d, 0)) for d in all_dates])
+        trust_streak = _streak([float(t_row.get(d, 0)) for d in all_dates])
+
+        m = margin_by_meta.get(meta_name, {})
+        signals[meta_name] = {
+            "foreign_net_today": foreign_net_today,
+            "trust_net_today": trust_net_today,
+            "foreign_buy_count": buy_count,
+            "total_stocks": total_stocks,
+            "foreign_buy_ratio": round(buy_count / total_stocks, 2) if total_stocks > 0 else 0,
+            "foreign_streak": foreign_streak,
+            "trust_streak": trust_streak,
+            "margin_change_today": m.get("margin_change_today", 0),
+            "margin_balance_today": m.get("margin_balance_today", 0),
+            "margin_alert": m.get("margin_alert", False),
+        }
+
+    return signals

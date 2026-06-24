@@ -9,8 +9,9 @@ from pathlib import Path
 from scrapers.moneydj import scrape_industry_sectors
 from scrapers.finmind import fetch_prices_for_stocks
 from scrapers.chips import fetch_institutional, fetch_margin_all_today
+from scrapers.backfill import backfill_prices, backfill_twse_monthly
 from processors.changes import detect_changes
-from processors.performance import calc_sector_performance, calc_meta_performance, calc_universe_performance, calc_cumulative_meta, calc_meta_signals
+from processors.performance import calc_sector_performance, calc_meta_performance, calc_universe_performance, calc_cumulative_meta, calc_meta_signals, calc_meta_chips_signals
 from storage.csv_writer import CsvWriter
 from export.html_generator import generate as generate_html
 from screener.database import init_db, import_csv_prices, import_sector_stocks, get_chips_today
@@ -53,7 +54,7 @@ def _update_chips_db(trade_date: date, stock_ids: list) -> None:
         logger.warning("三大法人寫入失敗: %s", exc)
 
     try:
-        margin_df = fetch_margin_all_today(trade_date, stock_ids[:50])  # 先抓前50支測試
+        margin_df = fetch_margin_all_today(trade_date, stock_ids[:50])
         if not margin_df.empty:
             import duckdb
             con = duckdb.connect("data/screener.db")
@@ -77,6 +78,39 @@ def _push_html(trade_date: date) -> None:
             logger.info("No HTML changes to push.")
     except Exception as exc:
         logger.warning("Git push failed: %s", exc)
+
+
+def backfill(days: int = 180) -> None:
+    """歷史行情補齊 — 用 FinMind 逐股抓，約 15 分鐘（每日 600 次上限）"""
+    if not UNIVERSE_PATH.exists():
+        logger.error("找不到 stock_universe.csv，請先確認資料目錄。")
+        return
+    from scrapers.chips import FINMIND_TOKEN
+    universe_df = pd.read_csv(UNIVERSE_PATH, encoding="utf-8-sig", dtype={"stock_id": str})
+    stock_ids = universe_df["stock_id"].tolist()
+    logger.info("=== 歷史行情補齊（FinMind，往前 %d 日曆天）===", days)
+    n = backfill_prices(stock_ids, token=FINMIND_TOKEN, days=days)
+    if n > 0:
+        init_db()
+        imported = import_csv_prices()
+        logger.info("DuckDB 更新：共 %d 筆", imported)
+    logger.info("=== 補齊完成，共寫入 %d 日 ===", n)
+
+
+def backfill_twse(months: int = 6) -> None:
+    """TWSE 逐日全市場補齊 — 不受 FinMind quota 限制（覆蓋 TWSE 上市股）"""
+    if not UNIVERSE_PATH.exists():
+        logger.error("找不到 stock_universe.csv，請先確認資料目錄。")
+        return
+    universe_df = pd.read_csv(UNIVERSE_PATH, encoding="utf-8-sig", dtype={"stock_id": str})
+    stock_ids = universe_df["stock_id"].tolist()
+    logger.info("=== TWSE 月別補齊（往前 %d 個月）===", months)
+    n = backfill_twse_monthly(stock_ids, months=months)
+    if n > 0:
+        init_db()
+        imported = import_csv_prices()
+        logger.info("DuckDB 更新：共 %d 筆", imported)
+    logger.info("=== 補齊完成，共寫入/更新 %d 日 ===", n)
 
 
 def update_sectors(limit: int = None) -> None:
@@ -194,6 +228,7 @@ def run(trade_date: date = None) -> None:
 
         cum_data = calc_cumulative_meta(universe_df) if universe_df is not None else []
         meta_signals = calc_meta_signals(universe_df) if universe_df is not None else {}
+        meta_chips = calc_meta_chips_signals(universe_df) if universe_df is not None else {}
         generate_html(trade_date, pd.DataFrame(perf) if perf else pd.DataFrame(),
                       sectors_df=sectors_df,
                       prices_df=prices_df if prices_df is not None else pd.DataFrame(),
@@ -201,7 +236,8 @@ def run(trade_date: date = None) -> None:
                       meta_perf=meta_perf,
                       universe_df=universe_df,
                       cum_data=cum_data,
-                      meta_signals=meta_signals)
+                      meta_signals=meta_signals,
+                      meta_chips=meta_chips)
         logger.info("HTML generated → docs/index.html")
         _push_html(trade_date)
 
@@ -214,9 +250,17 @@ if __name__ == "__main__":
                         help="Re-scrape MoneyDJ sectors (~15 min). Run weekly.")
     parser.add_argument("--limit", type=int, default=None,
                         help="Limit sectors for testing (use with --update-sectors)")
+    parser.add_argument("--backfill", type=int, default=0, metavar="DAYS",
+                        help="FinMind 補齊過去 N 日曆天歷史行情（每日 600 次上限）")
+    parser.add_argument("--backfill-twse", type=int, default=0, metavar="MONTHS",
+                        help="TWSE 逐日補齊過去 N 個月歷史行情（無 FinMind quota，建議 6）")
     args = parser.parse_args()
 
     if args.update_sectors:
         update_sectors(limit=args.limit)
+    elif args.backfill:
+        backfill(days=args.backfill)
+    elif args.backfill_twse:
+        backfill_twse(months=args.backfill_twse)
     else:
         run()

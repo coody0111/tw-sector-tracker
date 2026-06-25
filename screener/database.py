@@ -107,6 +107,9 @@ def import_csv_prices() -> int:
     if raw.empty:
         return 0
 
+    # 去重：同一 (stock_id, date) 保留最後一筆
+    raw = raw.drop_duplicates(subset=["stock_id", "date"], keep="last")
+
     # Upsert：先刪同一 (stock_id, date)，再插入
     con.execute("DELETE FROM daily_prices WHERE (stock_id, date) IN (SELECT stock_id, date FROM raw)")
     con.execute("INSERT INTO daily_prices SELECT * FROM raw")

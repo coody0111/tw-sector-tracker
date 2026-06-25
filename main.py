@@ -3,7 +3,7 @@ import logging
 import subprocess
 import sys
 import pandas as pd
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 from scrapers.moneydj import scrape_industry_sectors
@@ -22,6 +22,14 @@ from screener.signals import scan_volume_turnover
 from screener.backtest import run_backtest, print_summary as print_backtest_summary
 
 UNIVERSE_PATH = Path("data/stock_universe.csv")
+
+
+def _prev_trading_day(d: date) -> date:
+    """回前一個交易日（跳過週末，不處理國定假日）。"""
+    d -= timedelta(days=1)
+    while d.weekday() >= 5:
+        d -= timedelta(days=1)
+    return d
 
 LOG_DIR = Path("logs")
 LOG_DIR.mkdir(exist_ok=True)
@@ -47,26 +55,38 @@ def _update_chips_db(trade_date: date, stock_ids: list) -> None:
         logger.warning("DuckDB 行情匯入失敗: %s", exc)
 
     try:
-        inst_df = fetch_institutional(trade_date)
+        inst_date = trade_date
+        try:
+            inst_df = fetch_institutional(inst_date)
+        except ValueError:
+            inst_date = _prev_trading_day(trade_date)
+            logger.info("三大法人今日尚未發布，改抓前一交易日 %s", inst_date)
+            inst_df = fetch_institutional(inst_date)
         if not inst_df.empty:
             import duckdb
             con = duckdb.connect("data/screener.db")
-            con.execute("DELETE FROM institutional WHERE date = ?", [trade_date.isoformat()])
+            con.execute("DELETE FROM institutional WHERE date = ?", [inst_date.isoformat()])
             con.execute("INSERT INTO institutional SELECT * FROM inst_df")
             con.close()
-            logger.info("三大法人寫入 %d 筆", len(inst_df))
+            logger.info("三大法人寫入 %d 筆（%s）", len(inst_df), inst_date)
     except Exception as exc:
         logger.warning("三大法人寫入失敗: %s", exc)
 
     try:
-        margin_df = fetch_margin_all_twse(trade_date)
+        marg_date = trade_date
+        try:
+            margin_df = fetch_margin_all_twse(marg_date)
+        except ValueError:
+            marg_date = _prev_trading_day(trade_date)
+            logger.info("融資融券今日尚未發布，改抓前一交易日 %s", marg_date)
+            margin_df = fetch_margin_all_twse(marg_date)
         if not margin_df.empty:
             import duckdb
             con = duckdb.connect("data/screener.db")
-            con.execute("DELETE FROM margin WHERE date = ?", [trade_date.isoformat()])
+            con.execute("DELETE FROM margin WHERE date = ?", [marg_date.isoformat()])
             con.execute("INSERT INTO margin SELECT * FROM margin_df")
             con.close()
-            logger.info("融資融券寫入 %d 筆", len(margin_df))
+            logger.info("融資融券寫入 %d 筆（%s）", len(margin_df), marg_date)
     except Exception as exc:
         logger.warning("融資融券寫入失敗: %s", exc)
 

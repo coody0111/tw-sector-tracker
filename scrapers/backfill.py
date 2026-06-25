@@ -45,17 +45,27 @@ _CONSECUTIVE_FAIL_LIMIT = 30
 _csv_lock = threading.Lock()
 
 
-def _merge_into_csv(path: Path, new_rows: list) -> bool:
-    """把 new_rows merge 進 path 的 CSV（只加入 path 裡尚未有的 stock_id）。回傳是否有寫入。"""
+def _merge_into_csv(path: Path, new_rows: list, overwrite: bool = False) -> bool:
+    """把 new_rows merge 進 path 的 CSV。
+    overwrite=False（預設）：只加入尚未有的 stock_id。
+    overwrite=True：新資料覆蓋已有的同 stock_id，其餘保留。
+    回傳是否有寫入。
+    """
     new_df = pd.DataFrame(new_rows)
     with _csv_lock:
         if path.exists():
             old_df = pd.read_csv(path, dtype={"stock_id": str})
-            existing_ids = set(old_df["stock_id"].astype(str))
-            to_add = new_df[~new_df["stock_id"].astype(str).isin(existing_ids)]
-            if to_add.empty:
-                return False
-            merged = pd.concat([old_df, to_add], ignore_index=True)
+            if overwrite:
+                updated_ids = set(new_df["stock_id"].astype(str))
+                old_rest = old_df[~old_df["stock_id"].astype(str).isin(updated_ids)]
+                merged = pd.concat([old_rest, new_df], ignore_index=True)
+                merged = merged.drop_duplicates(subset=["stock_id"], keep="last")
+            else:
+                existing_ids = set(old_df["stock_id"].astype(str))
+                to_add = new_df[~new_df["stock_id"].astype(str).isin(existing_ids)]
+                if to_add.empty:
+                    return False
+                merged = pd.concat([old_df, to_add], ignore_index=True)
         else:
             merged = new_df
         merged.to_csv(path, index=False, encoding="utf-8-sig")
@@ -158,68 +168,59 @@ def backfill_twse_monthly(
     stock_ids: List[str],
     months: int = 6,
     output_dir: str = "data/daily_prices",
-    workers: int = 5,
-    sleep_sec: float = 0.25,
+    workers: int = 8,
     today: date = None,
 ) -> int:
     """
-    TWSE STOCK_DAY_ALL 逐日補齊（不受 FinMind 速率限制）。
-    每個交易日抓一次上市全市場，再依 universe 過濾；TPEx 交給 FinMind 補。
+    TWSE STOCK_DAY 逐股月別補齊（正確回傳每日歷史行情，不受 FinMind quota 限制）。
+    對每支股票呼叫 per-stock STOCK_DAY endpoint，覆蓋舊有錯誤資料。
     回傳：寫入或更新的日期數。
     """
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
     today = today or date.today()
-    start_date = _first_month_start(today, months)
-    trade_days = list(_iter_weekdays(start_date, today))
-    stock_set = {str(sid).strip() for sid in stock_ids}
+    start = _first_month_start(today, months)
+
+    # 產生月份起始日清單
+    month_starts = []
+    cur = start
+    while cur <= today:
+        month_starts.append(cur)
+        if cur.month == 12:
+            cur = date(cur.year + 1, 1, 1)
+        else:
+            cur = date(cur.year, cur.month + 1, 1)
+
     total = len(stock_ids)
     logger.info(
-        "TWSE 全市場逐日補齊：%s ~ %s，%d 個工作日，universe %d 支",
-        start_date.isoformat(), today.isoformat(), len(trade_days), total,
+        "TWSE per-stock 月別補齊：%d 支股票，%d 個月（%s ~ %s）",
+        total, len(month_starts), start.isoformat(), today.isoformat(),
     )
 
+    day_rows: dict = defaultdict(list)
+    done = 0
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = {executor.submit(_fetch_stock_months, sid, month_starts): sid
+                   for sid in stock_ids}
+        for fut in as_completed(futures):
+            try:
+                _, rows, _ = fut.result()
+                for r in rows:
+                    day_rows[r["_date"]].append(r)
+            except Exception as exc:
+                logger.debug("fetch error: %s", exc)
+            done += 1
+            if done % 100 == 0 or done == total:
+                logger.info("  [%d/%d] 已取得資料", done, total)
+
     written = 0
-    ok_days = 0
-    skip_days = 0
-    for i, trade_day in enumerate(trade_days, 1):
-        d_str = trade_day.isoformat()
-        try:
-            df = fetch_twse_daily_prices(trade_day)
-            if df.empty:
-                skip_days += 1
-                continue
-
-            df = df.copy()
-            df["stock_id"] = df["stock_id"].astype(str).str.strip()
-            if stock_set:
-                df = df[df["stock_id"].isin(stock_set)]
-            if df.empty:
-                skip_days += 1
-                continue
-
-            keep_cols = ["stock_id", "stock_name", "close", "change", "change_pct", "volume"]
-            rows = df[[c for c in keep_cols if c in df.columns]].to_dict("records")
-        except Exception as exc:
-            skip_days += 1
-            logger.warning("  [%d/%d] %s 跳過：%s", i, len(trade_days), d_str, exc)
-            time.sleep(sleep_sec)
-            continue
-
-        if _merge_into_csv(output_path / f"{d_str}.csv", rows):
+    for d_str, rows in sorted(day_rows.items()):
+        if _merge_into_csv(output_path / f"{d_str}.csv", rows, overwrite=True):
             written += 1
-        ok_days += 1
 
-        if i % 10 == 0 or i == len(trade_days):
-            logger.info(
-                "  [%d/%d] %s 取得 %d 筆，已更新 %d 日，跳過 %d 日",
-                i, len(trade_days), d_str, len(rows), written, skip_days,
-            )
-
-        time.sleep(sleep_sec)
-
-    logger.info("TWSE 補齊完成：成功 %d 日，跳過 %d 日，寫入/更新 %d 日", ok_days, skip_days, written)
+    logger.info("TWSE per-stock 補齊完成：寫入/更新 %d 日", written)
     return written
 
 

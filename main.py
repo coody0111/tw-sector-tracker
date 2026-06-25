@@ -10,7 +10,7 @@ from scrapers.moneydj import scrape_industry_sectors
 from scrapers.finmind import fetch_prices_for_stocks
 from scrapers.realtime import fetch_realtime_prices
 from scrapers.chips import fetch_institutional, fetch_margin_all_today
-from scrapers.backfill import backfill_prices, backfill_twse_monthly
+from scrapers.backfill import backfill_prices, backfill_twse_monthly, backfill_institutional
 from processors.changes import detect_changes
 from processors.performance import calc_sector_performance, calc_meta_performance, calc_universe_performance, calc_cumulative_meta, calc_meta_signals, calc_meta_chips_signals, calc_stock_sparklines, get_stock_chips_ranking
 from storage.csv_writer import CsvWriter
@@ -113,6 +113,13 @@ def backfill_twse(months: int = 6) -> None:
         imported = import_csv_prices()
         logger.info("DuckDB 更新：共 %d 筆", imported)
     logger.info("=== 補齊完成，共寫入/更新 %d 日 ===", n)
+
+
+def backfill_inst(days: int = 60) -> None:
+    """補齊過去 N 個工作日的三大法人資料（TWSE T86，每日一次 API）"""
+    logger.info("=== 法人資料補齊（往前 %d 個工作日）===", days)
+    n = backfill_institutional(days=days)
+    logger.info("=== 法人補齊完成，共寫入 %d 個交易日 ===", n)
 
 
 def update_sectors(limit: int = None) -> None:
@@ -271,6 +278,8 @@ if __name__ == "__main__":
                         help="FinMind 補齊過去 N 日曆天歷史行情（每日 600 次上限）")
     parser.add_argument("--backfill-twse", type=int, default=0, metavar="MONTHS",
                         help="TWSE 逐日補齊過去 N 個月歷史行情（無 FinMind quota，建議 6）")
+    parser.add_argument("--backfill-institutional", type=int, default=0, metavar="DAYS",
+                        help="TWSE T86 補齊過去 N 個工作日三大法人資料（建議 60）")
     parser.add_argument("--realtime", action="store_true",
                         help="使用盤中即時行情（mis.twse.com.tw），適合 9:00~13:30 盤中使用")
     args = parser.parse_args()
@@ -281,5 +290,7 @@ if __name__ == "__main__":
         backfill(days=args.backfill)
     elif args.backfill_twse:
         backfill_twse(months=args.backfill_twse)
+    elif args.backfill_institutional:
+        backfill_inst(days=args.backfill_institutional)
     else:
         run(realtime=args.realtime)

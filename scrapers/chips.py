@@ -39,6 +39,8 @@ def fetch_institutional(trade_date: date) -> pd.DataFrame:
 
     rows = []
     for row in data["data"]:
+        if len(row) < 19:  # T86 偶爾回傳欄位不足的列，直接跳過
+            continue
         rows.append({
             "stock_id":    str(row[0]).strip(),
             "date":        trade_date.isoformat(),

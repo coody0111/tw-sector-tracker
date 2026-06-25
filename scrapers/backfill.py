@@ -2,12 +2,14 @@
 歷史行情補齊
 
 兩種方式：
-  1. backfill_twse_monthly()  — TWSE STOCK_DAY 逐股月別（不受速率限制，覆蓋 TWSE 上市股）
-  2. backfill_prices()        — FinMind TaiwanStockPrice（涵蓋 TWSE + TPEx，每日 600 次上限）
+  1. backfill_twse_monthly()     — TWSE STOCK_DAY 逐股月別（不受速率限制，覆蓋 TWSE 上市股）
+  2. backfill_prices()           — FinMind TaiwanStockPrice（涵蓋 TWSE + TPEx，每日 600 次上限）
+  3. backfill_institutional()    — TWSE T86 逐日三大法人（每日一次 API，速度快）
 
 建議流程：
   先跑 backfill_twse_monthly（約 2 小時），覆蓋大多數 TWSE 股票；
-  再跑 backfill_prices 補齊 FinMind 才有的 TPEx 股票（明日 quota 重置後）。
+  再跑 backfill_prices 補齊 FinMind 才有的 TPEx 股票（明日 quota 重置後）；
+  跑 backfill_institutional 補齊過去法人籌碼（建議 60 天）。
 """
 import logging
 import time
@@ -310,4 +312,79 @@ def backfill_prices(
             written += 1
 
     logger.info("寫入/更新 %d 個日期的 CSV", written)
+    return written
+
+
+def backfill_institutional(
+    days: int = 60,
+    db_path: str = "data/screener.db",
+    sleep_sec: float = 0.8,
+    today: date = None,
+) -> int:
+    """
+    補齊過去 N 個工作日的 TWSE 三大法人資料（T86 API）。
+    已有資料的日期會跳過，只補缺漏。
+    回傳：成功寫入的交易日數。
+    """
+    from scrapers.chips import fetch_institutional
+    import duckdb
+
+    today = today or date.today()
+    start_date = today - timedelta(days=days)
+    trade_days = list(_iter_weekdays(start_date, today))
+
+    # 查詢 DB 中已有哪些日期
+    try:
+        con = duckdb.connect(db_path)
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS institutional (
+                stock_id    VARCHAR,
+                date        DATE,
+                foreign_net BIGINT,
+                trust_net   BIGINT,
+                dealer_net  BIGINT,
+                total_net   BIGINT,
+                PRIMARY KEY (stock_id, date)
+            )
+        """)
+        existing_rows = con.execute("SELECT DISTINCT date FROM institutional").df()
+        con.close()
+        existing_dates = set(existing_rows["date"].astype(str).tolist()) if not existing_rows.empty else set()
+    except Exception as exc:
+        logger.warning("無法讀取現有法人資料: %s", exc)
+        existing_dates = set()
+
+    logger.info(
+        "法人補齊：%s ~ %s（%d 工作日），已有 %d 日，需補 %d 日",
+        start_date.isoformat(), today.isoformat(),
+        len(trade_days), len(existing_dates),
+        len([d for d in trade_days if d.isoformat() not in existing_dates]),
+    )
+
+    written = 0
+    for i, trade_day in enumerate(trade_days, 1):
+        d_str = trade_day.isoformat()
+        if d_str in existing_dates:
+            continue
+
+        try:
+            inst_df = fetch_institutional(trade_day)
+            if inst_df.empty:
+                logger.debug("  %s 無資料（非交易日或尚未發布），跳過", d_str)
+                time.sleep(sleep_sec)
+                continue
+
+            con = duckdb.connect(db_path)
+            con.execute("DELETE FROM institutional WHERE date = ?", [d_str])
+            con.execute("INSERT INTO institutional SELECT * FROM inst_df")
+            con.close()
+            written += 1
+            logger.info("  [%d/%d] %s 寫入 %d 筆", i, len(trade_days), d_str, len(inst_df))
+
+        except Exception as exc:
+            logger.warning("  [%d/%d] %s 失敗: %s", i, len(trade_days), d_str, exc)
+
+        time.sleep(sleep_sec)
+
+    logger.info("法人補齊完成：成功寫入 %d 個交易日", written)
     return written

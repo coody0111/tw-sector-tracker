@@ -605,9 +605,13 @@ def _vol_turnover_section(signals: list) -> str:
             else f"<span style='color:#4ade80;font-size:.72rem'>{f_net//1000:,}K</span>" if f_net and f_net < 0
             else "<span style='color:#475569;font-size:.72rem'>─</span>"
         )
+        stock_name = s.get("stock_name", "")
         rows_html += (
             f"<tr>"
-            f"<td style='color:#94a3b8;font-size:.72rem;font-weight:700'>{sid}</td>"
+            f"<td style='white-space:nowrap'>"
+            f"<span style='color:#475569;font-size:.7rem;font-weight:600'>{sid}</span>"
+            f"<span style='color:#94a3b8;font-size:.78rem;margin-left:5px'>{stock_name}</span>"
+            f"</td>"
             f"<td style='color:{chg_color};font-weight:700'>{sign}{chg:.2f}%</td>"
             f"<td style='color:#60a5fa;font-weight:700'>{s['vol_multiple']}x</td>"
             f"<td>{f_html}</td>"
@@ -621,7 +625,7 @@ def _vol_turnover_section(signals: list) -> str:
   </div>
   <table style='width:100%;border-collapse:collapse'>
     <thead><tr>
-      <th style='text-align:left;padding:4px 8px;font-size:.65rem;color:#334155;border-bottom:1px solid #1e293b'>代號</th>
+      <th style='text-align:left;padding:4px 8px;font-size:.65rem;color:#334155;border-bottom:1px solid #1e293b'>代號 / 名稱</th>
       <th style='text-align:left;padding:4px 8px;font-size:.65rem;color:#334155;border-bottom:1px solid #1e293b'>今日漲跌</th>
       <th style='text-align:left;padding:4px 8px;font-size:.65rem;color:#334155;border-bottom:1px solid #1e293b'>量倍數</th>
       <th style='text-align:left;padding:4px 8px;font-size:.65rem;color:#334155;border-bottom:1px solid #1e293b'>外資</th>

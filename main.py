@@ -264,6 +264,12 @@ def run(trade_date: date = None, realtime: bool = False) -> None:
 
         try:
             vol_signals = scan_volume_turnover(trade_date.isoformat())
+            if universe_df is not None and vol_signals:
+                name_map = universe_df.set_index("stock_id")[["stock_name", "meta_sector"]].to_dict("index")
+                for s in vol_signals:
+                    info = name_map.get(s["stock_id"], {})
+                    s["stock_name"] = info.get("stock_name", "")
+                    s["meta_sector"] = info.get("meta_sector", "")
             logger.info("巨量換手訊號：%d 檔", len(vol_signals))
         except Exception as exc:
             logger.warning("巨量換手掃描失敗: %s", exc)

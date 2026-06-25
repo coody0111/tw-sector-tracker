@@ -122,6 +122,72 @@ def _stock_rank_table(stocks: list, header: str, net_key: str = "foreign_net") -
     return html
 
 
+def _inst_strong_table(rows: list) -> str:
+    if not rows:
+        return "<div class='no-data'>無符合條件個股</div>"
+    html = (
+        "<table class='ct'><thead><tr>"
+        "<th>#</th><th>股票</th><th>外資</th><th>投信</th>"
+        "<th>外資今日</th><th>投信今日</th><th>合計</th><th>漲跌</th>"
+        "</tr></thead><tbody>"
+    )
+    for i, s in enumerate(rows, 1):
+        chg = s.get("change_pct")
+        chg_html = (
+            f"<span style='color:#f87171;font-weight:700'>+{chg}%</span>" if chg and chg > 0
+            else f"<span style='color:#4ade80;font-weight:700'>{chg}%</span>" if chg and chg < 0
+            else "<span style='color:#475569'>─</span>"
+        )
+        html += (
+            f"<tr>"
+            f"<td class='ct-rank'>{i}</td>"
+            f"<td><span class='sid'>{s['stock_id']}</span> {s.get('stock_name','')}</td>"
+            f"<td>{_streak_badge(s['foreign_streak'], '外資')}</td>"
+            f"<td>{_trust_streak_badge(s['trust_streak'])}</td>"
+            f"<td>{_fmt_net(s.get('foreign_net') or 0)}</td>"
+            f"<td>{_fmt_net(s.get('trust_net') or 0)}</td>"
+            f"<td>{_fmt_net(s.get('total_net') or 0)}</td>"
+            f"<td>{chg_html}</td>"
+            f"</tr>"
+        )
+    html += "</tbody></table>"
+    return html
+
+
+def _inst_streak_table(rows: list, streak_key: str, net_key: str, cum_key: str, label: str) -> str:
+    if not rows:
+        return "<div class='no-data'>無資料</div>"
+    html = (
+        f"<table class='ct'><thead><tr>"
+        f"<th>#</th><th>股票</th><th>連買</th>"
+        f"<th>{label}今日</th><th>{label}累計</th><th>漲跌</th>"
+        f"</tr></thead><tbody>"
+    )
+    for i, s in enumerate(rows, 1):
+        streak = s.get(streak_key, 0)
+        net = s.get(net_key) or 0
+        cum = s.get(cum_key) or 0
+        chg = s.get("change_pct")
+        chg_html = (
+            f"<span style='color:#f87171;font-weight:700'>+{chg}%</span>" if chg and chg > 0
+            else f"<span style='color:#4ade80;font-weight:700'>{chg}%</span>" if chg and chg < 0
+            else "<span style='color:#475569'>─</span>"
+        )
+        badge = _streak_badge(streak, '外資') if streak_key == 'foreign_streak' else _trust_streak_badge(streak)
+        html += (
+            f"<tr>"
+            f"<td class='ct-rank'>{i}</td>"
+            f"<td><span class='sid'>{s['stock_id']}</span> {s.get('stock_name','')}</td>"
+            f"<td>{badge}</td>"
+            f"<td>{_fmt_net(net)}</td>"
+            f"<td>{_fmt_net(cum)}</td>"
+            f"<td>{chg_html}</td>"
+            f"</tr>"
+        )
+    html += "</tbody></table>"
+    return html
+
+
 def _margin_alert_table(alerts: list) -> str:
     if not alerts:
         return "<div class='no-data'>無融資擴張警示</div>"
@@ -205,10 +271,12 @@ def generate(
     trade_date: date,
     meta_chips: dict,
     stock_chips: dict,
+    inst_scan: list = None,
     output_path: str = "docs/chips.html",
 ) -> None:
     if not meta_chips and not stock_chips:
         return
+    inst_scan = inst_scan or []
 
     date_str = trade_date.strftime("%Y-%m-%d")
     weekday = ["一", "二", "三", "四", "五", "六", "日"][trade_date.weekday()]
@@ -291,6 +359,37 @@ def generate(
   {_concentration_table(meta_chips)}
 </div>"""
 
+    # Section 6: 法人持續買進個股
+    lookback_days = 40
+    strong = sorted(
+        [x for x in inst_scan if x.get("both_streak", 0) >= 2],
+        key=lambda x: -x["both_streak"]
+    )
+    top_foreign = sorted(
+        [x for x in inst_scan if x.get("foreign_streak", 0) >= 3],
+        key=lambda x: -(x.get("cum_foreign") or 0)
+    )[:15]
+    top_trust = sorted(
+        [x for x in inst_scan if x.get("trust_streak", 0) >= 5],
+        key=lambda x: -(x.get("trust_net") or 0)
+    )[:15]
+
+    s6_html = f"""
+<div class="chips-section">
+  <div class="cs-title">🔥 強力訊號 — 外資+投信同步連買 &ge;2 日</div>
+  {_inst_strong_table(strong)}
+</div>
+<div class="chips-grid">
+  <div class="chips-section-half">
+    <div class="cs-title">外資持續買進 Top 15（連買 &ge;3 日，排累計）</div>
+    {_inst_streak_table(top_foreign, 'foreign_streak', 'foreign_net', 'cum_foreign', '外資')}
+  </div>
+  <div class="chips-section-half">
+    <div class="cs-title">投信持續買進 Top 15（連買 &ge;5 日，排今日金額）</div>
+    {_inst_streak_table(top_trust, 'trust_streak', 'trust_net', 'cum_trust', '投信')}
+  </div>
+</div>"""
+
     html = f"""<!DOCTYPE html>
 <html lang="zh-TW">
 <head>
@@ -311,6 +410,7 @@ def generate(
     </div>
   </div>
 
+  {s6_html}
   {s1_html}
   {s2_html}
   {s3_html}

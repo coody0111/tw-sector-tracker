@@ -17,6 +17,7 @@ from storage.csv_writer import CsvWriter
 from export.html_generator import generate as generate_html
 from export.chips_generator import generate as generate_chips_html
 from screener.database import init_db, import_csv_prices, import_sector_stocks, get_chips_today
+from screener.institutional import scan_institutional
 
 UNIVERSE_PATH = Path("data/stock_universe.csv")
 
@@ -261,7 +262,19 @@ def run(trade_date: date = None, realtime: bool = False) -> None:
                       meta_chips=meta_chips,
                       stock_sparklines=stock_sparklines)
         logger.info("HTML generated → docs/index.html")
-        generate_chips_html(trade_date, meta_chips, stock_chips)
+        try:
+            inst_results = scan_institutional(trade_date.isoformat(), lookback=40)
+            if universe_df is not None:
+                name_map = universe_df.set_index("stock_id")[["stock_name", "meta_sector"]].to_dict("index")
+                for row in inst_results:
+                    info = name_map.get(row["stock_id"], {})
+                    row["stock_name"] = info.get("stock_name", "")
+                    row["meta_sector"] = info.get("meta_sector", "")
+            logger.info("法人篩選：%d 檔有籌碼資料", len(inst_results))
+        except Exception as exc:
+            logger.warning("法人篩選失敗: %s", exc)
+            inst_results = []
+        generate_chips_html(trade_date, meta_chips, stock_chips, inst_scan=inst_results)
         logger.info("HTML generated → docs/chips.html")
         _push_html(trade_date)
 

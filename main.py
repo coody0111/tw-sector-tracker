@@ -8,6 +8,7 @@ from pathlib import Path
 
 from scrapers.moneydj import scrape_industry_sectors
 from scrapers.finmind import fetch_prices_for_stocks
+from scrapers.realtime import fetch_realtime_prices
 from scrapers.chips import fetch_institutional, fetch_margin_all_today
 from scrapers.backfill import backfill_prices, backfill_twse_monthly
 from processors.changes import detect_changes
@@ -133,7 +134,7 @@ def update_sectors(limit: int = None) -> None:
     logger.info("=== Done ===")
 
 
-def run(trade_date: date = None) -> None:
+def run(trade_date: date = None, realtime: bool = False) -> None:
     """每日執行：讀取已存族群 → 抓 TWSE+TPEx 行情 → 計算績效 → 更新網站（約 10 秒）"""
     if trade_date is None:
         trade_date = date.today()
@@ -161,15 +162,25 @@ def run(trade_date: date = None) -> None:
     all_records = sectors_df.drop(columns=["date"], errors="ignore").to_dict("records") if sectors_df is not None and not sectors_df.empty else []
     logger.info("Loaded %d stocks across sectors from saved data.", len(unique_ids))
 
-    # 2. 抓 TWSE + TPEx 行情
-    logger.info("Fetching prices (TWSE + TPEx)...")
-    try:
-        prices_df = fetch_prices_for_stocks(unique_ids, trade_date)
-        prices_df["stock_id"] = prices_df["stock_id"].astype(str)
-        logger.info("  TWSE+TPEx total: %d stocks", len(prices_df))
-    except Exception as exc:
-        logger.error("Price fetch failed: %s. Continuing without prices.", exc)
-        prices_df = None
+    # 2. 抓 TWSE + TPEx 行情（盤中即時 or 盤後收盤）
+    if realtime:
+        logger.info("Fetching real-time prices (mis.twse.com.tw)...")
+        try:
+            prices_df = fetch_realtime_prices(unique_ids)
+            prices_df["stock_id"] = prices_df["stock_id"].astype(str)
+            logger.info("  即時行情：%d 支", len(prices_df))
+        except Exception as exc:
+            logger.error("Real-time fetch failed: %s", exc)
+            prices_df = None
+    else:
+        logger.info("Fetching prices (TWSE + TPEx)...")
+        try:
+            prices_df = fetch_prices_for_stocks(unique_ids, trade_date)
+            prices_df["stock_id"] = prices_df["stock_id"].astype(str)
+            logger.info("  TWSE+TPEx total: %d stocks", len(prices_df))
+        except Exception as exc:
+            logger.error("Price fetch failed: %s. Continuing without prices.", exc)
+            prices_df = None
 
     # 3. 寫入行情
     if prices_df is not None and not prices_df.empty:
@@ -260,6 +271,8 @@ if __name__ == "__main__":
                         help="FinMind 補齊過去 N 日曆天歷史行情（每日 600 次上限）")
     parser.add_argument("--backfill-twse", type=int, default=0, metavar="MONTHS",
                         help="TWSE 逐日補齊過去 N 個月歷史行情（無 FinMind quota，建議 6）")
+    parser.add_argument("--realtime", action="store_true",
+                        help="使用盤中即時行情（mis.twse.com.tw），適合 9:00~13:30 盤中使用")
     args = parser.parse_args()
 
     if args.update_sectors:
@@ -269,4 +282,4 @@ if __name__ == "__main__":
     elif args.backfill_twse:
         backfill_twse(months=args.backfill_twse)
     else:
-        run()
+        run(realtime=args.realtime)

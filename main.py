@@ -12,7 +12,7 @@ from scrapers.realtime import fetch_realtime_prices
 from scrapers.chips import fetch_institutional, fetch_margin_all_twse
 from scrapers.backfill import backfill_prices, backfill_twse_monthly, backfill_institutional, backfill_margin
 from processors.changes import detect_changes
-from processors.performance import calc_sector_performance, calc_meta_performance, calc_universe_performance, calc_cumulative_meta, calc_meta_signals, calc_meta_chips_signals, calc_stock_sparklines, get_stock_chips_ranking
+from processors.performance import calc_sector_performance, calc_meta_performance, calc_universe_performance, calc_cumulative_meta, calc_meta_signals, calc_meta_chips_signals, calc_stock_sparklines, get_stock_chips_ranking, get_margin_divergence
 from storage.csv_writer import CsvWriter
 from export.html_generator import generate as generate_html
 from export.chips_generator import generate as generate_chips_html
@@ -260,6 +260,7 @@ def run(trade_date: date = None, realtime: bool = False) -> None:
         meta_chips = calc_meta_chips_signals(universe_df) if universe_df is not None else {}
         stock_sparklines = calc_stock_sparklines(universe_df) if universe_df is not None else {}
         stock_chips = get_stock_chips_ranking(universe_df) if universe_df is not None else {}
+        margin_div = get_margin_divergence(universe_df) if universe_df is not None else {}
 
         try:
             vol_signals = scan_volume_turnover(trade_date.isoformat())
@@ -293,7 +294,7 @@ def run(trade_date: date = None, realtime: bool = False) -> None:
         except Exception as exc:
             logger.warning("法人篩選失敗: %s", exc)
             inst_results = []
-        generate_chips_html(trade_date, meta_chips, stock_chips, inst_scan=inst_results)
+        generate_chips_html(trade_date, meta_chips, stock_chips, inst_scan=inst_results, margin_divergence=margin_div)
         logger.info("HTML generated → docs/chips.html")
         _push_html(trade_date)
 

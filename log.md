@@ -7,6 +7,31 @@
 
 ## 目前狀態（2026-06-26）
 
+### Working tree 乾淨。commit 96d9cf4
+
+### backfill 問題修正（重要）
+- **根本原因**：`STOCK_DAY_ALL` endpoint 完全忽略 `date` 參數，永遠回傳最新一天資料
+- **影響**：1~4 月歷史資料全部是某一天的複製，巨量換手回測無法命中 1~4 月訊號
+- **修法**：`backfill_twse_monthly` 改用 per-stock `STOCK_DAY` endpoint（`_fetch_stock_months`）
+- **狀態**：部分修復（TWSE 403 封鎖後只補到 1 月底，2~4 月待 IP 解封後重補）
+
+### 其他修正
+- `import_csv_prices`：加去重，避免 UNIQUE constraint 衝突
+- `_update_chips_db`：今日法人/融資尚未發布時自動 fallback 前一交易日（凌晨跑不再噴 WARNING）
+
+### 目前回測狀態（40 訊號，2026-01-23 ~ 2026-06-25）
+- D+1 勝率 32%，D+3 37%，D+5 42%
+- 2~4 月資料待補齊後訊號數量會增加
+
+### 下一步
+- **重要**：TWSE IP 解封後，以 workers=2 跑 `--backfill-twse 6` 補 2~4 月
+- backfill-institutional 60 ✅（36 天）
+- backfill-marg 60 ✅（38 天）
+
+---
+
+## 目前狀態（2026-06-25）
+
 ### Working tree：pull 後須確認兩台電腦各有獨立進度
 
 ### 已完成功能

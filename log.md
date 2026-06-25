@@ -5,15 +5,18 @@
 
 ---
 
-## 目前狀態（2026-06-24）
+## 目前狀態（2026-06-25）
 
-### Working tree 乾淨，無待 commit 變更。commit 5b464b3
+### Working tree 乾淨。commit c85a242
+
+### backfill-twse 6 背景執行中（修完 DuckDB ETF 代號 bug 後重跑）
 
 ### 已完成功能
 - **四項 signal badges**：3/5/7d 累積排名 badge + 漲跌方向 + 連漲連跌 + 量能異常
 - **sparkline**：展開面板頂部 10 日 SVG 條形圖
 - **籌碼 META 彙總**：`calc_meta_chips_signals()` — 外資/投信連買連賣 + 融資警示
-- **籌碼獨立分頁**：`docs/chips.html` — 五區塊籌碼分析，index.html 加導覽連結
+- **籌碼獨立分頁**：`docs/chips.html` — 七區塊籌碼分析，index.html 加導覽連結
+- **融資背離警示**：`get_margin_divergence()` — 看空背離 + 融資鬆動，chips.html Section 7
 - **股票搜尋欄**：header 搜尋 → 自動展開並定位個股卡片
 - **先進封裝設備 META**：CoWoS 供應鏈 9 家（弘塑/均豪/萬潤/均華/印能/志聖/家登/群翊/辛耘）
 - **歷史補齊**：`scrapers/backfill.py` TWSE 月別補齊；`--backfill-twse 6` 可補半年
@@ -28,8 +31,10 @@
 5. META 外資籌碼集中度（買超股數/總股數）
 
 ### 下一步（待討論）
-- 巨量換手訊號 HTML 區塊（需先 backfill 至 126 日資料）
+- **backfill 完成後**：巨量換手訊號 HTML 區塊（screener/signals.py 已寫好）
+- **backfill 完成後**：跑 `--backfill-marg 60` 補融資歷史，融資背離天數視窗從 4 天延到 60 天
 - dark/light 主題切換（低優先）
+- 上市/上櫃分開顯示（低優先）
 
 ---
 

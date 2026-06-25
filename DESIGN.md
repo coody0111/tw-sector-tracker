@@ -89,8 +89,10 @@ _CHIPS_BADGE_MIN = 1_000_000  # 個股外資 badge 門檻（股）
 _TRUST_BADGE_MIN = 500_000    # 個股投信 badge 門檻
 ```
 
-待補充：
-- [ ] 融資增減趨勢 vs 股價趨勢（背離警示）
+已實作（2026-06-25）：
+- [x] **融資背離警示**：`get_margin_divergence()` — 看空背離（融資增+價跌）/ 融資鬆動（融資減+價漲）
+  - 門檻：融資增減 >3%、股價反向 >2%，lookback 動態（有幾天用幾天，最少 2 天）
+  - 顯示在 chips.html Section 7，資料補齊後天數視窗自動延長
 - [ ] 資料來源：DuckDB `institutional` + `margin` 表，每日已在抓
 
 ---

@@ -9,8 +9,8 @@ from pathlib import Path
 from scrapers.moneydj import scrape_industry_sectors
 from scrapers.finmind import fetch_prices_for_stocks
 from scrapers.realtime import fetch_realtime_prices
-from scrapers.chips import fetch_institutional, fetch_margin_all_today
-from scrapers.backfill import backfill_prices, backfill_twse_monthly, backfill_institutional
+from scrapers.chips import fetch_institutional, fetch_margin_all_twse
+from scrapers.backfill import backfill_prices, backfill_twse_monthly, backfill_institutional, backfill_margin
 from processors.changes import detect_changes
 from processors.performance import calc_sector_performance, calc_meta_performance, calc_universe_performance, calc_cumulative_meta, calc_meta_signals, calc_meta_chips_signals, calc_stock_sparklines, get_stock_chips_ranking
 from storage.csv_writer import CsvWriter
@@ -18,6 +18,8 @@ from export.html_generator import generate as generate_html
 from export.chips_generator import generate as generate_chips_html
 from screener.database import init_db, import_csv_prices, import_sector_stocks, get_chips_today
 from screener.institutional import scan_institutional
+from screener.signals import scan_volume_turnover
+from screener.backtest import run_backtest, print_summary as print_backtest_summary
 
 UNIVERSE_PATH = Path("data/stock_universe.csv")
 
@@ -57,7 +59,7 @@ def _update_chips_db(trade_date: date, stock_ids: list) -> None:
         logger.warning("三大法人寫入失敗: %s", exc)
 
     try:
-        margin_df = fetch_margin_all_today(trade_date, stock_ids[:50])
+        margin_df = fetch_margin_all_twse(trade_date)
         if not margin_df.empty:
             import duckdb
             con = duckdb.connect("data/screener.db")
@@ -114,6 +116,13 @@ def backfill_twse(months: int = 6) -> None:
         imported = import_csv_prices()
         logger.info("DuckDB 更新：共 %d 筆", imported)
     logger.info("=== 補齊完成，共寫入/更新 %d 日 ===", n)
+
+
+def backfill_marg(days: int = 60) -> None:
+    """補齊過去 N 個工作日的 TWSE 融資融券資料"""
+    logger.info("=== 融資融券補齊（往前 %d 個工作日）===", days)
+    n = backfill_margin(days=days)
+    logger.info("=== 融資補齊完成，共寫入 %d 個交易日 ===", n)
 
 
 def backfill_inst(days: int = 60) -> None:
@@ -251,6 +260,14 @@ def run(trade_date: date = None, realtime: bool = False) -> None:
         meta_chips = calc_meta_chips_signals(universe_df) if universe_df is not None else {}
         stock_sparklines = calc_stock_sparklines(universe_df) if universe_df is not None else {}
         stock_chips = get_stock_chips_ranking(universe_df) if universe_df is not None else {}
+
+        try:
+            vol_signals = scan_volume_turnover(trade_date.isoformat())
+            logger.info("巨量換手訊號：%d 檔", len(vol_signals))
+        except Exception as exc:
+            logger.warning("巨量換手掃描失敗: %s", exc)
+            vol_signals = []
+
         generate_html(trade_date, pd.DataFrame(perf) if perf else pd.DataFrame(),
                       sectors_df=sectors_df,
                       prices_df=prices_df if prices_df is not None else pd.DataFrame(),
@@ -260,8 +277,10 @@ def run(trade_date: date = None, realtime: bool = False) -> None:
                       cum_data=cum_data,
                       meta_signals=meta_signals,
                       meta_chips=meta_chips,
-                      stock_sparklines=stock_sparklines)
+                      stock_sparklines=stock_sparklines,
+                      vol_turnover=vol_signals)
         logger.info("HTML generated → docs/index.html")
+
         try:
             inst_results = scan_institutional(trade_date.isoformat(), lookback=40)
             if universe_df is not None:
@@ -293,6 +312,10 @@ if __name__ == "__main__":
                         help="TWSE 逐日補齊過去 N 個月歷史行情（無 FinMind quota，建議 6）")
     parser.add_argument("--backfill-institutional", type=int, default=0, metavar="DAYS",
                         help="TWSE T86 補齊過去 N 個工作日三大法人資料（建議 60）")
+    parser.add_argument("--backfill-margin", type=int, default=0, metavar="DAYS",
+                        help="TWSE MI_MARGN 補齊過去 N 個工作日融資融券資料（建議 60）")
+    parser.add_argument("--backtest", action="store_true",
+                        help="跑巨量換手回測，輸出勝率與期望值統計")
     parser.add_argument("--realtime", action="store_true",
                         help="使用盤中即時行情（mis.twse.com.tw），適合 9:00~13:30 盤中使用")
     args = parser.parse_args()
@@ -305,5 +328,10 @@ if __name__ == "__main__":
         backfill_twse(months=args.backfill_twse)
     elif args.backfill_institutional:
         backfill_inst(days=args.backfill_institutional)
+    elif args.backfill_margin:
+        backfill_marg(days=args.backfill_margin)
+    elif args.backtest:
+        df = run_backtest()
+        print_backtest_summary(df)
     else:
         run(realtime=args.realtime)

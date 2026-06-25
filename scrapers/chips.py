@@ -53,6 +53,66 @@ def fetch_institutional(trade_date: date) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+_TWSE_MARGN_URL = "https://www.twse.com.tw/rwd/zh/marginTrading/MI_MARGN"
+_HEADERS_TWSE = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+    ),
+    "Referer": "https://www.twse.com.tw/",
+}
+
+
+def fetch_margin_all_twse(trade_date: date) -> pd.DataFrame:
+    """
+    TWSE MI_MARGN — 一次取得全部上市股票融資融券資料。
+    欄位：stock_id, date, margin_balance, margin_change, short_balance, short_change
+    """
+    date_str = trade_date.strftime("%Y%m%d")
+    resp = requests.get(
+        _TWSE_MARGN_URL,
+        params={"date": date_str, "selectType": "ALL", "response": "json"},
+        headers=_HEADERS_TWSE,
+        timeout=20,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+
+    if data.get("stat") != "OK":
+        raise ValueError(f"MI_MARGN stat={data.get('stat')} for {trade_date}")
+
+    # tables[1] 是個股彙總；tables[0] 是市場統計
+    tables = data.get("tables", [])
+    stock_table = next((t for t in tables if len(t.get("data", [])) > 10), None)
+    if not stock_table:
+        raise ValueError(f"MI_MARGN: 找不到個股資料表 for {trade_date}")
+
+    rows = []
+    for row in stock_table["data"]:
+        if len(row) < 13:
+            continue
+        sid = str(row[0]).strip()
+        if not sid:
+            continue
+        try:
+            margin_bal  = _parse_num(row[6])
+            prev_margin = _parse_num(row[5])
+            short_bal   = _parse_num(row[12])
+            prev_short  = _parse_num(row[11])
+        except (IndexError, ValueError):
+            continue
+        rows.append({
+            "stock_id":       sid,
+            "date":           trade_date.isoformat(),
+            "margin_balance": margin_bal,
+            "margin_change":  margin_bal - prev_margin,
+            "short_balance":  short_bal,
+            "short_change":   short_bal - prev_short,
+        })
+
+    return pd.DataFrame(rows)
+
+
 def fetch_margin(stock_id: str, start_date: date, end_date: date) -> pd.DataFrame:
     """
     抓單支股票的融資融券資料（FinMind）。

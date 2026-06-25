@@ -583,6 +583,55 @@ def _meta_card(row: dict, rank: int, card_id: str, sectors_df=None, prices_df=No
     return card, panel
 
 
+def _vol_turnover_section(signals: list) -> str:
+    if not signals:
+        return ""
+    rows_html = ""
+    for s in signals:
+        sid = s["stock_id"]
+        chg = s.get("change_pct") or 0
+        chg_color = _pct_color(chg)
+        sign = "+" if chg >= 0 else ""
+        f_net = s.get("foreign_net")
+        t_net = s.get("trust_net")
+        confirmed = s.get("inst_confirmed", False)
+        inst_badge = (
+            "<span style='color:#fbbf24;background:rgba(120,53,15,.3);border:1px solid rgba(120,53,15,.5);"
+            "border-radius:4px;padding:1px 6px;font-size:.65rem;font-weight:700'>外資+投信✓</span>"
+            if confirmed else ""
+        )
+        f_html = (
+            f"<span style='color:#f87171;font-size:.72rem'>+{f_net//1000:,}K</span>" if f_net and f_net > 0
+            else f"<span style='color:#4ade80;font-size:.72rem'>{f_net//1000:,}K</span>" if f_net and f_net < 0
+            else "<span style='color:#475569;font-size:.72rem'>─</span>"
+        )
+        rows_html += (
+            f"<tr>"
+            f"<td style='color:#94a3b8;font-size:.72rem;font-weight:700'>{sid}</td>"
+            f"<td style='color:{chg_color};font-weight:700'>{sign}{chg:.2f}%</td>"
+            f"<td style='color:#60a5fa;font-weight:700'>{s['vol_multiple']}x</td>"
+            f"<td>{f_html}</td>"
+            f"<td>{inst_badge}</td>"
+            f"</tr>"
+        )
+    return f"""
+<div style='background:#0f1624;border:1px solid #1e293b;border-radius:10px;padding:14px 16px;margin-bottom:16px'>
+  <div style='font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#475569;margin-bottom:10px'>
+    ⚡ 巨量換手訊號（前日漲停 → 今日爆量收跌，共 {len(signals)} 檔）
+  </div>
+  <table style='width:100%;border-collapse:collapse'>
+    <thead><tr>
+      <th style='text-align:left;padding:4px 8px;font-size:.65rem;color:#334155;border-bottom:1px solid #1e293b'>代號</th>
+      <th style='text-align:left;padding:4px 8px;font-size:.65rem;color:#334155;border-bottom:1px solid #1e293b'>今日漲跌</th>
+      <th style='text-align:left;padding:4px 8px;font-size:.65rem;color:#334155;border-bottom:1px solid #1e293b'>量倍數</th>
+      <th style='text-align:left;padding:4px 8px;font-size:.65rem;color:#334155;border-bottom:1px solid #1e293b'>外資</th>
+      <th style='text-align:left;padding:4px 8px;font-size:.65rem;color:#334155;border-bottom:1px solid #1e293b'>確認</th>
+    </tr></thead>
+    <tbody>{rows_html}</tbody>
+  </table>
+</div>"""
+
+
 def generate(
     trade_date: date,
     perf_df: pd.DataFrame,
@@ -595,6 +644,7 @@ def generate(
     meta_signals: dict = None,
     meta_chips: dict = None,
     stock_sparklines: dict = None,
+    vol_turnover: list = None,
     output_path: str = "docs/index.html",
 ) -> None:
     if perf_df.empty and not meta_perf:
@@ -911,6 +961,8 @@ def generate(
       <a class="nav-link" href="chips.html">籌碼分析</a>
     </div>
   </div>
+
+  {_vol_turnover_section(vol_turnover or [])}
 
   <div class="top-section">{top_section_inner}</div>
 

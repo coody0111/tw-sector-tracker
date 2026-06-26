@@ -77,23 +77,42 @@ def scan_institutional(
     """
     con = duckdb.connect(db_path, read_only=True)
 
-    # 取 lookback 天的法人資料（含目標日）
+    # 若目標日無法人資料，自動 fallback 到最新有資料的日期
+    latest_row = con.execute(f"""
+        SELECT MAX(date) FROM institutional WHERE date <= '{trade_date}'
+    """).fetchone()
+    latest_inst_date = str(latest_row[0])[:10] if latest_row and latest_row[0] else None
+    if not latest_inst_date:
+        logger.warning("scan_institutional: 無任何法人資料")
+        con.close()
+        return []
+    if latest_inst_date != trade_date:
+        logger.info("法人資料尚未發布，使用最新日期 %s（請求 %s）", latest_inst_date, trade_date)
+
+    # 取 lookback 天的法人資料
     inst_df = con.execute(f"""
         SELECT stock_id, date, foreign_net, trust_net, dealer_net, total_net
         FROM institutional
-        WHERE date <= '{trade_date}'
+        WHERE date <= '{latest_inst_date}'
         ORDER BY stock_id, date DESC
         LIMIT {lookback * 2000}
     """).df()
 
-    # 今日行情
+    # 行情：優先用目標日，fallback 到最新法人日
     price_df = con.execute(f"""
         SELECT stock_id, close, change_pct
         FROM daily_prices
         WHERE date = '{trade_date}'
     """).df()
+    if price_df.empty:
+        price_df = con.execute(f"""
+            SELECT stock_id, close, change_pct
+            FROM daily_prices
+            WHERE date = '{latest_inst_date}'
+        """).df()
 
     con.close()
+    trade_date = latest_inst_date  # 掃描基準改為有資料的最新日
 
     if inst_df.empty:
         logger.warning("scan_institutional: 無法人資料 (%s)", trade_date)

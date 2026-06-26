@@ -1,14 +1,13 @@
 """
 歷史行情補齊
 
-兩種方式：
-  1. backfill_twse_monthly()     — TWSE STOCK_DAY 逐股月別（不受速率限制，覆蓋 TWSE 上市股）
-  2. backfill_prices()           — FinMind TaiwanStockPrice（涵蓋 TWSE + TPEx，每日 600 次上限）
+方式：
+  1. backfill_twse_monthly()     — TWSE STOCK_DAY + TPEx st43 逐股月別（完整覆蓋上市+上櫃）
+  2. backfill_prices()           — FinMind TaiwanStockPrice（備用，每日 600 次上限）
   3. backfill_institutional()    — TWSE T86 逐日三大法人（每日一次 API，速度快）
 
 建議流程：
-  先跑 backfill_twse_monthly（約 2 小時），覆蓋大多數 TWSE 股票；
-  再跑 backfill_prices 補齊 FinMind 才有的 TPEx 股票（明日 quota 重置後）；
+  跑 backfill_twse_monthly（TWSE 先抓，non-TWSE 自動轉 TPEx，約 2~3 小時）；
   跑 backfill_institutional 補齊過去法人籌碼（建議 60 天）。
 """
 import logging
@@ -22,6 +21,7 @@ from typing import List
 
 import pandas as pd
 import requests
+import yfinance as yf
 
 from scrapers.twse import fetch_daily_prices as fetch_twse_daily_prices
 
@@ -29,8 +29,9 @@ logger = logging.getLogger(__name__)
 
 FINMIND_URL = "https://api.finmindtrade.com/api/v4/data"
 TWSE_STOCK_DAY_URL = "https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY"
+TPEX_STOCK_DAY_URL = "https://www.tpex.org.tw/web/stock/aftertrading/daily_trading_info/st43_result.php"
 
-_HEADERS = {
+_HEADERS_TWSE = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -38,6 +39,17 @@ _HEADERS = {
     ),
     "Referer": "https://www.twse.com.tw/",
 }
+
+_HEADERS_TPEX = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/125.0.0.0 Safari/537.36"
+    ),
+    "Referer": "https://www.tpex.org.tw/",
+}
+
+_HEADERS = _HEADERS_TWSE  # backward compat
 
 # FinMind 連續失敗超過此數就視為 rate-limit 到上限，提早退出
 _CONSECUTIVE_FAIL_LIMIT = 30
@@ -164,6 +176,48 @@ def _fetch_stock_months(sid: str, month_starts: list) -> tuple[str, list, bool]:
     return sid, rows, is_twse
 
 
+def _fetch_tpex_yfinance(sid: str, start: date, end: date) -> tuple[str, list, bool]:
+    """
+    用 yfinance 抓上櫃股票歷史行情（ticker = sid.TWO）。
+    回傳 (stock_id, rows_list, is_tpex)
+    """
+    ticker_sym = f"{sid}.TWO"
+    try:
+        hist = yf.Ticker(ticker_sym).history(
+            start=start.isoformat(),
+            end=(end + timedelta(days=1)).isoformat(),
+            auto_adjust=True,
+        )
+        if hist.empty:
+            return sid, [], False
+
+        closes = hist["Close"].astype(float)
+        prev_closes = closes.shift(1)
+        changes = (closes - prev_closes).round(2)
+        change_pcts = ((changes / prev_closes) * 100).round(2)
+
+        rows = []
+        for ts, row in hist.iterrows():
+            d_str = ts.strftime("%Y-%m-%d")
+            close = round(float(row["Close"]), 2)
+            change = float(changes.loc[ts]) if not pd.isna(changes.loc[ts]) else 0.0
+            change_pct = float(change_pcts.loc[ts]) if not pd.isna(change_pcts.loc[ts]) else 0.0
+            vol_lots = int(row["Volume"]) // 1000 if row["Volume"] else 0
+            rows.append({
+                "stock_id":   sid,
+                "close":      close,
+                "change":     change,
+                "change_pct": change_pct,
+                "volume":     vol_lots,
+                "_date":      d_str,
+            })
+        return sid, rows, True
+
+    except Exception as exc:
+        logger.debug("  yfinance %s 失敗: %s", ticker_sym, exc)
+        return sid, [], False
+
+
 def backfill_twse_monthly(
     stock_ids: List[str],
     months: int = 6,
@@ -172,8 +226,8 @@ def backfill_twse_monthly(
     today: date = None,
 ) -> int:
     """
-    TWSE STOCK_DAY 逐股月別補齊（正確回傳每日歷史行情，不受 FinMind quota 限制）。
-    對每支股票呼叫 per-stock STOCK_DAY endpoint，覆蓋舊有錯誤資料。
+    TWSE STOCK_DAY + TPEx st43 逐股月別補齊。
+    先用 TWSE 抓，回傳 is_twse=False 的再用 TPEx 補，完整覆蓋上市+上櫃。
     回傳：寫入或更新的日期數。
     """
     output_path = Path(output_dir)
@@ -182,45 +236,66 @@ def backfill_twse_monthly(
     today = today or date.today()
     start = _first_month_start(today, months)
 
-    # 產生月份起始日清單
     month_starts = []
     cur = start
     while cur <= today:
         month_starts.append(cur)
-        if cur.month == 12:
-            cur = date(cur.year + 1, 1, 1)
-        else:
-            cur = date(cur.year, cur.month + 1, 1)
+        cur = date(cur.year + (cur.month == 12), (cur.month % 12) + 1, 1)
 
     total = len(stock_ids)
     logger.info(
-        "TWSE per-stock 月別補齊：%d 支股票，%d 個月（%s ~ %s）",
+        "TWSE+TPEx 月別補齊：%d 支股票，%d 個月（%s ~ %s）",
         total, len(month_starts), start.isoformat(), today.isoformat(),
     )
 
     day_rows: dict = defaultdict(list)
+    non_twse: list = []
     done = 0
 
+    # Phase 1: TWSE
     with ThreadPoolExecutor(max_workers=workers) as executor:
         futures = {executor.submit(_fetch_stock_months, sid, month_starts): sid
                    for sid in stock_ids}
         for fut in as_completed(futures):
             try:
-                _, rows, _ = fut.result()
-                for r in rows:
-                    day_rows[r["_date"]].append(r)
+                sid, rows, is_twse = fut.result()
+                if is_twse:
+                    for r in rows:
+                        day_rows[r["_date"]].append(r)
+                else:
+                    non_twse.append(sid)
             except Exception as exc:
-                logger.debug("fetch error: %s", exc)
+                logger.debug("TWSE fetch error: %s", exc)
             done += 1
-            if done % 100 == 0 or done == total:
-                logger.info("  [%d/%d] 已取得資料", done, total)
+            if done % 200 == 0 or done == total:
+                logger.info("  TWSE [%d/%d]", done, total)
+
+    logger.info("TWSE 完成：%d 支，non-TWSE（上櫃）補 yfinance：%d 支", total - len(non_twse), len(non_twse))
+
+    # Phase 2: yfinance for non-TWSE (TPEx) stocks
+    if non_twse:
+        done2 = 0
+        yf_workers = min(workers, 5)  # yfinance 不需要太多並發
+        with ThreadPoolExecutor(max_workers=yf_workers) as executor:
+            futures2 = {executor.submit(_fetch_tpex_yfinance, sid, start, today): sid
+                        for sid in non_twse}
+            for fut in as_completed(futures2):
+                try:
+                    _, rows, _ = fut.result()
+                    for r in rows:
+                        day_rows[r["_date"]].append(r)
+                except Exception as exc:
+                    logger.debug("yfinance fetch error: %s", exc)
+                done2 += 1
+                if done2 % 200 == 0 or done2 == len(non_twse):
+                    logger.info("  yfinance [%d/%d]", done2, len(non_twse))
 
     written = 0
     for d_str, rows in sorted(day_rows.items()):
         if _merge_into_csv(output_path / f"{d_str}.csv", rows, overwrite=True):
             written += 1
 
-    logger.info("TWSE per-stock 補齊完成：寫入/更新 %d 日", written)
+    logger.info("TWSE+TPEx 補齊完成：寫入/更新 %d 日", written)
     return written
 
 

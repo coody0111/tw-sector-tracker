@@ -20,6 +20,31 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 _DB_PATH = "data/screener.db"
+_UNIVERSE_PATH = "data/stock_universe.csv"
+_ALL_NAMES_PATH = "data/all_stock_names.csv"
+
+
+def _load_name_map() -> dict:
+    result: dict = {}
+    try:
+        df = pd.read_csv(_ALL_NAMES_PATH, dtype=str, encoding="utf-8-sig")
+        result.update(df.set_index("stock_id")["stock_name"].to_dict())
+    except Exception:
+        pass
+    try:
+        df2 = pd.read_csv(_UNIVERSE_PATH, usecols=["stock_id", "stock_name"], dtype=str)
+        result.update(df2.set_index("stock_id")["stock_name"].to_dict())
+    except Exception:
+        pass
+    return result
+
+
+def _load_meta_map() -> dict:
+    try:
+        df = pd.read_csv(_UNIVERSE_PATH, usecols=["stock_id", "meta_sector"], dtype=str)
+        return df.set_index("stock_id")["meta_sector"].to_dict()
+    except Exception:
+        return {}
 
 
 def _calc_streak(series: pd.Series) -> int:
@@ -125,6 +150,8 @@ def scan_institutional(
     if not price_df.empty:
         price_map = price_df.set_index("stock_id")[["close", "change_pct"]].to_dict("index")
 
+    name_map = _load_name_map()
+    meta_map = _load_meta_map()
     results = []
 
     for sid, grp in inst_df.groupby("stock_id"):
@@ -184,6 +211,8 @@ def scan_institutional(
 
         results.append({
             "stock_id":       str(sid),
+            "stock_name":     name_map.get(str(sid), ""),
+            "meta_sector":    meta_map.get(str(sid), ""),
             "date":           trade_date,
             "foreign_net":    int(f_net) if f_net is not None else None,
             "trust_net":      int(t_net) if t_net is not None else None,

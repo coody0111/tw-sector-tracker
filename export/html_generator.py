@@ -601,17 +601,19 @@ def _vol_turnover_section(signals: list) -> str:
             if confirmed else ""
         )
         f_html = (
-            f"<span style='color:#f87171;font-size:.72rem'>+{f_net//1000:,}K</span>" if f_net and f_net > 0
-            else f"<span style='color:#4ade80;font-size:.72rem'>{f_net//1000:,}K</span>" if f_net and f_net < 0
+            f"<span style='color:#f87171;font-size:.72rem'>+{f_net//1000:,}張</span>" if f_net and f_net > 0
+            else f"<span style='color:#4ade80;font-size:.72rem'>{f_net//1000:,}張</span>" if f_net and f_net < 0
             else "<span style='color:#475569;font-size:.72rem'>─</span>"
         )
         stock_name = s.get("stock_name", "")
+        meta_sector = s.get("meta_sector", "")
         rows_html += (
             f"<tr>"
             f"<td style='white-space:nowrap'>"
             f"<span style='color:#475569;font-size:.7rem;font-weight:600'>{sid}</span>"
             f"<span style='color:#94a3b8;font-size:.78rem;margin-left:5px'>{stock_name}</span>"
             f"</td>"
+            f"<td style='color:#64748b;font-size:.72rem;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'>{meta_sector}</td>"
             f"<td style='color:{chg_color};font-weight:700'>{sign}{chg:.2f}%</td>"
             f"<td style='color:#60a5fa;font-weight:700'>{s['vol_multiple']}x</td>"
             f"<td>{f_html}</td>"
@@ -626,6 +628,7 @@ def _vol_turnover_section(signals: list) -> str:
   <table style='width:100%;border-collapse:collapse'>
     <thead><tr>
       <th style='text-align:left;padding:4px 8px;font-size:.65rem;color:#334155;border-bottom:1px solid #1e293b'>代號 / 名稱</th>
+      <th style='text-align:left;padding:4px 8px;font-size:.65rem;color:#334155;border-bottom:1px solid #1e293b'>族群</th>
       <th style='text-align:left;padding:4px 8px;font-size:.65rem;color:#334155;border-bottom:1px solid #1e293b'>今日漲跌</th>
       <th style='text-align:left;padding:4px 8px;font-size:.65rem;color:#334155;border-bottom:1px solid #1e293b'>量倍數</th>
       <th style='text-align:left;padding:4px 8px;font-size:.65rem;color:#334155;border-bottom:1px solid #1e293b'>外資</th>
@@ -812,7 +815,7 @@ def generate(
 
     /* Top10 小卡片 */
     .top-section{{margin-bottom:24px}}
-    .mc-label{{font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px}}
+    .mc-label{{font-size:.9rem;font-weight:700;letter-spacing:.04em;margin-bottom:6px}}
     .up-label{{color:#f87171}} .dn-label{{color:#4ade80}}
     .mc-grid{{display:grid;grid-template-columns:repeat(10,1fr);gap:5px}}
     @media(max-width:1000px){{.mc-grid{{grid-template-columns:repeat(5,1fr)}}}}
@@ -820,10 +823,10 @@ def generate(
     .mc-card{{padding:8px 10px;border-radius:8px;border:1px solid #1e293b;cursor:pointer;transition:filter .12s}}
     .mc-card:hover,.mc-card.active{{filter:brightness(1.15);border-color:#475569}}
     .mc-hd{{display:flex;align-items:center;justify-content:space-between;margin-bottom:3px}}
-    .mc-rank{{font-size:.6rem;color:#475569;font-weight:600}}
-    .mc-pct{{font-size:.88rem;font-weight:800}}
-    .mc-name{{font-size:.72rem;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:3px}}
-    .mc-cnt{{font-size:.65rem;color:#64748b}}
+    .mc-rank{{font-size:.7rem;color:#475569;font-weight:600}}
+    .mc-pct{{font-size:1.05rem;font-weight:800}}
+    .mc-name{{font-size:.85rem;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:3px}}
+    .mc-cnt{{font-size:.78rem;font-weight:600}}
     .mc-panel{{background:#070b12;border:1px solid #1e293b;border-radius:8px;padding:12px 16px;margin-top:5px}}
 
     /* Fallback table Top10 */
@@ -930,8 +933,8 @@ def generate(
       .top-name{{font-size:.82rem;max-width:none}}
       .mc-grid{{grid-template-columns:repeat(2,1fr)}}
       .mc-card{{padding:6px 8px}}
-      .mc-pct{{font-size:.78rem}}
-      .mc-name{{font-size:.65rem}}
+      .mc-pct{{font-size:.9rem}}
+      .mc-name{{font-size:.75rem}}
       .stock-cards-wrap{{grid-template-columns:1fr 1fr;gap:8px}}
       .sc-price{{font-size:.9rem}}
       .sc-pct{{font-size:.75rem}}

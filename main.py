@@ -320,7 +320,7 @@ def run(trade_date: date = None, realtime: bool = False) -> None:
         except Exception as exc:
             logger.warning("法人篩選失敗: %s", exc)
             inst_results = []
-        generate_chips_html(trade_date, meta_chips, stock_chips, inst_scan=inst_results, margin_divergence=margin_div)
+        generate_chips_html(trade_date, meta_chips, stock_chips, inst_scan=inst_results, margin_divergence=margin_div, cum_data=cum_data, meta_signals=meta_signals)
         logger.info("HTML generated → docs/chips.html")
         _push_html(trade_date)
 

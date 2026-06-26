@@ -5,18 +5,44 @@
 from datetime import date
 from pathlib import Path
 
+_CUM_THRESHOLD = 15
+
+
+def _make_cum_ranks(cum_data: list) -> dict:
+    if not cum_data:
+        return {"r3": {}, "r5": {}, "r7": {}, "v": {}}
+    r3 = {r["meta_name"]: i + 1 for i, r in enumerate(sorted(cum_data, key=lambda x: x["cum3"], reverse=True))}
+    r5 = {r["meta_name"]: i + 1 for i, r in enumerate(sorted(cum_data, key=lambda x: (x["cum5"] if x["cum5"] is not None else -999), reverse=True))}
+    r7 = {r["meta_name"]: i + 1 for i, r in enumerate(sorted(cum_data, key=lambda x: (x["cum7"] if x["cum7"] is not None else -999), reverse=True))}
+    return {"r3": r3, "r5": r5, "r7": r7, "v": {r["meta_name"]: r for r in cum_data}}
+
+
+def _cum_cell(meta_name: str, cum_ranks: dict, period: str, key: str, val_key: str) -> str:
+    """單一時間段累積漲跌幅欄位。"""
+    if not cum_ranks:
+        return "<td class='cum-cell'>─</td>"
+    val = cum_ranks.get("v", {}).get(meta_name, {}).get(val_key)
+    if val is None:
+        return "<td class='cum-cell' style='color:#334155'>─</td>"
+    sign = "+" if val > 0 else ""
+    color = "#f87171" if val > 0 else "#4ade80"
+    return f"<td class='cum-cell' style='color:{color}'>{sign}{val:.1f}%</td>"
+
 
 def _net_color(n: int) -> str:
     return "#f87171" if n > 0 else ("#4ade80" if n < 0 else "#64748b")
 
 
 def _fmt_net(n: int) -> str:
+    """顯示法人買賣超張數（原始單位：股，除以 1000 = 張）。"""
     if n == 0:
         return "<span style='color:#475569'>─</span>"
-    k = n // 1000
+    zhang = n // 1000
     sign = "+" if n > 0 else ""
     color = _net_color(n)
-    return f"<span style='color:{color};font-weight:700'>{sign}{k:,}K</span>"
+    if abs(zhang) >= 10000:
+        return f"<span style='color:{color};font-weight:700'>{sign}{zhang/10000:.1f}萬張</span>"
+    return f"<span style='color:{color};font-weight:700'>{sign}{zhang:,}張</span>"
 
 
 def _streak_badge(s: int, label: str = "") -> str:
@@ -127,7 +153,7 @@ def _inst_strong_table(rows: list) -> str:
         return "<div class='no-data'>無符合條件個股</div>"
     html = (
         "<table class='ct'><thead><tr>"
-        "<th>#</th><th>股票</th><th>外資</th><th>投信</th>"
+        "<th>#</th><th>股票</th><th>族群</th><th>外資</th><th>投信</th>"
         "<th>外資今日</th><th>投信今日</th><th>合計</th><th>漲跌</th>"
         "</tr></thead><tbody>"
     )
@@ -142,6 +168,7 @@ def _inst_strong_table(rows: list) -> str:
             f"<tr>"
             f"<td class='ct-rank'>{i}</td>"
             f"<td><span class='sid'>{s['stock_id']}</span> {s.get('stock_name','')}</td>"
+            f"<td class='ct-meta'>{s.get('meta_sector','')}</td>"
             f"<td>{_streak_badge(s['foreign_streak'], '外資')}</td>"
             f"<td>{_trust_streak_badge(s['trust_streak'])}</td>"
             f"<td>{_fmt_net(s.get('foreign_net') or 0)}</td>"
@@ -159,7 +186,7 @@ def _inst_streak_table(rows: list, streak_key: str, net_key: str, cum_key: str, 
         return "<div class='no-data'>無資料</div>"
     html = (
         f"<table class='ct'><thead><tr>"
-        f"<th>#</th><th>股票</th><th>連買</th>"
+        f"<th>#</th><th>股票</th><th>族群</th><th>連買</th>"
         f"<th>{label}今日</th><th>{label}累計</th><th>漲跌</th>"
         f"</tr></thead><tbody>"
     )
@@ -178,6 +205,7 @@ def _inst_streak_table(rows: list, streak_key: str, net_key: str, cum_key: str, 
             f"<tr>"
             f"<td class='ct-rank'>{i}</td>"
             f"<td><span class='sid'>{s['stock_id']}</span> {s.get('stock_name','')}</td>"
+            f"<td class='ct-meta'>{s.get('meta_sector','')}</td>"
             f"<td>{badge}</td>"
             f"<td>{_fmt_net(net)}</td>"
             f"<td>{_fmt_net(cum)}</td>"
@@ -250,7 +278,7 @@ def _concentration_table(meta_chips: dict) -> str:
     if not rows:
         return "<div class='no-data'>無資料</div>"
 
-    html = "<table class='ct'><thead><tr><th>族群</th><th>外資買超比例</th><th>買超/總股數</th><th>外資今日</th></tr></thead><tbody>"
+    html = "<table class='ct'><thead><tr><th>族群</th><th>外資買超比例（今日買超家數 / 成分股）</th><th>外資今日</th></tr></thead><tbody>"
     for name, ratio, data in rows:
         buy_count = data.get("foreign_buy_count", 0)
         total = data.get("total_stocks", 1)
@@ -259,8 +287,7 @@ def _concentration_table(meta_chips: dict) -> str:
         html += (
             f"<tr>"
             f"<td class='ct-name'>{name}</td>"
-            f"<td style='min-width:140px'>{bar}</td>"
-            f"<td style='color:#64748b;font-size:.75rem'>{buy_count}/{total}</td>"
+            f"<td style='min-width:160px'>{bar} <span style='color:#475569;font-size:.72rem'>{buy_count}/{total}</span></td>"
             f"<td>{_fmt_net(f_net)}</td>"
             f"</tr>"
         )
@@ -295,6 +322,7 @@ _CSS = """
   .sid{color:#475569;font-size:.72rem;font-weight:600}
   .no-data{color:#334155;font-size:.8rem;padding:12px 0;text-align:center}
   .footer{margin-top:28px;font-size:.7rem;color:#1e293b;text-align:center;padding-bottom:20px}
+  .cum-cell{font-size:.85rem;font-weight:700;text-align:center;white-space:nowrap;padding:4px 10px}
   @media(max-width:540px){body{padding:12px}.chips-grid{grid-template-columns:1fr}}
 """
 
@@ -305,11 +333,14 @@ def generate(
     stock_chips: dict,
     inst_scan: list = None,
     margin_divergence: dict = None,
+    cum_data: list = None,
+    meta_signals: dict = None,
     output_path: str = "docs/chips.html",
 ) -> None:
     if not meta_chips and not stock_chips:
         return
     inst_scan = inst_scan or []
+    cum_ranks = _make_cum_ranks(cum_data or [])
     margin_divergence = margin_divergence or {}
 
     date_str = trade_date.strftime("%Y-%m-%d")
@@ -327,12 +358,19 @@ def generate(
         fn = data.get("foreign_net_today", 0)
         tn = data.get("trust_net_today", 0)
         badge = _streak_badge(fs)
-        return f"<tr><td class='ct-name'>{name}</td><td>{_fmt_net(fn)}</td><td>{_fmt_net(tn)}</td><td>{badge}</td></tr>"
+        return (
+            f"<tr><td class='ct-name'>{name}</td>"
+            f"<td>{_fmt_net(fn)}</td><td>{_fmt_net(tn)}</td>"
+            f"{_cum_cell(name, cum_ranks, '3d', 'r3', 'cum3')}"
+            f"{_cum_cell(name, cum_ranks, '5d', 'r5', 'cum5')}"
+            f"{_cum_cell(name, cum_ranks, '7d', 'r7', 'cum7')}"
+            f"<td>{badge}</td></tr>"
+        )
 
-    buy_tbody = "".join(_streak_row(n, d) for n, d in buy_streak_rows) or "<tr><td colspan='4' class='no-data'>無連買族群</td></tr>"
-    sell_tbody = "".join(_streak_row(n, d) for n, d in sell_streak_rows) or "<tr><td colspan='4' class='no-data'>無連賣族群</td></tr>"
+    buy_tbody = "".join(_streak_row(n, d) for n, d in buy_streak_rows) or "<tr><td colspan='7' class='no-data'>無連買族群</td></tr>"
+    sell_tbody = "".join(_streak_row(n, d) for n, d in sell_streak_rows) or "<tr><td colspan='7' class='no-data'>無連賣族群</td></tr>"
 
-    thead = "<thead><tr><th>族群</th><th>外資今日</th><th>投信今日</th><th>狀態</th></tr></thead>"
+    thead = "<thead><tr><th>族群</th><th>外資今日</th><th>投信今日</th><th style='text-align:center'>3d</th><th style='text-align:center'>5d</th><th style='text-align:center'>7d</th><th>狀態</th></tr></thead>"
     s1_html = f"""
 <div class="chips-grid">
   <div class="chips-section-half">
@@ -368,13 +406,20 @@ def generate(
         fn = data.get("foreign_net_today", 0)
         tn = data.get("trust_net_today", 0)
         badge = _trust_streak_badge(streak)
-        return f"<tr><td class='ct-name'>{name}</td><td>{_fmt_net(tn)}</td><td>{_fmt_net(fn)}</td><td>{badge}</td></tr>"
+        return (
+            f"<tr><td class='ct-name'>{name}</td>"
+            f"<td>{_fmt_net(tn)}</td><td>{_fmt_net(fn)}</td>"
+            f"{_cum_cell(name, cum_ranks, '3d', 'r3', 'cum3')}"
+            f"{_cum_cell(name, cum_ranks, '5d', 'r5', 'cum5')}"
+            f"{_cum_cell(name, cum_ranks, '7d', 'r7', 'cum7')}"
+            f"<td>{badge}</td></tr>"
+        )
 
-    trust_tbody = "".join(_trust_row(n, s, d) for n, s, d in trust_rows) or "<tr><td colspan='4' class='no-data'>無資料</td></tr>"
+    trust_tbody = "".join(_trust_row(n, s, d) for n, s, d in trust_rows) or "<tr><td colspan='7' class='no-data'>無資料</td></tr>"
     s3_html = f"""
 <div class="chips-section">
   <div class="cs-title">投信加碼 META 彙總</div>
-  <table class="ct"><thead><tr><th>族群</th><th>投信今日</th><th>外資今日</th><th>狀態</th></tr></thead>
+  <table class="ct"><thead><tr><th>族群</th><th>投信今日</th><th>外資今日</th><th style='text-align:center'>3d</th><th style='text-align:center'>5d</th><th style='text-align:center'>7d</th><th>狀態</th></tr></thead>
   <tbody>{trust_tbody}</tbody></table>
 </div>"""
 

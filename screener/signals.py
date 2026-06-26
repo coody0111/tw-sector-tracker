@@ -20,6 +20,15 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 _DB_PATH = "data/screener.db"
+_UNIVERSE_PATH = "data/stock_universe.csv"
+
+
+def _load_universe_map() -> dict:
+    try:
+        df = pd.read_csv(_UNIVERSE_PATH, usecols=["stock_id", "stock_name", "meta_sector"], dtype=str)
+        return df.set_index("stock_id")[["stock_name", "meta_sector"]].to_dict("index")
+    except Exception:
+        return {}
 
 
 def scan_volume_turnover(
@@ -72,6 +81,7 @@ def scan_volume_turnover(
     if not inst_df.empty:
         inst_map = inst_df.set_index("stock_id")[["foreign_net", "trust_net", "total_net"]].to_dict("index")
 
+    universe_map = _load_universe_map()
     price_df["date"] = pd.to_datetime(price_df["date"])
     target = pd.to_datetime(trade_date)
 
@@ -126,8 +136,11 @@ def scan_volume_turnover(
             trust_net   is not None and trust_net   > 0
         )
 
+        uinfo = universe_map.get(str(sid), {})
         results.append({
             "stock_id":        sid,
+            "stock_name":      uinfo.get("stock_name", ""),
+            "meta_sector":     uinfo.get("meta_sector", ""),
             "close":           today["close"],
             "change_pct":      today["change_pct"],
             "volume":          int(today["volume"]),

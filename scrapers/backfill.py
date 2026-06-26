@@ -159,7 +159,7 @@ def _fetch_stock_months(sid: str, month_starts: list) -> tuple[str, list, bool]:
             if stock_fail >= 2 and not is_twse:
                 break
 
-        time.sleep(0.1)  # 每次 request 後稍等，避免被 TWSE 封鎖
+        time.sleep(0.4)  # 每次 request 後稍等，避免被 TWSE 封鎖
 
     return sid, rows, is_twse
 
@@ -168,7 +168,7 @@ def backfill_twse_monthly(
     stock_ids: List[str],
     months: int = 6,
     output_dir: str = "data/daily_prices",
-    workers: int = 8,
+    workers: int = 3,
     today: date = None,
 ) -> int:
     """

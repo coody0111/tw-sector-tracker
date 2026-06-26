@@ -905,10 +905,12 @@ def generate(
     .search-highlight{{outline:2px solid #475569;outline-offset:2px;border-radius:8px}}
 
     /* Nav */
-    .nav-links{{display:flex;gap:8px;margin-top:10px}}
+    .nav-links{{display:flex;gap:8px;margin-top:10px;align-items:center}}
     .nav-link{{font-size:.78rem;padding:5px 14px;border-radius:6px;border:1px solid #1e293b;color:#64748b;text-decoration:none;transition:all .15s}}
     .nav-link:hover{{border-color:#475569;color:#94a3b8}}
     .nav-link.active{{border-color:#475569;color:#e2e8f0;background:#141c2e}}
+    .theme-btn{{margin-left:4px;font-size:.85rem;padding:4px 10px;border-radius:6px;border:1px solid #1e293b;background:#0b0f18;color:#94a3b8;cursor:pointer;transition:all .15s;line-height:1}}
+    .theme-btn:hover{{border-color:#475569}}
 
     .footer{{margin-top:28px;font-size:.7rem;color:#1e293b;text-align:center;padding-bottom:20px}}
 
@@ -919,24 +921,16 @@ def generate(
       .mkt-bar{{gap:12px;padding:10px 12px}}
       .mkt-avg{{font-size:1.1rem}}
       .mkt-stat{{font-size:.75rem}}
-
-      /* Top 10: 隱藏漲跌平欄 */
       .top-counts{{display:none}}
       .top-pct{{padding:10px 10px 10px 4px}}
       .top-name{{font-size:.82rem;max-width:none}}
-
-      /* MC 卡片: 改 2 欄，縮小 padding */
       .mc-grid{{grid-template-columns:repeat(2,1fr)}}
       .mc-card{{padding:6px 8px}}
       .mc-pct{{font-size:.78rem}}
       .mc-name{{font-size:.65rem}}
-
-      /* 個股 card: 固定2欄 */
       .stock-cards-wrap{{grid-template-columns:1fr 1fr;gap:8px}}
       .sc-price{{font-size:.9rem}}
       .sc-pct{{font-size:.75rem}}
-
-      /* 分組 */
       .group-header{{padding:10px 12px}}
       .g-name{{font-size:.85rem}}
       .g-avg{{font-size:.9rem}}
@@ -944,6 +938,65 @@ def generate(
       .sc-mini-grid{{grid-template-columns:repeat(3,1fr)}}
       .sc-mini-panel{{margin:0 6px 8px}}
     }}
+
+    /* ── Light theme ────────────────────────────────── */
+    body.light{{background:#f1f5f9;color:#1e293b}}
+    body.light h1{{color:#475569}}
+    body.light .mkt-bar{{background:#ffffff;border:1px solid #e2e8f0}}
+    body.light .mkt-date{{color:#1e293b}}
+    body.light .mkt-stat{{color:#64748b}}
+    body.light .mc-card{{border-color:#e2e8f0}}
+    body.light .mc-card:hover,body.light .mc-card.active{{border-color:#94a3b8}}
+    body.light .mc-name{{color:#64748b}}
+    body.light .mc-cnt{{color:#94a3b8}}
+    body.light .mc-panel{{background:#f8fafc;border-color:#e2e8f0}}
+    body.light .top-card{{background:#ffffff;border-color:#e2e8f0}}
+    body.light .top-card-title{{border-color:#e2e8f0}}
+    body.light .top-row:hover>td{{background:#f1f5f9}}
+    body.light .top-name{{color:#334155}}
+    body.light .top-counts{{color:#94a3b8}}
+    body.light .top-rank{{color:#94a3b8}}
+    body.light th{{color:#94a3b8;border-color:#e2e8f0}}
+    body.light td{{border-color:#f1f5f9}}
+    body.light .name{{color:#1e293b}}
+    body.light .clickable-sector:hover>td{{background:#e2e8f0}}
+    body.light .detail-row>td{{background:#f8fafc}}
+    body.light .stock-card{{background:#ffffff;border-color:#e2e8f0}}
+    body.light .stock-card:hover{{border-color:#94a3b8}}
+    body.light .sc-id{{color:#94a3b8}}
+    body.light .sc-name{{color:#64748b}}
+    body.light .sc-price{{color:#1e293b}}
+    body.light .sc-vol{{color:#94a3b8}}
+    body.light .sc-chips{{color:#94a3b8}}
+    body.light .chip-label{{color:#94a3b8}}
+    body.light .chips-summary{{background:#f8fafc;border-color:#e2e8f0}}
+    body.light .cs-label{{color:#94a3b8}}
+    body.light .cs-sub{{color:#94a3b8}}
+    body.light .group-block{{border-color:#e2e8f0}}
+    body.light .group-header{{background:#ffffff}}
+    body.light .group-header:hover{{background:#f1f5f9}}
+    body.light details[open]>.group-header{{border-color:#e2e8f0}}
+    body.light .g-name{{color:#1e293b}}
+    body.light .g-count{{color:#94a3b8}}
+    body.light .g-chevron{{color:#94a3b8}}
+    body.light .chevron{{color:#94a3b8}}
+    body.light .section-title{{color:#94a3b8}}
+    body.light .collapse-all-btn{{border-color:#e2e8f0;color:#94a3b8}}
+    body.light .collapse-all-btn:hover{{border-color:#94a3b8;color:#475569}}
+    body.light .sc-mini-card{{border-color:#e2e8f0;background:#ffffff}}
+    body.light .sc-mini-name{{color:#64748b}}
+    body.light .cum-badge{{background:#f8fafc;border-color:#e2e8f0;color:#64748b}}
+    body.light .cum-badge b{{color:#475569}}
+    body.light .stock-search{{background:#ffffff;border-color:#e2e8f0;color:#1e293b}}
+    body.light .search-dropdown{{background:#ffffff;border-color:#e2e8f0}}
+    body.light .search-item:hover{{background:#f1f5f9}}
+    body.light .search-item-id{{color:#64748b}}
+    body.light .nav-link{{color:#64748b;border-color:#e2e8f0}}
+    body.light .nav-link:hover{{color:#475569;border-color:#94a3b8}}
+    body.light .nav-link.active{{color:#475569;background:#e2e8f0;border-color:#94a3b8}}
+    body.light .theme-btn{{background:#f1f5f9;border-color:#e2e8f0;color:#475569}}
+    body.light .breadth-bar-bg{{background:#1e293b20}}
+    body.light .footer{{color:#94a3b8}}
   </style>
 </head>
 <body>
@@ -963,6 +1016,7 @@ def generate(
     <div class="nav-links">
       <a class="nav-link active" href="index.html">族群績效</a>
       <a class="nav-link" href="chips.html">籌碼分析</a>
+      <button class="theme-btn" onclick="toggleTheme()" title="切換明暗主題" id="theme-btn">☀️</button>
     </div>
   </div>
 
@@ -1067,6 +1121,20 @@ def generate(
       document.querySelectorAll('.sc-mini-panel').forEach(p => p.style.display = 'none');
       document.querySelectorAll('.sc-mini-card.active').forEach(c => c.classList.remove('active'));
     }}
+
+    /* ── Theme toggle ── */
+    function toggleTheme() {{
+      const isLight = document.body.classList.toggle('light');
+      document.getElementById('theme-btn').textContent = isLight ? '🌙' : '☀️';
+      localStorage.setItem('tw-theme', isLight ? 'light' : 'dark');
+    }}
+    (function() {{
+      if (localStorage.getItem('tw-theme') === 'light') {{
+        document.body.classList.add('light');
+        const btn = document.getElementById('theme-btn');
+        if (btn) btn.textContent = '🌙';
+      }}
+    }})();
   </script>
 </body>
 </html>"""

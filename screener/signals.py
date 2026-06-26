@@ -112,6 +112,10 @@ def scan_volume_turnover(
         vol_avg = window["volume"].mean()
         vol_multiple = round(today["volume"] / vol_avg, 1) if vol_avg > 0 else 0
 
+        # 量倍數過低 → 雜訊，不納入
+        if vol_multiple < 1.5:
+            continue
+
         inst = inst_map.get(sid, {})
         foreign_net = inst.get("foreign_net")
         trust_net   = inst.get("trust_net")

@@ -175,6 +175,8 @@ def run(trade_date: date = None, realtime: bool = False) -> None:
     """每日執行：讀取已存族群 → 抓 TWSE+TPEx 行情 → 計算績效 → 更新網站（約 10 秒）"""
     if trade_date is None:
         trade_date = date.today()
+        if trade_date.weekday() >= 5:  # 週六=5, 週日=6 → 退回上週五
+            trade_date = _prev_trading_day(trade_date)
 
     logger.info("=== TW Sector Tracker — %s ===", trade_date.isoformat())
     writer = CsvWriter(base_dir="data")

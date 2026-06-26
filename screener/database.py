@@ -100,7 +100,7 @@ def import_csv_prices() -> int:
             CAST(volume AS BIGINT)       AS volume,
             CAST(change AS DOUBLE)       AS change,
             CAST(change_pct AS DOUBLE)   AS change_pct
-        FROM read_csv_auto('{CSV_GLOB}', filename=true)
+        FROM read_csv_auto('{CSV_GLOB}', filename=true, types={{'stock_id': 'VARCHAR'}})
         WHERE close IS NOT NULL
     """).df()
 

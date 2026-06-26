@@ -209,6 +209,38 @@ def _margin_alert_table(alerts: list) -> str:
     return html
 
 
+def _margin_divergence_table(rows: list, divergence_type: str) -> str:
+    if not rows:
+        label = "無看空背離個股" if divergence_type == "bearish" else "無融資鬆動個股"
+        return f"<div class='no-data'>{label}</div>"
+    if divergence_type == "bearish":
+        thead = "<thead><tr><th>#</th><th>股票</th><th>族群</th><th>融資增幅</th><th>股價跌幅</th><th>天數</th></tr></thead>"
+    else:
+        thead = "<thead><tr><th>#</th><th>股票</th><th>族群</th><th>融資減幅</th><th>股價漲幅</th><th>天數</th></tr></thead>"
+    html = f"<table class='ct'>{thead}<tbody>"
+    for i, s in enumerate(rows, 1):
+        mpct = s["margin_pct"]
+        ppct = s["price_pct"]
+        if divergence_type == "bearish":
+            m_html = f"<span style='color:#f87171;font-weight:700'>+{mpct:.1f}%</span>"
+            p_html = f"<span style='color:#4ade80;font-weight:700'>{ppct:.1f}%</span>"
+        else:
+            m_html = f"<span style='color:#4ade80;font-weight:700'>{mpct:.1f}%</span>"
+            p_html = f"<span style='color:#f87171;font-weight:700'>+{ppct:.1f}%</span>"
+        html += (
+            f"<tr>"
+            f"<td class='ct-rank'>{i}</td>"
+            f"<td><span class='sid'>{s['stock_id']}</span> {s['stock_name']}</td>"
+            f"<td class='ct-meta'>{s['meta_sector']}</td>"
+            f"<td>{m_html}</td>"
+            f"<td>{p_html}</td>"
+            f"<td style='color:#475569;font-size:.72rem'>{s['days']}日</td>"
+            f"</tr>"
+        )
+    html += "</tbody></table>"
+    return html
+
+
 def _concentration_table(meta_chips: dict) -> str:
     rows = [
         (name, data.get("foreign_buy_ratio", 0), data)
@@ -272,11 +304,13 @@ def generate(
     meta_chips: dict,
     stock_chips: dict,
     inst_scan: list = None,
+    margin_divergence: dict = None,
     output_path: str = "docs/chips.html",
 ) -> None:
     if not meta_chips and not stock_chips:
         return
     inst_scan = inst_scan or []
+    margin_divergence = margin_divergence or {}
 
     date_str = trade_date.strftime("%Y-%m-%d")
     weekday = ["一", "二", "三", "四", "五", "六", "日"][trade_date.weekday()]
@@ -390,6 +424,30 @@ def generate(
   </div>
 </div>"""
 
+    # Section 7: 融資背離警示
+    days_used = margin_divergence.get("days_used", 0)
+    bearish = margin_divergence.get("bearish", [])
+    bullish = margin_divergence.get("bullish", [])
+    if days_used >= 2:
+        days_label = f"（近 {days_used} 個交易日）"
+        s7_html = f"""
+<div class="chips-grid">
+  <div class="chips-section-half">
+    <div class="cs-title">⚠ 看空背離 — 融資增 + 股價跌 {days_label}</div>
+    {_margin_divergence_table(bearish, "bearish")}
+  </div>
+  <div class="chips-section-half">
+    <div class="cs-title">✦ 融資鬆動 — 融資減 + 股價漲 {days_label}</div>
+    {_margin_divergence_table(bullish, "bullish")}
+  </div>
+</div>"""
+    else:
+        s7_html = """
+<div class="chips-section">
+  <div class="cs-title">融資背離警示</div>
+  <div class="no-data">融資資料不足（需至少 2 個交易日），請先執行 --backfill-marg</div>
+</div>"""
+
     html = f"""<!DOCTYPE html>
 <html lang="zh-TW">
 <head>
@@ -411,6 +469,7 @@ def generate(
   </div>
 
   {s6_html}
+  {s7_html}
   {s1_html}
   {s2_html}
   {s3_html}

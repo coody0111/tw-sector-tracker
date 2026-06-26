@@ -5,62 +5,37 @@
 
 ---
 
-## 目前狀態（2026-06-25）
+## 目前狀態（2026-06-26）
 
-### Working tree 乾淨，無待 commit 變更。commit adbe68d
+### Working tree：pull 後須確認兩台電腦各有獨立進度
 
 ### 已完成功能
 - **四項 signal badges**：3/5/7d 累積排名 badge + 漲跌方向 + 連漲連跌 + 量能異常
 - **sparkline**：展開面板頂部 10 日 SVG 條形圖
 - **籌碼 META 彙總**：`calc_meta_chips_signals()` — 外資/投信連買連賣 + 融資警示
-- **籌碼獨立分頁**：`docs/chips.html` — 五區塊籌碼分析，index.html 加導覽連結
+- **籌碼獨立分頁**：`docs/chips.html` — 七區塊籌碼分析，index.html 加導覽連結
+- **融資背離警示**：`get_margin_divergence()` — 看空背離 + 融資鬆動，chips.html Section 7（家裡電腦）
 - **股票搜尋欄**：header 搜尋 → 自動展開並定位個股卡片
-- **先進封裝設備 META**：CoWoS 供應鏈 9 家（弘塑/均豪/萬潤/均華/印能/志聖/家登/群翊/辛耘）
-- **歷史補齊**：`scrapers/backfill.py` TWSE 月別補齊；`--backfill-twse 6` 可補半年
+- **先進封裝設備 META**：CoWoS 供應鏈 9 家
+- **歷史補齊**：`--backfill-twse 6`（TWSE 月別）、`--backfill 180`（FinMind）
 - **訊號掃描器**：`screener/signals.py` 巨量換手三條件
-- **回測框架**：`screener/backtest.py`
+- **回測框架**：`screener/backtest.py`、`--backtest` CLI
+- **即時行情**：`scrapers/realtime.py`、`--realtime` CLI（公司電腦 2026-06-25）
+- **法人篩選器**：`screener/institutional.py`、`--backfill-institutional 60`（公司）
+- **融資 TWSE API**：`fetch_margin_all_twse()`、`--backfill-margin 60`（公司）
+- **巨量換手 HTML 區塊**：`index.html` Top10 上方（公司）
 
-### chips.html 五區塊
-1. 外資連買/連賣 META 排行（左右對比）
-2. 外資大買/大賣個股 Top10（左右對比）
-3. 投信加碼 META 彙總
-4. 融資擴張警示（增幅 > 5%）
-5. META 外資籌碼集中度（買超股數/總股數）
+### chips.html 區塊（目前 8 區，兩台進度略有差異）
+0. 🔥 強力訊號（外資+投信同買 ≥2 日）— 公司新增
+1. 外資持續買進 Top 15 / 投信持續買進 Top 15 — 公司新增
+2. 外資連買/連賣 META 排行
+3. 外資大買/大賣個股 Top10
+4. 投信加碼 META 彙總
+5. 融資擴張警示（增幅 > 5%）
+6. META 外資籌碼集中度
+7. 融資背離警示（看空背離 + 融資鬆動）— 家裡新增
 
----
-
-## 2026-06-25 — 即時行情 + 法人篩選 + 融資 TWSE API
-
-### 新增功能
-
-#### 盤中即時行情
-- `scrapers/realtime.py`：`fetch_realtime_prices(stock_ids)` — mis.twse.com.tw，批次 80 支，~18 秒取 1034 支
-- `main.py --realtime`：盤中 9:00~13:30 使用，替換原本的盤後收盤行情
-
-#### 法人買進篩選器
-- `screener/institutional.py`：`scan_institutional()` — 8 種 filter 任意組合
-  - `foreign_streak`、`trust_streak`、`both_streak`（連買天數）
-  - `min_foreign_net`、`min_trust_net`、`min_total_net`（今日金額門檻）
-  - `cum_foreign_net`、`cum_trust_net`（N 日累計門檻）
-- `main.py --backfill-institutional 60`：補歷史三大法人資料，已補 35 個交易日（2026-04-27 起）
-- `chips.html` 新增三區塊（頁頂）：
-  1. 🔥 強力訊號（外資+投信同買 ≥2 日）
-  2. 外資持續買進 Top 15（連買 ≥3 日，排累計）
-  3. 投信持續買進 Top 15（連買 ≥5 日，排今日金額）
-
-#### 融資融券 TWSE API（P3）
-- `scrapers/chips.py`：`fetch_margin_all_twse(trade_date)` — MI_MARGN 一次取全市場 1279 支（替換 FinMind 逐股）
-- `main.py --backfill-margin 60`：已補 38 個交易日融資資料（2026-04-27 起）
-- 每日 run 自動寫入
-
-#### 巨量換手 HTML（P1）
-- `index.html` Top10 上方新增「⚡ 巨量換手訊號」區塊，顯示：代號、漲跌幅、量倍數、外資、外資+投信確認
-- 每日 run 自動掃描並嵌入 HTML
-
-#### 巨量換手回測 CLI（P2）
-- `main.py --backtest`：跑 `screener/backtest.py` 回測，輸出勝率/期望值
-
-### DuckDB 資料狀況（data/screener.db）
+### DuckDB 資料狀況（data/screener.db，公司電腦）
 
 | 表格 | 日期範圍 | 筆數/日 |
 |---|---|---|
@@ -72,16 +47,14 @@
 
 **P0（最高優先）— 歷史行情補齊**
 ```bash
-# 回家後跑（FinMind，每日 600 次上限）
-python main.py --backfill 180   # 今天 ~550 支
-# 明天再跑一次補完剩下 ~490 支
+python main.py --backfill 180   # 每日 600 次上限，需跑兩天
 ```
-補完後 `daily_prices` 才有 1040 支 × 126 日，巨量換手回測才有意義。
+補完後 `daily_prices` 才有 1040 支 × 126 日，巨量換手回測才有完整資料。
 
 **之後可做：**
-- 巨量換手回測結果（`python main.py --backtest`，補齊資料後）
+- `python main.py --backtest`（補齊後跑回測）
 - dark/light 主題切換（低優先）
-- chips.html 融資擴張警示補齊（現在 margin 資料已有 60 天，可驗證）
+- 上市/上櫃分開顯示（低優先）
 
 ---
 

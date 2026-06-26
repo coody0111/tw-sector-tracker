@@ -315,6 +315,109 @@ def calc_stock_sparklines(
     return {sid: [round(float(pivot.loc[sid, d]), 2) for d in all_dates] for sid in pivot.index}
 
 
+def get_margin_divergence(
+    universe_df: pd.DataFrame,
+    db_path: str = "data/screener.db",
+    lookback: int = 10,
+    margin_thresh: float = 3.0,
+    price_thresh: float = 2.0,
+) -> Dict[str, Any]:
+    """
+    融資增減趨勢 vs 股價背離警示。
+    比較最近 lookback 個交易日的融資餘額趨勢與股價趨勢。
+
+    回傳 {
+        "bearish": [{stock_id, stock_name, meta_sector, margin_pct, price_pct, days}, ...],
+        "bullish": [...],
+        "days_used": int,
+    }
+    """
+    try:
+        con = duckdb.connect(db_path, read_only=True)
+        dates_row = con.execute(
+            "SELECT DISTINCT date FROM margin ORDER BY date DESC LIMIT ?", [lookback]
+        ).fetchdf()
+        if dates_row.empty or len(dates_row) < 2:
+            con.close()
+            return {"bearish": [], "bullish": [], "days_used": 0}
+
+        dates = sorted(dates_row["date"].tolist())
+        min_date = dates[0]
+
+        margin_df = con.execute(
+            "SELECT stock_id, date, margin_balance FROM margin WHERE date >= ? AND margin_balance > 0",
+            [min_date],
+        ).fetchdf()
+        price_df = con.execute(
+            "SELECT stock_id, date, close FROM daily_prices WHERE date >= ? AND close > 0",
+            [min_date],
+        ).fetchdf()
+        con.close()
+    except Exception:
+        return {"bearish": [], "bullish": [], "days_used": 0}
+
+    universe = universe_df[["stock_id", "stock_name", "meta_sector"]].copy()
+    universe["stock_id"] = universe["stock_id"].astype(str)
+    margin_df["stock_id"] = margin_df["stock_id"].astype(str)
+    price_df["stock_id"] = price_df["stock_id"].astype(str)
+
+    margin_pivot = (
+        margin_df.groupby(["stock_id", "date"])["margin_balance"].mean()
+        .unstack(level="date").reindex(columns=dates)
+    )
+    price_pivot = (
+        price_df.groupby(["stock_id", "date"])["close"].mean()
+        .unstack(level="date").reindex(columns=dates)
+    )
+
+    bearish, bullish = [], []
+    sid_info = universe.set_index("stock_id")
+
+    for sid in margin_pivot.index:
+        if sid not in sid_info.index:
+            continue
+        m_row = margin_pivot.loc[sid].dropna()
+        p_row = price_pivot.loc[sid].dropna() if sid in price_pivot.index else pd.Series(dtype=float)
+        if len(m_row) < 2 or len(p_row) < 2:
+            continue
+
+        common_dates = sorted(set(m_row.index) & set(p_row.index))
+        if len(common_dates) < 2:
+            continue
+
+        m_start, m_end = float(m_row[common_dates[0]]), float(m_row[common_dates[-1]])
+        p_start, p_end = float(p_row[common_dates[0]]), float(p_row[common_dates[-1]])
+        if m_start <= 0 or p_start <= 0:
+            continue
+
+        margin_pct = (m_end - m_start) / m_start * 100
+        price_pct = (p_end - p_start) / p_start * 100
+        days = len(common_dates)
+
+        row = {
+            "stock_id": sid,
+            "stock_name": sid_info.loc[sid, "stock_name"],
+            "meta_sector": sid_info.loc[sid, "meta_sector"],
+            "margin_pct": round(margin_pct, 2),
+            "price_pct": round(price_pct, 2),
+            "days": days,
+        }
+
+        if margin_pct >= margin_thresh and price_pct <= -price_thresh:
+            bearish.append(row)
+        elif margin_pct <= -margin_thresh and price_pct >= price_thresh:
+            bullish.append(row)
+
+    bearish.sort(key=lambda x: x["margin_pct"] - x["price_pct"], reverse=True)
+    bullish.sort(key=lambda x: x["price_pct"] - x["margin_pct"], reverse=True)
+
+    return {
+        "bearish": bearish[:20],
+        "bullish": bullish[:20],
+        "days_used": len(dates),
+    }
+
+
 def get_stock_chips_ranking(
     universe_df: pd.DataFrame,
     db_path: str = "data/screener.db",

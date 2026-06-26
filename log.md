@@ -7,27 +7,26 @@
 
 ## 目前狀態（2026-06-26）
 
-### Working tree 乾淨。commit 696e117
+### Working tree 乾淨。commit f71232a
 
-### backfill 問題完整修復 ✅
-- **根本原因**：TWSE Phase 1 被 403 封鎖的股票被誤分類為 non_twse → Phase 2 用 `.TWO` 找不到 → 資料空缺
-- **修法**：`_fetch_tpex_yfinance` 改為先試 `.TWO` 再 fallback `.TW`，TWSE 股票透過 `.TW` 補齊
-- **結果**：全 6 個月 1039 支股票資料完整，回測訊號 385 筆（1月~6月全覆蓋）
+### backfill partial_twse bug 完整修復 ✅
+- **根本原因（二次 bug）**：2302 在 TWSE Phase 1 取得 Jan+Feb 資料後 `is_twse=True`，但 Mar-May 403 失敗 → `months_ok < len(month_starts)` → 原本不加進 non_twse，Phase 2 不補 → 舊壞資料（50.2）留存
+- **修法**：新增 `months_ok` 回傳值 + `partial_twse` list；Phase 2 補齊 partial_twse，`twse_covered` set 防覆蓋已有 TWSE 資料
+- **結果**：2302 全 6 個月覆蓋正確（Jan 17.35~21.35 → Jun 31.5~50.2 真實行情）；回測 392 訊號，0 筆虛假 2302 訊號
+- **6907 Jan 只有 2 天**：2026-01-29 掛牌新上市，正常
 
-### 回測狀態（385 訊號，2026-01-06 ~ 2026-06-19）
-- 2~5 月訊號全部補齊，回測資料完整
+### 回測狀態（392 訊號，2026-01-06 ~ 2026-06-26）
+- 資料完整，無虛假訊號
 
-### UI 修正（本 session）
-- 搜尋框支援族群名稱（META_INDEX）搜尋 + 藍色「族群」badge
-- 移除 dark/light 切換（全部刪除）
-- vol_multiple >= 1.5 過濾低訊號雜訊
-- `data-gname` attribute 讓搜尋可定位到族群展開面板
+### 已完成功能（META 四件組）✅
+- **sparkline**：展開面板頂部 10 日 SVG bar chart
+- **連漲/連跌 badges**：連漲N日/連跌N日（≥2 才顯示）
+- **成交量異常 badge**：量↑Nx（vol_ratio ≥ 1.5 顯示）
+- **排名升降 badge**：↑N / ↓N（vs 昨日排名）
+- 全部在 `calc_meta_signals()` (performance.py) + `_meta_card()` (html_generator.py) 實作完成
 
 ### 下一步
-- chips.html 強化（法人連買排行、融資警示）
-- META 歷史趨勢 sparkline、排名升降、連漲連跌 badges（plan 已建立）
-- backfill-institutional 60 ✅（36 天）
-- backfill-marg 60 ✅（38 天）
+- chips.html 強化（法人連買排行、融資警示）詳見先前 /plan 規劃
 
 ---
 

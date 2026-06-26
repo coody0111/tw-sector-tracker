@@ -106,15 +106,16 @@ def _iter_weekdays(start: date, end: date):
         current += timedelta(days=1)
 
 
-def _fetch_stock_months(sid: str, month_starts: list) -> tuple[str, list, bool]:
+def _fetch_stock_months(sid: str, month_starts: list) -> tuple[str, list, bool, int]:
     """
     抓取單支股票的所有月份資料。
-    回傳 (stock_id, rows_list, is_twse)
-    rows_list: [{date_str, stock_id, close, change, change_pct, volume}, ...]
+    回傳 (stock_id, rows_list, is_twse, months_ok)
+    months_ok: 成功取得資料的月份數（用來偵測 Phase 1 部分失敗）
     """
     rows = []
     stock_fail = 0
     is_twse = False
+    months_ok = 0
 
     for mo in month_starts:
         date_str = mo.strftime("%Y%m%d")
@@ -163,6 +164,7 @@ def _fetch_stock_months(sid: str, month_starts: list) -> tuple[str, list, bool]:
                 })
 
             is_twse = True
+            months_ok += 1
             stock_fail = 0  # reset on success
 
         except Exception as exc:
@@ -173,7 +175,7 @@ def _fetch_stock_months(sid: str, month_starts: list) -> tuple[str, list, bool]:
 
         time.sleep(0.4)  # 每次 request 後稍等，避免被 TWSE 封鎖
 
-    return sid, rows, is_twse
+    return sid, rows, is_twse, months_ok
 
 
 def _fetch_tpex_yfinance(sid: str, start: date, end: date) -> tuple[str, list, bool]:
@@ -260,6 +262,7 @@ def backfill_twse_monthly(
 
     day_rows: dict = defaultdict(list)
     non_twse: list = []
+    partial_twse: list = []  # TWSE 部分成功（某些月份 403），需要 yfinance 補齊
     done = 0
 
     # Phase 1: TWSE
@@ -268,10 +271,12 @@ def backfill_twse_monthly(
                    for sid in stock_ids}
         for fut in as_completed(futures):
             try:
-                sid, rows, is_twse = fut.result()
+                sid, rows, is_twse, months_ok = fut.result()
                 if is_twse:
                     for r in rows:
                         day_rows[r["_date"]].append(r)
+                    if months_ok < len(month_starts):
+                        partial_twse.append(sid)  # 部分月份失敗，Phase 2 補齊
                 else:
                     non_twse.append(sid)
             except Exception as exc:
@@ -280,25 +285,32 @@ def backfill_twse_monthly(
             if done % 200 == 0 or done == total:
                 logger.info("  TWSE [%d/%d]", done, total)
 
-    logger.info("TWSE 完成：%d 支，non-TWSE（上櫃）補 yfinance：%d 支", total - len(non_twse), len(non_twse))
+    yf_list = non_twse + partial_twse
+    logger.info(
+        "TWSE 完成：%d 支（其中 %d 支部分缺月），yfinance 補齊：%d 支",
+        total - len(non_twse), len(partial_twse), len(yf_list),
+    )
 
-    # Phase 2: yfinance for non-TWSE (TPEx) stocks
-    if non_twse:
+    # Phase 2: yfinance for non-TWSE (TPEx) + partial TWSE stocks
+    if yf_list:
         done2 = 0
         yf_workers = min(workers, 5)  # yfinance 不需要太多並發
         with ThreadPoolExecutor(max_workers=yf_workers) as executor:
             futures2 = {executor.submit(_fetch_tpex_yfinance, sid, start, today): sid
-                        for sid in non_twse}
-            for fut in as_completed(futures2):
+                        for sid in yf_list}
+            # 記錄 Phase 1 已有哪些 (date, stock_id) 避免 yfinance 重複蓋掉 TWSE 資料
+        twse_covered: set = {(r["_date"], r["stock_id"]) for rows in day_rows.values() for r in rows}
+        for fut in as_completed(futures2):
                 try:
                     _, rows, _ = fut.result()
                     for r in rows:
-                        day_rows[r["_date"]].append(r)
+                        if (r["_date"], r["stock_id"]) not in twse_covered:
+                            day_rows[r["_date"]].append(r)
                 except Exception as exc:
                     logger.debug("yfinance fetch error: %s", exc)
                 done2 += 1
-                if done2 % 200 == 0 or done2 == len(non_twse):
-                    logger.info("  yfinance [%d/%d]", done2, len(non_twse))
+                if done2 % 200 == 0 or done2 == len(yf_list):
+                    logger.info("  yfinance [%d/%d]", done2, len(yf_list))
 
     written = 0
     for d_str, rows in sorted(day_rows.items()):

@@ -178,19 +178,29 @@ def _fetch_stock_months(sid: str, month_starts: list) -> tuple[str, list, bool]:
 
 def _fetch_tpex_yfinance(sid: str, start: date, end: date) -> tuple[str, list, bool]:
     """
-    用 yfinance 抓上櫃股票歷史行情（ticker = sid.TWO）。
-    回傳 (stock_id, rows_list, is_tpex)
+    用 yfinance 抓股票歷史行情。先試 .TWO（上櫃），再試 .TW（上市）。
+    回傳 (stock_id, rows_list, success)
     """
-    ticker_sym = f"{sid}.TWO"
-    try:
-        hist = yf.Ticker(ticker_sym).history(
-            start=start.isoformat(),
-            end=(end + timedelta(days=1)).isoformat(),
-            auto_adjust=True,
-        )
-        if hist.empty:
-            return sid, [], False
+    end_str = (end + timedelta(days=1)).isoformat()
+    hist = None
+    for suffix in (".TWO", ".TW"):
+        ticker_sym = f"{sid}{suffix}"
+        try:
+            h = yf.Ticker(ticker_sym).history(
+                start=start.isoformat(),
+                end=end_str,
+                auto_adjust=True,
+            )
+            if not h.empty:
+                hist = h
+                break
+        except Exception as exc:
+            logger.debug("  yfinance %s 失敗: %s", ticker_sym, exc)
 
+    if hist is None or hist.empty:
+        return sid, [], False
+
+    try:
         closes = hist["Close"].astype(float)
         prev_closes = closes.shift(1)
         changes = (closes - prev_closes).round(2)
@@ -214,7 +224,7 @@ def _fetch_tpex_yfinance(sid: str, start: date, end: date) -> tuple[str, list, b
         return sid, rows, True
 
     except Exception as exc:
-        logger.debug("  yfinance %s 失敗: %s", ticker_sym, exc)
+        logger.debug("  yfinance 解析失敗 %s: %s", sid, exc)
         return sid, [], False
 
 

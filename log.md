@@ -7,24 +7,25 @@
 
 ## 目前狀態（2026-06-26）
 
-### Working tree 乾淨。commit 96d9cf4
+### Working tree 乾淨。commit 696e117
 
-### backfill 問題修正（重要）
-- **根本原因**：`STOCK_DAY_ALL` endpoint 完全忽略 `date` 參數，永遠回傳最新一天資料
-- **影響**：1~4 月歷史資料全部是某一天的複製，巨量換手回測無法命中 1~4 月訊號
-- **修法**：`backfill_twse_monthly` 改用 per-stock `STOCK_DAY` endpoint（`_fetch_stock_months`）
-- **狀態**：部分修復（TWSE 403 封鎖後只補到 1 月底，2~4 月待 IP 解封後重補）
+### backfill 問題完整修復 ✅
+- **根本原因**：TWSE Phase 1 被 403 封鎖的股票被誤分類為 non_twse → Phase 2 用 `.TWO` 找不到 → 資料空缺
+- **修法**：`_fetch_tpex_yfinance` 改為先試 `.TWO` 再 fallback `.TW`，TWSE 股票透過 `.TW` 補齊
+- **結果**：全 6 個月 1039 支股票資料完整，回測訊號 385 筆（1月~6月全覆蓋）
 
-### 其他修正
-- `import_csv_prices`：加去重，避免 UNIQUE constraint 衝突
-- `_update_chips_db`：今日法人/融資尚未發布時自動 fallback 前一交易日（凌晨跑不再噴 WARNING）
+### 回測狀態（385 訊號，2026-01-06 ~ 2026-06-19）
+- 2~5 月訊號全部補齊，回測資料完整
 
-### 目前回測狀態（40 訊號，2026-01-23 ~ 2026-06-25）
-- D+1 勝率 32%，D+3 37%，D+5 42%
-- 2~4 月資料待補齊後訊號數量會增加
+### UI 修正（本 session）
+- 搜尋框支援族群名稱（META_INDEX）搜尋 + 藍色「族群」badge
+- 移除 dark/light 切換（全部刪除）
+- vol_multiple >= 1.5 過濾低訊號雜訊
+- `data-gname` attribute 讓搜尋可定位到族群展開面板
 
 ### 下一步
-- **重要**：TWSE IP 解封後，以 workers=2 跑 `--backfill-twse 6` 補 2~4 月
+- chips.html 強化（法人連買排行、融資警示）
+- META 歷史趨勢 sparkline、排名升降、連漲連跌 badges（plan 已建立）
 - backfill-institutional 60 ✅（36 天）
 - backfill-marg 60 ✅（38 天）
 

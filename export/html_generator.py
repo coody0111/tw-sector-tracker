@@ -683,8 +683,9 @@ def generate(
     mkt_color = _pct_color(mkt_avg)
     mkt_sign = "+" if mkt_avg >= 0 else ""
 
-    # JS 資料：個股搜尋索引 + sparkline 資料
+    # JS 資料：個股搜尋索引 + META 索引
     stock_index_js = "[]"
+    meta_index_js = "[]"
     if universe_df is not None:
         prices_map = prices_df.set_index("stock_id") if prices_df is not None and not prices_df.empty else pd.DataFrame()
         idx = []
@@ -693,6 +694,9 @@ def generate(
             pct = round(float(prices_map.loc[sid]["change_pct"]), 2) if sid in prices_map.index else 0.0
             idx.append({"id": sid, "name": str(r["stock_name"]), "meta": str(r["meta_sector"]), "pct": pct})
         stock_index_js = json.dumps(idx, ensure_ascii=False)
+    if meta_perf:
+        midx = [{"name": r["meta_name"], "subs": r.get("sub_names", []), "pct": r.get("avg_change_pct", 0.0)} for r in meta_perf]
+        meta_index_js = json.dumps(midx, ensure_ascii=False)
 
     # 累積排名 lookup（用於卡片上的 badge）
     cum_ranks = _make_cum_ranks(cum_data) if cum_data else {}
@@ -753,7 +757,7 @@ def generate(
             mini_panels.append(mp)
 
         groups_html += f"""
-<details class="group-block">
+<details class="group-block" data-gname="{group_name}">
   <summary class="group-header">
     <span class="g-chevron">›</span>
     <span class="g-name">{group_name}</span>
@@ -901,16 +905,16 @@ def generate(
     .si-name{{color:#e2e8f0;flex:1;font-weight:500}}
     .si-meta{{color:#334155;font-size:.7rem}}
     .si-pct{{font-weight:700;font-size:.8rem;min-width:52px;text-align:right}}
+    .search-item-meta{{border-top:1px solid #0f1624}}
+    .si-meta-icon{{color:#60a5fa;font-size:.65rem;font-weight:700;min-width:36px;background:rgba(30,58,138,.3);border-radius:3px;text-align:center;padding:1px 4px}}
 
     .search-highlight{{outline:2px solid #475569;outline-offset:2px;border-radius:8px}}
 
     /* Nav */
-    .nav-links{{display:flex;gap:8px;margin-top:10px;align-items:center}}
+    .nav-links{{display:flex;gap:8px;margin-top:10px}}
     .nav-link{{font-size:.78rem;padding:5px 14px;border-radius:6px;border:1px solid #1e293b;color:#64748b;text-decoration:none;transition:all .15s}}
     .nav-link:hover{{border-color:#475569;color:#94a3b8}}
     .nav-link.active{{border-color:#475569;color:#e2e8f0;background:#141c2e}}
-    .theme-btn{{margin-left:4px;font-size:.85rem;padding:4px 10px;border-radius:6px;border:1px solid #1e293b;background:#0b0f18;color:#94a3b8;cursor:pointer;transition:all .15s;line-height:1}}
-    .theme-btn:hover{{border-color:#475569}}
 
     .footer{{margin-top:28px;font-size:.7rem;color:#1e293b;text-align:center;padding-bottom:20px}}
 
@@ -939,64 +943,6 @@ def generate(
       .sc-mini-panel{{margin:0 6px 8px}}
     }}
 
-    /* ── Light theme ────────────────────────────────── */
-    body.light{{background:#f1f5f9;color:#1e293b}}
-    body.light h1{{color:#475569}}
-    body.light .mkt-bar{{background:#ffffff;border:1px solid #e2e8f0}}
-    body.light .mkt-date{{color:#1e293b}}
-    body.light .mkt-stat{{color:#64748b}}
-    body.light .mc-card{{border-color:#e2e8f0}}
-    body.light .mc-card:hover,body.light .mc-card.active{{border-color:#94a3b8}}
-    body.light .mc-name{{color:#64748b}}
-    body.light .mc-cnt{{color:#94a3b8}}
-    body.light .mc-panel{{background:#f8fafc;border-color:#e2e8f0}}
-    body.light .top-card{{background:#ffffff;border-color:#e2e8f0}}
-    body.light .top-card-title{{border-color:#e2e8f0}}
-    body.light .top-row:hover>td{{background:#f1f5f9}}
-    body.light .top-name{{color:#334155}}
-    body.light .top-counts{{color:#94a3b8}}
-    body.light .top-rank{{color:#94a3b8}}
-    body.light th{{color:#94a3b8;border-color:#e2e8f0}}
-    body.light td{{border-color:#f1f5f9}}
-    body.light .name{{color:#1e293b}}
-    body.light .clickable-sector:hover>td{{background:#e2e8f0}}
-    body.light .detail-row>td{{background:#f8fafc}}
-    body.light .stock-card{{background:#ffffff;border-color:#e2e8f0}}
-    body.light .stock-card:hover{{border-color:#94a3b8}}
-    body.light .sc-id{{color:#94a3b8}}
-    body.light .sc-name{{color:#64748b}}
-    body.light .sc-price{{color:#1e293b}}
-    body.light .sc-vol{{color:#94a3b8}}
-    body.light .sc-chips{{color:#94a3b8}}
-    body.light .chip-label{{color:#94a3b8}}
-    body.light .chips-summary{{background:#f8fafc;border-color:#e2e8f0}}
-    body.light .cs-label{{color:#94a3b8}}
-    body.light .cs-sub{{color:#94a3b8}}
-    body.light .group-block{{border-color:#e2e8f0}}
-    body.light .group-header{{background:#ffffff}}
-    body.light .group-header:hover{{background:#f1f5f9}}
-    body.light details[open]>.group-header{{border-color:#e2e8f0}}
-    body.light .g-name{{color:#1e293b}}
-    body.light .g-count{{color:#94a3b8}}
-    body.light .g-chevron{{color:#94a3b8}}
-    body.light .chevron{{color:#94a3b8}}
-    body.light .section-title{{color:#94a3b8}}
-    body.light .collapse-all-btn{{border-color:#e2e8f0;color:#94a3b8}}
-    body.light .collapse-all-btn:hover{{border-color:#94a3b8;color:#475569}}
-    body.light .sc-mini-card{{border-color:#e2e8f0;background:#ffffff}}
-    body.light .sc-mini-name{{color:#64748b}}
-    body.light .cum-badge{{background:#f8fafc;border-color:#e2e8f0;color:#64748b}}
-    body.light .cum-badge b{{color:#475569}}
-    body.light .stock-search{{background:#ffffff;border-color:#e2e8f0;color:#1e293b}}
-    body.light .search-dropdown{{background:#ffffff;border-color:#e2e8f0}}
-    body.light .search-item:hover{{background:#f1f5f9}}
-    body.light .search-item-id{{color:#64748b}}
-    body.light .nav-link{{color:#64748b;border-color:#e2e8f0}}
-    body.light .nav-link:hover{{color:#475569;border-color:#94a3b8}}
-    body.light .nav-link.active{{color:#475569;background:#e2e8f0;border-color:#94a3b8}}
-    body.light .theme-btn{{background:#f1f5f9;border-color:#e2e8f0;color:#475569}}
-    body.light .breadth-bar-bg{{background:#1e293b20}}
-    body.light .footer{{color:#94a3b8}}
   </style>
 </head>
 <body>
@@ -1016,7 +962,6 @@ def generate(
     <div class="nav-links">
       <a class="nav-link active" href="index.html">族群績效</a>
       <a class="nav-link" href="chips.html">籌碼分析</a>
-      <button class="theme-btn" onclick="toggleTheme()" title="切換明暗主題" id="theme-btn">☀️</button>
     </div>
   </div>
 
@@ -1034,15 +979,22 @@ def generate(
 
   <script>
     const STOCK_INDEX = {stock_index_js};
+    const META_INDEX  = {meta_index_js};
 
     /* ── Search ── */
     function searchStocks(q) {{
       const dd = document.getElementById('search-dropdown');
       q = q.trim();
       if (!q) {{ dd.style.display='none'; return; }}
-      const matches = STOCK_INDEX.filter(s => s.id.startsWith(q) || s.name.includes(q)).slice(0,10);
-      if (!matches.length) {{ dd.style.display='none'; return; }}
-      dd.innerHTML = matches.map(s => {{
+
+      const stockMatches = STOCK_INDEX.filter(s => s.id.startsWith(q) || s.name.includes(q)).slice(0,6);
+      const metaMatches  = META_INDEX.filter(m =>
+        m.name.includes(q) || (m.subs && m.subs.some(sub => sub.includes(q)))
+      ).slice(0,5);
+
+      if (!stockMatches.length && !metaMatches.length) {{ dd.style.display='none'; return; }}
+
+      const stockHtml = stockMatches.map(s => {{
         const sign = s.pct>=0?'+':'', col = s.pct>0?'#f87171':(s.pct<0?'#4ade80':'#64748b');
         return `<div class="search-item" onmousedown="selectSearchStock('${{s.id}}')">`+
           `<span class="si-id">${{s.id}}</span>`+
@@ -1051,9 +1003,30 @@ def generate(
           `<span class="si-pct" style="color:${{col}}">${{sign}}${{s.pct.toFixed(2)}}%</span>`+
           `</div>`;
       }}).join('');
+
+      const metaHtml = metaMatches.map(m => {{
+        const sign = m.pct>=0?'+':'', col = m.pct>0?'#f87171':(m.pct<0?'#4ade80':'#64748b');
+        return `<div class="search-item search-item-meta" onmousedown="selectSearchMeta('${{m.name}}')">`+
+          `<span class="si-id si-meta-icon">族群</span>`+
+          `<span class="si-name">${{m.name}}</span>`+
+          `<span class="si-meta">${{(m.subs||[]).slice(0,3).join('·')}}</span>`+
+          `<span class="si-pct" style="color:${{col}}">${{sign}}${{m.pct.toFixed(2)}}%</span>`+
+          `</div>`;
+      }}).join('');
+
+      dd.innerHTML = stockHtml + metaHtml;
       dd.style.display = '';
     }}
     function hideSearch() {{ document.getElementById('search-dropdown').style.display='none'; }}
+    function selectSearchMeta(name) {{
+      const block = document.querySelector('details.group-block[data-gname="'+name+'"]');
+      if (block) {{
+        block.open = true;
+        setTimeout(()=>block.scrollIntoView({{behavior:'smooth',block:'start'}}),50);
+      }}
+      document.getElementById('search-dropdown').style.display='none';
+      document.getElementById('stock-search').value='';
+    }}
     function selectSearchStock(sid) {{
       const card = document.querySelector('.stock-card[data-sid="'+sid+'"]');
       if (card) {{
@@ -1122,19 +1095,6 @@ def generate(
       document.querySelectorAll('.sc-mini-card.active').forEach(c => c.classList.remove('active'));
     }}
 
-    /* ── Theme toggle ── */
-    function toggleTheme() {{
-      const isLight = document.body.classList.toggle('light');
-      document.getElementById('theme-btn').textContent = isLight ? '🌙' : '☀️';
-      localStorage.setItem('tw-theme', isLight ? 'light' : 'dark');
-    }}
-    (function() {{
-      if (localStorage.getItem('tw-theme') === 'light') {{
-        document.body.classList.add('light');
-        const btn = document.getElementById('theme-btn');
-        if (btn) btn.textContent = '🌙';
-      }}
-    }})();
   </script>
 </body>
 </html>"""

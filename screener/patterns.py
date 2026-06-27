@@ -85,3 +85,122 @@ def _calc_chips_score(inst_df: pd.DataFrame) -> int:
         streak = _calc_streak(inst_df['trust_net'])
         score += max(-3, min(3, streak))
     return score
+
+
+def _local_minima(arr: np.ndarray, radius: int = 3) -> list[int]:
+    """找局部最低點：前後 radius 根都比它高。"""
+    minima = []
+    for i in range(radius, len(arr) - radius):
+        if all(arr[i] < arr[i - j] for j in range(1, radius + 1)) and \
+           all(arr[i] < arr[i + j] for j in range(1, radius + 1)):
+            minima.append(i)
+    return minima
+
+
+def _local_maxima(arr: np.ndarray, radius: int = 3) -> list[int]:
+    """找局部最高點：前後 radius 根都比它低。"""
+    maxima = []
+    for i in range(radius, len(arr) - radius):
+        if all(arr[i] > arr[i - j] for j in range(1, radius + 1)) and \
+           all(arr[i] > arr[i + j] for j in range(1, radius + 1)):
+            maxima.append(i)
+    return maxima
+
+
+def detect_double_bottom(df: pd.DataFrame) -> bool:
+    """
+    雙底：近60日兩個局部低點（差<3%），中間反彈≥5%（頸線），
+    今日收盤突破頸線 + 量>20MA×1.2。
+    """
+    if len(df) < 30:
+        return False
+
+    close  = df['close'].values
+    volume = df['volume'].values
+    window = min(60, len(close))
+    seg    = close[-window:]
+    seg_n  = len(seg)
+
+    minima = _local_minima(seg)
+    if len(minima) < 2:
+        return False
+
+    vol_ma20 = volume[-21:-1].mean() if len(volume) >= 21 else volume[:-1].mean()
+
+    for a in range(len(minima) - 1):
+        for b in range(a + 1, len(minima)):
+            i1, i2 = minima[a], minima[b]
+            low1, low2 = seg[i1], seg[i2]
+
+            # 兩低點差距 < 3%
+            if abs(low1 - low2) / min(low1, low2) >= _DBL_PRICE_DIFF:
+                continue
+
+            # 中間最高點為頸線
+            neckline = seg[i1:i2 + 1].max()
+            bounce   = (neckline - min(low1, low2)) / min(low1, low2)
+            if bounce < _DBL_BOUNCE:
+                continue
+
+            # 第二個底要夠新（離今日不超過 15 根）
+            if i2 < seg_n - 15:
+                continue
+
+            # 今日收盤突破頸線
+            if close[-1] <= neckline:
+                continue
+
+            # 量確認
+            if vol_ma20 > 0 and volume[-1] < vol_ma20 * _DBL_VOL_CONFIRM:
+                continue
+
+            return True
+
+    return False
+
+
+def detect_double_top(df: pd.DataFrame) -> bool:
+    """
+    雙頂：近60日兩個局部高點（差<3%），中間拉回≥5%（頸線），
+    今日收盤跌破頸線 + 量>20MA×1.2。
+    """
+    if len(df) < 30:
+        return False
+
+    close  = df['close'].values
+    volume = df['volume'].values
+    window = min(60, len(close))
+    seg    = close[-window:]
+    seg_n  = len(seg)
+
+    maxima = _local_maxima(seg)
+    if len(maxima) < 2:
+        return False
+
+    vol_ma20 = volume[-21:-1].mean() if len(volume) >= 21 else volume[:-1].mean()
+
+    for a in range(len(maxima) - 1):
+        for b in range(a + 1, len(maxima)):
+            i1, i2 = maxima[a], maxima[b]
+            high1, high2 = seg[i1], seg[i2]
+
+            if abs(high1 - high2) / max(high1, high2) >= _DBL_PRICE_DIFF:
+                continue
+
+            neckline = seg[i1:i2 + 1].min()
+            pullback = (max(high1, high2) - neckline) / max(high1, high2)
+            if pullback < _DBL_BOUNCE:
+                continue
+
+            if i2 < seg_n - 15:
+                continue
+
+            if close[-1] >= neckline:
+                continue
+
+            if vol_ma20 > 0 and volume[-1] < vol_ma20 * _DBL_VOL_CONFIRM:
+                continue
+
+            return True
+
+    return False

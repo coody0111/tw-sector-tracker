@@ -204,3 +204,123 @@ def detect_double_top(df: pd.DataFrame) -> bool:
             return True
 
     return False
+
+
+def detect_triangle_up(df: pd.DataFrame) -> bool:
+    """
+    三角向上突破：近20日高點斜率<0 + 低點斜率>0，
+    今日收盤突破高點趨勢線 + 量>20MA×1.3。
+    """
+    if len(df) < 21:
+        return False
+
+    hist   = df.iloc[-21:-1]   # 20 days before today
+    today  = df.iloc[-1]
+    volume = df['volume'].values
+    highs  = hist['high'].values  if 'high' in hist.columns else hist['close'].values
+    lows   = hist['low'].values   if 'low'  in hist.columns else hist['close'].values
+    x      = np.arange(len(highs))
+
+    high_slope, high_intercept = np.polyfit(x, highs, 1)
+    low_slope,  _              = np.polyfit(x, lows,  1)
+
+    if not (high_slope < 0 and low_slope > 0):
+        return False
+
+    # Predicted high trendline at position 20 (today)
+    predicted_high = high_slope * 20 + high_intercept
+    if today['close'] <= predicted_high:
+        return False
+
+    vol_ma20 = volume[-21:-1].mean()
+    if vol_ma20 > 0 and volume[-1] < vol_ma20 * _TRI_VOL_CONFIRM:
+        return False
+
+    return True
+
+
+def detect_triangle_down(df: pd.DataFrame) -> bool:
+    """
+    三角向下跌破：近20日高點斜率<0 + 低點斜率<0，
+    今日收盤跌破低點趨勢線 + 量>20MA×1.3。
+    """
+    if len(df) < 21:
+        return False
+
+    hist   = df.iloc[-21:-1]
+    today  = df.iloc[-1]
+    volume = df['volume'].values
+    highs  = hist['high'].values  if 'high' in hist.columns else hist['close'].values
+    lows   = hist['low'].values   if 'low'  in hist.columns else hist['close'].values
+    x      = np.arange(len(highs))
+
+    high_slope, _              = np.polyfit(x, highs, 1)
+    low_slope,  low_intercept  = np.polyfit(x, lows,  1)
+
+    if not (high_slope < 0 and low_slope < 0):
+        return False
+
+    predicted_low = low_slope * 20 + low_intercept
+    if today['close'] >= predicted_low:
+        return False
+
+    vol_ma20 = volume[-21:-1].mean()
+    if vol_ma20 > 0 and volume[-1] < vol_ma20 * _TRI_VOL_CONFIRM:
+        return False
+
+    return True
+
+
+def detect_breakout_confirm(df: pd.DataFrame) -> bool:
+    """
+    60日新高突破確認：過去3個交易日內有一天創60日新高+量>20MA×1.5，
+    今日收盤仍守在突破日收盤上方。
+    """
+    if len(df) < 63:
+        return False
+
+    close  = df['close'].values
+    volume = df['volume'].values
+    n      = len(close)
+    vol_ma20 = volume[-21:-1].mean()
+
+    # Check days at indices -4, -3, -2 (past 3 days, not including today)
+    for offset in range(-4, -1):
+        day_idx = n + offset   # e.g. n-4, n-3, n-2
+        breakout_close = close[day_idx]
+        breakout_vol   = volume[day_idx]
+
+        # 60-day high strictly before this day
+        hist_start = max(0, day_idx - 60)
+        sixty_d_high = close[hist_start:day_idx].max()
+
+        if breakout_close <= sixty_d_high:
+            continue
+        if vol_ma20 > 0 and breakout_vol < vol_ma20 * _BRK_VOL_CONFIRM:
+            continue
+        # Today holds above breakout close
+        if close[-1] >= breakout_close:
+            return True
+
+    return False
+
+
+def detect_box_consolidation(df: pd.DataFrame) -> bool:
+    """
+    箱型整理：近20日（最高-最低）/最低 < 8%，今日仍在區間內。
+    """
+    if len(df) < 21:
+        return False
+
+    last20      = df['close'].iloc[-21:-1]
+    today_close = df['close'].iloc[-1]
+    box_high    = last20.max()
+    box_low     = last20.min()
+
+    if box_low == 0:
+        return False
+    if (box_high - box_low) / box_low >= _BOX_RANGE:
+        return False
+
+    # Today still inside box (allow 1% tolerance)
+    return bool(box_low * 0.99 <= today_close <= box_high * 1.01)

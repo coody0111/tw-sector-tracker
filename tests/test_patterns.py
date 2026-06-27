@@ -119,3 +119,63 @@ def test_double_top_not_detected_when_price_holds():
     closes = [90.0] * 10 + [100.0, 98.0, 100.5] + [92.0] * 10 + [99.5, 98.0, 95.0]
     df = _make_ohlcv(closes)
     assert detect_double_top(df) is False
+
+
+from screener.patterns import (
+    detect_triangle_up, detect_triangle_down,
+    detect_breakout_confirm, detect_box_consolidation,
+)
+
+
+def test_triangle_up_detected():
+    # 20 days converging: highs declining, lows rising; today breaks above high trendline
+    import numpy as np
+    n = 25
+    # Descending highs: 105 → 101 over 20 days
+    highs  = list(np.linspace(105, 101, 20)) + [103.0]  # today breaks above ~101 trendline
+    # Ascending lows: 95 → 99
+    lows   = list(np.linspace(95, 99, 20)) + [100.0]
+    closes = [(h + l) / 2 for h, l in zip(highs[:-1], lows[:-1])] + [103.5]
+    vols   = [1_000_000] * 20 + [1_400_000]
+    df = pd.DataFrame({'close': closes, 'high': highs, 'low': lows, 'volume': vols})
+    assert detect_triangle_up(df) is True
+
+
+def test_triangle_down_detected():
+    import numpy as np
+    highs  = list(np.linspace(105, 98, 20)) + [96.0]   # both declining
+    lows   = list(np.linspace(100, 93, 20)) + [91.0]   # today breaks below low trendline
+    closes = [(h + l) / 2 for h, l in zip(highs[:-1], lows[:-1])] + [91.5]
+    vols   = [1_000_000] * 20 + [1_400_000]
+    df = pd.DataFrame({'close': closes, 'high': highs, 'low': lows, 'volume': vols})
+    assert detect_triangle_down(df) is True
+
+
+def test_breakout_confirm_detected():
+    # 60-day high = 100; yesterday (day 63) close = 101 with big volume; today = 102
+    closes = [98.0] * 60 + [100.0, 101.0, 102.0]   # 63 days total
+    vols   = [1_000_000] * 61 + [1_600_000, 1_000_000]  # big vol on day 62 (yesterday)
+    df = _make_ohlcv(closes, vols)
+    assert detect_breakout_confirm(df) is True
+
+
+def test_breakout_confirm_not_detected_when_below():
+    # Breakout happened but today fell back below
+    closes = [98.0] * 60 + [100.0, 101.0, 99.5]
+    vols   = [1_000_000] * 61 + [1_600_000, 1_000_000]
+    df = _make_ohlcv(closes, vols)
+    assert detect_breakout_confirm(df) is False
+
+
+def test_box_consolidation_detected():
+    # 20 days tight range: 99-101 (2%), today still inside
+    closes = [99.0, 100.0, 101.0, 100.5] * 5 + [100.2]
+    df = _make_ohlcv(closes)
+    assert detect_box_consolidation(df) is True
+
+
+def test_box_consolidation_broken():
+    # Range tight but today broke out above
+    closes = [99.0, 100.0, 101.0, 100.5] * 5 + [108.0]
+    df = _make_ohlcv(closes)
+    assert detect_box_consolidation(df) is False

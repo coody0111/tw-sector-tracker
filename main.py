@@ -93,7 +93,7 @@ def _update_chips_db(trade_date: date, stock_ids: list) -> None:
 
 def _push_html(trade_date: date) -> None:
     try:
-        subprocess.run(["git", "add", "docs/index.html", "docs/chips.html", "docs/patterns.html"], check=True)
+        subprocess.run(["git", "add", "--ignore-unmatch", "docs/index.html", "docs/chips.html", "docs/patterns.html"], check=True)
         result = subprocess.run(["git", "diff", "--cached", "--quiet"])
         if result.returncode != 0:
             subprocess.run(["git", "commit", "-m", f"update: sector performance {trade_date.isoformat()}"], check=True)

@@ -2,6 +2,7 @@
 量價形態掃描器。
 """
 import logging
+import duckdb
 import pandas as pd
 import numpy as np
 
@@ -324,3 +325,124 @@ def detect_box_consolidation(df: pd.DataFrame) -> bool:
 
     # Today still inside box (allow 1% tolerance)
     return bool(box_low * 0.99 <= today_close <= box_high * 1.01)
+
+
+def scan_patterns(date_str: str, db_path: str = _DB_PATH) -> list[dict]:
+    """
+    掃描 date_str 當日全市場量價形態。
+    回傳有命中任一形態的股票清單，依 score 降序。
+    """
+    con = duckdb.connect(db_path, read_only=True)
+
+    # Load up to 65 days of price data for all stocks
+    price_df = con.execute(f"""
+        SELECT stock_id, date, open, high, low, close, volume, change_pct
+        FROM daily_prices
+        WHERE date <= '{date_str}'
+        ORDER BY stock_id, date
+    """).df()
+
+    # Load up to 10 days of institutional data
+    inst_df = con.execute(f"""
+        SELECT stock_id, date, foreign_net, trust_net
+        FROM institutional
+        WHERE date <= '{date_str}'
+        ORDER BY stock_id, date
+    """).df()
+
+    con.close()
+
+    if price_df.empty:
+        logger.warning("scan_patterns: 無行情資料 (%s)", date_str)
+        return []
+
+    # Load name/sector map
+    try:
+        universe = pd.read_csv(_UNIVERSE_PATH, dtype=str,
+                               usecols=["stock_id", "stock_name", "meta_sector"])
+        name_map = universe.set_index("stock_id")[["stock_name", "meta_sector"]].to_dict("index")
+    except Exception:
+        name_map = {}
+
+    # Keep only last 65 rows per stock
+    price_df = price_df.groupby("stock_id").tail(65).reset_index(drop=True)
+    price_df["date"] = pd.to_datetime(price_df["date"])
+    target_date = pd.to_datetime(date_str)
+
+    # Keep only last 10 rows of institutional per stock
+    inst_df = inst_df.groupby("stock_id").tail(10).reset_index(drop=True)
+
+    results = []
+    inst_by_stock = {sid: grp.reset_index(drop=True)
+                     for sid, grp in inst_df.groupby("stock_id")}
+
+    for sid, grp in price_df.groupby("stock_id"):
+        grp = grp.sort_values("date").reset_index(drop=True)
+
+        # Must have today's row
+        today_rows = grp[grp["date"] == target_date]
+        if today_rows.empty or len(grp) < 20:
+            continue
+
+        today = today_rows.iloc[0]
+        change_pct = float(today.get("change_pct", 0) or 0)
+
+        # Vol ratio
+        vol_ma20 = grp["volume"].iloc[-21:-1].mean() if len(grp) >= 21 else grp["volume"].iloc[:-1].mean()
+        vol_ratio = round(float(today["volume"]) / vol_ma20, 2) if vol_ma20 > 0 else 1.0
+
+        # Chips data
+        stock_inst = inst_by_stock.get(str(sid), pd.DataFrame())
+
+        # Scores
+        vp_score    = _calc_vol_price_score(grp["close"], grp["volume"])
+        chips_score = _calc_chips_score(stock_inst)
+
+        # Pattern detection
+        patterns      = []
+        pattern_score = 0
+
+        if detect_double_bottom(grp):
+            patterns.append("雙底")
+            pattern_score += 2
+        if detect_triangle_up(grp):
+            patterns.append("三角突破")
+            pattern_score += 2
+        if detect_breakout_confirm(grp):
+            patterns.append("60日突破")
+            pattern_score += 2
+        if detect_double_top(grp):
+            patterns.append("雙頂")
+            pattern_score -= 2
+        if detect_triangle_down(grp):
+            patterns.append("三角跌破")
+            pattern_score -= 2
+        if detect_box_consolidation(grp):
+            patterns.append("箱型整理")
+
+        if not patterns:
+            continue
+
+        total_score = vp_score + chips_score + pattern_score
+
+        info = name_map.get(str(sid), {})
+
+        # Streak info for display
+        f_streak = _calc_streak(stock_inst["foreign_net"]) if not stock_inst.empty and "foreign_net" in stock_inst else 0
+        t_streak = _calc_streak(stock_inst["trust_net"])   if not stock_inst.empty and "trust_net"   in stock_inst else 0
+
+        results.append({
+            "stock_id":            str(sid),
+            "stock_name":          info.get("stock_name", ""),
+            "meta_sector":         info.get("meta_sector", ""),
+            "change_pct":          round(change_pct, 2),
+            "vol_ratio":           vol_ratio,
+            "score":               total_score,
+            "patterns":            patterns,
+            "inst_streak_foreign": f_streak,
+            "inst_streak_trust":   t_streak,
+        })
+
+    results.sort(key=lambda x: x["score"], reverse=True)
+    logger.info("scan_patterns %s: 命中 %d 檔", date_str, len(results))
+    return results

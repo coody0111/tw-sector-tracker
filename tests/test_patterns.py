@@ -179,3 +179,17 @@ def test_box_consolidation_broken():
     closes = [99.0, 100.0, 101.0, 100.5] * 5 + [108.0]
     df = _make_ohlcv(closes)
     assert detect_box_consolidation(df) is False
+
+
+def test_scan_patterns_returns_list():
+    """Integration smoke test: scan_patterns 回傳 list，每筆有必要欄位。"""
+    from screener.patterns import scan_patterns
+    results = scan_patterns("2026-06-26")   # 用已知有資料的日期
+    assert isinstance(results, list)
+    if results:
+        r = results[0]
+        for key in ("stock_id", "stock_name", "score", "patterns", "vol_ratio"):
+            assert key in r, f"Missing key: {key}"
+        assert isinstance(r["patterns"], list)
+        # Score range sanity check
+        assert -20 <= r["score"] <= 20

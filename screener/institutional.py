@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 _DB_PATH = "data/screener.db"
 _UNIVERSE_PATH = "data/stock_universe.csv"
-_ALL_NAMES_PATH = "data/all_stock_names.csv"
+_ALL_NAMES_PATH = "data/stock_names.csv"
 
 
 def _load_name_map() -> dict:

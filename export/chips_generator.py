@@ -424,6 +424,13 @@ def generate(
 </div>"""
 
     # Section 3.5: 越跌越買 — 族群近期下跌但法人仍持續買進
+    def _pct_cell(val, neutral_zero: bool = False) -> str:
+        if val is None:
+            return "<td style='text-align:center;color:#334155'>─</td>"
+        sign = "+" if val > 0 else ""
+        color = "#f87171" if val > 0 else ("#4ade80" if val < 0 else "#64748b")
+        return f"<td style='text-align:center;color:{color};font-weight:700'>{sign}{val:.1f}%</td>"
+
     dip_buy_rows = []
     for name, data in meta_chips.items():
         fs = data.get("foreign_streak", 0)
@@ -434,25 +441,35 @@ def generate(
         cum5 = cum_vals.get("cum5")
         if cum5 is None or cum5 >= -1.0:
             continue
-        dip_buy_rows.append((name, data, cum5, fs, ts))
-    dip_buy_rows.sort(key=lambda x: x[2])  # 跌最多排前面
+        dip_buy_rows.append((name, data, cum_vals, fs, ts))
+    dip_buy_rows.sort(key=lambda x: (x[2].get("cum5") or 0))  # 跌最多排前面
 
-    def _dip_buy_row(name: str, data: dict, cum5: float, fs: int, ts: int) -> str:
+    def _dip_buy_row(name: str, data: dict, cum_vals: dict, fs: int, ts: int) -> str:
         fn = data.get("foreign_net_today", 0)
         tn = data.get("trust_net_today", 0)
-        cum5_html = f"<span style='color:#4ade80;font-weight:700'>{cum5:.1f}%</span>"
         f_badge = _streak_badge(fs) if fs > 0 else ""
         t_badge = _trust_streak_badge(ts) if ts > 0 else ""
         return (
             f"<tr><td class='ct-name'>{name}</td>"
-            f"<td style='text-align:center'>{cum5_html}</td>"
-            f"<td>{_fmt_net(fn)}</td><td>{_fmt_net(tn)}</td>"
-            f"<td>{f_badge}</td><td>{t_badge}</td></tr>"
+            + _pct_cell(cum_vals.get("cum1"))
+            + _pct_cell(cum_vals.get("cum3"))
+            + _pct_cell(cum_vals.get("cum5"))
+            + _pct_cell(cum_vals.get("cum7"))
+            + f"<td>{_fmt_net(fn)}</td><td>{_fmt_net(tn)}</td>"
+            + f"<td>{f_badge}</td><td>{t_badge}</td></tr>"
         )
 
     if dip_buy_rows:
         dip_tbody = "".join(_dip_buy_row(*r) for r in dip_buy_rows)
-        dip_thead = "<thead><tr><th>族群</th><th style='text-align:center'>5日累計</th><th>外資今日</th><th>投信今日</th><th>外資狀態</th><th>投信狀態</th></tr></thead>"
+        dip_thead = ("<thead><tr>"
+                     "<th>族群</th>"
+                     "<th style='text-align:center'>今日</th>"
+                     "<th style='text-align:center'>3日</th>"
+                     "<th style='text-align:center'>5日</th>"
+                     "<th style='text-align:center'>7日</th>"
+                     "<th>外資今日</th><th>投信今日</th>"
+                     "<th>外資狀態</th><th>投信狀態</th>"
+                     "</tr></thead>")
         s35_html = f"""
 <div class="chips-section">
   <div class="cs-title">📉 越跌越買 — 5日跌逾 1% 但法人仍連買</div>

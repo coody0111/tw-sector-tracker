@@ -126,6 +126,7 @@ def calc_cumulative_meta(universe_df: pd.DataFrame, db_path: str = "data/screene
 
         results.append({
             "meta_name": meta_name,
+            "cum1": _cum(all_dates[-1:]),
             "cum3": _cum(all_dates[-3:]),
             "cum5": _cum(all_dates[-5:]) if len(all_dates) >= 5 else None,
             "cum7": _cum(all_dates[-7:]) if len(all_dates) >= 7 else None,

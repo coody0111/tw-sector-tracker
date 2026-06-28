@@ -20,7 +20,7 @@ _PATTERN_LABEL = {
 
 def _pct(v: float) -> str:
     sign = "+" if v > 0 else ""
-    color = "#f87171" if v > 0 else ("#4ade80" if v < 0 else "#64748b")
+    color = "#f87171" if v > 0 else ("#4ade80" if v < 0 else "#64748b")  # 台股：紅漲綠跌
     return f"<span style='color:{color}'>{sign}{v:.2f}%</span>"
 
 

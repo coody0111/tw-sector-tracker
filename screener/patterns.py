@@ -58,7 +58,10 @@ def _calc_vol_price_score(close: pd.Series, volume: pd.Series) -> int:
     if vol_ma20 == 0:
         return 0
     vol_ratio = volume.iloc[-1] / vol_ma20
-    change_pct = (close.iloc[-1] / close.iloc[-2] - 1) * 100
+    prev_close = close.iloc[-2]
+    if prev_close == 0:
+        return 0
+    change_pct = (close.iloc[-1] / prev_close - 1) * 100
 
     vol_up   = vol_ratio > _VOL_UP
     vol_down = vol_ratio < _VOL_DOWN
@@ -242,7 +245,7 @@ def detect_triangle_up(df: pd.DataFrame) -> bool:
 
 def detect_triangle_down(df: pd.DataFrame) -> bool:
     """
-    三角向下跌破：近20日高點斜率<0 + 低點斜率<0，
+    下降三角跌破：近20日高點斜率<0（壓力下降） + 低點斜率≈0（水平支撐），
     今日收盤跌破低點趨勢線 + 量>20MA×1.3。
     """
     if len(df) < 21:
@@ -258,7 +261,12 @@ def detect_triangle_down(df: pd.DataFrame) -> bool:
     high_slope, _              = np.polyfit(x, highs, 1)
     low_slope,  low_intercept  = np.polyfit(x, lows,  1)
 
-    if not (high_slope < 0 and low_slope < 0):
+    # 下降三角：壓力斜率<0，支撐水平（|low_slope|相對低點均值 < 0.5%/日）
+    low_mean = lows.mean()
+    if low_mean == 0:
+        return False
+    low_slope_pct = abs(low_slope) / low_mean * 100
+    if not (high_slope < 0 and low_slope_pct < 0.5):
         return False
 
     predicted_low = low_slope * 20 + low_intercept
@@ -335,22 +343,22 @@ def scan_patterns(date_str: str, db_path: str = _DB_PATH) -> list[dict]:
     con = duckdb.connect(db_path, read_only=True)
 
     # Load up to 65 days of price data for all stocks
-    price_df = con.execute(f"""
+    price_df = con.execute("""
         SELECT stock_id, date, open, high, low, close, volume, change_pct
         FROM daily_prices
-        WHERE date <= '{date_str}'
-          AND date >= DATE '{date_str}' - INTERVAL '90 days'
+        WHERE date <= ?
+          AND date >= CAST(? AS DATE) - INTERVAL '90 days'
         ORDER BY stock_id, date
-    """).df()
+    """, [date_str, date_str]).df()
 
     # Load up to 10 days of institutional data
-    inst_df = con.execute(f"""
+    inst_df = con.execute("""
         SELECT stock_id, date, foreign_net, trust_net
         FROM institutional
-        WHERE date <= '{date_str}'
-          AND date >= DATE '{date_str}' - INTERVAL '20 days'
+        WHERE date <= ?
+          AND date >= CAST(? AS DATE) - INTERVAL '20 days'
         ORDER BY stock_id, date
-    """).df()
+    """, [date_str, date_str]).df()
 
     con.close()
 
@@ -455,12 +463,13 @@ def backtest_patterns(days: int = 120, db_path: str = _DB_PATH) -> None:
     跑過去 N 個交易日的形態掃描，輸出各形態 3/5/10 日勝率 + 平均報酬。
     """
     con = duckdb.connect(db_path, read_only=True)
-    dates_df = con.execute(f"""
-        SELECT DISTINCT date FROM daily_prices ORDER BY date DESC LIMIT {days + 10}
-    """).df()
-    all_prices_df = con.execute("""
-        SELECT stock_id, date, close FROM daily_prices ORDER BY stock_id, date
-    """).df()
+    dates_df = con.execute(
+        "SELECT DISTINCT date FROM daily_prices ORDER BY date DESC LIMIT ?",
+        [days + 10],
+    ).df()
+    all_prices_df = con.execute(
+        "SELECT stock_id, date, close FROM daily_prices ORDER BY stock_id, date"
+    ).df()
     con.close()
 
     all_prices_df["date"] = pd.to_datetime(all_prices_df["date"])

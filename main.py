@@ -225,8 +225,25 @@ def run(trade_date: date = None, realtime: bool = False) -> None:
             logger.error("Price fetch failed: %s. Continuing without prices.", exc)
             prices_df = None
 
-    # 3. 寫入行情
+    # 3. 寫入行情（盤前/非交易日不寫入重複資料）
+    prices_are_new = True
     if prices_df is not None and not prices_df.empty:
+        prev_day = _prev_trading_day(trade_date)
+        prev_csv = Path(f"data/daily_prices/{prev_day.isoformat()}.csv")
+        if prev_csv.exists():
+            try:
+                prev_df = pd.read_csv(prev_csv, dtype={"stock_id": str})
+                probe_id = "2330" if "2330" in prices_df["stock_id"].values else prices_df.iloc[0]["stock_id"]
+                new_close = prices_df[prices_df["stock_id"] == probe_id]["close"].values
+                old_close = prev_df[prev_df["stock_id"] == probe_id]["close"].values if "close" in prev_df.columns else []
+                if len(new_close) and len(old_close) and float(new_close[0]) == float(old_close[0]):
+                    logger.info("今日行情（%s）與前一交易日（%s）相同，市場尚未更新，切換基準日期", trade_date, prev_day)
+                    prices_are_new = False
+                    trade_date = prev_day
+            except Exception:
+                pass
+
+    if prices_are_new and prices_df is not None and not prices_df.empty:
         writer.write_daily_prices(prices_df, trade_date)
         logger.info("Daily prices written.")
 

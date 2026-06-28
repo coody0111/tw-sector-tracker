@@ -4,6 +4,7 @@
 """
 from datetime import date
 from pathlib import Path
+from urllib.parse import quote
 
 _CUM_THRESHOLD = 15
 
@@ -27,6 +28,18 @@ def _cum_cell(meta_name: str, cum_ranks: dict, period: str, key: str, val_key: s
     sign = "+" if val > 0 else ""
     color = "#f87171" if val > 0 else "#4ade80"
     return f"<td class='cum-cell' style='color:{color}'>{sign}{val:.1f}%</td>"
+
+
+def _meta_link(name: str) -> str:
+    """族群名稱 → 可點擊連結，跳到 index.html 對應 META 卡片。"""
+    if not name:
+        return "─"
+    encoded = quote(name, safe="")
+    return (
+        f"<a href='index.html#meta={encoded}' "
+        f"style='color:inherit;text-decoration:none;border-bottom:1px dotted #475569' "
+        f"title='前往 {name} 族群'>{name}</a>"
+    )
 
 
 def _net_color(n: int) -> str:
@@ -103,7 +116,7 @@ def _meta_streak_table(meta_chips: dict, streak_key: str, sort_desc: bool = True
         f_net = data.get("foreign_net_today", 0)
         t_net = data.get("trust_net_today", 0)
         badge = _streak_badge(data.get("foreign_streak", 0)) if streak_key == "foreign_streak" else _trust_streak_badge(data.get("trust_streak", 0))
-        html += f"<tr><td class='ct-name'>{name}</td><td>{_fmt_net(f_net)}</td><td>{_fmt_net(t_net)}</td><td>{badge}</td></tr>"
+        html += f"<tr><td class='ct-name'>{_meta_link(name)}</td><td>{_fmt_net(f_net)}</td><td>{_fmt_net(t_net)}</td><td>{badge}</td></tr>"
     html += "</tbody></table>"
     return html
 
@@ -123,7 +136,7 @@ def _trust_meta_table(meta_chips: dict) -> str:
         f_net = data.get("foreign_net_today", 0)
         t_net = data.get("trust_net_today", 0)
         badge = _trust_streak_badge(streak)
-        html += f"<tr><td class='ct-name'>{name}</td><td>{_fmt_net(t_net)}</td><td>{_fmt_net(f_net)}</td><td>{badge}</td></tr>"
+        html += f"<tr><td class='ct-name'>{_meta_link(name)}</td><td>{_fmt_net(t_net)}</td><td>{_fmt_net(f_net)}</td><td>{badge}</td></tr>"
     html += "</tbody></table>"
     return html
 
@@ -139,7 +152,7 @@ def _stock_rank_table(stocks: list, header: str, net_key: str = "foreign_net") -
             f"<tr>"
             f"<td class='ct-rank'>{i}</td>"
             f"<td><span class='sid'>{s['stock_id']}</span> {s['stock_name']}</td>"
-            f"<td class='ct-meta'>{s['meta_sector']}</td>"
+            f"<td class='ct-meta'>{_meta_link(s['meta_sector'])}</td>"
             f"<td>{_fmt_net(net)}</td>"
             f"<td>{_fmt_net(trust)}</td>"
             f"</tr>"
@@ -168,7 +181,7 @@ def _inst_strong_table(rows: list) -> str:
             f"<tr>"
             f"<td class='ct-rank'>{i}</td>"
             f"<td><span class='sid'>{s['stock_id']}</span> {s.get('stock_name','')}</td>"
-            f"<td class='ct-meta'>{s.get('meta_sector','')}</td>"
+            f"<td class='ct-meta'>{_meta_link(s.get('meta_sector',''))}</td>"
             f"<td>{_streak_badge(s['foreign_streak'], '外資')}</td>"
             f"<td>{_trust_streak_badge(s['trust_streak'])}</td>"
             f"<td>{_fmt_net(s.get('foreign_net') or 0)}</td>"
@@ -205,7 +218,7 @@ def _inst_streak_table(rows: list, streak_key: str, net_key: str, cum_key: str, 
             f"<tr>"
             f"<td class='ct-rank'>{i}</td>"
             f"<td><span class='sid'>{s['stock_id']}</span> {s.get('stock_name','')}</td>"
-            f"<td class='ct-meta'>{s.get('meta_sector','')}</td>"
+            f"<td class='ct-meta'>{_meta_link(s.get('meta_sector',''))}</td>"
             f"<td>{badge}</td>"
             f"<td>{_fmt_net(net)}</td>"
             f"<td>{_fmt_net(cum)}</td>"
@@ -227,7 +240,7 @@ def _margin_alert_table(alerts: list) -> str:
             f"<tr>"
             f"<td class='ct-rank'>{i}</td>"
             f"<td><span class='sid'>{s['stock_id']}</span> {s['stock_name']}</td>"
-            f"<td class='ct-meta'>{s['meta_sector']}</td>"
+            f"<td class='ct-meta'>{_meta_link(s['meta_sector'])}</td>"
             f"<td style='color:#94a3b8'>{s['margin_balance']:,}</td>"
             f"<td style='color:#f87171'>+{s['margin_change']:,}</td>"
             f"<td><span style='color:{color};font-weight:700'>+{pct:.1f}%</span></td>"
@@ -259,7 +272,7 @@ def _margin_divergence_table(rows: list, divergence_type: str) -> str:
             f"<tr>"
             f"<td class='ct-rank'>{i}</td>"
             f"<td><span class='sid'>{s['stock_id']}</span> {s['stock_name']}</td>"
-            f"<td class='ct-meta'>{s['meta_sector']}</td>"
+            f"<td class='ct-meta'>{_meta_link(s['meta_sector'])}</td>"
             f"<td>{m_html}</td>"
             f"<td>{p_html}</td>"
             f"<td style='color:#475569;font-size:.72rem'>{s['days']}日</td>"
@@ -286,7 +299,7 @@ def _concentration_table(meta_chips: dict) -> str:
         bar = _ratio_bar(ratio)
         html += (
             f"<tr>"
-            f"<td class='ct-name'>{name}</td>"
+            f"<td class='ct-name'>{_meta_link(name)}</td>"
             f"<td style='min-width:160px'>{bar} <span style='color:#475569;font-size:.72rem'>{buy_count}/{total}</span></td>"
             f"<td>{_fmt_net(f_net)}</td>"
             f"</tr>"
@@ -359,7 +372,7 @@ def generate(
         tn = data.get("trust_net_today", 0)
         badge = _streak_badge(fs)
         return (
-            f"<tr><td class='ct-name'>{name}</td>"
+            f"<tr><td class='ct-name'>{_meta_link(name)}</td>"
             f"<td>{_fmt_net(fn)}</td><td>{_fmt_net(tn)}</td>"
             f"{_cum_cell(name, cum_ranks, '3d', 'r3', 'cum3')}"
             f"{_cum_cell(name, cum_ranks, '5d', 'r5', 'cum5')}"
@@ -407,7 +420,7 @@ def generate(
         tn = data.get("trust_net_today", 0)
         badge = _trust_streak_badge(streak)
         return (
-            f"<tr><td class='ct-name'>{name}</td>"
+            f"<tr><td class='ct-name'>{_meta_link(name)}</td>"
             f"<td>{_fmt_net(tn)}</td><td>{_fmt_net(fn)}</td>"
             f"{_cum_cell(name, cum_ranks, '3d', 'r3', 'cum3')}"
             f"{_cum_cell(name, cum_ranks, '5d', 'r5', 'cum5')}"
@@ -450,7 +463,7 @@ def generate(
         f_badge = _streak_badge(fs) if fs > 0 else ""
         t_badge = _trust_streak_badge(ts) if ts > 0 else ""
         return (
-            f"<tr><td class='ct-name'>{name}</td>"
+            f"<tr><td class='ct-name'>{_meta_link(name)}</td>"
             + _pct_cell(cum_vals.get("cum1"))
             + _pct_cell(cum_vals.get("cum3"))
             + _pct_cell(cum_vals.get("cum5"))

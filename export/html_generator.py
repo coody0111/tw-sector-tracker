@@ -559,8 +559,9 @@ def _meta_card(row: dict, rank: int, card_id: str, sectors_df=None, prices_df=No
     chips_sum = _chips_summary(row["meta_name"], meta_chips)
     panel_content = sparkline + chips_sum + detail_inner if (sparkline or chips_sum or detail_inner) else ""
 
+    meta_name_safe = row["meta_name"].replace('"', "&quot;")
     card = (
-        f'<div class="mc-card" data-meta="{card_id}"'
+        f'<div class="mc-card" data-meta="{card_id}" data-meta-name="{meta_name_safe}"'
         f' style="border-top:2px solid {color};background:{bg}"{onclick}>'
         f'<div class="mc-hd">'
         f'<span class="mc-rank">#{rank}</span>'
@@ -575,7 +576,7 @@ def _meta_card(row: dict, rank: int, card_id: str, sectors_df=None, prices_df=No
         f'</div>'
     )
     panel = (
-        f'<div class="mc-panel" id="{card_id}" style="display:none">{panel_content}</div>'
+        f'<div class="mc-panel" id="{card_id}" data-meta-name="{meta_name_safe}" style="display:none">{panel_content}</div>'
         if panel_content else ""
     )
     return card, panel
@@ -1068,6 +1069,22 @@ def generate(
         document.querySelector('[data-meta="' + id + '"]').classList.add('active');
       }}
     }}
+    function openMetaByName(name) {{
+      const card = document.querySelector('[data-meta-name="' + name + '"].mc-card');
+      if (!card) return;
+      const id = card.getAttribute('data-meta');
+      const panel = document.getElementById(id);
+      if (!panel) return;
+      document.querySelectorAll('.mc-panel').forEach(p => p.style.display = 'none');
+      document.querySelectorAll('.mc-card.active').forEach(c => c.classList.remove('active'));
+      panel.style.display = '';
+      card.classList.add('active');
+      setTimeout(() => card.scrollIntoView({{behavior:'smooth', block:'center'}}), 50);
+    }}
+    (function() {{
+      const h = decodeURIComponent(location.hash);
+      if (h.startsWith('#meta=')) openMetaByName(h.slice(6));
+    }})();
     function toggleDetail(row) {{
       const next = row.nextElementSibling;
       if (!next || !next.classList.contains('detail-row')) return;

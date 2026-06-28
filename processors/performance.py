@@ -470,12 +470,16 @@ def get_stock_chips_ranking(
         df.loc[df["meta_sector"].isna(), "meta_sector"] = ""
         return df
 
+    import re as _re
+    _STOCK_RE = _re.compile(r'^\d{4}$')
+
     foreign_top_buy: list = []
     foreign_top_sell: list = []
     if not inst_df.empty:
         inst_df["stock_id"] = inst_df["stock_id"].astype(str)
         merged = inst_df.merge(universe, on="stock_id", how="left").dropna(subset=["foreign_net"])
         merged = _fill_names(merged)
+        merged = merged[merged["stock_id"].str.match(r'^[1-9]\d{3}$')]
         merged["foreign_net"] = merged["foreign_net"].astype(int)
         merged["trust_net"] = merged["trust_net"].fillna(0).astype(int)
         sorted_df = merged.sort_values("foreign_net", ascending=False)
@@ -498,6 +502,7 @@ def get_stock_chips_ranking(
         margin_df["stock_id"] = margin_df["stock_id"].astype(str)
         mm = margin_df.merge(universe, on="stock_id", how="left")
         mm = _fill_names(mm)
+        mm = mm[mm["stock_id"].str.match(r'^[1-9]\d{3}$')]
         mm = mm.dropna(subset=["margin_balance", "margin_change"])
         mm["margin_balance"] = mm["margin_balance"].astype(int)
         mm["margin_change"] = mm["margin_change"].astype(int)

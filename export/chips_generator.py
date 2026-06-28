@@ -493,18 +493,22 @@ def generate(
   {_concentration_table(meta_chips)}
 </div>"""
 
-    # Section 6: 法人持續買進個股
+    # Section 6: 法人持續買進個股（過濾 ETF/特別股，只留 4 位數純數字代碼）
+    import re as _re
+    def _is_stock(sid: str) -> bool:
+        return bool(_re.match(r'^[1-9]\d{3}$', str(sid)))
+
     lookback_days = 40
     strong = sorted(
-        [x for x in inst_scan if x.get("both_streak", 0) >= 2],
+        [x for x in inst_scan if x.get("both_streak", 0) >= 2 and _is_stock(x.get("stock_id", ""))],
         key=lambda x: -x["both_streak"]
     )
     top_foreign = sorted(
-        [x for x in inst_scan if x.get("foreign_streak", 0) >= 3],
+        [x for x in inst_scan if x.get("foreign_streak", 0) >= 3 and _is_stock(x.get("stock_id", ""))],
         key=lambda x: -(x.get("cum_foreign") or 0)
     )[:15]
     top_trust = sorted(
-        [x for x in inst_scan if x.get("trust_streak", 0) >= 5],
+        [x for x in inst_scan if x.get("trust_streak", 0) >= 5 and _is_stock(x.get("stock_id", ""))],
         key=lambda x: -(x.get("trust_net") or 0)
     )[:15]
 

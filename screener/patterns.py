@@ -446,3 +446,93 @@ def scan_patterns(date_str: str, db_path: str = _DB_PATH) -> list[dict]:
     results.sort(key=lambda x: x["score"], reverse=True)
     logger.info("scan_patterns %s: 命中 %d 檔", date_str, len(results))
     return results
+
+
+def backtest_patterns(days: int = 120, db_path: str = _DB_PATH) -> None:
+    """
+    跑過去 N 個交易日的形態掃描，輸出各形態 3/5/10 日勝率 + 平均報酬。
+    """
+    con = duckdb.connect(db_path, read_only=True)
+    dates_df = con.execute(f"""
+        SELECT DISTINCT date FROM daily_prices ORDER BY date DESC LIMIT {days + 10}
+    """).df()
+    all_prices_df = con.execute("""
+        SELECT stock_id, date, close FROM daily_prices ORDER BY stock_id, date
+    """).df()
+    con.close()
+
+    all_prices_df["date"] = pd.to_datetime(all_prices_df["date"])
+    price_map = {
+        sid: grp.sort_values("date").reset_index(drop=True)
+        for sid, grp in all_prices_df.groupby("stock_id")
+    }
+
+    trading_dates = sorted(dates_df["date"].tolist())
+    # Leave last 10 trading days for forward return calculation
+    scan_dates = trading_dates[:-10][-days:]
+
+    all_signals = []
+    for td in scan_dates:
+        date_str = str(td)[:10]
+        try:
+            results = scan_patterns(date_str, db_path=db_path)
+            for r in results:
+                for p in r["patterns"]:
+                    if p == "箱型整理":
+                        continue
+                    all_signals.append({
+                        "signal_date": date_str,
+                        "stock_id":    r["stock_id"],
+                        "pattern":     p,
+                        "r3d": None, "r5d": None, "r10d": None,
+                    })
+        except Exception as exc:
+            logger.debug("backtest skip %s: %s", date_str, exc)
+
+    if not all_signals:
+        print("回測期間無形態訊號")
+        return
+
+    # Calculate forward returns
+    for sig in all_signals:
+        sid   = sig["stock_id"]
+        sdate = pd.to_datetime(sig["signal_date"])
+        grp   = price_map.get(sid)
+        if grp is None:
+            continue
+        today_mask = grp["date"] == sdate
+        if not today_mask.any():
+            continue
+        idx = grp[today_mask].index[0]
+        sig_close = float(grp.loc[idx, "close"])
+        for n, key in [(3, "r3d"), (5, "r5d"), (10, "r10d")]:
+            fut_idx = idx + n
+            if fut_idx < len(grp):
+                fut_close = float(grp.loc[fut_idx, "close"])
+                sig[key] = (fut_close - sig_close) / sig_close * 100
+
+    # Print summary table
+    signals_df = pd.DataFrame(all_signals)
+    print(f"\n{'='*72}")
+    print(f"  形態回測結果（過去 {days} 個交易日）")
+    print(f"{'='*72}")
+    fmt = "{:<14} {:>5} {:>8} {:>8} {:>8} {:>8} {:>9} {:>9}"
+    print(fmt.format("形態", "次數", "勝率3d", "均報3d", "勝率5d", "均報5d", "勝率10d", "均報10d"))
+    print("-" * 72)
+
+    for pattern in ["60日突破", "雙底", "三角突破", "雙頂", "三角跌破"]:
+        sub = signals_df[signals_df["pattern"] == pattern]
+        if sub.empty:
+            continue
+        row_parts = [pattern, str(len(sub))]
+        for key in ["r3d", "r5d", "r10d"]:
+            vals = sub[key].dropna()
+            if vals.empty:
+                row_parts += ["─", "─"]
+                continue
+            win_rate = (vals > 0).mean() * 100
+            avg_ret  = vals.mean()
+            row_parts += [f"{win_rate:.0f}%", f"{avg_ret:+.1f}%"]
+        print(fmt.format(*row_parts))
+
+    print(f"{'='*72}\n")

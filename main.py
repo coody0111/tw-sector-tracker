@@ -93,7 +93,7 @@ def _update_chips_db(trade_date: date, stock_ids: list) -> None:
 
 def _push_html(trade_date: date) -> None:
     try:
-        subprocess.run(["git", "add", "docs/index.html", "docs/chips.html"], check=True)
+        subprocess.run(["git", "add", "docs/index.html", "docs/chips.html", "docs/patterns.html"], check=True)
         result = subprocess.run(["git", "diff", "--cached", "--quiet"])
         if result.returncode != 0:
             subprocess.run(["git", "commit", "-m", f"update: sector performance {trade_date.isoformat()}"], check=True)
@@ -324,6 +324,16 @@ def run(trade_date: date = None, realtime: bool = False) -> None:
             inst_results = []
         generate_chips_html(trade_date, meta_chips, stock_chips, inst_scan=inst_results, margin_divergence=margin_div, cum_data=cum_data, meta_signals=meta_signals)
         logger.info("HTML generated → docs/chips.html")
+
+        try:
+            from screener.patterns import scan_patterns
+            from export.patterns_generator import generate as generate_patterns_html
+            pattern_results = scan_patterns(trade_date.isoformat())
+            generate_patterns_html(trade_date, pattern_results, "docs/patterns.html")
+            logger.info("HTML generated → docs/patterns.html")
+        except Exception as exc:
+            logger.warning("patterns 掃描/產 HTML 失敗: %s", exc)
+
         _push_html(trade_date)
 
     logger.info("=== Done ===")
@@ -347,6 +357,8 @@ if __name__ == "__main__":
                         help="跑巨量換手回測，輸出勝率與期望值統計")
     parser.add_argument("--realtime", action="store_true",
                         help="使用盤中即時行情（mis.twse.com.tw），適合 9:00~13:30 盤中使用")
+    parser.add_argument("--backtest-patterns", type=int, default=0, metavar="DAYS",
+                        help="跑過去 N 個交易日形態回測，輸出各形態勝率與平均報酬")
     args = parser.parse_args()
 
     if args.update_sectors:
@@ -362,5 +374,8 @@ if __name__ == "__main__":
     elif args.backtest:
         df = run_backtest()
         print_backtest_summary(df)
+    elif args.backtest_patterns:
+        from screener.patterns import backtest_patterns
+        backtest_patterns(days=args.backtest_patterns)
     else:
         run(realtime=args.realtime)

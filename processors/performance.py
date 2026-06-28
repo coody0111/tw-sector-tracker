@@ -1,5 +1,6 @@
 import pandas as pd
 import duckdb
+from pathlib import Path
 from typing import List, Dict, Any, Optional
 from config import META_SECTORS, get_meta_sector, META_PRIORITY_LIST
 
@@ -126,6 +127,7 @@ def calc_cumulative_meta(universe_df: pd.DataFrame, db_path: str = "data/screene
 
         results.append({
             "meta_name": meta_name,
+            "cum1": _cum(all_dates[-1:]),
             "cum3": _cum(all_dates[-3:]),
             "cum5": _cum(all_dates[-5:]) if len(all_dates) >= 5 else None,
             "cum7": _cum(all_dates[-7:]) if len(all_dates) >= 7 else None,
@@ -453,11 +455,31 @@ def get_stock_chips_ranking(
     universe = universe_df[["stock_id", "stock_name", "meta_sector"]].copy()
     universe["stock_id"] = universe["stock_id"].astype(str)
 
+    name_cache: Dict[str, str] = {}
+    _cache_path = Path("data/stock_names.csv")
+    if _cache_path.exists():
+        try:
+            _cache_df = pd.read_csv(_cache_path, dtype=str)
+            name_cache = dict(zip(_cache_df["stock_id"], _cache_df["stock_name"]))
+        except Exception:
+            pass
+
+    def _fill_names(df: pd.DataFrame) -> pd.DataFrame:
+        mask = df["stock_name"].isna()
+        df.loc[mask, "stock_name"] = df.loc[mask, "stock_id"].map(name_cache).fillna("")
+        df.loc[df["meta_sector"].isna(), "meta_sector"] = ""
+        return df
+
+    import re as _re
+    _STOCK_RE = _re.compile(r'^\d{4}$')
+
     foreign_top_buy: list = []
     foreign_top_sell: list = []
     if not inst_df.empty:
         inst_df["stock_id"] = inst_df["stock_id"].astype(str)
-        merged = inst_df.merge(universe, on="stock_id", how="inner").dropna(subset=["foreign_net"])
+        merged = inst_df.merge(universe, on="stock_id", how="left").dropna(subset=["foreign_net"])
+        merged = _fill_names(merged)
+        merged = merged[merged["stock_id"].str.match(r'^[1-9]\d{3}$')]
         merged["foreign_net"] = merged["foreign_net"].astype(int)
         merged["trust_net"] = merged["trust_net"].fillna(0).astype(int)
         sorted_df = merged.sort_values("foreign_net", ascending=False)
@@ -478,7 +500,10 @@ def get_stock_chips_ranking(
     margin_alerts: list = []
     if not margin_df.empty:
         margin_df["stock_id"] = margin_df["stock_id"].astype(str)
-        mm = margin_df.merge(universe, on="stock_id", how="inner").dropna(subset=["margin_balance", "margin_change"])
+        mm = margin_df.merge(universe, on="stock_id", how="left")
+        mm = _fill_names(mm)
+        mm = mm[mm["stock_id"].str.match(r'^[1-9]\d{3}$')]
+        mm = mm.dropna(subset=["margin_balance", "margin_change"])
         mm["margin_balance"] = mm["margin_balance"].astype(int)
         mm["margin_change"] = mm["margin_change"].astype(int)
         mask = (mm["margin_balance"] > 0) & (mm["margin_change"] > 0) & (

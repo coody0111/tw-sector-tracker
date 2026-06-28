@@ -423,6 +423,61 @@ def generate(
   <tbody>{trust_tbody}</tbody></table>
 </div>"""
 
+    # Section 3.5: 越跌越買 — 族群近期下跌但法人仍持續買進
+    def _pct_cell(val, neutral_zero: bool = False) -> str:
+        if val is None:
+            return "<td style='text-align:center;color:#334155'>─</td>"
+        sign = "+" if val > 0 else ""
+        color = "#f87171" if val > 0 else ("#4ade80" if val < 0 else "#64748b")
+        return f"<td style='text-align:center;color:{color};font-weight:700'>{sign}{val:.1f}%</td>"
+
+    dip_buy_rows = []
+    for name, data in meta_chips.items():
+        fs = data.get("foreign_streak", 0)
+        ts = data.get("trust_streak", 0)
+        if fs <= 0 and ts <= 0:
+            continue
+        cum_vals = cum_ranks.get("v", {}).get(name, {})
+        cum5 = cum_vals.get("cum5")
+        if cum5 is None or cum5 >= -1.0:
+            continue
+        dip_buy_rows.append((name, data, cum_vals, fs, ts))
+    dip_buy_rows.sort(key=lambda x: (x[2].get("cum5") or 0))  # 跌最多排前面
+
+    def _dip_buy_row(name: str, data: dict, cum_vals: dict, fs: int, ts: int) -> str:
+        fn = data.get("foreign_net_today", 0)
+        tn = data.get("trust_net_today", 0)
+        f_badge = _streak_badge(fs) if fs > 0 else ""
+        t_badge = _trust_streak_badge(ts) if ts > 0 else ""
+        return (
+            f"<tr><td class='ct-name'>{name}</td>"
+            + _pct_cell(cum_vals.get("cum1"))
+            + _pct_cell(cum_vals.get("cum3"))
+            + _pct_cell(cum_vals.get("cum5"))
+            + _pct_cell(cum_vals.get("cum7"))
+            + f"<td>{_fmt_net(fn)}</td><td>{_fmt_net(tn)}</td>"
+            + f"<td>{f_badge}</td><td>{t_badge}</td></tr>"
+        )
+
+    if dip_buy_rows:
+        dip_tbody = "".join(_dip_buy_row(*r) for r in dip_buy_rows)
+        dip_thead = ("<thead><tr>"
+                     "<th>族群</th>"
+                     "<th style='text-align:center'>今日</th>"
+                     "<th style='text-align:center'>3日</th>"
+                     "<th style='text-align:center'>5日</th>"
+                     "<th style='text-align:center'>7日</th>"
+                     "<th>外資今日</th><th>投信今日</th>"
+                     "<th>外資狀態</th><th>投信狀態</th>"
+                     "</tr></thead>")
+        s35_html = f"""
+<div class="chips-section">
+  <div class="cs-title">📉 越跌越買 — 5日跌逾 1% 但法人仍連買</div>
+  <table class="ct">{dip_thead}<tbody>{dip_tbody}</tbody></table>
+</div>"""
+    else:
+        s35_html = ""
+
     # Section 4: 融資擴張警示
     margin_alerts = stock_chips.get("margin_alerts", [])
     s4_html = f"""
@@ -438,18 +493,22 @@ def generate(
   {_concentration_table(meta_chips)}
 </div>"""
 
-    # Section 6: 法人持續買進個股
+    # Section 6: 法人持續買進個股（過濾 ETF/特別股，只留 4 位數純數字代碼）
+    import re as _re
+    def _is_stock(sid: str) -> bool:
+        return bool(_re.match(r'^[1-9]\d{3}$', str(sid)))
+
     lookback_days = 40
     strong = sorted(
-        [x for x in inst_scan if x.get("both_streak", 0) >= 2],
+        [x for x in inst_scan if x.get("both_streak", 0) >= 2 and _is_stock(x.get("stock_id", ""))],
         key=lambda x: -x["both_streak"]
     )
     top_foreign = sorted(
-        [x for x in inst_scan if x.get("foreign_streak", 0) >= 3],
+        [x for x in inst_scan if x.get("foreign_streak", 0) >= 3 and _is_stock(x.get("stock_id", ""))],
         key=lambda x: -(x.get("cum_foreign") or 0)
     )[:15]
     top_trust = sorted(
-        [x for x in inst_scan if x.get("trust_streak", 0) >= 5],
+        [x for x in inst_scan if x.get("trust_streak", 0) >= 5 and _is_stock(x.get("stock_id", ""))],
         key=lambda x: -(x.get("trust_net") or 0)
     )[:15]
 
@@ -510,6 +569,7 @@ def generate(
     <div class="nav-links">
       <a class="nav-link" href="index.html">族群績效</a>
       <a class="nav-link active" href="chips.html">籌碼分析</a>
+      <a class="nav-link" href="patterns.html">形態掃描</a>
     </div>
   </div>
 
@@ -518,6 +578,7 @@ def generate(
   {s1_html}
   {s2_html}
   {s3_html}
+  {s35_html}
   {s4_html}
   {s5_html}
 

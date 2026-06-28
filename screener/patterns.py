@@ -1,0 +1,545 @@
+"""
+量價形態掃描器。
+"""
+import logging
+import duckdb
+import pandas as pd
+import numpy as np
+
+logger = logging.getLogger(__name__)
+
+_DB_PATH = "data/screener.db"
+_UNIVERSE_PATH = "data/stock_universe.csv"
+
+# Score 門檻常數
+_VOL_UP   = 1.5
+_VOL_DOWN = 0.7
+_PRICE_UP   =  0.5   # %
+_PRICE_DOWN = -0.5   # %
+
+# 形態偵測常數
+_DBL_PRICE_DIFF  = 0.03   # 雙底/頂兩端差距 < 3%
+_DBL_BOUNCE      = 0.05   # 中間反彈/拉回 >= 5%
+_DBL_VOL_CONFIRM = 1.2    # 突破頸線量確認
+_TRI_VOL_CONFIRM = 1.3    # 三角突破量確認
+_BRK_VOL_CONFIRM = 1.5    # 60日突破量確認
+_BOX_RANGE       = 0.08   # 箱型整理最大振幅 8%
+
+
+def _calc_streak(series: pd.Series) -> int:
+    """計算末端連買(正)或連賣(負)天數。"""
+    if series.empty:
+        return 0
+    values = series.tolist()
+    if values[-1] > 0:
+        streak = 0
+        for v in reversed(values):
+            if v > 0:
+                streak += 1
+            else:
+                break
+        return streak
+    elif values[-1] < 0:
+        streak = 0
+        for v in reversed(values):
+            if v < 0:
+                streak += 1
+            else:
+                break
+        return -streak
+    return 0
+
+
+def _calc_vol_price_score(close: pd.Series, volume: pd.Series) -> int:
+    """量價得分：量增價漲+2、量增/減價跌-2、量減價漲-1。"""
+    if len(close) < 21:
+        return 0
+    vol_ma20 = volume.iloc[-21:-1].mean()
+    if vol_ma20 == 0:
+        return 0
+    vol_ratio = volume.iloc[-1] / vol_ma20
+    change_pct = (close.iloc[-1] / close.iloc[-2] - 1) * 100
+
+    vol_up   = vol_ratio > _VOL_UP
+    vol_down = vol_ratio < _VOL_DOWN
+    price_up   = change_pct > _PRICE_UP
+    price_down = change_pct < _PRICE_DOWN
+
+    if vol_up and price_up:
+        return 2
+    if (vol_up or vol_down) and price_down:
+        return -2
+    if vol_down and price_up:
+        return -1   # 背離
+    return 0
+
+
+def _calc_chips_score(inst_df: pd.DataFrame) -> int:
+    """法人連買/連賣得分（外資上限±5，投信上限±3）。"""
+    if inst_df.empty:
+        return 0
+    score = 0
+    if 'foreign_net' in inst_df.columns:
+        streak = _calc_streak(inst_df['foreign_net'])
+        score += max(-5, min(5, streak))
+    if 'trust_net' in inst_df.columns:
+        streak = _calc_streak(inst_df['trust_net'])
+        score += max(-3, min(3, streak))
+    return score
+
+
+def _local_minima(arr: np.ndarray, radius: int = 3) -> list[int]:
+    """找局部最低點：前後 radius 根都比它高。"""
+    minima = []
+    for i in range(radius, len(arr) - radius):
+        if all(arr[i] < arr[i - j] for j in range(1, radius + 1)) and \
+           all(arr[i] < arr[i + j] for j in range(1, radius + 1)):
+            minima.append(i)
+    return minima
+
+
+def _local_maxima(arr: np.ndarray, radius: int = 3) -> list[int]:
+    """找局部最高點：前後 radius 根都比它低。"""
+    maxima = []
+    for i in range(radius, len(arr) - radius):
+        if all(arr[i] > arr[i - j] for j in range(1, radius + 1)) and \
+           all(arr[i] > arr[i + j] for j in range(1, radius + 1)):
+            maxima.append(i)
+    return maxima
+
+
+def detect_double_bottom(df: pd.DataFrame) -> bool:
+    """
+    雙底：近60日兩個局部低點（差<3%），中間反彈≥5%（頸線），
+    今日收盤突破頸線 + 量>20MA×1.2。
+    """
+    if len(df) < 30:
+        return False
+
+    close  = df['close'].values
+    volume = df['volume'].values
+    window = min(60, len(close))
+    seg    = close[-window:]
+    seg_n  = len(seg)
+
+    minima = _local_minima(seg)
+    if len(minima) < 2:
+        return False
+
+    vol_ma20 = volume[-21:-1].mean() if len(volume) >= 21 else volume[:-1].mean()
+
+    for a in range(len(minima) - 1):
+        for b in range(a + 1, len(minima)):
+            i1, i2 = minima[a], minima[b]
+            low1, low2 = seg[i1], seg[i2]
+
+            # 兩低點差距 < 3%
+            if abs(low1 - low2) / min(low1, low2) >= _DBL_PRICE_DIFF:
+                continue
+
+            # 中間最高點為頸線
+            neckline = seg[i1:i2 + 1].max()
+            bounce   = (neckline - min(low1, low2)) / min(low1, low2)
+            if bounce < _DBL_BOUNCE:
+                continue
+
+            # 第二個底要夠新（離今日不超過 15 根）
+            if i2 < seg_n - 15:
+                continue
+
+            # 今日收盤突破頸線
+            if close[-1] <= neckline:
+                continue
+
+            # 量確認
+            if vol_ma20 > 0 and volume[-1] < vol_ma20 * _DBL_VOL_CONFIRM:
+                continue
+
+            return True
+
+    return False
+
+
+def detect_double_top(df: pd.DataFrame) -> bool:
+    """
+    雙頂：近60日兩個局部高點（差<3%），中間拉回≥5%（頸線），
+    今日收盤跌破頸線 + 量>20MA×1.2。
+    """
+    if len(df) < 30:
+        return False
+
+    close  = df['close'].values
+    volume = df['volume'].values
+    window = min(60, len(close))
+    seg    = close[-window:]
+    seg_n  = len(seg)
+
+    maxima = _local_maxima(seg)
+    if len(maxima) < 2:
+        return False
+
+    vol_ma20 = volume[-21:-1].mean() if len(volume) >= 21 else volume[:-1].mean()
+
+    for a in range(len(maxima) - 1):
+        for b in range(a + 1, len(maxima)):
+            i1, i2 = maxima[a], maxima[b]
+            high1, high2 = seg[i1], seg[i2]
+
+            if abs(high1 - high2) / max(high1, high2) >= _DBL_PRICE_DIFF:
+                continue
+
+            neckline = seg[i1:i2 + 1].min()
+            pullback = (max(high1, high2) - neckline) / max(high1, high2)
+            if pullback < _DBL_BOUNCE:
+                continue
+
+            if i2 < seg_n - 15:
+                continue
+
+            if close[-1] >= neckline:
+                continue
+
+            if vol_ma20 > 0 and volume[-1] < vol_ma20 * _DBL_VOL_CONFIRM:
+                continue
+
+            return True
+
+    return False
+
+
+def detect_triangle_up(df: pd.DataFrame) -> bool:
+    """
+    三角向上突破：近20日高點斜率<0 + 低點斜率>0，
+    今日收盤突破高點趨勢線 + 量>20MA×1.3。
+    """
+    if len(df) < 21:
+        return False
+
+    hist   = df.iloc[-21:-1]   # 20 days before today
+    today  = df.iloc[-1]
+    volume = df['volume'].values
+    highs  = hist['high'].values  if 'high' in hist.columns else hist['close'].values
+    lows   = hist['low'].values   if 'low'  in hist.columns else hist['close'].values
+    x      = np.arange(len(highs))
+
+    high_slope, high_intercept = np.polyfit(x, highs, 1)
+    low_slope,  _              = np.polyfit(x, lows,  1)
+
+    if not (high_slope < 0 and low_slope > 0):
+        return False
+
+    # Predicted high trendline at position 20 (today)
+    predicted_high = high_slope * 20 + high_intercept
+    if today['close'] <= predicted_high:
+        return False
+
+    vol_ma20 = volume[-21:-1].mean()
+    if vol_ma20 > 0 and volume[-1] < vol_ma20 * _TRI_VOL_CONFIRM:
+        return False
+
+    return True
+
+
+def detect_triangle_down(df: pd.DataFrame) -> bool:
+    """
+    三角向下跌破：近20日高點斜率<0 + 低點斜率<0，
+    今日收盤跌破低點趨勢線 + 量>20MA×1.3。
+    """
+    if len(df) < 21:
+        return False
+
+    hist   = df.iloc[-21:-1]
+    today  = df.iloc[-1]
+    volume = df['volume'].values
+    highs  = hist['high'].values  if 'high' in hist.columns else hist['close'].values
+    lows   = hist['low'].values   if 'low'  in hist.columns else hist['close'].values
+    x      = np.arange(len(highs))
+
+    high_slope, _              = np.polyfit(x, highs, 1)
+    low_slope,  low_intercept  = np.polyfit(x, lows,  1)
+
+    if not (high_slope < 0 and low_slope < 0):
+        return False
+
+    predicted_low = low_slope * 20 + low_intercept
+    if today['close'] >= predicted_low:
+        return False
+
+    vol_ma20 = volume[-21:-1].mean()
+    if vol_ma20 > 0 and volume[-1] < vol_ma20 * _TRI_VOL_CONFIRM:
+        return False
+
+    return True
+
+
+def detect_breakout_confirm(df: pd.DataFrame) -> bool:
+    """
+    60日新高突破確認：過去3個交易日內有一天創60日新高+量>20MA×1.5，
+    今日收盤仍守在突破日收盤上方。
+    """
+    if len(df) < 63:
+        return False
+
+    close  = df['close'].values
+    volume = df['volume'].values
+    n      = len(close)
+    vol_ma20 = volume[-21:-1].mean()
+
+    # Check days at indices -4, -3, -2 (past 3 days, not including today)
+    for offset in range(-4, -1):
+        day_idx = n + offset   # e.g. n-4, n-3, n-2
+        breakout_close = close[day_idx]
+        breakout_vol   = volume[day_idx]
+
+        # 60-day high strictly before this day
+        hist_start = max(0, day_idx - 60)
+        sixty_d_high = close[hist_start:day_idx].max()
+
+        if breakout_close <= sixty_d_high:
+            continue
+        if vol_ma20 > 0 and breakout_vol < vol_ma20 * _BRK_VOL_CONFIRM:
+            continue
+        # Today holds above breakout close
+        if close[-1] >= breakout_close:
+            return True
+
+    return False
+
+
+def detect_box_consolidation(df: pd.DataFrame) -> bool:
+    """
+    箱型整理：近20日（最高-最低）/最低 < 8%，今日仍在區間內。
+    """
+    if len(df) < 21:
+        return False
+
+    last20      = df['close'].iloc[-21:-1]
+    today_close = df['close'].iloc[-1]
+    box_high    = last20.max()
+    box_low     = last20.min()
+
+    if box_low == 0:
+        return False
+    if (box_high - box_low) / box_low >= _BOX_RANGE:
+        return False
+
+    # Today still inside box (allow 1% tolerance)
+    return bool(box_low * 0.99 <= today_close <= box_high * 1.01)
+
+
+def scan_patterns(date_str: str, db_path: str = _DB_PATH) -> list[dict]:
+    """
+    掃描 date_str 當日全市場量價形態。
+    回傳有命中任一形態的股票清單，依 score 降序。
+    """
+    con = duckdb.connect(db_path, read_only=True)
+
+    # Load up to 65 days of price data for all stocks
+    price_df = con.execute(f"""
+        SELECT stock_id, date, open, high, low, close, volume, change_pct
+        FROM daily_prices
+        WHERE date <= '{date_str}'
+          AND date >= DATE '{date_str}' - INTERVAL '90 days'
+        ORDER BY stock_id, date
+    """).df()
+
+    # Load up to 10 days of institutional data
+    inst_df = con.execute(f"""
+        SELECT stock_id, date, foreign_net, trust_net
+        FROM institutional
+        WHERE date <= '{date_str}'
+          AND date >= DATE '{date_str}' - INTERVAL '20 days'
+        ORDER BY stock_id, date
+    """).df()
+
+    con.close()
+
+    if price_df.empty:
+        logger.warning("scan_patterns: 無行情資料 (%s)", date_str)
+        return []
+
+    # Load name/sector map
+    try:
+        universe = pd.read_csv(_UNIVERSE_PATH, dtype=str,
+                               usecols=["stock_id", "stock_name", "meta_sector"])
+        name_map = universe.set_index("stock_id")[["stock_name", "meta_sector"]].to_dict("index")
+    except Exception:
+        name_map = {}
+
+    # Keep only last 65 rows per stock
+    price_df = price_df.groupby("stock_id").tail(65).reset_index(drop=True)
+    price_df["date"] = pd.to_datetime(price_df["date"])
+    target_date = pd.to_datetime(date_str)
+
+    # Keep only last 10 rows of institutional per stock
+    inst_df = inst_df.groupby("stock_id").tail(10).reset_index(drop=True)
+
+    results = []
+    inst_by_stock = {sid: grp.reset_index(drop=True)
+                     for sid, grp in inst_df.groupby("stock_id")}
+
+    for sid, grp in price_df.groupby("stock_id"):
+        grp = grp.sort_values("date").reset_index(drop=True)
+
+        # Must have today's row
+        today_rows = grp[grp["date"] == target_date]
+        if today_rows.empty or len(grp) < 20:
+            continue
+
+        today = today_rows.iloc[0]
+        change_pct = float(today.get("change_pct", 0) or 0)
+
+        # Vol ratio
+        vol_ma20 = grp["volume"].iloc[-21:-1].mean() if len(grp) >= 21 else grp["volume"].iloc[:-1].mean()
+        vol_ratio = round(float(today["volume"]) / vol_ma20, 2) if vol_ma20 > 0 else 1.0
+
+        # Chips data
+        stock_inst = inst_by_stock.get(str(sid), pd.DataFrame())
+
+        # Scores
+        vp_score    = _calc_vol_price_score(grp["close"], grp["volume"])
+        chips_score = _calc_chips_score(stock_inst)
+
+        # Pattern detection
+        patterns      = []
+        pattern_score = 0
+
+        if detect_double_bottom(grp):
+            patterns.append("雙底")
+            pattern_score += 2
+        if detect_triangle_up(grp):
+            patterns.append("三角突破")
+            pattern_score += 2
+        if detect_breakout_confirm(grp):
+            patterns.append("60日突破")
+            pattern_score += 2
+        if detect_double_top(grp):
+            patterns.append("雙頂")
+            pattern_score -= 2
+        if detect_triangle_down(grp):
+            patterns.append("三角跌破")
+            pattern_score -= 2
+        if detect_box_consolidation(grp):
+            patterns.append("箱型整理")
+
+        if not patterns:
+            continue
+
+        total_score = vp_score + chips_score + pattern_score
+
+        info = name_map.get(str(sid), {})
+
+        # Streak info for display
+        f_streak = _calc_streak(stock_inst["foreign_net"]) if not stock_inst.empty and "foreign_net" in stock_inst else 0
+        t_streak = _calc_streak(stock_inst["trust_net"])   if not stock_inst.empty and "trust_net"   in stock_inst else 0
+
+        results.append({
+            "stock_id":            str(sid),
+            "stock_name":          info.get("stock_name", ""),
+            "meta_sector":         info.get("meta_sector", ""),
+            "change_pct":          round(change_pct, 2),
+            "vol_ratio":           vol_ratio,
+            "score":               total_score,
+            "patterns":            patterns,
+            "inst_streak_foreign": f_streak,
+            "inst_streak_trust":   t_streak,
+        })
+
+    results.sort(key=lambda x: x["score"], reverse=True)
+    logger.info("scan_patterns %s: 命中 %d 檔", date_str, len(results))
+    return results
+
+
+def backtest_patterns(days: int = 120, db_path: str = _DB_PATH) -> None:
+    """
+    跑過去 N 個交易日的形態掃描，輸出各形態 3/5/10 日勝率 + 平均報酬。
+    """
+    con = duckdb.connect(db_path, read_only=True)
+    dates_df = con.execute(f"""
+        SELECT DISTINCT date FROM daily_prices ORDER BY date DESC LIMIT {days + 10}
+    """).df()
+    all_prices_df = con.execute("""
+        SELECT stock_id, date, close FROM daily_prices ORDER BY stock_id, date
+    """).df()
+    con.close()
+
+    all_prices_df["date"] = pd.to_datetime(all_prices_df["date"])
+    price_map = {
+        sid: grp.sort_values("date").reset_index(drop=True)
+        for sid, grp in all_prices_df.groupby("stock_id")
+    }
+
+    trading_dates = sorted(dates_df["date"].tolist())
+    # Leave last 10 trading days for forward return calculation
+    scan_dates = trading_dates[:-10][-days:]
+
+    all_signals = []
+    for td in scan_dates:
+        date_str = str(td)[:10]
+        try:
+            results = scan_patterns(date_str, db_path=db_path)
+            for r in results:
+                for p in r["patterns"]:
+                    if p == "箱型整理":
+                        continue
+                    all_signals.append({
+                        "signal_date": date_str,
+                        "stock_id":    r["stock_id"],
+                        "pattern":     p,
+                        "r3d": None, "r5d": None, "r10d": None,
+                    })
+        except Exception as exc:
+            logger.debug("backtest skip %s: %s", date_str, exc)
+
+    if not all_signals:
+        print("回測期間無形態訊號")
+        return
+
+    # Calculate forward returns
+    for sig in all_signals:
+        sid   = sig["stock_id"]
+        sdate = pd.to_datetime(sig["signal_date"])
+        grp   = price_map.get(sid)
+        if grp is None:
+            continue
+        today_mask = grp["date"] == sdate
+        if not today_mask.any():
+            continue
+        idx = grp[today_mask].index[0]
+        sig_close = float(grp.loc[idx, "close"])
+        for n, key in [(3, "r3d"), (5, "r5d"), (10, "r10d")]:
+            fut_idx = idx + n
+            if fut_idx < len(grp):
+                fut_close = float(grp.loc[fut_idx, "close"])
+                sig[key] = (fut_close - sig_close) / sig_close * 100
+
+    # Print summary table
+    signals_df = pd.DataFrame(all_signals)
+    print(f"\n{'='*80}")
+    print(f"  形態回測結果（過去 {days} 個交易日）")
+    print(f"{'='*80}")
+    fmt = "{:<14} {:>5} {:>8} {:>8} {:>8} {:>8} {:>9} {:>9} {:>9}"
+    print(fmt.format("形態", "次數", "勝率3d", "均報3d", "勝率5d", "均報5d", "勝率10d", "均報10d", "最大虧損"))
+    print("-" * 80)
+
+    for pattern in ["60日突破", "雙底", "三角突破", "雙頂", "三角跌破"]:
+        sub = signals_df[signals_df["pattern"] == pattern]
+        if sub.empty:
+            continue
+        row_parts = [pattern, str(len(sub))]
+        max_loss = None
+        for key in ["r3d", "r5d", "r10d"]:
+            vals = sub[key].dropna()
+            if vals.empty:
+                row_parts += ["─", "─"]
+                continue
+            win_rate = (vals > 0).mean() * 100
+            avg_ret  = vals.mean()
+            row_parts += [f"{win_rate:.0f}%", f"{avg_ret:+.1f}%"]
+            min_val = vals.min()
+            if max_loss is None or min_val < max_loss:
+                max_loss = min_val
+        row_parts.append(f"{max_loss:+.1f}%" if max_loss is not None else "─")
+        print(fmt.format(*row_parts))
+
+    print(f"{'='*80}\n")

@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 import pandas as pd
 from datetime import date
 
@@ -6,6 +7,8 @@ from scrapers.twse import fetch_daily_prices as fetch_twse
 from scrapers.tpex import fetch_daily_prices as fetch_tpex
 
 logger = logging.getLogger(__name__)
+
+_NAME_CACHE = Path("data/stock_names.csv")
 
 
 def fetch_prices_for_stocks(stock_ids: list, trade_date: date) -> pd.DataFrame:
@@ -31,6 +34,13 @@ def fetch_prices_for_stocks(stock_ids: list, trade_date: date) -> pd.DataFrame:
 
     all_prices = pd.concat(frames, ignore_index=True)
     all_prices = all_prices.drop_duplicates(subset=["stock_id"])
+
+    # 每日更新完整股票名稱快取（涵蓋所有上市/上櫃股票）
+    if "stock_name" in all_prices.columns:
+        try:
+            all_prices[["stock_id", "stock_name"]].dropna().to_csv(_NAME_CACHE, index=False)
+        except Exception:
+            pass
 
     if stock_ids:
         all_prices = all_prices[all_prices["stock_id"].isin(stock_ids)]

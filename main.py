@@ -318,6 +318,16 @@ def run(trade_date: date = None, realtime: bool = False) -> None:
             inst_results = scan_institutional(trade_date.isoformat(), lookback=40)
             if universe_df is not None:
                 name_map = universe_df.set_index("stock_id")[["stock_name", "meta_sector"]].to_dict("index")
+                # fallback: 從每日全市場名稱快取補齊 universe 以外的股票名字
+                name_cache_path = Path("data/stock_names.csv")
+                if name_cache_path.exists():
+                    try:
+                        cache_df = pd.read_csv(name_cache_path, dtype=str)
+                        for _, r in cache_df.iterrows():
+                            if r["stock_id"] not in name_map:
+                                name_map[r["stock_id"]] = {"stock_name": r["stock_name"], "meta_sector": ""}
+                    except Exception:
+                        pass
                 for row in inst_results:
                     info = name_map.get(row["stock_id"], {})
                     row["stock_name"] = info.get("stock_name", "")

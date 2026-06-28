@@ -491,19 +491,17 @@ def _signal_badges(meta_name: str, cum_ranks: dict, meta_signals: dict, today_ra
     """合併所有 badge：累積排名 + 排名升降 + 連漲連跌 + 成交量異常。"""
     badges = []
 
-    # 累積排名 badges (3d/5d/7d)
+    # 累積漲跌幅 badges (3d/5d/7d)
     vals = cum_ranks.get("v", {}).get(meta_name, {}) if cum_ranks else {}
-    for period, key, val_key in [("3d", "r3", "cum3"), ("5d", "r5", "cum5"), ("7d", "r7", "cum7")]:
-        rank = (cum_ranks or {}).get(key, {}).get(meta_name)
+    for period, val_key in [("3d", "cum3"), ("5d", "cum5"), ("7d", "cum7")]:
         val = vals.get(val_key)
-        if rank is None or rank > _CUM_THRESHOLD or val is None:
+        if val is None:
             continue
         sign = "+" if val > 0 else ""
-        title = f"{period}累積{sign}{val:.1f}%"
         pct_color = "#f87171" if val > 0 else "#4ade80"
         badges.append(
-            f'<span class="cum-badge" title="{title}">'
-            f'{period}<b>#{rank}</b>'
+            f'<span class="cum-badge">'
+            f'<span style="color:#475569">{period}</span>'
             f'<span class="cum-val" style="color:{pct_color}">{sign}{val:.1f}%</span>'
             f'</span>'
         )

@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 import pytest
 from screener.patterns import _calc_streak, _calc_vol_price_score, _calc_chips_score
@@ -129,8 +130,6 @@ from screener.patterns import (
 
 def test_triangle_up_detected():
     # 20 days converging: highs declining, lows rising; today breaks above high trendline
-    import numpy as np
-    n = 25
     # Descending highs: 105 → 101 over 20 days
     highs  = list(np.linspace(105, 101, 20)) + [103.0]  # today breaks above ~101 trendline
     # Ascending lows: 95 → 99
@@ -142,7 +141,6 @@ def test_triangle_up_detected():
 
 
 def test_triangle_down_detected():
-    import numpy as np
     highs  = list(np.linspace(105, 98, 20)) + [96.0]   # both declining
     lows   = list(np.linspace(100, 93, 20)) + [91.0]   # today breaks below low trendline
     closes = [(h + l) / 2 for h, l in zip(highs[:-1], lows[:-1])] + [91.5]

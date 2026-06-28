@@ -339,6 +339,7 @@ def scan_patterns(date_str: str, db_path: str = _DB_PATH) -> list[dict]:
         SELECT stock_id, date, open, high, low, close, volume, change_pct
         FROM daily_prices
         WHERE date <= '{date_str}'
+          AND date >= DATE '{date_str}' - INTERVAL '90 days'
         ORDER BY stock_id, date
     """).df()
 
@@ -347,6 +348,7 @@ def scan_patterns(date_str: str, db_path: str = _DB_PATH) -> list[dict]:
         SELECT stock_id, date, foreign_net, trust_net
         FROM institutional
         WHERE date <= '{date_str}'
+          AND date >= DATE '{date_str}' - INTERVAL '20 days'
         ORDER BY stock_id, date
     """).df()
 
@@ -513,18 +515,19 @@ def backtest_patterns(days: int = 120, db_path: str = _DB_PATH) -> None:
 
     # Print summary table
     signals_df = pd.DataFrame(all_signals)
-    print(f"\n{'='*72}")
+    print(f"\n{'='*80}")
     print(f"  形態回測結果（過去 {days} 個交易日）")
-    print(f"{'='*72}")
-    fmt = "{:<14} {:>5} {:>8} {:>8} {:>8} {:>8} {:>9} {:>9}"
-    print(fmt.format("形態", "次數", "勝率3d", "均報3d", "勝率5d", "均報5d", "勝率10d", "均報10d"))
-    print("-" * 72)
+    print(f"{'='*80}")
+    fmt = "{:<14} {:>5} {:>8} {:>8} {:>8} {:>8} {:>9} {:>9} {:>9}"
+    print(fmt.format("形態", "次數", "勝率3d", "均報3d", "勝率5d", "均報5d", "勝率10d", "均報10d", "最大虧損"))
+    print("-" * 80)
 
     for pattern in ["60日突破", "雙底", "三角突破", "雙頂", "三角跌破"]:
         sub = signals_df[signals_df["pattern"] == pattern]
         if sub.empty:
             continue
         row_parts = [pattern, str(len(sub))]
+        max_loss = None
         for key in ["r3d", "r5d", "r10d"]:
             vals = sub[key].dropna()
             if vals.empty:
@@ -533,6 +536,10 @@ def backtest_patterns(days: int = 120, db_path: str = _DB_PATH) -> None:
             win_rate = (vals > 0).mean() * 100
             avg_ret  = vals.mean()
             row_parts += [f"{win_rate:.0f}%", f"{avg_ret:+.1f}%"]
+            min_val = vals.min()
+            if max_loss is None or min_val < max_loss:
+                max_loss = min_val
+        row_parts.append(f"{max_loss:+.1f}%" if max_loss is not None else "─")
         print(fmt.format(*row_parts))
 
-    print(f"{'='*72}\n")
+    print(f"{'='*80}\n")

@@ -136,6 +136,9 @@ def detect_double_bottom(df: pd.DataFrame) -> bool:
             i1, i2 = minima[a], minima[b]
             low1, low2 = seg[i1], seg[i2]
 
+            if min(low1, low2) <= 0:
+                continue
+
             # 兩低點差距 < 3%
             if abs(low1 - low2) / min(low1, low2) >= _DBL_PRICE_DIFF:
                 continue
@@ -187,6 +190,9 @@ def detect_double_top(df: pd.DataFrame) -> bool:
         for b in range(a + 1, len(maxima)):
             i1, i2 = maxima[a], maxima[b]
             high1, high2 = seg[i1], seg[i2]
+
+            if max(high1, high2) <= 0:
+                continue
 
             if abs(high1 - high2) / max(high1, high2) >= _DBL_PRICE_DIFF:
                 continue

@@ -11,6 +11,7 @@
   跑 backfill_institutional 補齊過去法人籌碼（建議 60 天）。
 """
 import logging
+import os
 import time
 import threading
 from collections import defaultdict
@@ -19,9 +20,14 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import List
 
+import certifi
 import pandas as pd
 import requests
 import yfinance as yf
+
+# Windows SSL fix for yfinance (curl_cffi)
+os.environ.setdefault("CURL_CA_BUNDLE", certifi.where())
+os.environ.setdefault("SSL_CERT_FILE", certifi.where())
 
 from scrapers.twse import fetch_daily_prices as fetch_twse_daily_prices
 
@@ -178,63 +184,75 @@ def _fetch_stock_months(sid: str, month_starts: list) -> tuple[str, list, bool, 
     return sid, rows, is_twse, months_ok
 
 
-def _fetch_tpex_yfinance(sid: str, start: date, end: date) -> tuple[str, list, bool]:
+TPEX_DAILY_URL = "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes"
+
+
+def _fetch_tpex_all_days(stock_ids: set, start: date, end: date) -> dict:
     """
-    用 yfinance 抓股票歷史行情。先試 .TWO（上櫃），再試 .TW（上市）。
-    回傳 (stock_id, rows_list, success)
+    用 TPEx OpenAPI 逐日抓全市場收盤，回傳 {date_str: [rows]} dict。
+    每次 API 呼叫回傳當日所有上櫃股票，再過濾出我們需要的 stock_ids。
     """
-    end_str = (end + timedelta(days=1)).isoformat()
-    hist = None
-    for suffix in (".TWO", ".TW"):
-        ticker_sym = f"{sid}{suffix}"
+    day_rows: dict = defaultdict(list)
+    all_dates = list(_iter_weekdays(start, end))
+    done = 0
+
+    for d in all_dates:
+        date_param = f"{d.year}/{d.month:02d}/{d.day:02d}"
         try:
-            h = yf.Ticker(ticker_sym).history(
-                start=start.isoformat(),
-                end=end_str,
-                auto_adjust=True,
+            resp = requests.get(
+                TPEX_DAILY_URL,
+                params={"date": date_param},
+                headers=_HEADERS_TPEX,
+                timeout=15,
             )
-            if not h.empty:
-                hist = h
-                break
+            data = resp.json()
+            if not data:
+                time.sleep(0.3)
+                continue
+
+            for item in data:
+                sid = str(item.get("SecuritiesCompanyCode", "")).strip()
+                if sid not in stock_ids:
+                    continue
+                try:
+                    close  = float(item["Close"].replace(",", ""))
+                    change = float(item["Change"].strip().replace(",", "").replace("+", ""))
+                    prev   = close - change
+                    change_pct = round(change / prev * 100, 2) if prev != 0 else 0.0
+                    vol    = int(item["TradingShares"].replace(",", "")) // 1000
+                    # Date field is Minguo: '1150627' → 2026-06-27
+                    mg = item["Date"]
+                    y   = int(mg[:3]) + 1911
+                    m   = int(mg[3:5])
+                    day = int(mg[5:])
+                    d_str = f"{y}-{m:02d}-{day:02d}"
+                    day_rows[d_str].append({
+                        "stock_id":   sid,
+                        "close":      close,
+                        "change":     change,
+                        "change_pct": change_pct,
+                        "volume":     vol,
+                        "_date":      d_str,
+                    })
+                except (ValueError, KeyError):
+                    continue
+
         except Exception as exc:
-            logger.debug("  yfinance %s 失敗: %s", ticker_sym, exc)
+            logger.debug("TPEx daily %s 失敗: %s", date_param, exc)
 
-    if hist is None or hist.empty:
-        return sid, [], False
+        done += 1
+        time.sleep(0.3)
+        if done % 20 == 0 or done == len(all_dates):
+            logger.info("  TPEx daily [%d/%d]", done, len(all_dates))
 
-    try:
-        closes = hist["Close"].astype(float)
-        prev_closes = closes.shift(1)
-        changes = (closes - prev_closes).round(2)
-        change_pcts = ((changes / prev_closes) * 100).round(2)
-
-        rows = []
-        for ts, row in hist.iterrows():
-            d_str = ts.strftime("%Y-%m-%d")
-            close = round(float(row["Close"]), 2)
-            change = float(changes.loc[ts]) if not pd.isna(changes.loc[ts]) else 0.0
-            change_pct = float(change_pcts.loc[ts]) if not pd.isna(change_pcts.loc[ts]) else 0.0
-            vol_lots = int(row["Volume"]) // 1000 if row["Volume"] else 0
-            rows.append({
-                "stock_id":   sid,
-                "close":      close,
-                "change":     change,
-                "change_pct": change_pct,
-                "volume":     vol_lots,
-                "_date":      d_str,
-            })
-        return sid, rows, True
-
-    except Exception as exc:
-        logger.debug("  yfinance 解析失敗 %s: %s", sid, exc)
-        return sid, [], False
+    return day_rows
 
 
 def backfill_twse_monthly(
     stock_ids: List[str],
     months: int = 6,
     output_dir: str = "data/daily_prices",
-    workers: int = 3,
+    workers: int = 1,
     today: date = None,
 ) -> int:
     """
@@ -287,30 +305,18 @@ def backfill_twse_monthly(
 
     yf_list = non_twse + partial_twse
     logger.info(
-        "TWSE 完成：%d 支（其中 %d 支部分缺月），yfinance 補齊：%d 支",
+        "TWSE 完成：%d 支（其中 %d 支部分缺月），TPEx daily 補齊：%d 支",
         total - len(non_twse), len(partial_twse), len(yf_list),
     )
 
-    # Phase 2: yfinance for non-TWSE (TPEx) + partial TWSE stocks
+    # Phase 2: TPEx OpenAPI per-day（全市場一次抓，過濾需要的股票）
     if yf_list:
-        done2 = 0
-        yf_workers = min(workers, 5)  # yfinance 不需要太多並發
-        with ThreadPoolExecutor(max_workers=yf_workers) as executor:
-            futures2 = {executor.submit(_fetch_tpex_yfinance, sid, start, today): sid
-                        for sid in yf_list}
-            # 記錄 Phase 1 已有哪些 (date, stock_id) 避免 yfinance 重複蓋掉 TWSE 資料
         twse_covered: set = {(r["_date"], r["stock_id"]) for rows in day_rows.values() for r in rows}
-        for fut in as_completed(futures2):
-                try:
-                    _, rows, _ = fut.result()
-                    for r in rows:
-                        if (r["_date"], r["stock_id"]) not in twse_covered:
-                            day_rows[r["_date"]].append(r)
-                except Exception as exc:
-                    logger.debug("yfinance fetch error: %s", exc)
-                done2 += 1
-                if done2 % 200 == 0 or done2 == len(yf_list):
-                    logger.info("  yfinance [%d/%d]", done2, len(yf_list))
+        tpex_rows = _fetch_tpex_all_days(set(yf_list), start, today)
+        for d_str, rows in tpex_rows.items():
+            for r in rows:
+                if (r["_date"], r["stock_id"]) not in twse_covered:
+                    day_rows[r["_date"]].append(r)
 
     written = 0
     for d_str, rows in sorted(day_rows.items()):

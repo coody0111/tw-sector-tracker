@@ -81,7 +81,7 @@ def _composite_badge(score: int | None) -> str:
     else:
         color, bg = "#f87171", "rgba(127,29,29,.25)"
     return (f"<span style='background:{bg};color:{color};border:1px solid {color}55;"
-            f"border-radius:6px;padding:2px 10px;font-size:.8rem;font-weight:800;"
+            f"border-radius:6px;padding:2px 10px;font-size:.72rem;font-weight:800;"
             f"letter-spacing:.02em'>{score}</span>")
 
 
@@ -90,33 +90,33 @@ def _pattern_badges(patterns: list[str]) -> str:
     for p in patterns:
         icon, color = _PATTERN_LABEL.get(p, ("", "#94a3b8"))
         parts.append(f"<span style='color:{color};border:1px solid {color}55;"
-                     f"border-radius:4px;padding:1px 6px;font-size:.68rem'>{icon}{p}</span>")
+                     f"border-radius:4px;padding:1px 6px;font-size:.7rem'>{icon}{p}</span>")
     return " ".join(parts)
 
 
 def _inst_label(f: int, t: int) -> str:
     parts = []
     if f > 0:
-        parts.append(f"<span style='color:#f87171;font-size:.68rem'>外資+{f}日</span>")
+        parts.append(f"<span style='color:#f87171;font-size:.7rem'>外資+{f}日</span>")
     elif f < 0:
-        parts.append(f"<span style='color:#4ade80;font-size:.68rem'>外資{f}日</span>")
+        parts.append(f"<span style='color:#4ade80;font-size:.7rem'>外資{f}日</span>")
     if t > 0:
-        parts.append(f"<span style='color:#fbbf24;font-size:.68rem'>投信+{t}日</span>")
+        parts.append(f"<span style='color:#fbbf24;font-size:.7rem'>投信+{t}日</span>")
     elif t < 0:
-        parts.append(f"<span style='color:#60a5fa;font-size:.68rem'>投信{t}日</span>")
-    return " ".join(parts) or "<span style='color:#475569;font-size:.68rem'>─</span>"
+        parts.append(f"<span style='color:#60a5fa;font-size:.7rem'>投信{t}日</span>")
+    return " ".join(parts) or "<span style='color:#475569;font-size:.7rem'>─</span>"
 
 
 def _holder_cell(lv_pct: float | None, sh_streak: int) -> str:
     if lv_pct is None:
-        return "<span style='color:#334155;font-size:.68rem'>─</span>"
+        return "<span style='color:#334155;font-size:.7rem'>─</span>"
     pct_color = "#f87171" if lv_pct >= 70 else ("#fbbf24" if lv_pct >= 50 else "#94a3b8")
     streak_str = ""
     if sh_streak > 0:
-        streak_str = f"<span style='color:#f87171;font-size:.62rem'> ↑{sh_streak}w</span>"
+        streak_str = f"<span style='color:#f87171;font-size:.7rem'> ↑{sh_streak}w</span>"
     elif sh_streak < 0:
-        streak_str = f"<span style='color:#4ade80;font-size:.62rem'> ↓{abs(sh_streak)}w</span>"
-    return f"<span style='color:{pct_color};font-size:.75rem;font-weight:700'>{lv_pct:.0f}%{streak_str}</span>"
+        streak_str = f"<span style='color:#4ade80;font-size:.7rem'> ↓{abs(sh_streak)}w</span>"
+    return f"<span style='color:{pct_color};font-size:.72rem;font-weight:700'>{lv_pct:.0f}%{streak_str}</span>"
 
 
 def _stock_row(r: dict) -> str:
@@ -136,7 +136,7 @@ def _stock_row(r: dict) -> str:
         f"<tr data-exchange='{exch}' data-search='{r['stock_id']} {r['stock_name']} {r['meta_sector']}'>"
         f"<td style='color:#e2e8f0;font-weight:700'>{r['stock_id']}{exch_badge}</td>"
         f"<td style='color:#cbd5e1'>{r['stock_name']}</td>"
-        f"<td style='color:#64748b;font-size:.75rem'>{r['meta_sector']}</td>"
+        f"<td style='color:#64748b;font-size:.72rem'>{r['meta_sector']}</td>"
         f"<td style='color:#e2e8f0'>{price_str}</td>"
         f"<td>{_pct(r['change_pct'])}</td>"
         f"<td style='color:#94a3b8'>{r['vol_ratio']:.1f}x</td>"

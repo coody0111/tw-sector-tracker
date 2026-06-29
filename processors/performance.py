@@ -397,12 +397,14 @@ def get_margin_divergence(
         days = len(common_dates)
 
         row = {
-            "stock_id": sid,
+            "stock_id":   sid,
             "stock_name": sid_info.loc[sid, "stock_name"],
             "meta_sector": sid_info.loc[sid, "meta_sector"],
             "margin_pct": round(margin_pct, 2),
-            "price_pct": round(price_pct, 2),
-            "days": days,
+            "price_pct":  round(price_pct, 2),
+            "days":       days,
+            "close":      round(float(p_end), 2),
+            "change_pct": None,  # 期間漲跌已在 price_pct 欄顯示
         }
 
         if margin_pct >= margin_thresh and price_pct <= -price_thresh:
@@ -448,6 +450,17 @@ def get_stock_chips_ranking(
             "SELECT stock_id, margin_balance, margin_change FROM margin WHERE date = ?",
             [latest_date],
         ).fetchdf()
+        price_df = con.execute(
+            "SELECT stock_id, close, change_pct FROM daily_prices WHERE date = ?",
+            [latest_date],
+        ).fetchdf()
+        if price_df.empty:
+            latest_price_date = con.execute("SELECT MAX(date) FROM daily_prices").fetchone()[0]
+            if latest_price_date:
+                price_df = con.execute(
+                    "SELECT stock_id, close, change_pct FROM daily_prices WHERE date = ?",
+                    [latest_price_date],
+                ).fetchdf()
         con.close()
     except Exception:
         return {}
@@ -455,42 +468,35 @@ def get_stock_chips_ranking(
     universe = universe_df[["stock_id", "stock_name", "meta_sector"]].copy()
     universe["stock_id"] = universe["stock_id"].astype(str)
 
-    name_cache: Dict[str, str] = {}
-    _cache_path = Path("data/stock_names.csv")
-    if _cache_path.exists():
-        try:
-            _cache_df = pd.read_csv(_cache_path, dtype=str)
-            name_cache = dict(zip(_cache_df["stock_id"], _cache_df["stock_name"]))
-        except Exception:
-            pass
-
-    def _fill_names(df: pd.DataFrame) -> pd.DataFrame:
-        mask = df["stock_name"].isna()
-        df.loc[mask, "stock_name"] = df.loc[mask, "stock_id"].map(name_cache).fillna("")
-        df.loc[df["meta_sector"].isna(), "meta_sector"] = ""
-        return df
+    if not price_df.empty:
+        price_df["stock_id"] = price_df["stock_id"].astype(str)
+        price_map: Dict[str, dict] = price_df.set_index("stock_id")[["close", "change_pct"]].to_dict("index")
+    else:
+        price_map = {}
 
     import re as _re
-    _STOCK_RE = _re.compile(r'^\d{4}$')
 
     foreign_top_buy: list = []
     foreign_top_sell: list = []
     if not inst_df.empty:
         inst_df["stock_id"] = inst_df["stock_id"].astype(str)
-        merged = inst_df.merge(universe, on="stock_id", how="left").dropna(subset=["foreign_net"])
-        merged = _fill_names(merged)
+        # inner join: 只顯示 universe 內（有族群）的股票
+        merged = inst_df.merge(universe, on="stock_id", how="inner").dropna(subset=["foreign_net"])
         merged = merged[merged["stock_id"].str.match(r'^[1-9]\d{3}$')]
         merged["foreign_net"] = merged["foreign_net"].astype(int)
         merged["trust_net"] = merged["trust_net"].fillna(0).astype(int)
         sorted_df = merged.sort_values("foreign_net", ascending=False)
 
         def _row(r: pd.Series) -> dict:
+            px = price_map.get(r["stock_id"], {})
             return {
-                "stock_id": r["stock_id"],
-                "stock_name": r["stock_name"],
+                "stock_id":    r["stock_id"],
+                "stock_name":  r["stock_name"],
                 "meta_sector": r["meta_sector"],
                 "foreign_net": int(r["foreign_net"]),
-                "trust_net": int(r["trust_net"]),
+                "trust_net":   int(r["trust_net"]),
+                "close":       px.get("close"),
+                "change_pct":  px.get("change_pct"),
             }
 
         foreign_top_buy = [_row(r) for _, r in sorted_df.head(10).iterrows()]
@@ -500,8 +506,8 @@ def get_stock_chips_ranking(
     margin_alerts: list = []
     if not margin_df.empty:
         margin_df["stock_id"] = margin_df["stock_id"].astype(str)
-        mm = margin_df.merge(universe, on="stock_id", how="left")
-        mm = _fill_names(mm)
+        # inner join: 只顯示 universe 內（有族群）的股票
+        mm = margin_df.merge(universe, on="stock_id", how="inner")
         mm = mm[mm["stock_id"].str.match(r'^[1-9]\d{3}$')]
         mm = mm.dropna(subset=["margin_balance", "margin_change"])
         mm["margin_balance"] = mm["margin_balance"].astype(int)
@@ -512,20 +518,23 @@ def get_stock_chips_ranking(
         alerts = mm[mask].copy()
         alerts["alert_pct"] = (alerts["margin_change"] / alerts["margin_balance"] * 100).round(2)
         for _, r in alerts.sort_values("alert_pct", ascending=False).iterrows():
+            px = price_map.get(r["stock_id"], {})
             margin_alerts.append({
-                "stock_id": r["stock_id"],
-                "stock_name": r["stock_name"],
-                "meta_sector": r["meta_sector"],
+                "stock_id":       r["stock_id"],
+                "stock_name":     r["stock_name"],
+                "meta_sector":    r["meta_sector"],
                 "margin_balance": int(r["margin_balance"]),
-                "margin_change": int(r["margin_change"]),
-                "alert_pct": float(r["alert_pct"]),
+                "margin_change":  int(r["margin_change"]),
+                "alert_pct":      float(r["alert_pct"]),
+                "close":          px.get("close"),
+                "change_pct":     px.get("change_pct"),
             })
 
     return {
-        "foreign_top_buy": foreign_top_buy,
+        "foreign_top_buy":  foreign_top_buy,
         "foreign_top_sell": foreign_top_sell,
-        "margin_alerts": margin_alerts,
-        "chips_date": str(latest_date),
+        "margin_alerts":    margin_alerts,
+        "chips_date":       str(latest_date),
     }
 
 

@@ -204,7 +204,7 @@ def _meta_hits_section(results: list[dict]) -> str:
         c   = _color(n)
         mid = _q(meta)
 
-        # 展開面板：個股列表
+        # 展開面板：個股列表（table 確保欄位對齊）
         rows = []
         for r in sorted(stocks, key=lambda x: -(x.get("composite_score") or 0)):
             bullish_pats = [p for p in r["patterns"] if p in _BULLISH]
@@ -216,19 +216,24 @@ def _meta_hits_section(results: list[dict]) -> str:
             chg = r["change_pct"]
             chg_color = "#f87171" if chg > 0 else "#4ade80"
             sign = "+" if chg > 0 else ""
+            price = r.get("close_price")
+            price_str = (f"{price:.2f}" if price and price < 10 else
+                         f"{price:.1f}" if price and price < 100 else
+                         f"{int(price)}" if price else "─")
             rows.append(
-                f"<div style='display:flex;align-items:center;gap:10px;padding:3px 0;"
-                f"border-bottom:1px solid #1e293b'>"
-                f"<span style='color:#e2e8f0;font-weight:700;min-width:40px'>{r['stock_id']}</span>"
-                f"<span style='color:#94a3b8;font-size:.78rem;min-width:60px'>{r['stock_name']}</span>"
-                f"<span style='color:{chg_color};font-size:.78rem;min-width:52px'>{sign}{chg:.2f}%</span>"
-                f"<span>{pat_html}</span>"
-                f"</div>"
+                f"<tr style='border-bottom:1px solid #1e293b'>"
+                f"<td style='color:#e2e8f0;font-weight:700;padding:4px 8px 4px 0;white-space:nowrap'>{r['stock_id']}</td>"
+                f"<td style='color:#94a3b8;font-size:.78rem;padding:4px 8px;white-space:nowrap'>{r['stock_name']}</td>"
+                f"<td style='color:#e2e8f0;font-size:.78rem;font-weight:600;padding:4px 8px;white-space:nowrap'>{price_str}</td>"
+                f"<td style='color:{chg_color};font-size:.78rem;padding:4px 8px;white-space:nowrap'>{sign}{chg:.2f}%</td>"
+                f"<td style='padding:4px 0'>{pat_html}</td>"
+                f"</tr>"
             )
         panels.append(
             f"<div id='mh-{mid}' style='display:none;background:#070b12;border:1px solid #1e293b;"
             f"border-radius:6px;padding:10px 14px;margin-top:6px;margin-bottom:4px'>"
-            f"{''.join(rows)}</div>"
+            f"<table style='width:100%;border-collapse:collapse'>{''.join(rows)}</table>"
+            f"</div>"
         )
 
         badges.append(
@@ -254,31 +259,48 @@ def _meta_hits_section(results: list[dict]) -> str:
     )
 
 
+def _backtest_row(name: str, n: int, w3: int, w5: int, w10: int, ret10: float) -> str:
+    """生成一列回測資料，自動計算 2R 期望值（1:2 風險報酬比）。"""
+    def _wc(w: int) -> str:
+        c = "#4ade80" if w >= 50 else ("#94a3b8" if w >= 40 else "#f87171")
+        return f"<td style='text-align:center;color:{c}'>{w}%</td>"
+    ret_c = "#4ade80" if ret10 > 0 else "#f87171"
+    sign = "+" if ret10 > 0 else ""
+    ev2r = 3 * (w10 / 100) - 1          # 2R 期望值 (1:2 RR)
+    ev_c = "#4ade80" if ev2r > 0 else "#f87171"
+    ev_sign = "+" if ev2r > 0 else ""
+    return (
+        f"<tr><td>{name}</td>"
+        f"<td style='text-align:center;color:#64748b'>{n:,}</td>"
+        f"{_wc(w3)}{_wc(w5)}{_wc(w10)}"
+        f"<td style='text-align:center;color:{ret_c}'>{sign}{ret10:.1f}%</td>"
+        f"<td style='text-align:center;color:{ev_c};font-weight:700'>{ev_sign}{ev2r:.2f}R</td>"
+        f"</tr>"
+    )
+
+
 _BACKTEST_NOTE = (
     "<div class='pt-section'>"
     "<div class='pt-title'>回測統計參考（120日，2026H1）</div>"
     "<div style='overflow-x:auto'>"
     "<table class='pt'>"
-    "<thead><tr><th>形態</th><th>樣本</th><th>D+3勝率</th><th>D+5勝率</th><th>D+10勝率</th><th>D+10均報</th></tr></thead>"
+    "<thead><tr>"
+    "<th>形態</th><th style='text-align:center'>樣本</th>"
+    "<th style='text-align:center'>D+3勝率</th><th style='text-align:center'>D+5勝率</th>"
+    "<th style='text-align:center'>D+10勝率</th><th style='text-align:center'>D+10均報</th>"
+    "<th style='text-align:center' title='1:2風險報酬比期望值 = 3×勝率-1，>0表示正期望'>2R期望值</th>"
+    "</tr></thead>"
     "<tbody>"
-    "<tr><td>🟢雙底</td><td style='text-align:center'>5248</td>"
-    "<td style='text-align:center;color:#f87171'>41%</td><td style='text-align:center;color:#f87171'>40%</td>"
-    "<td style='text-align:center;color:#f87171'>43%</td><td style='text-align:center;color:#f87171'>-1.1%</td></tr>"
-    "<tr><td>🔺三角突破</td><td style='text-align:center'>3146</td>"
-    "<td style='text-align:center;color:#94a3b8'>43%</td><td style='text-align:center;color:#94a3b8'>45%</td>"
-    "<td style='text-align:center;color:#94a3b8'>48%</td><td style='text-align:center;color:#4ade80'>+2.9%</td></tr>"
-    "<tr><td>⚡60日突破</td><td style='text-align:center'>582</td>"
-    "<td style='text-align:center;color:#f87171'>27%</td><td style='text-align:center;color:#f87171'>25%</td>"
-    "<td style='text-align:center;color:#f87171'>21%</td><td style='text-align:center;color:#f87171'>-5.5%</td></tr>"
-    "<tr><td>🔻雙頂（做空）</td><td style='text-align:center'>905</td>"
-    "<td style='text-align:center;color:#4ade80'>51%</td><td style='text-align:center;color:#4ade80'>58%</td>"
-    "<td style='text-align:center;color:#4ade80'>60%</td><td style='text-align:center;color:#4ade80'>+4.3%</td></tr>"
-    "<tr><td>▽三角跌破（做空）</td><td style='text-align:center'>951</td>"
-    "<td style='text-align:center;color:#4ade80'>47%</td><td style='text-align:center;color:#4ade80'>49%</td>"
-    "<td style='text-align:center;color:#4ade80'>55%</td><td style='text-align:center;color:#4ade80'>+3.1%</td></tr>"
-    "</tbody></table>"
+    + _backtest_row("🟢雙底",           5248, 41, 40, 43, -1.1)
+    + _backtest_row("🔺三角突破",        3146, 43, 45, 48, +2.9)
+    + _backtest_row("⚡60日突破",         582, 27, 25, 21, -5.5)
+    + _backtest_row("🔻雙頂（做空）",     905, 51, 58, 60, +4.3)
+    + _backtest_row("▽三角跌破（做空）",  951, 47, 49, 55, +3.1)
+    + "</tbody></table>"
     "</div>"
-    "<p style='color:#475569;font-size:.7rem;margin-top:8px'>※ 2026H1 為空頭環境，看多形態勝率偏低屬正常；VCP 樣本數不足，暫無統計。</p>"
+    "<p style='color:#475569;font-size:.7rem;margin-top:8px'>"
+    "※ 2R期望值 = 3×D+10勝率 − 1，以 1:2 風險報酬比計算。>0 表示長期正期望；勝率需 >33.3% 才能維持正期望。"
+    "<br>※ 2026H1 為空頭環境，看多形態勝率偏低屬正常；VCP 樣本數不足，暫無統計。</p>"
     "</div>"
 )
 

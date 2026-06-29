@@ -47,6 +47,18 @@ def _net_color(n: int) -> str:
     return "#f87171" if n > 0 else ("#4ade80" if n < 0 else "#64748b")
 
 
+def _price_cell(close, change_pct) -> str:
+    if close is None:
+        return "<td style='color:#334155'>─</td>"
+    price_str = f"{close:.2f}" if close < 10 else (f"{close:.1f}" if close < 100 else f"{int(close)}")
+    if change_pct is not None:
+        sign = "+" if change_pct > 0 else ""
+        color = "#f87171" if change_pct > 0 else ("#4ade80" if change_pct < 0 else "#64748b")
+        return (f"<td><span style='color:#e2e8f0;font-weight:600'>{price_str}</span>"
+                f"<br><span style='color:{color};font-size:.68rem'>{sign}{change_pct:.1f}%</span></td>")
+    return f"<td style='color:#e2e8f0;font-weight:600'>{price_str}</td>"
+
+
 def _fmt_net(n: int) -> str:
     """顯示法人買賣超張數（原始單位：股，除以 1000 = 張）。"""
     if n == 0:
@@ -145,7 +157,7 @@ def _trust_meta_table(meta_chips: dict) -> str:
 def _stock_rank_table(stocks: list, header: str, net_key: str = "foreign_net") -> str:
     if not stocks:
         return "<div class='no-data'>無資料</div>"
-    html = f"<table class='ct'><thead><tr><th>#</th><th>股票</th><th>族群</th><th>{header}</th><th>投信</th></tr></thead><tbody>"
+    html = f"<table class='ct'><thead><tr><th>#</th><th>股票</th><th>族群</th><th>收盤</th><th>{header}</th><th>投信</th></tr></thead><tbody>"
     for i, s in enumerate(stocks, 1):
         net = s.get(net_key, 0)
         trust = s.get("trust_net", 0)
@@ -154,6 +166,7 @@ def _stock_rank_table(stocks: list, header: str, net_key: str = "foreign_net") -
             f"<td class='ct-rank'>{i}</td>"
             f"<td><span class='sid'>{s['stock_id']}</span> {s['stock_name']}</td>"
             f"<td class='ct-meta'>{_meta_link(s['meta_sector'])}</td>"
+            f"{_price_cell(s.get('close'), s.get('change_pct'))}"
             f"<td>{_fmt_net(net)}</td>"
             f"<td>{_fmt_net(trust)}</td>"
             f"</tr>"
@@ -182,30 +195,24 @@ def _inst_strong_table(rows: list) -> str:
     comp_th = "<th>評分</th>" if has_comp else ""
     html = (
         "<table class='ct'><thead><tr>"
-        f"<th>#</th><th>股票</th><th>族群</th>{comp_th}<th>外資</th><th>投信</th>"
-        "<th>外資今日</th><th>投信今日</th><th>合計</th><th>漲跌</th>"
+        f"<th>#</th><th>股票</th><th>族群</th><th>收盤</th>{comp_th}<th>外資</th><th>投信</th>"
+        "<th>外資今日</th><th>投信今日</th><th>合計</th>"
         "</tr></thead><tbody>"
     )
     for i, s in enumerate(rows, 1):
-        chg = s.get("change_pct")
-        chg_html = (
-            f"<span style='color:#f87171;font-weight:700'>+{chg}%</span>" if chg and chg > 0
-            else f"<span style='color:#4ade80;font-weight:700'>{chg}%</span>" if chg and chg < 0
-            else "<span style='color:#475569'>─</span>"
-        )
         comp_td = f"<td>{_composite_mini(s.get('composite_score'))}</td>" if has_comp else ""
         html += (
             f"<tr>"
             f"<td class='ct-rank'>{i}</td>"
             f"<td><span class='sid'>{s['stock_id']}</span> {s.get('stock_name','')}</td>"
             f"<td class='ct-meta'>{_meta_link(s.get('meta_sector',''))}</td>"
+            f"{_price_cell(s.get('close'), s.get('change_pct'))}"
             f"{comp_td}"
             f"<td>{_streak_badge(s['foreign_streak'], '外資')}</td>"
             f"<td>{_trust_streak_badge(s['trust_streak'])}</td>"
             f"<td>{_fmt_net(s.get('foreign_net') or 0)}</td>"
             f"<td>{_fmt_net(s.get('trust_net') or 0)}</td>"
             f"<td>{_fmt_net(s.get('total_net') or 0)}</td>"
-            f"<td>{chg_html}</td>"
             f"</tr>"
         )
     html += "</tbody></table>"
@@ -217,30 +224,24 @@ def _inst_streak_table(rows: list, streak_key: str, net_key: str, cum_key: str, 
         return "<div class='no-data'>無資料</div>"
     html = (
         f"<table class='ct'><thead><tr>"
-        f"<th>#</th><th>股票</th><th>族群</th><th>連買</th>"
-        f"<th>{label}今日</th><th>{label}累計</th><th>漲跌</th>"
+        f"<th>#</th><th>股票</th><th>族群</th><th>收盤</th><th>連買</th>"
+        f"<th>{label}今日</th><th>{label}累計</th>"
         f"</tr></thead><tbody>"
     )
     for i, s in enumerate(rows, 1):
         streak = s.get(streak_key, 0)
         net = s.get(net_key) or 0
         cum = s.get(cum_key) or 0
-        chg = s.get("change_pct")
-        chg_html = (
-            f"<span style='color:#f87171;font-weight:700'>+{chg}%</span>" if chg and chg > 0
-            else f"<span style='color:#4ade80;font-weight:700'>{chg}%</span>" if chg and chg < 0
-            else "<span style='color:#475569'>─</span>"
-        )
         badge = _streak_badge(streak, '外資') if streak_key == 'foreign_streak' else _trust_streak_badge(streak)
         html += (
             f"<tr>"
             f"<td class='ct-rank'>{i}</td>"
             f"<td><span class='sid'>{s['stock_id']}</span> {s.get('stock_name','')}</td>"
             f"<td class='ct-meta'>{_meta_link(s.get('meta_sector',''))}</td>"
+            f"{_price_cell(s.get('close'), s.get('change_pct'))}"
             f"<td>{badge}</td>"
             f"<td>{_fmt_net(net)}</td>"
             f"<td>{_fmt_net(cum)}</td>"
-            f"<td>{chg_html}</td>"
             f"</tr>"
         )
     html += "</tbody></table>"
@@ -250,7 +251,7 @@ def _inst_streak_table(rows: list, streak_key: str, net_key: str, cum_key: str, 
 def _margin_alert_table(alerts: list) -> str:
     if not alerts:
         return "<div class='no-data'>無融資擴張警示</div>"
-    html = "<table class='ct'><thead><tr><th>#</th><th>股票</th><th>族群</th><th>融資餘額</th><th>增加量</th><th>增幅</th></tr></thead><tbody>"
+    html = "<table class='ct'><thead><tr><th>#</th><th>股票</th><th>族群</th><th>收盤</th><th>融資餘額</th><th>增加量</th><th>增幅</th></tr></thead><tbody>"
     for i, s in enumerate(alerts, 1):
         pct = s["alert_pct"]
         color = "#fb923c" if pct >= 10 else "#fbbf24"
@@ -259,6 +260,7 @@ def _margin_alert_table(alerts: list) -> str:
             f"<td class='ct-rank'>{i}</td>"
             f"<td><span class='sid'>{s['stock_id']}</span> {s['stock_name']}</td>"
             f"<td class='ct-meta'>{_meta_link(s['meta_sector'])}</td>"
+            f"{_price_cell(s.get('close'), s.get('change_pct'))}"
             f"<td style='color:#94a3b8'>{s['margin_balance']:,}</td>"
             f"<td style='color:#f87171'>+{s['margin_change']:,}</td>"
             f"<td><span style='color:{color};font-weight:700'>+{pct:.1f}%</span></td>"
@@ -273,9 +275,9 @@ def _margin_divergence_table(rows: list, divergence_type: str) -> str:
         label = "無看空背離個股" if divergence_type == "bearish" else "無融資鬆動個股"
         return f"<div class='no-data'>{label}</div>"
     if divergence_type == "bearish":
-        thead = "<thead><tr><th>#</th><th>股票</th><th>族群</th><th>融資增幅</th><th>股價跌幅</th><th>天數</th></tr></thead>"
+        thead = "<thead><tr><th>#</th><th>股票</th><th>族群</th><th>收盤</th><th>融資增幅</th><th>股價跌幅</th><th>天數</th></tr></thead>"
     else:
-        thead = "<thead><tr><th>#</th><th>股票</th><th>族群</th><th>融資減幅</th><th>股價漲幅</th><th>天數</th></tr></thead>"
+        thead = "<thead><tr><th>#</th><th>股票</th><th>族群</th><th>收盤</th><th>融資減幅</th><th>股價漲幅</th><th>天數</th></tr></thead>"
     html = f"<table class='ct'>{thead}<tbody>"
     for i, s in enumerate(rows, 1):
         mpct = s["margin_pct"]
@@ -291,6 +293,7 @@ def _margin_divergence_table(rows: list, divergence_type: str) -> str:
             f"<td class='ct-rank'>{i}</td>"
             f"<td><span class='sid'>{s['stock_id']}</span> {s['stock_name']}</td>"
             f"<td class='ct-meta'>{_meta_link(s['meta_sector'])}</td>"
+            f"{_price_cell(s.get('close'), s.get('change_pct'))}"
             f"<td>{m_html}</td>"
             f"<td>{p_html}</td>"
             f"<td style='color:#475569;font-size:.72rem'>{s['days']}日</td>"
@@ -332,7 +335,7 @@ def _shareholder_table(rows: list) -> str:
         return "<div class='no-data'>無大戶持倉資料（尚未執行 --update-shareholder）</div>"
     html = (
         "<table class='ct'><thead><tr>"
-        "<th>#</th><th>股票</th><th>族群</th>"
+        "<th>#</th><th>股票</th><th>族群</th><th>收盤</th>"
         "<th>大戶持倉%</th><th>週變化</th><th>連增週</th>"
         "</tr></thead><tbody>"
     )
@@ -362,6 +365,7 @@ def _shareholder_table(rows: list) -> str:
             f"<td class='ct-rank'>{i}</td>"
             f"<td><span class='sid'>{s['stock_id']}</span> {s.get('stock_name','')}</td>"
             f"<td class='ct-meta'>{_meta_link(s.get('meta_sector',''))}</td>"
+            f"{_price_cell(s.get('close'), s.get('change_pct'))}"
             f"<td style='color:{pct_color};font-weight:700'>{pct:.1f}%</td>"
             f"<td>{chg_html}</td>"
             f"<td>{streak_html}</td>"

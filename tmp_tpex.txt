@@ -1,3 +1,0 @@
-status: 200
-content-type: text/html
-<!DOCTYPE html><html lang="zh-Hant-tw"><head><title>404 - è­å¸æ«æª¯è²·è³£ä¸­å¿</title><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no"><meta name="author" content=""><meta name="description" content="æ«è²·ä¸­å¿æ¯åå§ç¬¬ä¸åå½æ´åå§å¤éè¦ç¶ è²ç¸éæ¨ç« ï¼ä¸¦æ­ç¤ºä¸å¸æ«å¬å¸åå¾æ¨ç« æå½¢ä¹å¹³å°ï¼å¯ä½çºéèæ©æ§åæè³äººé²è¡æèè³æåèè³è¨ä¹éè¦ä¾æºã"><meta nam

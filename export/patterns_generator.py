@@ -1,26 +1,29 @@
 """
 產生 docs/patterns.html — 量價形態掃描頁
 """
+from collections import defaultdict
 from datetime import date
 from pathlib import Path
+from urllib.parse import quote as _q
 
-_BULLISH = {"雙底", "三角突破", "60日突破"}
+_BULLISH = {"雙底", "三角突破", "60日突破", "VCP突破"}
 _BEARISH = {"雙頂", "三角跌破"}
 _NEUTRAL = {"箱型整理"}
 
 _PATTERN_LABEL = {
-    "雙底":   ("🟢", "#86efac"),
+    "雙底":    ("🟢", "#86efac"),
     "三角突破": ("🔺", "#86efac"),
     "60日突破": ("⚡", "#fbbf24"),
-    "雙頂":   ("🔴", "#fca5a5"),
+    "VCP突破":  ("🚀", "#a78bfa"),
+    "雙頂":    ("🔴", "#fca5a5"),
     "三角跌破": ("🔻", "#fca5a5"),
     "箱型整理": ("📦", "#94a3b8"),
 }
 
 # 回測勝率（from backtest_patterns 結果）
 _WIN_RATE = {
-    "雙底":   ("D+10", "53%", "+4.7%"),
-    "雙頂":   ("D+5",  "61%", "+2.9%"),  # 做空方向
+    "雙底": ("D+10", "43%", "-1.1%"),
+    "雙頂": ("D+10", "60%", "+4.3%"),  # 做空方向
 }
 
 
@@ -171,6 +174,86 @@ def _section(title: str, rows: list[dict], subtitle: str = "") -> str:
     )
 
 
+def _meta_hits_section(results: list[dict]) -> str:
+    """族群型態熱區：badge 點擊展開該族群命中個股列表。"""
+    # {meta: [(stock_id, stock_name, [patterns]}, ...]}
+    meta_stocks: dict[str, list[dict]] = defaultdict(list)
+    for r in results:
+        meta = r.get("meta_sector", "")
+        if not meta:
+            continue
+        bullish = [p for p in r["patterns"] if p in _BULLISH]
+        if bullish:
+            meta_stocks[meta].append(r)
+
+    if not meta_stocks:
+        return ""
+
+    ranked = sorted(meta_stocks.items(), key=lambda x: len(x[1]), reverse=True)
+
+    def _color(n: int) -> str:
+        if n >= 5: return "#f87171"
+        if n >= 3: return "#fb923c"
+        if n >= 2: return "#fbbf24"
+        return "#94a3b8"
+
+    badges = []
+    panels = []
+    for meta, stocks in ranked:
+        n   = len(stocks)
+        c   = _color(n)
+        mid = _q(meta)
+
+        # 展開面板：個股列表
+        rows = []
+        for r in sorted(stocks, key=lambda x: -(x.get("composite_score") or 0)):
+            bullish_pats = [p for p in r["patterns"] if p in _BULLISH]
+            pat_html = " ".join(
+                f"<span style='color:{_PATTERN_LABEL.get(p,('','#94a3b8'))[1]};font-size:.65rem'>"
+                f"{_PATTERN_LABEL.get(p,('','#94a3b8'))[0]}{p}</span>"
+                for p in bullish_pats
+            )
+            chg = r["change_pct"]
+            chg_color = "#f87171" if chg > 0 else "#4ade80"
+            sign = "+" if chg > 0 else ""
+            rows.append(
+                f"<div style='display:flex;align-items:center;gap:10px;padding:3px 0;"
+                f"border-bottom:1px solid #1e293b'>"
+                f"<span style='color:#e2e8f0;font-weight:700;min-width:40px'>{r['stock_id']}</span>"
+                f"<span style='color:#94a3b8;font-size:.78rem;min-width:60px'>{r['stock_name']}</span>"
+                f"<span style='color:{chg_color};font-size:.78rem;min-width:52px'>{sign}{chg:.2f}%</span>"
+                f"<span>{pat_html}</span>"
+                f"</div>"
+            )
+        panels.append(
+            f"<div id='mh-{mid}' style='display:none;background:#070b12;border:1px solid #1e293b;"
+            f"border-radius:6px;padding:10px 14px;margin-top:6px;margin-bottom:4px'>"
+            f"{''.join(rows)}</div>"
+        )
+
+        badges.append(
+            f"<span onclick=\"var p=document.getElementById('mh-{mid}');"
+            f"p.style.display=p.style.display==='none'?'block':'none'\" "
+            f"style='display:inline-flex;align-items:center;gap:5px;cursor:pointer;"
+            f"background:#0f1624;border:1px solid {c}55;border-radius:6px;"
+            f"padding:4px 10px;color:{c};font-size:.78rem;font-weight:600;white-space:nowrap'>"
+            f"{meta}<span style='background:{c}22;border-radius:4px;padding:0 5px;"
+            f"font-size:.7rem'>{n}</span></span>"
+        )
+
+    return (
+        "<div style='margin-bottom:20px'>"
+        "<div style='color:#475569;font-size:.72rem;margin-bottom:6px;letter-spacing:.05em'>"
+        "今日族群型態熱區（點擊展開個股）</div>"
+        "<div style='display:flex;flex-wrap:wrap;gap:6px'>"
+        + "".join(badges)
+        + "</div>"
+        + "".join(panels)
+        + "</div>"
+        "<hr style='border-color:#1e293b;margin:0 0 20px'>"
+    )
+
+
 def generate(trade_date: date, results: list[dict], output_path: str) -> None:
     date_str = trade_date.strftime("%Y-%m-%d")
 
@@ -189,17 +272,20 @@ def generate(trade_date: date, results: list[dict], output_path: str) -> None:
 
     # Pattern groups
     s60d  = [r for r in bullish if "60日突破"  in r["patterns"] and r["score"] >= 2]
-    s_dbl = [r for r in bullish if "雙底"     in r["patterns"] and r["score"] >= 2]
+    s_dbl = [r for r in bullish if "雙底"      in r["patterns"] and r["score"] >= 2]
     s_tri = [r for r in bullish if "三角突破"  in r["patterns"] and r["score"] >= 2]
+    s_vcp = [r for r in bullish if "VCP突破"   in r["patterns"] and r["score"] >= 2]
     s_avoid = [r for r in bearish if r["score"] <= -2]
     s_box = sorted(neutral, key=lambda x: abs(x["score"]), reverse=True)
 
     body = "\n".join([
+        _meta_hits_section(results),
         _section("做多候選 Screener",    screener, f"命中任一看多形態 · score ≥ 2 · Top 50 · {date_str}"),
         "<hr style='border-color:#1e293b;margin:8px 0 24px'>",
-        _section("形態分區 — 60日新高突破確認", s60d),
-        _section("形態分區 — 雙底",             s_dbl),
-        _section("形態分區 — 三角整理向上突破", s_tri),
+        _section("形態分區 — VCP量縮底部突破",   s_vcp),
+        _section("形態分區 — 三角整理向上突破",  s_tri),
+        _section("形態分區 — 雙底",              s_dbl),
+        _section("形態分區 — 60日新高突破確認",  s60d),
         "<hr style='border-color:#1e293b;margin:8px 0 24px'>",
         _section("盤整觀察（箱型整理）", s_box, "尚未突破，等待方向"),
         "<hr style='border-color:#1e293b;margin:8px 0 24px'>",

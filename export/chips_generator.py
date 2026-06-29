@@ -5,6 +5,7 @@
 from datetime import date
 from pathlib import Path
 from urllib.parse import quote
+import json
 
 _CUM_THRESHOLD = 15
 
@@ -441,6 +442,29 @@ def generate(
     cum_ranks = _make_cum_ranks(cum_data or [])
     margin_divergence = margin_divergence or {}
 
+    # Build exchange map for JS filter
+    _exch_map: dict = {}
+    try:
+        import pandas as pd
+        _u = pd.read_csv("data/stock_universe.csv", dtype=str, usecols=["stock_id", "exchange"])
+        _exch_map = _u.set_index("stock_id")["exchange"].to_dict()
+    except Exception:
+        pass
+    exch_js_var = f"const EXCH={json.dumps(_exch_map, ensure_ascii=False)};"
+    exch_filter_btns = (
+        "<div style='margin:8px 0 4px;display:flex;gap:6px'>"
+        "<button class='exch-btn active' data-exch='' onclick='filterExch(this)'"
+        " style='background:#1e293b;color:#e2e8f0;border:1px solid #475569;border-radius:6px;"
+        "padding:3px 12px;cursor:pointer;font-size:.72rem'>全部</button>"
+        "<button class='exch-btn' data-exch='TWSE' onclick='filterExch(this)'"
+        " style='background:transparent;color:#94a3b8;border:1px solid #334155;border-radius:6px;"
+        "padding:3px 12px;cursor:pointer;font-size:.72rem'>🏛 上市</button>"
+        "<button class='exch-btn' data-exch='TPEx' onclick='filterExch(this)'"
+        " style='background:transparent;color:#94a3b8;border:1px solid #334155;border-radius:6px;"
+        "padding:3px 12px;cursor:pointer;font-size:.72rem'>🏪 上櫃</button>"
+        "</div>"
+    )
+
     date_str = trade_date.strftime("%Y-%m-%d")
     weekday = ["一", "二", "三", "四", "五", "六", "日"][trade_date.weekday()]
     chips_date = stock_chips.get("chips_date", date_str)
@@ -703,6 +727,7 @@ def generate(
       <button class="tab-btn" data-tab="tab-holder" onclick="switchTab('tab-holder')">🏦 大戶持倉</button>
     </div>
   </div>
+  {exch_filter_btns}
 
   <div class="tab-panel" id="tab-signal">
     {s6a_html}
@@ -732,6 +757,20 @@ def generate(
 
   <div class="footer">資料來源：TWSE 三大法人 ｜ 台灣：漲紅跌綠 ｜ 外資正值=買超</div>
   {_TAB_JS}
+  <script>
+  {exch_js_var}
+  function filterExch(btn){{
+    document.querySelectorAll('.exch-btn').forEach(b=>{{b.style.background='transparent';b.style.color='#94a3b8';b.style.borderColor='#334155';b.classList.remove('active')}});
+    btn.style.background='#1e293b';btn.style.color='#e2e8f0';btn.style.borderColor='#475569';btn.classList.add('active');
+    const exch=btn.dataset.exch;
+    document.querySelectorAll('table.ct tbody tr').forEach(tr=>{{
+      const sid=tr.querySelector('.sid');
+      if(!sid)return;
+      const ex=EXCH[sid.textContent.trim()]||'';
+      tr.style.display=(!exch||ex===exch)?'':'none';
+    }});
+  }}
+  </script>
 </body>
 </html>"""
 

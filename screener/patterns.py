@@ -396,9 +396,12 @@ def scan_patterns(date_str: str, db_path: str = _DB_PATH) -> list[dict]:
 
     # Load name/sector map
     try:
-        universe = pd.read_csv(_UNIVERSE_PATH, dtype=str,
-                               usecols=["stock_id", "stock_name", "meta_sector"])
-        name_map = universe.set_index("stock_id")[["stock_name", "meta_sector"]].to_dict("index")
+        univ_cols = ["stock_id", "stock_name", "meta_sector"]
+        all_cols = pd.read_csv(_UNIVERSE_PATH, nrows=0).columns.tolist()
+        if "exchange" in all_cols:
+            univ_cols.append("exchange")
+        universe = pd.read_csv(_UNIVERSE_PATH, dtype=str, usecols=univ_cols)
+        name_map = universe.set_index("stock_id")[univ_cols[1:]].to_dict("index")
     except Exception:
         name_map = {}
 
@@ -504,6 +507,7 @@ def scan_patterns(date_str: str, db_path: str = _DB_PATH) -> list[dict]:
             "stock_id":            str(sid),
             "stock_name":          info.get("stock_name", ""),
             "meta_sector":         info.get("meta_sector", ""),
+            "exchange":            info.get("exchange", ""),
             "change_pct":          round(change_pct, 2),
             "vol_ratio":           vol_ratio,
             "score":               total_score,

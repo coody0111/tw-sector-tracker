@@ -124,8 +124,9 @@ def _stock_row(r: dict) -> str:
     comp = r.get("composite_score")
     lv_pct = r.get("lv12_15_pct")
     sh_streak = r.get("sh_streak", 0) or 0
+    exch = r.get("exchange", "")
     return (
-        f"<tr>"
+        f"<tr data-exchange='{exch}'>"
         f"<td style='color:#e2e8f0;font-weight:700'>{r['stock_id']}</td>"
         f"<td style='color:#cbd5e1'>{r['stock_name']}</td>"
         f"<td style='color:#64748b;font-size:.75rem'>{r['meta_sector']}</td>"
@@ -200,10 +201,31 @@ def generate(trade_date: date, results: list[dict], output_path: str) -> None:
         _section("避開清單",             s_avoid, "看空形態命中 · score ≤ -2"),
     ])
 
-    nav = ("<nav style='margin-bottom:20px;font-size:.8rem;color:#475569'>"
-           "<a href='index.html' style='color:#60a5fa;text-decoration:none'>← 族群</a> · "
-           "<a href='chips.html' style='color:#60a5fa;text-decoration:none'>籌碼</a> · "
-           "<span style='color:#e2e8f0'>形態</span></nav>")
+    nav = (
+        "<nav style='margin-bottom:12px;font-size:.8rem;color:#475569'>"
+        "<a href='index.html' style='color:#60a5fa;text-decoration:none'>← 族群</a> · "
+        "<a href='chips.html' style='color:#60a5fa;text-decoration:none'>籌碼</a> · "
+        "<span style='color:#e2e8f0'>形態</span></nav>"
+        "<div style='margin-bottom:16px;display:flex;gap:6px'>"
+        "<button class='exch-btn active' data-exch='' onclick='filterExch(this)'"
+        " style='background:#1e293b;color:#e2e8f0;border:1px solid #475569;border-radius:6px;"
+        "padding:4px 14px;cursor:pointer;font-size:.78rem'>全部</button>"
+        "<button class='exch-btn' data-exch='TWSE' onclick='filterExch(this)'"
+        " style='background:transparent;color:#94a3b8;border:1px solid #334155;border-radius:6px;"
+        "padding:4px 14px;cursor:pointer;font-size:.78rem'>🏛 上市</button>"
+        "<button class='exch-btn' data-exch='TPEx' onclick='filterExch(this)'"
+        " style='background:transparent;color:#94a3b8;border:1px solid #334155;border-radius:6px;"
+        "padding:4px 14px;cursor:pointer;font-size:.78rem'>🏪 上櫃</button>"
+        "</div>"
+        "<script>"
+        "function filterExch(btn){"
+        "document.querySelectorAll('.exch-btn').forEach(b=>{b.style.background='transparent';b.style.color='#94a3b8';b.style.borderColor='#334155';b.classList.remove('active')});"
+        "btn.style.background='#1e293b';btn.style.color='#e2e8f0';btn.style.borderColor='#475569';btn.classList.add('active');"
+        "const exch=btn.dataset.exch;"
+        "document.querySelectorAll('tbody tr[data-exchange]').forEach(tr=>{"
+        "tr.style.display=(!exch||tr.dataset.exchange===exch)?'':'none'})}"
+        "</script>"
+    )
 
     html = f"""<!DOCTYPE html>
 <html lang="zh-Hant">

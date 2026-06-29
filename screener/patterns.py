@@ -366,6 +366,28 @@ def scan_patterns(date_str: str, db_path: str = _DB_PATH) -> list[dict]:
         ORDER BY stock_id, date
     """, [date_str, date_str]).df()
 
+    # Load latest shareholder data (most recent week)
+    sh_df = con.execute("""
+        WITH latest AS (SELECT MAX(date) AS d FROM shareholder)
+        SELECT s.stock_id, s.lv12_15_pct, s.streak
+        FROM shareholder s, latest l WHERE s.date = l.d
+    """).df() if con.execute("SELECT COUNT(*) FROM shareholder").fetchone()[0] > 0 else pd.DataFrame()
+
+    # Load margin 5-day change % (latest date vs 5 rows ago per stock)
+    margin_df = con.execute("""
+        WITH ranked AS (
+            SELECT stock_id, margin_balance,
+                   ROW_NUMBER() OVER (PARTITION BY stock_id ORDER BY date DESC) AS rn
+            FROM margin WHERE date <= ?
+        )
+        SELECT a.stock_id,
+               CASE WHEN b.margin_balance > 0
+                    THEN (a.margin_balance - b.margin_balance) * 100.0 / b.margin_balance
+                    ELSE 0 END AS margin_5d_pct
+        FROM ranked a JOIN ranked b ON a.stock_id = b.stock_id
+        WHERE a.rn = 1 AND b.rn = 5
+    """, [date_str]).df() if con.execute("SELECT COUNT(*) FROM margin").fetchone()[0] > 0 else pd.DataFrame()
+
     con.close()
 
     if price_df.empty:
@@ -387,6 +409,20 @@ def scan_patterns(date_str: str, db_path: str = _DB_PATH) -> list[dict]:
 
     # Keep only last 10 rows of institutional per stock
     inst_df = inst_df.groupby("stock_id").tail(10).reset_index(drop=True)
+
+    # Build lookup maps for shareholder and margin
+    sh_map: dict[str, dict] = {}
+    if not sh_df.empty:
+        for _, r in sh_df.iterrows():
+            sh_map[str(r["stock_id"])] = {
+                "lv12_15_pct": float(r["lv12_15_pct"]) if r["lv12_15_pct"] is not None else None,
+                "streak":      int(r["streak"]) if r["streak"] is not None else 0,
+            }
+
+    margin_map: dict[str, float] = {}
+    if not margin_df.empty:
+        for _, r in margin_df.iterrows():
+            margin_map[str(r["stock_id"])] = float(r["margin_5d_pct"]) if r["margin_5d_pct"] is not None else 0.0
 
     results = []
     inst_by_stock = {sid: grp.reset_index(drop=True)
@@ -447,6 +483,23 @@ def scan_patterns(date_str: str, db_path: str = _DB_PATH) -> list[dict]:
         f_streak = _calc_streak(stock_inst["foreign_net"]) if not stock_inst.empty and "foreign_net" in stock_inst else 0
         t_streak = _calc_streak(stock_inst["trust_net"])   if not stock_inst.empty and "trust_net"   in stock_inst else 0
 
+        # Shareholder & margin data for composite score
+        sh_info = sh_map.get(str(sid), {})
+        lv_pct   = sh_info.get("lv12_15_pct")
+        sh_streak = sh_info.get("streak", 0)
+        m5d_pct  = margin_map.get(str(sid), 0.0)
+
+        comp = calc_composite_score(
+            foreign_streak=f_streak,
+            trust_streak=t_streak,
+            patterns=patterns,
+            vol_ratio=vol_ratio,
+            lv12_15_pct=lv_pct,
+            sh_streak=sh_streak,
+            margin_alert_pct=m5d_pct,
+            margin_divergence=False,
+        )
+
         results.append({
             "stock_id":            str(sid),
             "stock_name":          info.get("stock_name", ""),
@@ -454,9 +507,12 @@ def scan_patterns(date_str: str, db_path: str = _DB_PATH) -> list[dict]:
             "change_pct":          round(change_pct, 2),
             "vol_ratio":           vol_ratio,
             "score":               total_score,
+            "composite_score":     comp,
             "patterns":            patterns,
             "inst_streak_foreign": f_streak,
             "inst_streak_trust":   t_streak,
+            "lv12_15_pct":         lv_pct,
+            "sh_streak":           sh_streak,
             "closes":              grp["close"].iloc[-30:].tolist(),
         })
 

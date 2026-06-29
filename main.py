@@ -422,6 +422,11 @@ def run(trade_date: date = None, realtime: bool = False) -> None:
             from screener.patterns import scan_patterns
             from export.patterns_generator import generate as generate_patterns_html
             pattern_results = scan_patterns(trade_date.isoformat())
+            # Backfill composite_score into inst_results for stocks that appear in patterns
+            comp_map = {r["stock_id"]: r.get("composite_score") for r in pattern_results if r.get("composite_score") is not None}
+            for row in inst_results:
+                if row["stock_id"] in comp_map:
+                    row["composite_score"] = comp_map[row["stock_id"]]
             generate_patterns_html(trade_date, pattern_results, "docs/patterns.html")
             logger.info("HTML generated → docs/patterns.html")
         except Exception as exc:

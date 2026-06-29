@@ -161,12 +161,27 @@ def _stock_rank_table(stocks: list, header: str, net_key: str = "foreign_net") -
     return html
 
 
+def _composite_mini(score: int | None) -> str:
+    """Compact 0-100 score chip for chips.html tables."""
+    if score is None:
+        return ""
+    if score >= 75:   color = "#4ade80"
+    elif score >= 60: color = "#86efac"
+    elif score >= 45: color = "#fbbf24"
+    elif score >= 30: color = "#fb923c"
+    else:             color = "#f87171"
+    return (f"<span style='color:{color};border:1px solid {color}55;border-radius:4px;"
+            f"padding:1px 7px;font-size:.72rem;font-weight:800'>{score}</span>")
+
+
 def _inst_strong_table(rows: list) -> str:
     if not rows:
         return "<div class='no-data'>無符合條件個股</div>"
+    has_comp = any(r.get("composite_score") is not None for r in rows)
+    comp_th = "<th>評分</th>" if has_comp else ""
     html = (
         "<table class='ct'><thead><tr>"
-        "<th>#</th><th>股票</th><th>族群</th><th>外資</th><th>投信</th>"
+        f"<th>#</th><th>股票</th><th>族群</th>{comp_th}<th>外資</th><th>投信</th>"
         "<th>外資今日</th><th>投信今日</th><th>合計</th><th>漲跌</th>"
         "</tr></thead><tbody>"
     )
@@ -177,11 +192,13 @@ def _inst_strong_table(rows: list) -> str:
             else f"<span style='color:#4ade80;font-weight:700'>{chg}%</span>" if chg and chg < 0
             else "<span style='color:#475569'>─</span>"
         )
+        comp_td = f"<td>{_composite_mini(s.get('composite_score'))}</td>" if has_comp else ""
         html += (
             f"<tr>"
             f"<td class='ct-rank'>{i}</td>"
             f"<td><span class='sid'>{s['stock_id']}</span> {s.get('stock_name','')}</td>"
             f"<td class='ct-meta'>{_meta_link(s.get('meta_sector',''))}</td>"
+            f"{comp_td}"
             f"<td>{_streak_badge(s['foreign_streak'], '外資')}</td>"
             f"<td>{_trust_streak_badge(s['trust_streak'])}</td>"
             f"<td>{_fmt_net(s.get('foreign_net') or 0)}</td>"

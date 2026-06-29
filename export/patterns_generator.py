@@ -63,6 +63,25 @@ def _score_badge(s: int) -> str:
             f"border-radius:4px;padding:1px 8px;font-size:.72rem;font-weight:700'>{s:+d}</span>")
 
 
+def _composite_badge(score: int | None) -> str:
+    """0-100 綜合評分徽章，含填充色進度感。"""
+    if score is None:
+        return "<span style='color:#334155;font-size:.72rem'>─</span>"
+    if score >= 75:
+        color, bg = "#4ade80", "rgba(6,78,59,.35)"
+    elif score >= 60:
+        color, bg = "#86efac", "rgba(6,78,59,.2)"
+    elif score >= 45:
+        color, bg = "#fbbf24", "rgba(120,53,15,.2)"
+    elif score >= 30:
+        color, bg = "#fb923c", "rgba(120,53,15,.3)"
+    else:
+        color, bg = "#f87171", "rgba(127,29,29,.25)"
+    return (f"<span style='background:{bg};color:{color};border:1px solid {color}55;"
+            f"border-radius:6px;padding:2px 10px;font-size:.8rem;font-weight:800;"
+            f"letter-spacing:.02em'>{score}</span>")
+
+
 def _pattern_badges(patterns: list[str]) -> str:
     parts = []
     for p in patterns:
@@ -88,8 +107,23 @@ def _inst_label(f: int, t: int) -> str:
     return " ".join(parts) or "<span style='color:#475569;font-size:.68rem'>─</span>"
 
 
+def _holder_cell(lv_pct: float | None, sh_streak: int) -> str:
+    if lv_pct is None:
+        return "<span style='color:#334155;font-size:.68rem'>─</span>"
+    pct_color = "#f87171" if lv_pct >= 70 else ("#fbbf24" if lv_pct >= 50 else "#94a3b8")
+    streak_str = ""
+    if sh_streak > 0:
+        streak_str = f"<span style='color:#f87171;font-size:.62rem'> ↑{sh_streak}w</span>"
+    elif sh_streak < 0:
+        streak_str = f"<span style='color:#4ade80;font-size:.62rem'> ↓{abs(sh_streak)}w</span>"
+    return f"<span style='color:{pct_color};font-size:.75rem;font-weight:700'>{lv_pct:.0f}%{streak_str}</span>"
+
+
 def _stock_row(r: dict) -> str:
     spark = _sparkline_svg(r.get("closes", []))
+    comp = r.get("composite_score")
+    lv_pct = r.get("lv12_15_pct")
+    sh_streak = r.get("sh_streak", 0) or 0
     return (
         f"<tr>"
         f"<td style='color:#e2e8f0;font-weight:700'>{r['stock_id']}</td>"
@@ -97,16 +131,17 @@ def _stock_row(r: dict) -> str:
         f"<td style='color:#64748b;font-size:.75rem'>{r['meta_sector']}</td>"
         f"<td>{_pct(r['change_pct'])}</td>"
         f"<td style='color:#94a3b8'>{r['vol_ratio']:.1f}x</td>"
-        f"<td>{_score_badge(r['score'])}</td>"
+        f"<td>{_composite_badge(comp)}</td>"
         f"<td>{spark}</td>"
         f"<td>{_pattern_badges(r['patterns'])}</td>"
+        f"<td>{_holder_cell(lv_pct, sh_streak)}</td>"
         f"<td>{_inst_label(r['inst_streak_foreign'], r['inst_streak_trust'])}</td>"
         f"</tr>"
     )
 
 
 def _table_header() -> str:
-    cols = ["代號", "名稱", "族群", "漲跌", "量比", "Score", "走勢", "形態", "法人"]
+    cols = ["代號", "名稱", "族群", "漲跌", "量比", "評分", "走勢", "形態", "大戶", "法人"]
     ths = "".join(f"<th style='color:#64748b;font-weight:500;padding:6px 10px;text-align:left;"
                   f"border-bottom:1px solid #1e293b'>{c}</th>" for c in cols)
     return f"<thead><tr>{ths}</tr></thead>"
@@ -139,9 +174,12 @@ def generate(trade_date: date, results: list[dict], output_path: str) -> None:
                and not any(p in _BULLISH for p in r["patterns"])]
     neutral = [r for r in results if r["patterns"] == ["箱型整理"]]
 
-    # Screener: bullish only, score >= 2, top 50
-    screener = sorted([r for r in bullish if r["score"] >= 2],
-                      key=lambda x: x["score"], reverse=True)[:50]
+    # Screener: bullish only, composite_score >= 55 or score >= 2, top 50 by composite
+    screener = sorted(
+        [r for r in bullish if (r.get("composite_score", 50) >= 55 or r["score"] >= 2)],
+        key=lambda x: (x.get("composite_score") or 0, x["score"]),
+        reverse=True,
+    )[:50]
 
     # Pattern groups
     s60d  = [r for r in bullish if "60日突破"  in r["patterns"] and r["score"] >= 2]

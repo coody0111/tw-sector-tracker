@@ -125,9 +125,14 @@ def _stock_row(r: dict) -> str:
     lv_pct = r.get("lv12_15_pct")
     sh_streak = r.get("sh_streak", 0) or 0
     exch = r.get("exchange", "")
+    exch_badge = (
+        "<span style='color:#60a5fa;font-size:.6rem;border:1px solid #1e3a5f;border-radius:3px;padding:0 4px;margin-left:4px'>上市</span>" if exch == "TWSE"
+        else "<span style='color:#a78bfa;font-size:.6rem;border:1px solid #3b1f6e;border-radius:3px;padding:0 4px;margin-left:4px'>上櫃</span>" if exch == "TPEx"
+        else ""
+    )
     return (
         f"<tr data-exchange='{exch}'>"
-        f"<td style='color:#e2e8f0;font-weight:700'>{r['stock_id']}</td>"
+        f"<td style='color:#e2e8f0;font-weight:700'>{r['stock_id']}{exch_badge}</td>"
         f"<td style='color:#cbd5e1'>{r['stock_name']}</td>"
         f"<td style='color:#64748b;font-size:.75rem'>{r['meta_sector']}</td>"
         f"<td>{_pct(r['change_pct'])}</td>"

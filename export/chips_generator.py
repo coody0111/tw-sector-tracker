@@ -759,6 +759,12 @@ def generate(
   {_TAB_JS}
   <script>
   {exch_js_var}
+  // 在個股代號旁加上市/上櫃 badge
+  document.querySelectorAll('span.sid').forEach(function(span){{
+    const exch=EXCH[span.textContent.trim()];
+    if(exch==='TWSE') span.insertAdjacentHTML('afterend','<span style="color:#60a5fa;font-size:.6rem;border:1px solid #1e3a5f;border-radius:3px;padding:0 4px;margin-left:4px">上市</span>');
+    else if(exch==='TPEx') span.insertAdjacentHTML('afterend','<span style="color:#a78bfa;font-size:.6rem;border:1px solid #3b1f6e;border-radius:3px;padding:0 4px;margin-left:4px">上櫃</span>');
+  }});
   function filterExch(btn){{
     document.querySelectorAll('.exch-btn').forEach(b=>{{b.style.background='transparent';b.style.color='#94a3b8';b.style.borderColor='#334155';b.classList.remove('active')}});
     btn.style.background='#1e293b';btn.style.color='#e2e8f0';btn.style.borderColor='#475569';btn.classList.add('active');

@@ -5,12 +5,12 @@
 
 ---
 
-## 目前狀態（2026-06-29）
+## 目前狀態（2026-06-29，更新中）
 
 ### 代辦清單（依優先順序）
 
 **P1 — 資料補齊（先做，其他任務的前置依賴）**
-- [ ] `python main.py --backfill-institutional` — 這台法人資料只到 2026-06-26，需補齊；home 那台跑完也要確認
+- [x] `python main.py --backfill-institutional` — 補齊至 2026-06-29，寫入 1328 支（2026-06-29）
 - [ ] `python main.py --backfill-twse 6` — 每日收盤後（17:00+）跑，避免 TWSE rate limiting
 - [ ] `import_csv_prices()` 全量匯入 — DuckDB 只有最近 134 天，CSV 有 2017 年至今，需全量匯入讓 backtest 能用完整歷史
 
@@ -30,7 +30,7 @@
   - 全量跑 1040 支：成功率 ~97%（約 30 支 SSL EOF 失敗，屬 TDCC 間歇性問題）
 - [x] `screener/database.py` 新增 `get_shareholder_top()` 查詢函式
 - [x] chips.html 新增大戶增倉區塊（tab-holder，連增/連減倉各顯示 30/20 支）
-- [ ] 綜合評分系統 0-100：外資25+投信20+形態25+量能15+大戶15，融資扣分（依賴 shareholder + backtest）
+- [x] 綜合評分系統 0-100：外資25+投信20+形態25+量能15+大戶15，融資扣分 — `calc_composite_score()` in screener/patterns.py（2026-06-29）
 
 **每週執行（週五盤後）**
 - `python main.py --update-shareholder` — 集保大戶持倉更新（~1040 支，35min）

@@ -1,0 +1,101 @@
+=== 台達電(2308) ===
+  機器人                  → meta: 機器人/自動化
+  機器人                  → meta: 機器人/自動化
+  車用電子                 → meta: 電動車
+  車用電子                 → meta: 電動車
+  LED                  → meta: LED
+  LED                  → meta: LED
+  LED照明產品              → meta: LED
+  被動元件                 → meta: 被動元件
+  被動元件                 → meta: 被動元件
+  晶片電阻                 → meta: 被動元件
+  電感                   → meta: 被動元件
+  電子零件元件               → meta: (無)
+  電源供應器                → meta: 電源供應器
+  變壓器                  → meta: 電源供應器
+  無線充電                 → meta: 電源供應器
+  其他電子零件               → meta: (無)
+  電子零件元件               → meta: (無)
+  散熱模組                 → meta: 散熱
+  散熱風扇馬達               → meta: 散熱
+  散熱模組                 → meta: 散熱
+  顯示器                  → meta: 面板
+  顯示器                  → meta: 面板
+  投影機                  → meta: 面板
+  網通設備                 → meta: 網通設備
+  網通設備                 → meta: 網通設備
+  軟體業                  → meta: 軟體/雲端
+  系統整合                 → meta: 軟體/雲端
+  軟體業                  → meta: 軟體/雲端
+  INTERNET技術與基礎設施      → meta: 軟體/雲端
+  雲端科技                 → meta: 軟體/雲端
+  INTERNET技術與基礎設施      → meta: 軟體/雲端
+  電池                   → meta: 電池
+  車用鋰電池                → meta: 電動車
+  電池                   → meta: 電池
+  太陽能                  → meta: 太陽能
+  太陽能                  → meta: 太陽能
+  PV INVERTER          → meta: 太陽能
+
+=== 欣興(2301) ===
+  車用電子                 → meta: 電動車
+  車用電子                 → meta: 電動車
+  LED                  → meta: LED
+  LED                  → meta: LED
+  LED封裝                → meta: LED
+  LED照明產品              → meta: LED
+  電子其他                 → meta: (無)
+  電子其他                 → meta: (無)
+  事務機器                 → meta: (無)
+  電子零件元件               → meta: (無)
+  電源供應器                → meta: 電源供應器
+  無線充電                 → meta: 電源供應器
+  機殼                   → meta: 電子製造服務
+  電子零件元件               → meta: (無)
+  網通設備                 → meta: 網通設備
+  無線網路設備系統(WLAN)       → meta: 網通設備
+  網通設備                 → meta: 網通設備
+  電池                   → meta: 電池
+  車用鋰電池                → meta: 電動車
+  電池                   → meta: 電池
+  週邊產品                 → meta: 電腦周邊
+  鍵盤                   → meta: 電腦周邊
+  光碟機／燒錄機              → meta: 電腦周邊
+  週邊產品                 → meta: 電腦周邊
+  光通訊                  → meta: 光通訊
+  光通訊                  → meta: 光通訊
+  光纖被動元件               → meta: 光通訊
+  太陽能                  → meta: 太陽能
+  太陽能                  → meta: 太陽能
+  PV INVERTER          → meta: 太陽能
+  電腦系統業                → meta: AI伺服器
+  電腦系統業                → meta: AI伺服器
+
+=== 南電(8046) ===
+  印刷電路板相關              → meta: PCB
+  印刷電路板                → meta: PCB
+  印刷電路板相關              → meta: PCB
+  HDI板                 → meta: PCB
+  封測服務與材料              → meta: IC封裝
+  IC基板                 → meta: 載板
+  封測服務與材料              → meta: IC封裝
+
+=== 景碩(3189) ===
+  印刷電路板相關              → meta: PCB
+  印刷電路板相關              → meta: PCB
+  HDI板                 → meta: PCB
+  封測服務與材料              → meta: IC封裝
+  IC基板                 → meta: 載板
+  封測服務與材料              → meta: IC封裝
+
+=== 臻鼎(4958) ===
+  印刷電路板相關              → meta: PCB
+  軟板                   → meta: PCB
+  印刷電路板                → meta: PCB
+  印刷電路板相關              → meta: PCB
+  HDI板                 → meta: PCB
+  封測服務與材料              → meta: IC封裝
+  封測服務與材料              → meta: IC封裝
+  BGA基板                → meta: 載板
+  ABF載板                → meta: 載板
+

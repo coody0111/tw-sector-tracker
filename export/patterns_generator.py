@@ -89,11 +89,8 @@ def _pattern_badges(patterns: list[str]) -> str:
     parts = []
     for p in patterns:
         icon, color = _PATTERN_LABEL.get(p, ("", "#94a3b8"))
-        wr = _WIN_RATE.get(p)
-        wr_str = (f"<span style='color:#94a3b8;font-size:.62rem;margin-left:3px'>"
-                  f"{wr[0]} {wr[1]}</span>") if wr else ""
         parts.append(f"<span style='color:{color};border:1px solid {color}55;"
-                     f"border-radius:4px;padding:1px 6px;font-size:.68rem'>{icon}{p}{wr_str}</span>")
+                     f"border-radius:4px;padding:1px 6px;font-size:.68rem'>{icon}{p}</span>")
     return " ".join(parts)
 
 
@@ -133,11 +130,14 @@ def _stock_row(r: dict) -> str:
         else "<span style='color:#a78bfa;font-size:.6rem;border:1px solid #3b1f6e;border-radius:3px;padding:0 4px;margin-left:4px'>上櫃</span>" if exch == "TPEx"
         else ""
     )
+    price = r.get("close_price", "")
+    price_str = f"{price:.2f}" if isinstance(price, (int, float)) else ""
     return (
-        f"<tr data-exchange='{exch}'>"
+        f"<tr data-exchange='{exch}' data-search='{r['stock_id']} {r['stock_name']} {r['meta_sector']}'>"
         f"<td style='color:#e2e8f0;font-weight:700'>{r['stock_id']}{exch_badge}</td>"
         f"<td style='color:#cbd5e1'>{r['stock_name']}</td>"
         f"<td style='color:#64748b;font-size:.75rem'>{r['meta_sector']}</td>"
+        f"<td style='color:#e2e8f0'>{price_str}</td>"
         f"<td>{_pct(r['change_pct'])}</td>"
         f"<td style='color:#94a3b8'>{r['vol_ratio']:.1f}x</td>"
         f"<td>{_composite_badge(comp)}</td>"
@@ -150,7 +150,7 @@ def _stock_row(r: dict) -> str:
 
 
 def _table_header() -> str:
-    cols = ["代號", "名稱", "族群", "漲跌", "量比", "評分", "走勢", "形態", "大戶", "法人"]
+    cols = ["代號", "名稱", "族群", "收盤", "漲跌", "量比", "評分", "走勢", "形態", "大戶", "法人"]
     ths = "".join(f"<th style='color:#64748b;font-weight:500;padding:6px 10px;text-align:left;"
                   f"border-bottom:1px solid #1e293b'>{c}</th>" for c in cols)
     return f"<thead><tr>{ths}</tr></thead>"
@@ -292,29 +292,86 @@ def generate(trade_date: date, results: list[dict], output_path: str) -> None:
         _section("避開清單",             s_avoid, "看空形態命中 · score ≤ -2"),
     ])
 
+    # 回測統計摘要（120日回測，2026H1空頭環境供參考）
+    backtest_note = (
+        "<details style='margin-bottom:14px;color:#64748b;font-size:.72rem'>"
+        "<summary style='cursor:pointer;color:#475569;letter-spacing:.04em'>▸ 回測統計參考（120日，2026H1）</summary>"
+        "<div style='margin-top:8px;overflow-x:auto'>"
+        "<table style='border-collapse:collapse;font-size:.72rem;min-width:420px'>"
+        "<tr><th style='color:#475569;padding:3px 10px;text-align:left;border-bottom:1px solid #1e293b'>形態</th>"
+        "<th style='color:#475569;padding:3px 10px'>樣本</th>"
+        "<th style='color:#475569;padding:3px 10px'>D+3勝率</th>"
+        "<th style='color:#475569;padding:3px 10px'>D+5勝率</th>"
+        "<th style='color:#475569;padding:3px 10px'>D+10勝率</th>"
+        "<th style='color:#475569;padding:3px 10px'>D+10均報</th></tr>"
+        "<tr><td style='color:#e2e8f0;padding:3px 10px'>🟢雙底</td>"
+        "<td style='color:#94a3b8;text-align:center'>5248</td>"
+        "<td style='color:#f87171;text-align:center'>41%</td>"
+        "<td style='color:#f87171;text-align:center'>40%</td>"
+        "<td style='color:#f87171;text-align:center'>43%</td>"
+        "<td style='color:#f87171;text-align:center'>-1.1%</td></tr>"
+        "<tr><td style='color:#e2e8f0;padding:3px 10px'>🔺三角突破</td>"
+        "<td style='color:#94a3b8;text-align:center'>3146</td>"
+        "<td style='color:#94a3b8;text-align:center'>43%</td>"
+        "<td style='color:#94a3b8;text-align:center'>45%</td>"
+        "<td style='color:#94a3b8;text-align:center'>48%</td>"
+        "<td style='color:#4ade80;text-align:center'>+2.9%</td></tr>"
+        "<tr><td style='color:#e2e8f0;padding:3px 10px'>⚡60日突破</td>"
+        "<td style='color:#94a3b8;text-align:center'>582</td>"
+        "<td style='color:#f87171;text-align:center'>27%</td>"
+        "<td style='color:#f87171;text-align:center'>25%</td>"
+        "<td style='color:#f87171;text-align:center'>21%</td>"
+        "<td style='color:#f87171;text-align:center'>-5.5%</td></tr>"
+        "<tr><td style='color:#e2e8f0;padding:3px 10px'>🔻雙頂（做空）</td>"
+        "<td style='color:#94a3b8;text-align:center'>905</td>"
+        "<td style='color:#4ade80;text-align:center'>51%</td>"
+        "<td style='color:#4ade80;text-align:center'>58%</td>"
+        "<td style='color:#4ade80;text-align:center'>60%</td>"
+        "<td style='color:#4ade80;text-align:center'>+4.3%</td></tr>"
+        "<tr><td style='color:#e2e8f0;padding:3px 10px'>▽三角跌破（做空）</td>"
+        "<td style='color:#94a3b8;text-align:center'>951</td>"
+        "<td style='color:#4ade80;text-align:center'>47%</td>"
+        "<td style='color:#4ade80;text-align:center'>49%</td>"
+        "<td style='color:#4ade80;text-align:center'>55%</td>"
+        "<td style='color:#4ade80;text-align:center'>+3.1%</td></tr>"
+        "</table>"
+        "<p style='color:#475569;margin-top:6px'>※ 2026H1 為空頭環境，看多形態勝率偏低屬正常；做空形態表現較佳。"
+        "VCP 樣本數不足（新增形態），暫無統計。</p>"
+        "</div></details>"
+    )
+
     nav = (
         "<nav style='margin-bottom:12px;font-size:.8rem;color:#475569'>"
         "<a href='index.html' style='color:#60a5fa;text-decoration:none'>← 族群</a> · "
         "<a href='chips.html' style='color:#60a5fa;text-decoration:none'>籌碼</a> · "
         "<span style='color:#e2e8f0'>形態</span></nav>"
-        "<div style='margin-bottom:16px;display:flex;gap:6px'>"
-        "<button class='exch-btn active' data-exch='' onclick='filterExch(this)'"
+        + backtest_note
+        + "<div style='margin-bottom:16px;display:flex;align-items:center;gap:8px;flex-wrap:wrap'>"
+        "<button class='exch-btn active' data-exch='' onclick='applyFilters(this)'"
         " style='background:#1e293b;color:#e2e8f0;border:1px solid #475569;border-radius:6px;"
         "padding:4px 14px;cursor:pointer;font-size:.78rem'>全部</button>"
-        "<button class='exch-btn' data-exch='TWSE' onclick='filterExch(this)'"
+        "<button class='exch-btn' data-exch='TWSE' onclick='applyFilters(this)'"
         " style='background:transparent;color:#94a3b8;border:1px solid #334155;border-radius:6px;"
         "padding:4px 14px;cursor:pointer;font-size:.78rem'>🏛 上市</button>"
-        "<button class='exch-btn' data-exch='TPEx' onclick='filterExch(this)'"
+        "<button class='exch-btn' data-exch='TPEx' onclick='applyFilters(this)'"
         " style='background:transparent;color:#94a3b8;border:1px solid #334155;border-radius:6px;"
         "padding:4px 14px;cursor:pointer;font-size:.78rem'>🏪 上櫃</button>"
+        "<input id='s-search' type='text' placeholder='搜尋股號 / 名稱 / 族群…' oninput='applyFilters()'"
+        " style='flex:1;min-width:160px;max-width:280px;background:#0f1624;color:#e2e8f0;"
+        "border:1px solid #334155;border-radius:6px;padding:4px 10px;font-size:.78rem;outline:none'>"
         "</div>"
         "<script>"
-        "function filterExch(btn){"
+        "let _exch='';"
+        "function applyFilters(btn){"
+        "if(btn&&btn.dataset.exch!==undefined){"
         "document.querySelectorAll('.exch-btn').forEach(b=>{b.style.background='transparent';b.style.color='#94a3b8';b.style.borderColor='#334155';b.classList.remove('active')});"
         "btn.style.background='#1e293b';btn.style.color='#e2e8f0';btn.style.borderColor='#475569';btn.classList.add('active');"
-        "const exch=btn.dataset.exch;"
+        "_exch=btn.dataset.exch;}"
+        "const q=(document.getElementById('s-search').value||'').trim().toLowerCase();"
         "document.querySelectorAll('tbody tr[data-exchange]').forEach(tr=>{"
-        "tr.style.display=(!exch||tr.dataset.exchange===exch)?'':'none'})}"
+        "const exchOk=!_exch||tr.dataset.exchange===_exch;"
+        "const srchOk=!q||(tr.dataset.search||'').toLowerCase().includes(q);"
+        "tr.style.display=(exchOk&&srchOk)?'':'none'});}"
         "</script>"
     )
 

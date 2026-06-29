@@ -5,7 +5,38 @@
 
 ---
 
-## 目前狀態（2026-06-29）
+## 目前狀態（2026-06-29 更新）
+
+### VCP 重寫：三波量縮突破 ✅（2026-06-29）
+
+**問題根源（4503 金雨誤報）**：
+- 舊版只看「15日平台振幅<10%+量縮+突破」，本質是「平台突破」，不是 VCP
+- 4503 在下跌途中（40.15→36.75），15日偶然振幅4.5%、量縮6%、微突破 → 全過
+- 完全不符合 Mark Minervini VCP 結構：三波幅度遞減回檔 + 前置上升趨勢
+
+**新實作（`detect_vcp`，`screener/patterns.py`）**：
+1. 在近 50 日視窗內找 peak→trough 波段（`_local_maxima` / `_local_minima`）
+2. 每波回檔幅度 < 前一波 × 80%（三波約各半）
+3. 每波均量收縮（後波 ≤ 前波 × 1.05）
+4. **前置趨勢**：65日前收盤 < 第一個峰值 × 95%（確認是上漲後整理，非下跌途中）
+5. 突破最後一波峰值 + 今日爆量 ≥ 整理均量 × 2.0
+
+**測試**：22/22 通過，新增 `test_vcp_not_detected_downtrend` 和 `test_vcp_not_detected_pullback_not_contracting`
+
+---
+
+### 三角突破修復 ✅（2026-06-29）
+
+**根本原因（雙重 bug）**：
+1. `np.polyfit(all_20_bars)` 把整個 20 日 K 棒全迴歸，非峰值 bar 把壓力線往下拉 → 幾乎所有收盤都超過，從不觸發
+2. TWSE 日 CSV 的 `high`/`low` 欄位全為 NaN → polyfit 直接得 nan
+
+**修法**：
+- 新增 `_pivot_trendline(arr, find_peaks, radius=2)` — 只找局部高/低點，連最後兩個 pivot 成線
+- NaN fallback：`highs = np.where(np.isnan(highs_raw), close_arr, highs_raw)`
+- 測試資料改為真實 zigzag（有局部峰/谷）
+
+**結果**：2026-06-29 掃出 三角突破 12 支、三角跌破 8 支（之前 0）
 
 ### 代辦清單（依優先順序）
 

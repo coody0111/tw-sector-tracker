@@ -18,10 +18,10 @@ _PRICE_UP   =  0.5   # %
 _PRICE_DOWN = -0.5   # %
 
 # 形態偵測常數
-_DBL_PRICE_DIFF  = 0.03   # 雙底/頂兩端差距 < 3%
-_DBL_BOUNCE      = 0.05   # 中間反彈/拉回 >= 5%
-_DBL_VOL_CONFIRM = 1.2    # 突破頸線量確認
-_TRI_VOL_CONFIRM = 1.3    # 三角突破量確認
+_DBL_PRICE_DIFF  = 0.05   # 雙底/頂兩端差距 < 5%（原3%太嚴）
+_DBL_BOUNCE      = 0.08   # 中間反彈/拉回 >= 8%（原5%太小）
+_DBL_VOL_CONFIRM = 1.5    # 突破頸線量確認（原1.2）
+_TRI_VOL_CONFIRM = 1.8    # 三角突破量確認（原1.3）
 _BRK_VOL_CONFIRM = 1.5    # 60日突破量確認
 _BOX_RANGE       = 0.08   # 箱型整理最大振幅 8%
 
@@ -141,8 +141,8 @@ def _pivot_trendline(
 
 def detect_double_bottom(df: pd.DataFrame) -> bool:
     """
-    雙底：近60日兩個局部低點（差<3%），中間反彈≥5%（頸線），
-    今日收盤突破頸線 + 量>20MA×1.2。
+    雙底：近60日兩個局部低點（差<5%，間距≥8根），中間反彈≥8%（頸線），
+    第一低點前有下跌趨勢（前高≥低點×1.10），今日突破頸線 + 量>20MA×1.5。
     """
     if len(df) < 30:
         return False
@@ -167,8 +167,16 @@ def detect_double_bottom(df: pd.DataFrame) -> bool:
             if min(low1, low2) <= 0:
                 continue
 
-            # 兩低點差距 < 3%
+            # 兩低點至少相距 8 根（避免同一個底被計兩次）
+            if i2 - i1 < 8:
+                continue
+
+            # 兩低點差距 < 5%
             if abs(low1 - low2) / min(low1, low2) >= _DBL_PRICE_DIFF:
+                continue
+
+            # 第一個底之前要有過較高的價格（確認先有下跌趨勢，需高 10% 以上）
+            if i1 > 0 and seg[:i1].max() < seg[i1] * 1.10:
                 continue
 
             # 中間最高點為頸線
@@ -247,7 +255,7 @@ def detect_double_top(df: pd.DataFrame) -> bool:
 def detect_triangle_up(df: pd.DataFrame) -> bool:
     """
     三角向上突破：近20日壓力局部高點連線斜率<0 + 支撐局部低點連線斜率>0（對稱三角），
-    今日收盤突破壓力趨勢線外推值 + 量>20MA×1.3。
+    整理期量縮（後10日均量 ≤ 前10日×1.1），今日必須上漲且收盤突破壓力外推值 + 量>20MA×1.8。
     """
     if len(df) < 21:
         return False
@@ -273,6 +281,16 @@ def detect_triangle_up(df: pd.DataFrame) -> bool:
     # 壓力線外推至今日位置（第20根，hist 佔0-19）
     predicted_resistance = high_slope * 20 + high_intercept
     if today['close'] <= predicted_resistance:
+        return False
+
+    # 突破日必須是上漲日（排除下跌日假突破）
+    if today['close'] <= df['close'].iloc[-2]:
+        return False
+
+    # 整理期量能應收縮（後10日均量不超過前10日均量 × 1.1）
+    vol_early = volume[-21:-11].mean()
+    vol_late  = volume[-11:-1].mean()
+    if vol_early > 0 and vol_late > vol_early * 1.1:
         return False
 
     vol_ma20 = volume[-21:-1].mean()

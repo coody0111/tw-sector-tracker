@@ -85,13 +85,13 @@ def test_double_bottom_detected():
     # Baseline 100, first low 90 at idx 15, bounce to 97, second low 90.5 at idx 40, today 98 (above neckline)
     closes = (
         [100.0] * 12 +
-        [95.0, 92.0, 90.0, 92.0, 94.0] +   # first bottom ~idx 14
-        [96.0, 97.0, 97.0, 96.0, 97.0] * 4 +  # bounce / neckline ~97
-        [95.0, 92.0, 90.5, 92.0, 94.0] +   # second bottom ~idx 38
-        [95.0, 96.0, 98.0]                  # today breaks neckline
+        [95.0, 92.0, 90.0, 92.0, 94.0] +      # first bottom ~idx 14
+        [96.0, 98.0, 98.0, 97.0, 98.0] * 4 +  # bounce / neckline ~98 (9%+ bounce from 90)
+        [95.0, 92.0, 90.5, 92.0, 94.0] +      # second bottom ~idx 38
+        [95.0, 96.0, 99.0]                     # today breaks neckline
     )
-    # Volume spike on breakout day
-    vols = [1_000_000] * (len(closes) - 1) + [1_300_000]
+    # Volume spike on breakout day (1.5x+ required with new threshold)
+    vols = [1_000_000] * (len(closes) - 1) + [2_000_000]
     df = _make_ohlcv(closes, vols)
     assert detect_double_bottom(df) is True
 
@@ -111,7 +111,7 @@ def test_double_top_detected():
         [94.0, 97.0, 99.8, 97.0, 94.0] +   # second top ~99.8
         [92.0, 91.0, 90.0]                  # today breaks neckline downward
     )
-    vols = [1_000_000] * (len(closes) - 1) + [1_300_000]
+    vols = [1_000_000] * (len(closes) - 1) + [2_000_000]
     df = _make_ohlcv(closes, vols)
     assert detect_double_top(df) is True
 
@@ -146,7 +146,7 @@ def test_triangle_up_detected():
     highs  = highs_h  + [103.0]
     lows   = lows_h   + [99.5]
     closes = closes_h + [101.5]
-    vols   = [1_000_000] * 20 + [1_400_000]
+    vols   = [1_000_000] * 20 + [2_000_000]
     df = pd.DataFrame({'close': closes, 'high': highs, 'low': lows, 'volume': vols})
     assert detect_triangle_up(df) is True
 
@@ -168,7 +168,7 @@ def test_triangle_down_detected():
     highs  = highs_h  + [97.0]
     lows   = lows_h   + [92.5]
     closes = closes_h + [93.5]
-    vols   = [1_000_000] * 20 + [1_400_000]
+    vols   = [1_000_000] * 20 + [2_000_000]
     df = pd.DataFrame({'close': closes, 'high': highs, 'low': lows, 'volume': vols})
     assert detect_triangle_down(df) is True
 

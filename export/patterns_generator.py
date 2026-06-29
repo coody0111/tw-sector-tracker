@@ -254,6 +254,94 @@ def _meta_hits_section(results: list[dict]) -> str:
     )
 
 
+_BACKTEST_NOTE = (
+    "<div class='pt-section'>"
+    "<div class='pt-title'>回測統計參考（120日，2026H1）</div>"
+    "<div style='overflow-x:auto'>"
+    "<table class='pt'>"
+    "<thead><tr><th>形態</th><th>樣本</th><th>D+3勝率</th><th>D+5勝率</th><th>D+10勝率</th><th>D+10均報</th></tr></thead>"
+    "<tbody>"
+    "<tr><td>🟢雙底</td><td style='text-align:center'>5248</td>"
+    "<td style='text-align:center;color:#f87171'>41%</td><td style='text-align:center;color:#f87171'>40%</td>"
+    "<td style='text-align:center;color:#f87171'>43%</td><td style='text-align:center;color:#f87171'>-1.1%</td></tr>"
+    "<tr><td>🔺三角突破</td><td style='text-align:center'>3146</td>"
+    "<td style='text-align:center;color:#94a3b8'>43%</td><td style='text-align:center;color:#94a3b8'>45%</td>"
+    "<td style='text-align:center;color:#94a3b8'>48%</td><td style='text-align:center;color:#4ade80'>+2.9%</td></tr>"
+    "<tr><td>⚡60日突破</td><td style='text-align:center'>582</td>"
+    "<td style='text-align:center;color:#f87171'>27%</td><td style='text-align:center;color:#f87171'>25%</td>"
+    "<td style='text-align:center;color:#f87171'>21%</td><td style='text-align:center;color:#f87171'>-5.5%</td></tr>"
+    "<tr><td>🔻雙頂（做空）</td><td style='text-align:center'>905</td>"
+    "<td style='text-align:center;color:#4ade80'>51%</td><td style='text-align:center;color:#4ade80'>58%</td>"
+    "<td style='text-align:center;color:#4ade80'>60%</td><td style='text-align:center;color:#4ade80'>+4.3%</td></tr>"
+    "<tr><td>▽三角跌破（做空）</td><td style='text-align:center'>951</td>"
+    "<td style='text-align:center;color:#4ade80'>47%</td><td style='text-align:center;color:#4ade80'>49%</td>"
+    "<td style='text-align:center;color:#4ade80'>55%</td><td style='text-align:center;color:#4ade80'>+3.1%</td></tr>"
+    "</tbody></table>"
+    "</div>"
+    "<p style='color:#475569;font-size:.7rem;margin-top:8px'>※ 2026H1 為空頭環境，看多形態勝率偏低屬正常；VCP 樣本數不足，暫無統計。</p>"
+    "</div>"
+)
+
+_CSS = """
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0b0f18;color:#e2e8f0;font-family:system-ui,sans-serif;padding:12px 20px}
+a{color:#60a5fa}
+.nav-links{display:flex;gap:8px;margin:8px 0 0}
+.nav-link{font-size:.78rem;padding:5px 14px;border-radius:6px;border:1px solid #1e293b;color:#64748b;text-decoration:none;transition:all .15s}
+.nav-link:hover{border-color:#475569;color:#94a3b8}
+.nav-link.active{border-color:#475569;color:#e2e8f0;background:#141c2e}
+.filter-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:14px 0 0}
+.exch-btn{background:transparent;color:#94a3b8;border:1px solid #334155;border-radius:6px;padding:4px 12px;cursor:pointer;font-size:.72rem;transition:all .15s}
+.exch-btn.active{background:#1e293b;color:#e2e8f0;border-color:#475569}
+.s-search{flex:1;min-width:160px;max-width:260px;background:#0f1624;color:#e2e8f0;border:1px solid #334155;border-radius:6px;padding:4px 10px;font-size:.78rem;outline:none}
+.tab-bar{display:flex;gap:2px;margin:14px 0 0;border-bottom:1px solid #1e293b}
+.tab-btn{font-size:.8rem;padding:9px 16px;border:none;border-bottom:2px solid transparent;margin-bottom:-1px;background:none;color:#64748b;cursor:pointer;font-weight:600;letter-spacing:.02em;transition:all .15s;border-radius:4px 4px 0 0}
+.tab-btn:hover{color:#94a3b8;background:#0f1624}
+.tab-btn.active{color:#e2e8f0;border-bottom-color:#60a5fa;background:#0f1624}
+.tab-panel{display:none;padding-top:16px}
+.tab-panel.active{display:block}
+tbody tr:hover{background:#0f1624}
+tbody td{padding:5px 10px;border-bottom:1px solid #1e293b}
+.pt-section{background:#0f1624;border:1px solid #1e293b;border-radius:10px;padding:14px 16px;margin-bottom:16px}
+.pt-title{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#475569;margin-bottom:10px}
+.pt{width:100%;border-collapse:collapse;font-size:.8rem}
+.pt th{text-align:left;padding:5px 10px;font-size:.65rem;color:#334155;text-transform:uppercase;border-bottom:1px solid #1e293b}
+.pt td{padding:7px 10px;border-bottom:1px solid #0b0f18}
+.pt tr:last-child td{border-bottom:none}
+.pt tr:hover td{background:#141c2e}
+@media(max-width:540px){body{padding:10px}.tab-btn{padding:8px 10px;font-size:.72rem}}
+"""
+
+_TAB_JS = """
+<script>
+function switchTab(id){
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
+  document.querySelector('.tab-btn[data-tab="'+id+'"]').classList.add('active');
+  document.getElementById(id).classList.add('active');
+  history.replaceState(null,'','#'+id);
+}
+const _tabs=['tab-screener','tab-patterns','tab-meta','tab-avoid'];
+const _h=location.hash.slice(1);
+switchTab(_tabs.includes(_h)?_h:'tab-screener');
+let _exch='';
+function applyFilters(btn){
+  if(btn&&btn.dataset.exch!==undefined){
+    document.querySelectorAll('.exch-btn').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    _exch=btn.dataset.exch;
+  }
+  const q=(document.getElementById('s-search').value||'').trim().toLowerCase();
+  document.querySelectorAll('tbody tr[data-exchange]').forEach(tr=>{
+    const exchOk=!_exch||tr.dataset.exchange===_exch;
+    const srchOk=!q||(tr.dataset.search||'').toLowerCase().includes(q);
+    tr.style.display=(exchOk&&srchOk)?'':'none';
+  });
+}
+</script>
+"""
+
+
 def generate(trade_date: date, results: list[dict], output_path: str) -> None:
     date_str = trade_date.strftime("%Y-%m-%d")
 
@@ -271,109 +359,33 @@ def generate(trade_date: date, results: list[dict], output_path: str) -> None:
     )[:50]
 
     # Pattern groups
-    s60d  = [r for r in bullish if "60日突破"  in r["patterns"] and r["score"] >= 2]
-    s_dbl = [r for r in bullish if "雙底"      in r["patterns"] and r["score"] >= 2]
-    s_tri = [r for r in bullish if "三角突破"  in r["patterns"] and r["score"] >= 2]
-    s_vcp = [r for r in bullish if "VCP突破"   in r["patterns"] and r["score"] >= 2]
+    s60d   = [r for r in bullish if "60日突破"  in r["patterns"] and r["score"] >= 2]
+    s_dbl  = [r for r in bullish if "雙底"      in r["patterns"] and r["score"] >= 2]
+    s_tri  = [r for r in bullish if "三角突破"  in r["patterns"] and r["score"] >= 2]
+    s_vcp  = [r for r in bullish if "VCP突破"   in r["patterns"] and r["score"] >= 2]
     s_avoid = [r for r in bearish if r["score"] <= -2]
-    s_box = sorted(neutral, key=lambda x: abs(x["score"]), reverse=True)
+    s_box  = sorted(neutral, key=lambda x: abs(x["score"]), reverse=True)
 
-    body = "\n".join([
-        _meta_hits_section(results),
-        _section("做多候選 Screener",    screener, f"命中任一看多形態 · score ≥ 2 · Top 50 · {date_str}"),
-        "<hr style='border-color:#1e293b;margin:8px 0 24px'>",
-        _section("形態分區 — VCP量縮底部突破",   s_vcp),
-        _section("形態分區 — 三角整理向上突破",  s_tri),
-        _section("形態分區 — 雙底",              s_dbl),
-        _section("形態分區 — 60日新高突破確認",  s60d),
-        "<hr style='border-color:#1e293b;margin:8px 0 24px'>",
-        _section("盤整觀察（箱型整理）", s_box, "尚未突破，等待方向"),
-        "<hr style='border-color:#1e293b;margin:8px 0 24px'>",
-        _section("避開清單",             s_avoid, "看空形態命中 · score ≤ -2"),
+    # Tab panels
+    tab1 = _section("做多候選 Screener", screener,
+                     f"命中任一看多形態 · score ≥ 2 · Top 50 · {date_str}")
+
+    tab2 = "\n".join([
+        _section("🚀 VCP 量縮底部突破",  s_vcp),
+        _section("🔺 三角整理向上突破",  s_tri),
+        _section("🟢 雙底",              s_dbl),
+        _section("⚡ 60日新高突破確認",  s60d),
     ])
 
-    # 回測統計摘要（120日回測，2026H1空頭環境供參考）
-    backtest_note = (
-        "<details style='margin-bottom:14px;color:#64748b;font-size:.72rem'>"
-        "<summary style='cursor:pointer;color:#475569;letter-spacing:.04em'>▸ 回測統計參考（120日，2026H1）</summary>"
-        "<div style='margin-top:8px;overflow-x:auto'>"
-        "<table style='border-collapse:collapse;font-size:.72rem;min-width:420px'>"
-        "<tr><th style='color:#475569;padding:3px 10px;text-align:left;border-bottom:1px solid #1e293b'>形態</th>"
-        "<th style='color:#475569;padding:3px 10px'>樣本</th>"
-        "<th style='color:#475569;padding:3px 10px'>D+3勝率</th>"
-        "<th style='color:#475569;padding:3px 10px'>D+5勝率</th>"
-        "<th style='color:#475569;padding:3px 10px'>D+10勝率</th>"
-        "<th style='color:#475569;padding:3px 10px'>D+10均報</th></tr>"
-        "<tr><td style='color:#e2e8f0;padding:3px 10px'>🟢雙底</td>"
-        "<td style='color:#94a3b8;text-align:center'>5248</td>"
-        "<td style='color:#f87171;text-align:center'>41%</td>"
-        "<td style='color:#f87171;text-align:center'>40%</td>"
-        "<td style='color:#f87171;text-align:center'>43%</td>"
-        "<td style='color:#f87171;text-align:center'>-1.1%</td></tr>"
-        "<tr><td style='color:#e2e8f0;padding:3px 10px'>🔺三角突破</td>"
-        "<td style='color:#94a3b8;text-align:center'>3146</td>"
-        "<td style='color:#94a3b8;text-align:center'>43%</td>"
-        "<td style='color:#94a3b8;text-align:center'>45%</td>"
-        "<td style='color:#94a3b8;text-align:center'>48%</td>"
-        "<td style='color:#4ade80;text-align:center'>+2.9%</td></tr>"
-        "<tr><td style='color:#e2e8f0;padding:3px 10px'>⚡60日突破</td>"
-        "<td style='color:#94a3b8;text-align:center'>582</td>"
-        "<td style='color:#f87171;text-align:center'>27%</td>"
-        "<td style='color:#f87171;text-align:center'>25%</td>"
-        "<td style='color:#f87171;text-align:center'>21%</td>"
-        "<td style='color:#f87171;text-align:center'>-5.5%</td></tr>"
-        "<tr><td style='color:#e2e8f0;padding:3px 10px'>🔻雙頂（做空）</td>"
-        "<td style='color:#94a3b8;text-align:center'>905</td>"
-        "<td style='color:#4ade80;text-align:center'>51%</td>"
-        "<td style='color:#4ade80;text-align:center'>58%</td>"
-        "<td style='color:#4ade80;text-align:center'>60%</td>"
-        "<td style='color:#4ade80;text-align:center'>+4.3%</td></tr>"
-        "<tr><td style='color:#e2e8f0;padding:3px 10px'>▽三角跌破（做空）</td>"
-        "<td style='color:#94a3b8;text-align:center'>951</td>"
-        "<td style='color:#4ade80;text-align:center'>47%</td>"
-        "<td style='color:#4ade80;text-align:center'>49%</td>"
-        "<td style='color:#4ade80;text-align:center'>55%</td>"
-        "<td style='color:#4ade80;text-align:center'>+3.1%</td></tr>"
-        "</table>"
-        "<p style='color:#475569;margin-top:6px'>※ 2026H1 為空頭環境，看多形態勝率偏低屬正常；做空形態表現較佳。"
-        "VCP 樣本數不足（新增形態），暫無統計。</p>"
-        "</div></details>"
-    )
+    tab3 = _meta_hits_section(results)
 
-    nav = (
-        "<nav style='margin-bottom:12px;font-size:.8rem;color:#475569'>"
-        "<a href='index.html' style='color:#60a5fa;text-decoration:none'>← 族群</a> · "
-        "<a href='chips.html' style='color:#60a5fa;text-decoration:none'>籌碼</a> · "
-        "<span style='color:#e2e8f0'>形態</span></nav>"
-        + backtest_note
-        + "<div style='margin-bottom:16px;display:flex;align-items:center;gap:8px;flex-wrap:wrap'>"
-        "<button class='exch-btn active' data-exch='' onclick='applyFilters(this)'"
-        " style='background:#1e293b;color:#e2e8f0;border:1px solid #475569;border-radius:6px;"
-        "padding:4px 14px;cursor:pointer;font-size:.78rem'>全部</button>"
-        "<button class='exch-btn' data-exch='TWSE' onclick='applyFilters(this)'"
-        " style='background:transparent;color:#94a3b8;border:1px solid #334155;border-radius:6px;"
-        "padding:4px 14px;cursor:pointer;font-size:.78rem'>🏛 上市</button>"
-        "<button class='exch-btn' data-exch='TPEx' onclick='applyFilters(this)'"
-        " style='background:transparent;color:#94a3b8;border:1px solid #334155;border-radius:6px;"
-        "padding:4px 14px;cursor:pointer;font-size:.78rem'>🏪 上櫃</button>"
-        "<input id='s-search' type='text' placeholder='搜尋股號 / 名稱 / 族群…' oninput='applyFilters()'"
-        " style='flex:1;min-width:160px;max-width:280px;background:#0f1624;color:#e2e8f0;"
-        "border:1px solid #334155;border-radius:6px;padding:4px 10px;font-size:.78rem;outline:none'>"
-        "</div>"
-        "<script>"
-        "let _exch='';"
-        "function applyFilters(btn){"
-        "if(btn&&btn.dataset.exch!==undefined){"
-        "document.querySelectorAll('.exch-btn').forEach(b=>{b.style.background='transparent';b.style.color='#94a3b8';b.style.borderColor='#334155';b.classList.remove('active')});"
-        "btn.style.background='#1e293b';btn.style.color='#e2e8f0';btn.style.borderColor='#475569';btn.classList.add('active');"
-        "_exch=btn.dataset.exch;}"
-        "const q=(document.getElementById('s-search').value||'').trim().toLowerCase();"
-        "document.querySelectorAll('tbody tr[data-exchange]').forEach(tr=>{"
-        "const exchOk=!_exch||tr.dataset.exchange===_exch;"
-        "const srchOk=!q||(tr.dataset.search||'').toLowerCase().includes(q);"
-        "tr.style.display=(exchOk&&srchOk)?'':'none'});}"
-        "</script>"
-    )
+    tab4 = "\n".join([
+        _section("📉 避開清單", s_avoid, "看空形態命中 · score ≤ -2"),
+        "<div style='height:16px'></div>",
+        _section("⬜ 盤整觀察（箱型整理）", s_box, "尚未突破，等待方向"),
+        "<div style='height:16px'></div>",
+        _BACKTEST_NOTE,
+    ])
 
     html = f"""<!DOCTYPE html>
 <html lang="zh-Hant">
@@ -381,18 +393,44 @@ def generate(trade_date: date, results: list[dict], output_path: str) -> None:
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>形態掃描 {date_str}</title>
-<style>
-*{{box-sizing:border-box;margin:0;padding:0}}
-body{{background:#0b0f18;color:#e2e8f0;font-family:system-ui,sans-serif;padding:12px 20px}}
-a{{color:#60a5fa}}
-tbody tr:hover{{background:#0f1624}}
-tbody td{{padding:5px 10px;border-bottom:1px solid #1e293b}}
-</style>
+<style>{_CSS}</style>
 </head>
 <body>
-<h1 style="color:#94a3b8;font-size:1rem;font-weight:600;margin-bottom:4px">形態掃描</h1>
-{nav}
-{body}
+<div style="color:#94a3b8;font-size:1rem;font-weight:600;margin-bottom:2px">形態掃描
+  <span style="color:#475569;font-size:.78rem;font-weight:400;margin-left:8px">{date_str}</span>
+</div>
+<div class="nav-links">
+  <a class="nav-link" href="index.html">族群績效</a>
+  <a class="nav-link" href="chips.html">籌碼分析</a>
+  <a class="nav-link active" href="patterns.html">形態掃描</a>
+</div>
+<div class="filter-bar">
+  <button class="exch-btn active" data-exch="" onclick="applyFilters(this)">全部</button>
+  <button class="exch-btn" data-exch="TWSE" onclick="applyFilters(this)">🏛 上市</button>
+  <button class="exch-btn" data-exch="TPEx" onclick="applyFilters(this)">🏪 上櫃</button>
+  <input id="s-search" class="s-search" type="text" placeholder="搜尋股號 / 名稱 / 族群…" oninput="applyFilters()">
+</div>
+<div class="tab-bar">
+  <button class="tab-btn" data-tab="tab-screener" onclick="switchTab('tab-screener')">🔥 做多候選</button>
+  <button class="tab-btn" data-tab="tab-patterns" onclick="switchTab('tab-patterns')">📈 形態分區</button>
+  <button class="tab-btn" data-tab="tab-meta"     onclick="switchTab('tab-meta')">📊 META 熱區</button>
+  <button class="tab-btn" data-tab="tab-avoid"    onclick="switchTab('tab-avoid')">📉 避開 / 觀察</button>
+</div>
+
+<div class="tab-panel" id="tab-screener">
+  {tab1}
+</div>
+<div class="tab-panel" id="tab-patterns">
+  {tab2}
+</div>
+<div class="tab-panel" id="tab-meta">
+  {tab3}
+</div>
+<div class="tab-panel" id="tab-avoid">
+  {tab4}
+</div>
+
+{_TAB_JS}
 </body>
 </html>"""
 

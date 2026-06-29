@@ -5,6 +5,41 @@
 
 ---
 
+## 目前狀態（2026-06-29）
+
+### 代辦清單（依優先順序）
+
+**P1 — 資料補齊（先做，其他任務的前置依賴）**
+- [ ] `python main.py --backfill-institutional` — 這台法人資料只到 2026-06-26，需補齊；home 那台跑完也要確認
+- [ ] `python main.py --backfill-twse 6` — 每日收盤後（17:00+）跑，避免 TWSE rate limiting
+- [ ] `import_csv_prices()` 全量匯入 — DuckDB 只有最近 134 天，CSV 有 2017 年至今，需全量匯入讓 backtest 能用完整歷史
+
+**P1 — 回測（已完成）**
+- [x] `python main.py --backtest` — 巨量換手訊號 299 個（2025-12-30~2026-06-24），D+5勝率44% 均報+0.96%
+- [x] `python main.py --backtest-patterns 120` — 雙底3616次(D+10:53%/+4.7%)、雙頂518次(D+5:61%/+2.9%)
+
+**P1/P2 — UI 改版**
+- [x] chips.html Tab 切換：8 個表格 → [🔥強力訊號][外資/投信][⚠融資警示][META分析] 4 個 Tab (2026-06-29, commit a7a1757)
+- [x] patterns.html SVG 走勢縮圖 + 勝率標籤：雙底 D+10 53% / 雙頂 D+5 61% (2026-06-29)
+- [x] chips.html 新增「🏦 大戶持倉」Tab — 集保 ≥400張 連增/連減倉排行 (2026-06-29)
+
+**P1/P2 — 新功能：大戶持倉**
+- [x] 新增 `scrapers/shareholder.py` — TDCC 集保 API，每週更新，計算大戶持股比例週變化
+  - 修正：每次 POST 前重新取 token（CSRF token 一次性）
+  - 修正：合計行偵測改為搜尋「合」字（部分股票有差異數調整使合計變第17行）
+  - 全量跑 1040 支：成功率 ~97%（約 30 支 SSL EOF 失敗，屬 TDCC 間歇性問題）
+- [x] `screener/database.py` 新增 `get_shareholder_top()` 查詢函式
+- [x] chips.html 新增大戶增倉區塊（tab-holder，連增/連減倉各顯示 30/20 支）
+- [ ] 綜合評分系統 0-100：外資25+投信20+形態25+量能15+大戶15，融資扣分（依賴 shareholder + backtest）
+
+**每週執行（週五盤後）**
+- `python main.py --update-shareholder` — 集保大戶持倉更新（~1040 支，35min）
+
+**P3 — 低優先**
+- [ ] 上市/上櫃分開顯示
+
+---
+
 ## 目前狀態（2026-06-26）
 
 ### Working tree 乾淨。commit f71232a

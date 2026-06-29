@@ -308,10 +308,55 @@ def _concentration_table(meta_chips: dict) -> str:
     return html
 
 
+def _shareholder_table(rows: list) -> str:
+    """大戶持倉排行表。rows: list of dicts with stock_id, stock_name, meta_sector, lv12_15_pct, week_chg, streak"""
+    if not rows:
+        return "<div class='no-data'>無大戶持倉資料（尚未執行 --update-shareholder）</div>"
+    html = (
+        "<table class='ct'><thead><tr>"
+        "<th>#</th><th>股票</th><th>族群</th>"
+        "<th>大戶持倉%</th><th>週變化</th><th>連增週</th>"
+        "</tr></thead><tbody>"
+    )
+    for i, s in enumerate(rows, 1):
+        pct = s.get("lv12_15_pct", 0) or 0
+        chg = s.get("week_chg")
+        streak = int(s.get("streak") or 0)
+
+        chg_html = "<span style='color:#475569'>─</span>"
+        if chg is not None:
+            sign = "+" if chg > 0 else ""
+            chg_color = "#f87171" if chg > 0 else ("#4ade80" if chg < 0 else "#64748b")
+            chg_html = f"<span style='color:{chg_color};font-weight:700'>{sign}{chg:.2f}%</span>"
+
+        if streak > 0:
+            streak_html = (f"<span style='color:#f87171;background:rgba(127,29,29,.2);border:1px solid rgba(127,29,29,.4);"
+                           f"border-radius:4px;padding:1px 7px;font-size:.7rem;font-weight:700'>↑{streak}週</span>")
+        elif streak < 0:
+            streak_html = (f"<span style='color:#4ade80;background:rgba(6,78,59,.2);border:1px solid rgba(6,78,59,.4);"
+                           f"border-radius:4px;padding:1px 7px;font-size:.7rem;font-weight:700'>↓{abs(streak)}週</span>")
+        else:
+            streak_html = "<span style='color:#475569'>─</span>"
+
+        pct_color = "#f87171" if pct >= 70 else ("#fbbf24" if pct >= 50 else "#94a3b8")
+        html += (
+            f"<tr>"
+            f"<td class='ct-rank'>{i}</td>"
+            f"<td><span class='sid'>{s['stock_id']}</span> {s.get('stock_name','')}</td>"
+            f"<td class='ct-meta'>{_meta_link(s.get('meta_sector',''))}</td>"
+            f"<td style='color:{pct_color};font-weight:700'>{pct:.1f}%</td>"
+            f"<td>{chg_html}</td>"
+            f"<td>{streak_html}</td>"
+            f"</tr>"
+        )
+    html += "</tbody></table>"
+    return html
+
+
 _CSS = """
   *{box-sizing:border-box;margin:0;padding:0}
   body{font-family:-apple-system,"Segoe UI",sans-serif;background:#0b0f18;color:#e2e8f0;padding:12px 20px}
-  .header{margin-bottom:24px}
+  .header{margin-bottom:16px}
   h1{font-size:1.1rem;font-weight:600;color:#94a3b8;letter-spacing:.05em;text-transform:uppercase}
   .mkt-bar{display:flex;align-items:center;gap:16px;margin-top:8px;padding:12px 16px;background:#141c2e;border-radius:10px;flex-wrap:wrap}
   .mkt-date{font-size:1rem;font-weight:600;color:#f1f5f9}
@@ -319,6 +364,12 @@ _CSS = """
   .nav-link{font-size:.78rem;padding:5px 14px;border-radius:6px;border:1px solid #1e293b;color:#64748b;text-decoration:none;transition:all .15s}
   .nav-link:hover{border-color:#475569;color:#94a3b8}
   .nav-link.active{border-color:#475569;color:#e2e8f0;background:#141c2e}
+  .tab-bar{display:flex;gap:2px;margin:16px 0 0;border-bottom:1px solid #1e293b}
+  .tab-btn{font-size:.8rem;padding:9px 18px;border:none;border-bottom:2px solid transparent;margin-bottom:-1px;background:none;color:#64748b;cursor:pointer;font-weight:600;letter-spacing:.02em;transition:all .15s;border-radius:4px 4px 0 0}
+  .tab-btn:hover{color:#94a3b8;background:#0f1624}
+  .tab-btn.active{color:#e2e8f0;border-bottom-color:#60a5fa;background:#0f1624}
+  .tab-panel{display:none;padding-top:16px}
+  .tab-panel.active{display:block}
   .chips-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
   @media(max-width:900px){.chips-grid{grid-template-columns:1fr}}
   .chips-section{background:#0f1624;border:1px solid #1e293b;border-radius:10px;padding:14px 16px;margin-bottom:16px}
@@ -336,7 +387,22 @@ _CSS = """
   .no-data{color:#334155;font-size:.8rem;padding:12px 0;text-align:center}
   .footer{margin-top:28px;font-size:.7rem;color:#1e293b;text-align:center;padding-bottom:20px}
   .cum-cell{font-size:.85rem;font-weight:700;text-align:center;white-space:nowrap;padding:4px 10px}
-  @media(max-width:540px){body{padding:12px}.chips-grid{grid-template-columns:1fr}}
+  @media(max-width:540px){body{padding:12px}.chips-grid{grid-template-columns:1fr}.tab-btn{padding:8px 10px;font-size:.72rem}}
+"""
+
+_TAB_JS = """
+<script>
+function switchTab(id){
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
+  document.querySelector('.tab-btn[data-tab="'+id+'"]').classList.add('active');
+  document.getElementById(id).classList.add('active');
+  history.replaceState(null,'','#'+id);
+}
+const _tabs=['tab-signal','tab-inst','tab-margin','tab-meta','tab-holder'];
+const _h=location.hash.slice(1);
+switchTab(_tabs.includes(_h)?_h:'tab-signal');
+</script>
 """
 
 
@@ -348,11 +414,13 @@ def generate(
     margin_divergence: dict = None,
     cum_data: list = None,
     meta_signals: dict = None,
+    shareholder_data: list = None,
     output_path: str = "docs/chips.html",
 ) -> None:
     if not meta_chips and not stock_chips:
         return
     inst_scan = inst_scan or []
+    shareholder_data = shareholder_data or []
     cum_ranks = _make_cum_ranks(cum_data or [])
     margin_divergence = margin_divergence or {}
 
@@ -525,11 +593,13 @@ def generate(
         key=lambda x: -(x.get("trust_net") or 0)
     )[:15]
 
-    s6_html = f"""
+    s6a_html = f"""
 <div class="chips-section">
   <div class="cs-title">🔥 強力訊號 — 外資+投信同步連買 &ge;2 日</div>
   {_inst_strong_table(strong)}
-</div>
+</div>"""
+
+    s6b_html = f"""
 <div class="chips-grid">
   <div class="chips-section-half">
     <div class="cs-title">外資持續買進 Top 15（連買 &ge;3 日，排累計）</div>
@@ -540,6 +610,30 @@ def generate(
     {_inst_streak_table(top_trust, 'trust_streak', 'trust_net', 'cum_trust', '投信')}
   </div>
 </div>"""
+
+    # Section 8: 大戶持倉（集保 ≥400張）
+    sh_increasing = [r for r in shareholder_data if (r.get("streak") or 0) > 0]
+    sh_decreasing = [r for r in shareholder_data if (r.get("streak") or 0) < 0]
+    sh_increasing.sort(key=lambda x: (-(x.get("streak") or 0), -(x.get("lv12_15_pct") or 0)))
+    sh_decreasing.sort(key=lambda x: ((x.get("streak") or 0), -(x.get("lv12_15_pct") or 0)))
+
+    if shareholder_data:
+        s8_html = f"""
+<div class="chips-grid">
+  <div class="chips-section-half">
+    <div class="cs-title">📈 大戶連增倉 Top 30（≥400張，集保）</div>
+    {_shareholder_table(sh_increasing[:30])}
+  </div>
+  <div class="chips-section-half">
+    <div class="cs-title">📉 大戶連減倉 Top 20</div>
+    {_shareholder_table(sh_decreasing[:20])}
+  </div>
+</div>"""
+        sh_date = shareholder_data[0].get("date", "") if shareholder_data else ""
+        s8_note = f"<p style='color:#475569;font-size:.72rem;margin:4px 0 12px'>集保資料日期：{sh_date}｜共 {len(shareholder_data)} 支股票</p>"
+    else:
+        s8_html = "<div class='chips-section'><div class='cs-title'>大戶持倉</div><div class='no-data'>無資料（請執行 python main.py --update-shareholder）</div></div>"
+        s8_note = ""
 
     # Section 7: 融資背離警示
     days_used = margin_divergence.get("days_used", 0)
@@ -584,18 +678,43 @@ def generate(
       <a class="nav-link active" href="chips.html">籌碼分析</a>
       <a class="nav-link" href="patterns.html">形態掃描</a>
     </div>
+    <div class="tab-bar">
+      <button class="tab-btn" data-tab="tab-signal" onclick="switchTab('tab-signal')">🔥 強力訊號</button>
+      <button class="tab-btn" data-tab="tab-inst" onclick="switchTab('tab-inst')">外資 / 投信</button>
+      <button class="tab-btn" data-tab="tab-margin" onclick="switchTab('tab-margin')">⚠ 融資警示</button>
+      <button class="tab-btn" data-tab="tab-meta" onclick="switchTab('tab-meta')">META 分析</button>
+      <button class="tab-btn" data-tab="tab-holder" onclick="switchTab('tab-holder')">🏦 大戶持倉</button>
+    </div>
   </div>
 
-  {s6_html}
-  {s7_html}
-  {s1_html}
-  {s2_html}
-  {s3_html}
-  {s35_html}
-  {s4_html}
-  {s5_html}
+  <div class="tab-panel" id="tab-signal">
+    {s6a_html}
+  </div>
+
+  <div class="tab-panel" id="tab-inst">
+    {s6b_html}
+    {s2_html}
+    {s1_html}
+    {s3_html}
+    {s35_html}
+  </div>
+
+  <div class="tab-panel" id="tab-margin">
+    {s7_html}
+    {s4_html}
+  </div>
+
+  <div class="tab-panel" id="tab-meta">
+    {s5_html}
+  </div>
+
+  <div class="tab-panel" id="tab-holder">
+    {s8_note}
+    {s8_html}
+  </div>
 
   <div class="footer">資料來源：TWSE 三大法人 ｜ 台灣：漲紅跌綠 ｜ 外資正值=買超</div>
+  {_TAB_JS}
 </body>
 </html>"""
 

@@ -63,6 +63,30 @@ def init_db() -> None:
         )
     """)
     con.execute("""
+        CREATE TABLE IF NOT EXISTS shareholder (
+            stock_id        VARCHAR NOT NULL,
+            date            DATE NOT NULL,
+            lv12_15_pct     DOUBLE,
+            lv12_15_cnt     INTEGER,
+            total_shares    BIGINT,
+            week_chg        DOUBLE,
+            streak          INTEGER,
+            PRIMARY KEY (stock_id, date)
+        )
+    """)
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS broker_branch (
+            stock_id        VARCHAR NOT NULL,
+            date            DATE NOT NULL,
+            broker_id       VARCHAR NOT NULL,
+            broker_name     VARCHAR,
+            buy_shares      BIGINT,
+            sell_shares     BIGINT,
+            net_shares      BIGINT,
+            PRIMARY KEY (stock_id, date, broker_id)
+        )
+    """)
+    con.execute("""
         CREATE TABLE IF NOT EXISTS signals (
             stock_id        VARCHAR,
             stock_name      VARCHAR,
@@ -175,6 +199,24 @@ def get_chips_today(trade_date: str) -> pd.DataFrame:
             (SELECT * FROM margin WHERE date = ?) m
             ON i.stock_id = m.stock_id
     """, [trade_date, trade_date]).df()
+    con.close()
+    return df
+
+
+def get_shareholder_top(n: int = 50) -> pd.DataFrame:
+    """取最新週大戶持倉資料，含週變化與連增週數，按 streak desc 排序。"""
+    con = get_conn()
+    df = con.execute("""
+        WITH latest AS (
+            SELECT stock_id, MAX(date) AS max_date
+            FROM shareholder GROUP BY stock_id
+        )
+        SELECT s.stock_id, s.date, s.lv12_15_pct, s.lv12_15_cnt,
+               s.week_chg, s.streak
+        FROM shareholder s
+        JOIN latest l ON s.stock_id = l.stock_id AND s.date = l.max_date
+        ORDER BY s.streak DESC, s.lv12_15_pct DESC
+    """).df()
     con.close()
     return df
 

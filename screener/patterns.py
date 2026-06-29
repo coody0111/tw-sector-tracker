@@ -457,11 +457,71 @@ def scan_patterns(date_str: str, db_path: str = _DB_PATH) -> list[dict]:
             "patterns":            patterns,
             "inst_streak_foreign": f_streak,
             "inst_streak_trust":   t_streak,
+            "closes":              grp["close"].iloc[-30:].tolist(),
         })
 
     results.sort(key=lambda x: x["score"], reverse=True)
     logger.info("scan_patterns %s: 命中 %d 檔", date_str, len(results))
     return results
+
+
+def calc_composite_score(
+    foreign_streak: int,
+    trust_streak: int,
+    patterns: list[str],
+    vol_ratio: float,
+    lv12_15_pct: float | None,
+    sh_streak: int,
+    margin_alert_pct: float,
+    margin_divergence: bool,
+) -> int:
+    """
+    綜合評分系統 0-100：
+      外資籌碼 25 + 投信籌碼 20 + 形態 25 + 量能 15 + 大戶持倉 15 = 100
+      融資警示最多扣 15 分
+    """
+    # 外資：每連買1日+2，上限25；連賣扣分同規
+    f_pts = max(-25, min(25, foreign_streak * 2))
+
+    # 投信：每連買1日+2，上限20
+    t_pts = max(-20, min(20, trust_streak * 2))
+
+    # 形態
+    pattern_pts = 0
+    for p in patterns:
+        if p == "雙底":          pattern_pts += 25
+        elif p == "三角突破":    pattern_pts += 20
+        elif p == "60日突破":    pattern_pts += 15
+        elif p == "雙頂":        pattern_pts -= 25
+        elif p == "三角跌破":    pattern_pts -= 20
+
+    # 量能：vol_ratio > 2.0 → 15, > 1.5 → 10, > 1.2 → 5, < 0.7 → -5
+    if vol_ratio >= 2.0:    vol_pts = 15
+    elif vol_ratio >= 1.5:  vol_pts = 10
+    elif vol_ratio >= 1.2:  vol_pts = 5
+    elif vol_ratio < 0.7:   vol_pts = -5
+    else:                   vol_pts = 0
+
+    # 大戶持倉：streak × 3 (cap 12) + lv12_15_pct > 60% 加3
+    sh_pts = 0
+    if sh_streak is not None:
+        sh_pts += max(-12, min(12, sh_streak * 3))
+    if lv12_15_pct is not None and lv12_15_pct >= 60:
+        sh_pts += 3
+
+    # 融資扣分
+    margin_pts = 0
+    if margin_divergence:
+        margin_pts -= 15
+    elif margin_alert_pct >= 10:
+        margin_pts -= 10
+    elif margin_alert_pct >= 5:
+        margin_pts -= 5
+
+    raw = f_pts + t_pts + pattern_pts + vol_pts + sh_pts + margin_pts
+    # 對應 0-100：基準 50 分，raw 為偏離量
+    score = 50 + raw
+    return max(0, min(100, score))
 
 
 def backtest_patterns(days: int = 120, db_path: str = _DB_PATH) -> None:

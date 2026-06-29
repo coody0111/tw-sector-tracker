@@ -156,6 +156,45 @@ def backfill_inst(days: int = 60) -> None:
     logger.info("=== 法人補齊完成，共寫入 %d 個交易日 ===", n)
 
 
+def _update_shareholder() -> None:
+    """抓 TDCC 集保持股分散表最新週，計算大戶持倉比例與週變化並存入 DB。"""
+    from scrapers.shareholder import fetch_shareholder_weekly, save_to_db as sh_save
+    init_db()
+    stock_ids = pd.read_csv(UNIVERSE_PATH, dtype=str)["stock_id"].tolist()
+    logger.info("=== 集保持股分散表更新（%d 支股票）===", len(stock_ids))
+    rows = fetch_shareholder_weekly(stock_ids)
+    n = sh_save(rows)
+    logger.info("=== 集保更新完成，寫入 %d 筆 ===", n)
+
+
+def _backfill_shareholder(weeks: int = 4) -> None:
+    """補齊過去 N 週的集保持股分散表。"""
+    from scrapers.shareholder import fetch_shareholder_weekly, save_to_db as sh_save, get_available_dates
+    init_db()
+    stock_ids = pd.read_csv(UNIVERSE_PATH, dtype=str)["stock_id"].tolist()
+    available = get_available_dates()
+    target_dates = available[:weeks]
+    logger.info("=== 集保補齊 %d 週：%s ===", len(target_dates), target_dates)
+    for d_str in target_dates:
+        logger.info("  抓 %s ...", d_str)
+        rows = fetch_shareholder_weekly(stock_ids, date_str=d_str)
+        n = sh_save(rows)
+        logger.info("  %s 寫入 %d 筆", d_str, n)
+    logger.info("=== 集保補齊完成 ===")
+
+
+def _update_broker() -> None:
+    """抓今日各股券商分點買賣超（需先設定 _TWSE_BROKER_URL）。"""
+    from scrapers.broker_branch import fetch_broker_batch, save_to_db as bb_save
+    init_db()
+    stock_ids = pd.read_csv(UNIVERSE_PATH, dtype=str)["stock_id"].tolist()
+    trade_date = date.today()
+    logger.info("=== 分點買賣超更新 %s（%d 支股票）===", trade_date, len(stock_ids))
+    broker_map = fetch_broker_batch(stock_ids, trade_date)
+    n = bb_save(trade_date, broker_map)
+    logger.info("=== 分點更新完成，寫入 %d 筆 ===", n)
+
+
 def update_sectors(limit: int = None) -> None:
     """從 MoneyDJ 更新族群成份股（耗時約 15 分鐘，每週跑一次即可）"""
     writer = CsvWriter(base_dir="data")
@@ -353,7 +392,30 @@ def run(trade_date: date = None, realtime: bool = False) -> None:
         except Exception as exc:
             logger.warning("法人篩選失敗: %s", exc)
             inst_results = []
-        generate_chips_html(trade_date, meta_chips, stock_chips, inst_scan=inst_results, margin_divergence=margin_div, cum_data=cum_data, meta_signals=meta_signals)
+        try:
+            from screener.database import get_shareholder_top
+            sh_df = get_shareholder_top()
+            if not sh_df.empty:
+                universe = pd.read_csv(UNIVERSE_PATH, dtype=str, usecols=["stock_id", "stock_name", "meta_sector"])
+                name_map = universe.set_index("stock_id")[["stock_name", "meta_sector"]].to_dict("index")
+                sh_rows = []
+                for _, row in sh_df.iterrows():
+                    info = name_map.get(str(row["stock_id"]), {})
+                    sh_rows.append({
+                        "stock_id":   str(row["stock_id"]),
+                        "stock_name": info.get("stock_name", ""),
+                        "meta_sector": info.get("meta_sector", ""),
+                        "lv12_15_pct": float(row["lv12_15_pct"]) if row["lv12_15_pct"] is not None else None,
+                        "week_chg":    float(row["week_chg"]) if row["week_chg"] is not None else None,
+                        "streak":      int(row["streak"]) if row["streak"] is not None else 0,
+                        "date":        str(row["date"]),
+                    })
+            else:
+                sh_rows = []
+        except Exception as exc:
+            logger.warning("大戶持倉資料載入失敗: %s", exc)
+            sh_rows = []
+        generate_chips_html(trade_date, meta_chips, stock_chips, inst_scan=inst_results, margin_divergence=margin_div, cum_data=cum_data, meta_signals=meta_signals, shareholder_data=sh_rows)
         logger.info("HTML generated → docs/chips.html")
 
         try:
@@ -390,6 +452,12 @@ if __name__ == "__main__":
                         help="使用盤中即時行情（mis.twse.com.tw），適合 9:00~13:30 盤中使用")
     parser.add_argument("--backtest-patterns", type=int, default=0, metavar="DAYS",
                         help="跑過去 N 個交易日形態回測，輸出各形態勝率與平均報酬")
+    parser.add_argument("--update-shareholder", action="store_true",
+                        help="抓 TDCC 集保持股分散表（最新週），計算大戶持倉比例與週變化")
+    parser.add_argument("--backfill-shareholder", type=int, default=0, metavar="WEEKS",
+                        help="補齊集保持股分散表過去 N 週資料（每支股票一次請求，約 17 分鐘/週）")
+    parser.add_argument("--update-broker", action="store_true",
+                        help="抓今日各股券商分點買賣超（需先設定 broker_branch.py 的 _TWSE_BROKER_URL）")
     args = parser.parse_args()
 
     if args.update_sectors:
@@ -408,5 +476,11 @@ if __name__ == "__main__":
     elif args.backtest_patterns:
         from screener.patterns import backtest_patterns
         backtest_patterns(days=args.backtest_patterns)
+    elif args.update_shareholder:
+        _update_shareholder()
+    elif args.backfill_shareholder:
+        _backfill_shareholder(weeks=args.backfill_shareholder)
+    elif args.update_broker:
+        _update_broker()
     else:
         run(realtime=args.realtime)

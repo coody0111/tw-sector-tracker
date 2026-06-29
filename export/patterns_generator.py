@@ -17,6 +17,30 @@ _PATTERN_LABEL = {
     "箱型整理": ("📦", "#94a3b8"),
 }
 
+# 回測勝率（from backtest_patterns 結果）
+_WIN_RATE = {
+    "雙底":   ("D+10", "53%", "+4.7%"),
+    "雙頂":   ("D+5",  "61%", "+2.9%"),  # 做空方向
+}
+
+
+def _sparkline_svg(closes: list, width: int = 64, height: int = 22) -> str:
+    """產生迷你折線圖 SVG。"""
+    if not closes or len(closes) < 2:
+        return ""
+    lo, hi = min(closes), max(closes)
+    if hi == lo:
+        return ""
+    xs = [round(i / (len(closes) - 1) * width, 1) for i in range(len(closes))]
+    ys = [round(height - (c - lo) / (hi - lo) * height, 1) for c in closes]
+    pts = " ".join(f"{x},{y}" for x, y in zip(xs, ys))
+    color = "#4ade80" if closes[-1] >= closes[0] else "#f87171"
+    return (f"<svg width='{width}' height='{height}' viewBox='0 0 {width} {height}' "
+            f"style='display:inline-block;vertical-align:middle'>"
+            f"<polyline points='{pts}' fill='none' stroke='{color}' stroke-width='1.5' "
+            f"stroke-linejoin='round' stroke-linecap='round'/>"
+            f"</svg>")
+
 
 def _pct(v: float) -> str:
     sign = "+" if v > 0 else ""
@@ -43,8 +67,11 @@ def _pattern_badges(patterns: list[str]) -> str:
     parts = []
     for p in patterns:
         icon, color = _PATTERN_LABEL.get(p, ("", "#94a3b8"))
+        wr = _WIN_RATE.get(p)
+        wr_str = (f"<span style='color:#94a3b8;font-size:.62rem;margin-left:3px'>"
+                  f"{wr[0]} {wr[1]}</span>") if wr else ""
         parts.append(f"<span style='color:{color};border:1px solid {color}55;"
-                     f"border-radius:4px;padding:1px 6px;font-size:.68rem'>{icon}{p}</span>")
+                     f"border-radius:4px;padding:1px 6px;font-size:.68rem'>{icon}{p}{wr_str}</span>")
     return " ".join(parts)
 
 
@@ -62,6 +89,7 @@ def _inst_label(f: int, t: int) -> str:
 
 
 def _stock_row(r: dict) -> str:
+    spark = _sparkline_svg(r.get("closes", []))
     return (
         f"<tr>"
         f"<td style='color:#e2e8f0;font-weight:700'>{r['stock_id']}</td>"
@@ -70,6 +98,7 @@ def _stock_row(r: dict) -> str:
         f"<td>{_pct(r['change_pct'])}</td>"
         f"<td style='color:#94a3b8'>{r['vol_ratio']:.1f}x</td>"
         f"<td>{_score_badge(r['score'])}</td>"
+        f"<td>{spark}</td>"
         f"<td>{_pattern_badges(r['patterns'])}</td>"
         f"<td>{_inst_label(r['inst_streak_foreign'], r['inst_streak_trust'])}</td>"
         f"</tr>"
@@ -77,7 +106,7 @@ def _stock_row(r: dict) -> str:
 
 
 def _table_header() -> str:
-    cols = ["代號", "名稱", "族群", "漲跌", "量比", "Score", "形態", "法人"]
+    cols = ["代號", "名稱", "族群", "漲跌", "量比", "Score", "走勢", "形態", "法人"]
     ths = "".join(f"<th style='color:#64748b;font-weight:500;padding:6px 10px;text-align:left;"
                   f"border-bottom:1px solid #1e293b'>{c}</th>" for c in cols)
     return f"<thead><tr>{ths}</tr></thead>"

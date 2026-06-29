@@ -142,7 +142,7 @@ def _stock_row(r: dict) -> str:
         f"<td style='color:#94a3b8'>{r['vol_ratio']:.1f}x</td>"
         f"<td>{_composite_badge(comp)}</td>"
         f"<td>{spark}</td>"
-        f"<td>{_pattern_badges(r['patterns'])}</td>"
+        f"<td style='white-space:normal'>{_pattern_badges(r['patterns'])}</td>"
         f"<td>{_holder_cell(lv_pct, sh_streak)}</td>"
         f"<td>{_inst_label(r['inst_streak_foreign'], r['inst_streak_trust'])}</td>"
         f"</tr>"
@@ -152,7 +152,7 @@ def _stock_row(r: dict) -> str:
 def _table_header() -> str:
     cols = ["代號", "名稱", "族群", "收盤", "漲跌", "量比", "評分", "走勢", "形態", "大戶", "法人"]
     ths = "".join(f"<th style='color:#64748b;font-weight:500;padding:6px 10px;text-align:left;"
-                  f"border-bottom:1px solid #1e293b'>{c}</th>" for c in cols)
+                  f"border-bottom:1px solid #1e293b;white-space:nowrap'>{c}</th>" for c in cols)
     return f"<thead><tr>{ths}</tr></thead>"
 
 
@@ -167,7 +167,7 @@ def _section(title: str, rows: list[dict], subtitle: str = "") -> str:
         f"text-transform:uppercase;margin:0 0 6px'>{title}</h2>"
         f"{sub}"
         f"<div style='overflow-x:auto'>"
-        f"<table style='width:100%;border-collapse:collapse'>"
+        f"<table style='width:100%;min-width:760px;border-collapse:collapse'>"
         f"{_table_header()}"
         f"<tbody style='font-size:.8rem'>{body}</tbody>"
         f"</table></div></section>"
@@ -323,7 +323,7 @@ a{color:#60a5fa}
 .tab-panel{display:none;padding-top:16px}
 .tab-panel.active{display:block}
 tbody tr:hover{background:#0f1624}
-tbody td{padding:5px 10px;border-bottom:1px solid #1e293b}
+tbody td{padding:5px 10px;border-bottom:1px solid #1e293b;vertical-align:middle;white-space:nowrap}
 .pt-section{background:#0f1624;border:1px solid #1e293b;border-radius:10px;padding:14px 16px;margin-bottom:16px}
 .pt-title{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#475569;margin-bottom:10px}
 .pt{width:100%;border-collapse:collapse;font-size:.8rem}

@@ -205,7 +205,7 @@ def detect_double_bottom(df: pd.DataFrame) -> bool:
             rr     = round((target - anchor) / (anchor - stop), 2)
             return {"anchor": anchor, "stop": stop, "target": target, "rr": rr}
 
-    return None
+    return False
 
 
 def detect_double_top(df: pd.DataFrame) -> bool:
@@ -260,7 +260,7 @@ def detect_double_top(df: pd.DataFrame) -> bool:
             rr     = round((anchor - target) / (stop - anchor), 2) if stop > anchor else 0.0
             return {"anchor": anchor, "stop": stop, "target": target, "rr": rr}
 
-    return None
+    return False
 
 
 def detect_triangle_up(df: pd.DataFrame) -> bool:
@@ -276,7 +276,7 @@ def detect_triangle_up(df: pd.DataFrame) -> bool:
     if len(df) >= 51:
         ma50 = df['close'].iloc[-51:-1].mean()
         if df['close'].iloc[-1] < ma50 * 0.98:
-            return None
+            return False
 
     hist   = df.iloc[-21:-1]   # 20 days before today
     today  = df.iloc[-1]
@@ -313,7 +313,7 @@ def detect_triangle_up(df: pd.DataFrame) -> bool:
 
     vol_ma20 = volume[-21:-1].mean()
     if vol_ma20 > 0 and volume[-1] < vol_ma20 * _TRI_VOL_CONFIRM:
-        return None
+        return False
 
     anchor    = float(today['close'])
     tri_range = float(highs.max() - lows.min())
@@ -360,7 +360,7 @@ def detect_triangle_down(df: pd.DataFrame) -> bool:
 
     vol_ma20 = volume[-21:-1].mean()
     if vol_ma20 > 0 and volume[-1] < vol_ma20 * _TRI_VOL_CONFIRM:
-        return None
+        return False
 
     anchor    = float(today['close'])
     tri_range = float(highs.max() - lows.min())
@@ -508,7 +508,7 @@ def detect_vcp(df: pd.DataFrame) -> bool:
     # 突破日量確認
     avg_vol = float(volumes.mean())
     if avg_vol > 0 and today['volume'] < avg_vol * _VCP_VOL_CONFIRM:
-        return None
+        return False
 
     last_pullback_pct = recent[-1][0]
     anchor = float(today['close'])
@@ -535,7 +535,7 @@ def detect_inverse_hs(df: pd.DataFrame) -> dict | None:
     - 量 > 20MA × 1.5
     """
     if len(df) < 35:
-        return None
+        return False
 
     close  = df['close'].values
     volume = df['volume'].values
@@ -545,7 +545,7 @@ def detect_inverse_hs(df: pd.DataFrame) -> dict | None:
 
     minima   = _local_minima(seg, radius=3)
     if len(minima) < 3:
-        return None
+        return False
 
     maxima_all = _local_maxima(seg, radius=2)
     vol_ma20   = volume[-21:-1].mean() if len(volume) >= 21 else volume[:-1].mean()
@@ -616,7 +616,7 @@ def detect_inverse_hs(df: pd.DataFrame) -> dict | None:
                 rr         = round((target - anchor) / rr_denom, 2) if rr_denom > 0 else 0.0
                 return {"anchor": anchor, "stop": stop, "target": target, "rr": rr}
 
-    return None
+    return False
 
 
 def scan_patterns(date_str: str, db_path: str = _DB_PATH) -> list[dict]:

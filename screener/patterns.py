@@ -191,8 +191,10 @@ def detect_double_bottom(df: pd.DataFrame) -> bool:
             if i2 < seg_n - 15:
                 continue
 
-            # 今日收盤突破頸線
+            # 今日收盤突破頸線（需為首日突破：昨日仍在頸線下方）
             if close[-1] <= neckline:
+                continue
+            if close[-2] > neckline:
                 continue
 
             # 量確認
@@ -248,6 +250,8 @@ def detect_double_top(df: pd.DataFrame) -> bool:
                 continue
 
             if close[-1] >= neckline:
+                continue
+            if close[-2] < neckline:  # 非首日跌破（昨日已在頸線下方）
                 continue
 
             if vol_ma20 > 0 and volume[-1] < vol_ma20 * _DBL_VOL_CONFIRM:
@@ -598,10 +602,13 @@ def detect_inverse_hs(df: pd.DataFrame) -> dict | None:
                 neckline_slope = (pk2 - pk1) / (pk2_idx - pk1_idx)
                 neckline_today = pk1 + neckline_slope * (seg_n - pk1_idx)
 
-                # 今日必須突破頸線且為上漲日
+                # 今日必須突破頸線且為首日突破（昨日仍在頸線下方）
                 if close[-1] <= neckline_today:
                     continue
                 if close[-1] <= close[-2]:
+                    continue
+                neckline_yesterday = pk1 + neckline_slope * (seg_n - 1 - pk1_idx)
+                if close[-2] > neckline_yesterday:
                     continue
 
                 # 量確認
@@ -959,7 +966,7 @@ def scan_and_track(date_str: str, db_path: str = _DB_PATH) -> list[dict]:
 
         today_close, _ = today_close_map[sid]
         signal_date = pd.to_datetime(sig["signal_date"])
-        days_held = int((target_date - signal_date).days)
+        days_held = int(np.busday_count(signal_date.date(), target_date.date()))
         is_bearish = sig["pattern"] in _BEARISH_PATTERNS
 
         anchor = float(sig["anchor"])

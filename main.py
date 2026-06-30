@@ -126,15 +126,15 @@ def backfill(days: int = 180) -> None:
     logger.info("=== 補齊完成，共寫入 %d 日 ===", n)
 
 
-def backfill_twse(months: int = 6) -> None:
-    """TWSE 逐日全市場補齊 — 不受 FinMind quota 限制（覆蓋 TWSE 上市股）"""
+def backfill_twse(months: int = 6, workers: int = 3) -> None:
+    """TWSE+TPEx 逐日全市場補齊（快速版，STOCK_DAY_ALL 並行）"""
     if not UNIVERSE_PATH.exists():
         logger.error("找不到 stock_universe.csv，請先確認資料目錄。")
         return
     universe_df = pd.read_csv(UNIVERSE_PATH, encoding="utf-8-sig", dtype={"stock_id": str})
     stock_ids = universe_df["stock_id"].tolist()
-    logger.info("=== TWSE 月別補齊（往前 %d 個月）===", months)
-    n = backfill_twse_monthly(stock_ids, months=months)
+    logger.info("=== TWSE+TPEx 補齊（往前 %d 個月，workers=%d）===", months, workers)
+    n = backfill_twse_monthly(stock_ids, months=months, workers=workers)
     if n > 0:
         init_db()
         imported = import_csv_prices()
@@ -193,6 +193,27 @@ def _update_broker() -> None:
     broker_map = fetch_broker_batch(stock_ids, trade_date)
     n = bb_save(trade_date, broker_map)
     logger.info("=== 分點更新完成，寫入 %d 筆 ===", n)
+
+
+def _fix_stale_data(months: int = 18, workers: int = 3) -> None:
+    """
+    一鍵修復假資料：
+    Step 1  用 backfill_twse_monthly (TWSE+TPEx 平行) 重抓所有股票的 CSV
+    Step 2  reimport_db：清空 DuckDB 後從乾淨 CSV 重建（自動排除假資料列）
+    """
+    if not UNIVERSE_PATH.exists():
+        logger.error("找不到 stock_universe.csv")
+        return
+
+    stock_ids = pd.read_csv(UNIVERSE_PATH, encoding="utf-8-sig", dtype={"stock_id": str})["stock_id"].tolist()
+    logger.info("=== Step 1：重抓 TWSE+TPEx 所有 CSV（%d 月，workers=%d）===", months, workers)
+    n = backfill_twse_monthly(stock_ids, months=months, workers=workers)
+    logger.info("Step 1 完成：更新 %d 個交易日 CSV", n)
+
+    logger.info("=== Step 2：清空 DuckDB 並重建（過濾假資料）===")
+    from screener.database import reimport_db
+    total = reimport_db()
+    logger.info("=== fix-stale 完成：DuckDB 共 %d 筆 ===", total)
 
 
 def update_sectors(limit: int = None) -> None:
@@ -435,9 +456,9 @@ def run(trade_date: date = None, realtime: bool = False) -> None:
         logger.info("HTML generated → docs/chips.html")
 
         try:
-            from screener.patterns import scan_patterns
+            from screener.patterns import scan_and_track
             from export.patterns_generator import generate as generate_patterns_html
-            pattern_results = scan_patterns(trade_date.isoformat())
+            pattern_results = scan_and_track(trade_date.isoformat())
             # Backfill composite_score into inst_results for stocks that appear in patterns
             comp_map = {r["stock_id"]: r.get("composite_score") for r in pattern_results if r.get("composite_score") is not None}
             for row in inst_results:
@@ -462,7 +483,9 @@ if __name__ == "__main__":
     parser.add_argument("--backfill", type=int, default=0, metavar="DAYS",
                         help="FinMind 補齊過去 N 日曆天歷史行情（每日 600 次上限）")
     parser.add_argument("--backfill-twse", type=int, default=0, metavar="MONTHS",
-                        help="TWSE 逐日補齊過去 N 個月歷史行情（無 FinMind quota，建議 6）")
+                        help="TWSE+TPEx 逐日全市場補齊過去 N 個月歷史行情（建議 18 覆蓋 2025 全年）")
+    parser.add_argument("--workers", type=int, default=3, metavar="N",
+                        help="backfill-twse 並行 workers 數（預設 3，建議 3-5，過高可能被 TWSE 限速）")
     parser.add_argument("--backfill-institutional", type=int, default=0, metavar="DAYS",
                         help="TWSE T86 補齊過去 N 個工作日三大法人資料（建議 60）")
     parser.add_argument("--backfill-margin", type=int, default=0, metavar="DAYS",
@@ -473,12 +496,24 @@ if __name__ == "__main__":
                         help="使用盤中即時行情（mis.twse.com.tw），適合 9:00~13:30 盤中使用")
     parser.add_argument("--backtest-patterns", type=int, default=0, metavar="DAYS",
                         help="跑過去 N 個交易日形態回測，輸出各形態勝率與平均報酬")
+    parser.add_argument("--backtest-patterns-rr", type=int, default=0, metavar="DAYS",
+                        help="帶停損+時間出場的形態回測，追蹤 MFE 實際後續漲幅。預設持倉 20 日。")
+    parser.add_argument("--mfe-qual", type=float, default=30.0, metavar="PCT",
+                        help="MFE 合格線（%%），預設 30.0，回測時顯示多少比例的訊號漲幅達標")
+    parser.add_argument("--max-dd", type=float, default=None, metavar="PCT",
+                        help="自訂最大回撤停損（%%），例如 20 表示回撤 20%% 才停損，不設則用偵測函數預設 stop")
+    parser.add_argument("--start-date", type=str, default=None, metavar="YYYY-MM-DD",
+                        help="回測起始日（搭配 --backtest-patterns-rr 使用），會額外輸出每筆逐日明細")
     parser.add_argument("--update-shareholder", action="store_true",
                         help="抓 TDCC 集保持股分散表（最新週），計算大戶持倉比例與週變化")
     parser.add_argument("--backfill-shareholder", type=int, default=0, metavar="WEEKS",
                         help="補齊集保持股分散表過去 N 週資料（每支股票一次請求，約 17 分鐘/週）")
     parser.add_argument("--update-broker", action="store_true",
                         help="抓今日各股券商分點買賣超（需先設定 broker_branch.py 的 _TWSE_BROKER_URL）")
+    parser.add_argument("--reimport", action="store_true",
+                        help="清空 daily_prices 並從所有 CSV 重新匯入（自動過濾假資料），用於修復資料庫錯誤")
+    parser.add_argument("--fix-stale", action="store_true",
+                        help="自動偵測並修復 DuckDB+CSV 中有假資料的股票（同 close+vol 重複≥5次 → 用 TWSE 逐股 API 重抓）")
     args = parser.parse_args()
 
     if args.update_sectors:
@@ -486,7 +521,7 @@ if __name__ == "__main__":
     elif args.backfill:
         backfill(days=args.backfill)
     elif args.backfill_twse:
-        backfill_twse(months=args.backfill_twse)
+        backfill_twse(months=args.backfill_twse, workers=args.workers)
     elif args.backfill_institutional:
         backfill_inst(days=args.backfill_institutional)
     elif args.backfill_margin:
@@ -497,11 +532,21 @@ if __name__ == "__main__":
     elif args.backtest_patterns:
         from screener.patterns import backtest_patterns
         backtest_patterns(days=args.backtest_patterns)
+    elif args.backtest_patterns_rr:
+        from screener.patterns import backtest_patterns_rr
+        backtest_patterns_rr(days=args.backtest_patterns_rr, mfe_qual=args.mfe_qual, max_dd=args.max_dd, start_date=args.start_date)
     elif args.update_shareholder:
         _update_shareholder()
     elif args.backfill_shareholder:
         _backfill_shareholder(weeks=args.backfill_shareholder)
     elif args.update_broker:
         _update_broker()
+    elif args.reimport:
+        from screener.database import reimport_db
+        init_db()
+        n = reimport_db()
+        logger.info("=== reimport 完成：%d 筆 ===", n)
+    elif args.fix_stale:
+        _fix_stale_data(workers=args.workers)
     else:
         run(realtime=args.realtime)

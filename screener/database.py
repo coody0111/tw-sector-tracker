@@ -2,9 +2,12 @@
 DuckDB 資料庫 - 存放每日行情歷史與技術指標。
 直接從 data/daily_prices/*.csv 讀取，不需要手動 import。
 """
+import logging
 import duckdb
 import pandas as pd
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 DB_PATH = "data/screener.db"
 CSV_GLOB = "data/daily_prices/*.csv"
@@ -87,6 +90,22 @@ def init_db() -> None:
         )
     """)
     con.execute("""
+        CREATE TABLE IF NOT EXISTS pattern_signals (
+            stock_id     VARCHAR NOT NULL,
+            pattern      VARCHAR NOT NULL,
+            signal_date  DATE    NOT NULL,
+            anchor       DOUBLE,
+            stop         DOUBLE,
+            target       DOUBLE,
+            rr           DOUBLE,
+            status       VARCHAR DEFAULT 'active',
+            last_check   DATE,
+            days_held    INTEGER DEFAULT 0,
+            consec_below INTEGER DEFAULT 0,
+            PRIMARY KEY (stock_id, pattern, signal_date)
+        )
+    """)
+    con.execute("""
         CREATE TABLE IF NOT EXISTS signals (
             stock_id        VARCHAR,
             stock_name      VARCHAR,
@@ -108,8 +127,33 @@ def init_db() -> None:
     con.close()
 
 
-def import_csv_prices() -> int:
-    """把 data/daily_prices/*.csv 的資料全部 upsert 進 daily_prices 表。"""
+def _filter_stale(df: pd.DataFrame, min_streak: int = 5) -> pd.DataFrame:
+    """
+    排除假資料：同一股票若有 ≥ min_streak 天 close+volume 完全相同，
+    整批視為 placeholder，從 df 中移除。
+    """
+    df = df.copy()
+    df["_cv"] = df["close"].astype(str) + "_" + df["volume"].astype(str)
+    # 找出每個 (stock_id, close+volume) 出現次數 >= min_streak 的組合
+    counts = df.groupby(["stock_id", "_cv"]).size().reset_index(name="cnt")
+    stale = counts[counts["cnt"] >= min_streak].set_index(["stock_id", "_cv"])
+    if stale.empty:
+        return df.drop(columns=["_cv"])
+    stale_index = set(zip(stale.index.get_level_values(0), stale.index.get_level_values(1)))
+    mask = pd.Series(
+        [( r["stock_id"], r["_cv"]) in stale_index for _, r in df.iterrows()],
+        index=df.index,
+    )
+    removed = mask.sum()
+    if removed:
+        logger.info("_filter_stale: 排除 %d 筆重複假資料（%d 個 stock×key）", removed, len(stale_index))
+    return df[~mask].drop(columns=["_cv"])
+
+
+def import_csv_prices(filter_stale: bool = False) -> int:
+    """把 data/daily_prices/*.csv 的資料全部 upsert 進 daily_prices 表。
+    filter_stale=True 時自動排除連續多天完全相同的假資料。
+    """
     con = get_conn()
 
     # 從 CSV 讀取所有資料，日期從檔名抓
@@ -134,12 +178,28 @@ def import_csv_prices() -> int:
     # 去重：同一 (stock_id, date) 保留最後一筆
     raw = raw.drop_duplicates(subset=["stock_id", "date"], keep="last")
 
+    if filter_stale:
+        raw = _filter_stale(raw)
+
     # Upsert：先刪同一 (stock_id, date)，再插入
     con.execute("DELETE FROM daily_prices WHERE (stock_id, date) IN (SELECT stock_id, date FROM raw)")
     con.execute("INSERT INTO daily_prices SELECT * FROM raw")
     count = len(raw)
     con.close()
     return count
+
+
+def reimport_db() -> int:
+    """完整重建 daily_prices：清空後從所有 CSV 重新匯入（自動過濾假資料）。"""
+    import logging as _log
+    _logger = _log.getLogger(__name__)
+    con = get_conn()
+    con.execute("DELETE FROM daily_prices")
+    con.close()
+    _logger.info("daily_prices 已清空，開始重新匯入...")
+    n = import_csv_prices(filter_stale=True)
+    _logger.info("reimport 完成：共 %d 筆", n)
+    return n
 
 
 def import_sector_stocks(sectors_csv: str = "data/sectors/industry_sectors.csv") -> int:

@@ -39,10 +39,8 @@ _BATCH = 80  # 每次請求的股票數（×2 前綴 = 160 個 ex_ch）
 
 def _best_price(item: dict) -> float | None:
     """
-    取即時最佳價格：
-      1. z（最近成交）有值且 > 0 → 用 z
-      2. 否則取五檔買價第一檔（> 0）
-      3. 否則取今開（> 0）
+    取即時最佳價格。
+    當 z="-"（漲停/跌停鎖死，無最近成交）時，掃描五檔買賣價找第一個有效值。
     price = 0 表示尚未開盤或停牌，回 None 略過。
     """
     def _parse(s: str) -> float | None:
@@ -52,27 +50,39 @@ def _best_price(item: dict) -> float | None:
         except (ValueError, AttributeError):
             return None
 
+    def _first_valid_in_levels(price_str: str) -> float | None:
+        if not price_str or price_str in ("-", "---"):
+            return None
+        for p in price_str.split("_"):
+            v = _parse(p)
+            if v:
+                return v
+        return None
+
+    # 最近成交價（正常盤中）
     z = item.get("z", "-")
     if z and z != "-":
         v = _parse(z)
         if v:
             return v
 
-    b = item.get("b", "")
-    if b and b != "-":
-        first_bid = b.split("_")[0]
-        if first_bid and first_bid != "-":
-            v = _parse(first_bid)
-            if v:
-                return v
+    # z="-" 表示鎖漲/跌停：掃描買方五檔（漲停時買方有掛單）
+    v = _first_valid_in_levels(item.get("b", ""))
+    if v:
+        return v
 
-    o = item.get("o", "-")
-    if o and o != "-":
-        v = _parse(o)
-        if v:
-            return v
+    # 再掃描賣方五檔（跌停時賣方有掛單）
+    v = _first_valid_in_levels(item.get("a", ""))
+    if v:
+        return v
 
-    return None
+    # fallback: 今日最高（漲停時 h = 漲停價）
+    v = _parse(item.get("h", "-") or "-")
+    if v:
+        return v
+
+    # 最後 fallback: 今開
+    return _parse(item.get("o", "-") or "-")
 
 
 def fetch_realtime_prices(stock_ids: List[str]) -> pd.DataFrame:

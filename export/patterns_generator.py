@@ -6,12 +6,13 @@ from datetime import date
 from pathlib import Path
 from urllib.parse import quote as _q
 
-_BULLISH = {"雙底", "三角突破", "60日突破", "VCP突破"}
+_BULLISH = {"雙底", "頭肩底", "三角突破", "60日突破", "VCP突破"}
 _BEARISH = {"雙頂", "三角跌破"}
 _NEUTRAL = {"箱型整理"}
 
 _PATTERN_LABEL = {
     "雙底":    ("🟢", "#86efac"),
+    "頭肩底":  ("🏔", "#34d399"),
     "三角突破": ("🔺", "#86efac"),
     "60日突破": ("⚡", "#fbbf24"),
     "VCP突破":  ("🚀", "#a78bfa"),
@@ -119,6 +120,36 @@ def _holder_cell(lv_pct: float | None, sh_streak: int) -> str:
     return f"<span style='color:{pct_color};font-size:.72rem;font-weight:700'>{lv_pct:.0f}%{streak_str}</span>"
 
 
+def _signal_info_cell(r: dict) -> str:
+    """訊號日 + 持倉天數 + 進/停/標價位 + R:R。"""
+    anchor = r.get("anchor")
+    stop   = r.get("stop")
+    target = r.get("target")
+    rr     = r.get("rr")
+    days   = r.get("days_held")
+    sig_dt = r.get("signal_date", "")[:10] if r.get("signal_date") else ""
+
+    if anchor is None:
+        return "<span style='color:#334155;font-size:.7rem'>─</span>"
+
+    rr_color = "#4ade80" if (rr or 0) >= 2 else ("#fbbf24" if (rr or 0) >= 1 else "#f87171")
+    days_str = f"<span style='color:#64748b;font-size:.65rem'>D+{days}</span> " if days is not None else ""
+    date_str = f"<span style='color:#475569;font-size:.65rem'>{sig_dt}</span><br>" if sig_dt else ""
+    levels = (
+        f"<span style='font-size:.68rem'>"
+        f"進<b style='color:#e2e8f0'>{anchor:.2f}</b> "
+        f"停<b style='color:#f87171'>{stop:.2f}</b> "
+        f"標<b style='color:#4ade80'>{target:.2f}</b>"
+        f"</span>"
+    )
+    rr_badge = (
+        f"<span style='color:{rr_color};font-size:.7rem;font-weight:700;margin-left:4px'>"
+        f"R:{rr:.1f}</span>"
+    ) if rr is not None else ""
+
+    return f"{date_str}{days_str}{levels}{rr_badge}"
+
+
 def _stock_row(r: dict) -> str:
     spark = _sparkline_svg(r.get("closes", []))
     comp = r.get("composite_score")
@@ -143,6 +174,7 @@ def _stock_row(r: dict) -> str:
         f"<td>{_composite_badge(comp)}</td>"
         f"<td>{spark}</td>"
         f"<td style='white-space:normal'>{_pattern_badges(r['patterns'])}</td>"
+        f"<td style='white-space:nowrap'>{_signal_info_cell(r)}</td>"
         f"<td>{_holder_cell(lv_pct, sh_streak)}</td>"
         f"<td>{_inst_label(r['inst_streak_foreign'], r['inst_streak_trust'])}</td>"
         f"</tr>"
@@ -150,7 +182,7 @@ def _stock_row(r: dict) -> str:
 
 
 def _table_header() -> str:
-    cols = ["代號", "名稱", "族群", "收盤", "漲跌", "量比", "評分", "走勢", "形態", "大戶", "法人"]
+    cols = ["代號", "名稱", "族群", "收盤", "漲跌", "量比", "評分", "走勢", "形態", "訊號/進出價", "大戶", "法人"]
     ths = "".join(f"<th style='color:#64748b;font-weight:500;padding:6px 10px;text-align:left;"
                   f"border-bottom:1px solid #1e293b;white-space:nowrap'>{c}</th>" for c in cols)
     return f"<thead><tr>{ths}</tr></thead>"

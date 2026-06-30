@@ -12,6 +12,7 @@
 """
 import logging
 import os
+import random
 import time
 import threading
 from collections import defaultdict
@@ -248,82 +249,156 @@ def _fetch_tpex_all_days(stock_ids: set, start: date, end: date) -> dict:
     return day_rows
 
 
+def _fetch_twse_one_day(d: date, stock_ids_set: set, sleep_sec: float = 0.6) -> tuple[str, list]:
+    """
+    用 STOCK_DAY_ALL 抓單日所有 TWSE 上市股收盤，過濾到 stock_ids_set。
+    一次 API call 取代原本 n_stocks 次 STOCK_DAY call。
+    """
+    time.sleep(sleep_sec + random.random() * 0.15)
+    try:
+        df = fetch_twse_daily_prices(d)
+        if df.empty:
+            return d.isoformat(), []
+        rows = []
+        for _, row in df.iterrows():
+            sid = str(row["stock_id"]).strip()
+            if sid not in stock_ids_set:
+                continue
+            try:
+                rows.append({
+                    "stock_id":   sid,
+                    "close":      float(row["close"]),
+                    "change":     float(row.get("change", 0) or 0),
+                    "change_pct": float(row.get("change_pct", 0) or 0),
+                    "volume":     int(row.get("volume", 0) or 0),
+                    "_date":      d.isoformat(),
+                })
+            except (ValueError, TypeError):
+                continue
+        return d.isoformat(), rows
+    except Exception as exc:
+        logger.debug("TWSE_ALL %s: %s", d, exc)
+        return d.isoformat(), []
+
+
+def _fetch_twse_all_days(
+    stock_ids_set: set,
+    start: date,
+    end: date,
+    workers: int = 3,
+) -> dict:
+    """
+    並行逐日用 STOCK_DAY_ALL 抓 TWSE 全市場收盤。
+    n_days 次 API call（vs 舊版 n_stocks × n_months 次），快約 50 倍。
+    workers 建議 2-4（過高可能觸發 TWSE 限速）。
+    """
+    day_rows: dict = defaultdict(list)
+    all_dates = list(_iter_weekdays(start, end))
+    done = 0
+    total = len(all_dates)
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = {executor.submit(_fetch_twse_one_day, d, stock_ids_set): d
+                   for d in all_dates}
+        for fut in as_completed(futures):
+            d_str, rows = fut.result()
+            for r in rows:
+                day_rows[d_str].append(r)
+            done += 1
+            if done % 30 == 0 or done == total:
+                total_records = sum(len(v) for v in day_rows.values())
+                logger.info("  TWSE_ALL [%d/%d 日]  已取 %d 筆", done, total, total_records)
+
+    return day_rows
+
+
 def backfill_twse_monthly(
     stock_ids: List[str],
     months: int = 6,
     output_dir: str = "data/daily_prices",
-    workers: int = 1,
+    workers: int = 3,
     today: date = None,
 ) -> int:
     """
-    TWSE STOCK_DAY + TPEx st43 逐股月別補齊。
-    先用 TWSE 抓，回傳 is_twse=False 的再用 TPEx 補，完整覆蓋上市+上櫃。
-    回傳：寫入或更新的日期數。
+    TWSE STOCK_DAY_ALL + TPEx st43 逐日全市場補齊（快速版）。
+
+    Phase 1: TWSE 用 STOCK_DAY_ALL，每日一次 API 取所有上市股（n_days 次）
+    Phase 2: TPEx 用 OpenAPI 逐日全市場（n_days 次），補上櫃股
+    workers 控制 Phase 1 並行數，建議 3-4，約 8-12 分鐘完成 18 個月。
     """
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
     today = today or date.today()
     start = _first_month_start(today, months)
+    stock_ids_set = {str(s) for s in stock_ids}
 
-    month_starts = []
-    cur = start
-    while cur <= today:
-        month_starts.append(cur)
-        cur = date(cur.year + (cur.month == 12), (cur.month % 12) + 1, 1)
-
-    total = len(stock_ids)
+    all_days = list(_iter_weekdays(start, today))
     logger.info(
-        "TWSE+TPEx 月別補齊：%d 支股票，%d 個月（%s ~ %s）",
-        total, len(month_starts), start.isoformat(), today.isoformat(),
+        "TWSE+TPEx 全市場逐日補齊：%d 支股票  %d 個交易日（%s ~ %s）  workers=%d",
+        len(stock_ids), len(all_days), start.isoformat(), today.isoformat(), workers,
     )
 
     day_rows: dict = defaultdict(list)
-    non_twse: list = []
-    partial_twse: list = []  # TWSE 部分成功（某些月份 403），需要 yfinance 補齊
-    done = 0
 
-    # Phase 1: TWSE
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        futures = {executor.submit(_fetch_stock_months, sid, month_starts): sid
-                   for sid in stock_ids}
-        for fut in as_completed(futures):
-            try:
-                sid, rows, is_twse, months_ok = fut.result()
-                if is_twse:
-                    for r in rows:
-                        day_rows[r["_date"]].append(r)
-                    if months_ok < len(month_starts):
-                        partial_twse.append(sid)  # 部分月份失敗，Phase 2 補齊
-                else:
-                    non_twse.append(sid)
-            except Exception as exc:
-                logger.debug("TWSE fetch error: %s", exc)
-            done += 1
-            if done % 200 == 0 or done == total:
-                logger.info("  TWSE [%d/%d]", done, total)
+    # Phase 1: TWSE STOCK_DAY_ALL（並行逐日，每 call 取所有上市股）
+    logger.info("Phase 1 TWSE STOCK_DAY_ALL：%d 個交易日，workers=%d ...", len(all_days), workers)
+    twse_rows = _fetch_twse_all_days(stock_ids_set, start, today, workers=workers)
+    for d_str, rows in twse_rows.items():
+        day_rows[d_str].extend(rows)
 
-    yf_list = non_twse + partial_twse
-    logger.info(
-        "TWSE 完成：%d 支（其中 %d 支部分缺月），TPEx daily 補齊：%d 支",
-        total - len(non_twse), len(partial_twse), len(yf_list),
-    )
+    twse_covered: set = {(r["_date"], r["stock_id"]) for rows in day_rows.values() for r in rows}
+    logger.info("Phase 1 完成：取得 %d 股票×日 筆", len(twse_covered))
 
-    # Phase 2: TPEx OpenAPI per-day（全市場一次抓，過濾需要的股票）
-    if yf_list:
-        twse_covered: set = {(r["_date"], r["stock_id"]) for rows in day_rows.values() for r in rows}
-        tpex_rows = _fetch_tpex_all_days(set(yf_list), start, today)
-        for d_str, rows in tpex_rows.items():
-            for r in rows:
-                if (r["_date"], r["stock_id"]) not in twse_covered:
-                    day_rows[r["_date"]].append(r)
+    # Phase 2: TPEx 逐日全市場（補充上櫃股）
+    logger.info("Phase 2 TPEx 逐日：%d 個交易日 ...", len(all_days))
+    tpex_rows = _fetch_tpex_all_days(stock_ids_set, start, today)
+    added = 0
+    for d_str, rows in tpex_rows.items():
+        for r in rows:
+            if (r["_date"], r["stock_id"]) not in twse_covered:
+                day_rows[r["_date"]].append(r)
+                added += 1
+    tpex_covered: set = {(r["_date"], r["stock_id"]) for rows in tpex_rows.values() for r in rows}
+    logger.info("Phase 2 完成：補充 TPEx %d 筆", added)
+
+    # Phase 3: 個股補漏（STOCK_DAY_ALL 和 TPEx 都未涵蓋的上市股 → 用逐股月別 API）
+    all_covered = twse_covered | tpex_covered
+    covered_stocks = {sid for (_, sid) in all_covered}
+    # 只補 TWSE 上市股（4位數字代號，上櫃已由 Phase 2 涵蓋）
+    missing_twse = [s for s in stock_ids_set if s not in covered_stocks and s.isdigit() and len(s) == 4]
+    if missing_twse:
+        logger.info("Phase 3 個股補漏：%d 支 TWSE 股票未被 STOCK_DAY_ALL 涵蓋，改用逐股月別 API ...", len(missing_twse))
+        month_starts = []
+        y, m = start.year, start.month
+        while date(y, m, 1) <= today:
+            month_starts.append(date(y, m, 1))
+            m += 1
+            if m > 12:
+                m = 1
+                y += 1
+
+        for sid in missing_twse:
+            _, rows, is_twse, _ = _fetch_stock_months(sid, month_starts)
+            if rows:
+                for r in rows:
+                    r["stock_id"] = sid
+                    d_str = r.pop("_date")
+                    r["_date"] = d_str
+                    day_rows[d_str].append(r)
+                logger.info("  %s: 補齊 %d 筆", sid, len(rows))
+            else:
+                logger.debug("  %s: 逐股 API 也無資料", sid)
+    else:
+        logger.info("Phase 3：無需補漏")
 
     written = 0
     for d_str, rows in sorted(day_rows.items()):
         if _merge_into_csv(output_path / f"{d_str}.csv", rows, overwrite=True):
             written += 1
 
-    logger.info("TWSE+TPEx 補齊完成：寫入/更新 %d 日", written)
+    total_records = sum(len(v) for v in day_rows.values())
+    logger.info("補齊完成：寫入/更新 %d 日，共 %d 筆", written, total_records)
     return written
 
 

@@ -7,6 +7,28 @@
 
 ## 目前狀態（2026-06-30 更新）
 
+### Pattern 偵測器鮮度修正 ✅（2026-06-30，commit fe26e9a）
+
+**問題根源（hit_target on day 0 — 21/21 訊號立即達標）**：
+- `detect_double_bottom/top/inverse_hs` 只檢查「今日 > 頸線」，未確認昨日仍在頸線下方
+- 數週前突破的股票每日仍觸發偵測器，signal_date=今日，close 遠超 target → 瞬間 hit_target
+- 範例：2415 頭肩底 anchor=25.78, target=27.48，但 close=37.50（已高出46%）
+
+**修法（`screener/patterns.py`）**：
+1. `detect_double_bottom`：加 `if close[-2] > neckline: continue`（昨日已過頸線則非首日突破）
+2. `detect_double_top`：加 `if close[-2] < neckline: continue`
+3. `detect_inverse_hs`：計算昨日頸線值 `neckline_yesterday = pk1 + slope*(seg_n-1-pk1_idx)`，昨日已過則跳過
+4. `scan_and_track` `days_held`：改用 `np.busday_count`（交易日數）取代 `timedelta.days`（日曆天數）
+
+**清理作業**：
+- 刪除 DuckDB `pattern_signals` 中今日（2026-06-30）全部舊 stale signals（60筆：39 active + 21 hit_target）
+- 刪除假週六 CSV：`2026-06-06.csv`（23筆）、`2026-06-13.csv`（1033筆）
+- 同步刪除 DuckDB `daily_prices` 對應週六資料
+
+**結果**：重掃後 29 個 active 訊號，無 hit_target on day 0；50/50 tests 通過
+
+---
+
 ### 三角突破 / 雙底 嚴格化 ✅（2026-06-30）
 
 **問題根源（8049 晶采誤報）**：

@@ -47,6 +47,17 @@ def _load_meta_map() -> dict:
         return {}
 
 
+def _load_exchange_map() -> dict:
+    try:
+        all_cols = pd.read_csv(_UNIVERSE_PATH, nrows=0).columns.tolist()
+        if "exchange" not in all_cols:
+            return {}
+        df = pd.read_csv(_UNIVERSE_PATH, usecols=["stock_id", "exchange"], dtype=str)
+        return df.set_index("stock_id")["exchange"].to_dict()
+    except Exception:
+        return {}
+
+
 def _calc_streak(series: pd.Series) -> int:
     """回傳序列尾端連續正值天數（序列應按日期升序排列）。"""
     streak = 0
@@ -152,6 +163,7 @@ def scan_institutional(
 
     name_map = _load_name_map()
     meta_map = _load_meta_map()
+    exchange_map = _load_exchange_map()
     results = []
 
     for sid, grp in inst_df.groupby("stock_id"):
@@ -213,6 +225,7 @@ def scan_institutional(
             "stock_id":       str(sid),
             "stock_name":     name_map.get(str(sid), ""),
             "meta_sector":    meta_map.get(str(sid), ""),
+            "exchange":       exchange_map.get(str(sid), ""),
             "date":           trade_date,
             "foreign_net":    int(f_net) if f_net is not None else None,
             "trust_net":      int(t_net) if t_net is not None else None,

@@ -394,21 +394,37 @@ def run(trade_date: date = None, realtime: bool = False) -> None:
             inst_results = []
         try:
             from screener.database import get_shareholder_top
+            import duckdb as _ddb
             sh_df = get_shareholder_top()
             if not sh_df.empty:
                 universe = pd.read_csv(UNIVERSE_PATH, dtype=str, usecols=["stock_id", "stock_name", "meta_sector"])
                 name_map = universe.set_index("stock_id")[["stock_name", "meta_sector"]].to_dict("index")
+                # 取最近一個交易日的股價
+                try:
+                    _con = _ddb.connect("data/screener.db", read_only=True)
+                    _pdate = _con.execute("SELECT MAX(date) FROM daily_prices").fetchone()[0]
+                    _pdf = _con.execute(
+                        "SELECT stock_id, close, change_pct FROM daily_prices WHERE date = ?", [_pdate]
+                    ).fetchdf() if _pdate else pd.DataFrame()
+                    _con.close()
+                    sh_price_map = _pdf.set_index("stock_id")[["close", "change_pct"]].to_dict("index") if not _pdf.empty else {}
+                except Exception:
+                    sh_price_map = {}
                 sh_rows = []
                 for _, row in sh_df.iterrows():
-                    info = name_map.get(str(row["stock_id"]), {})
+                    sid = str(row["stock_id"])
+                    info = name_map.get(sid, {})
+                    px = sh_price_map.get(sid, {})
                     sh_rows.append({
-                        "stock_id":   str(row["stock_id"]),
-                        "stock_name": info.get("stock_name", ""),
+                        "stock_id":    sid,
+                        "stock_name":  info.get("stock_name", ""),
                         "meta_sector": info.get("meta_sector", ""),
                         "lv12_15_pct": float(row["lv12_15_pct"]) if row["lv12_15_pct"] is not None else None,
                         "week_chg":    float(row["week_chg"]) if row["week_chg"] is not None else None,
                         "streak":      int(row["streak"]) if row["streak"] is not None else 0,
                         "date":        str(row["date"]),
+                        "close":       float(px["close"]) if px.get("close") is not None else None,
+                        "change_pct":  float(px["change_pct"]) if px.get("change_pct") is not None else None,
                     })
             else:
                 sh_rows = []

@@ -564,13 +564,13 @@ def _meta_card(row: dict, rank: int, card_id: str, sectors_df=None, prices_df=No
         f'<div class="mc-card" data-meta="{card_id}" data-meta-name="{meta_name_safe}"'
         f' style="border-top:2px solid {color};background:{bg}"{onclick}>'
         f'<div class="mc-hd">'
-        f'<span class="mc-rank">#{rank}</span>'
+        f'<span class="mc-name">{row["meta_name"]}</span>'
         f'<span class="mc-pct" style="color:{color}">{arrow}{sign}{pct:.2f}%</span>'
         f'</div>'
-        f'<div class="mc-name">{row["meta_name"]}</div>'
         f'<div class="mc-cnt">'
         f'<span style="color:#f87171">▲{up}</span> '
         f'<span style="color:#4ade80">▼{down}</span>'
+        f'<span class="mc-rank" style="float:right">#{rank}</span>'
         f'</div>'
         f'{badges}'
         f'</div>'
@@ -821,10 +821,10 @@ def generate(
     @media(max-width:540px){{.mc-grid{{grid-template-columns:repeat(3,1fr)}}}}
     .mc-card{{padding:8px 10px;border-radius:8px;border:1px solid #1e293b;cursor:pointer;transition:filter .12s}}
     .mc-card:hover,.mc-card.active{{filter:brightness(1.15);border-color:#475569}}
-    .mc-hd{{display:flex;align-items:center;justify-content:space-between;margin-bottom:3px}}
+    .mc-hd{{display:flex;align-items:baseline;justify-content:space-between;gap:4px;margin-bottom:2px}}
     .mc-rank{{font-size:.7rem;color:#475569;font-weight:600}}
-    .mc-pct{{font-size:1.05rem;font-weight:800}}
-    .mc-name{{font-size:.85rem;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:3px}}
+    .mc-pct{{font-size:1.05rem;font-weight:800;white-space:nowrap}}
+    .mc-name{{font-size:.85rem;color:#94a3b8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}}
     .mc-cnt{{font-size:.78rem;font-weight:600}}
     .mc-panel{{background:#070b12;border:1px solid #1e293b;border-radius:8px;padding:12px 16px;margin-top:5px}}
 

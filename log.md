@@ -5,18 +5,79 @@
 
 ---
 
-## 目前狀態（2026-06-29）
+## 目前狀態（2026-06-30 更新）
+
+### 三角突破 / 雙底 嚴格化 ✅（2026-06-30）
+
+**問題根源（8049 晶采誤報）**：
+- 8049 今日跌 -0.9%，但壓力線外推剛好在收盤下方 → 觸發「三角突破」
+- 量縮要求缺失：整理期量能應遞減，但無驗證
+- `_TRI_VOL_CONFIRM = 1.3` 太低（1.4x 弱訊號全通過）
+- 雙底：5% 反彈太小、無最小間距、無前置下跌趨勢要求、1.2x 量確認太弱
+
+**修改（`screener/patterns.py`）**：
+
+`detect_triangle_up()` 新增：
+1. 突破日必須是上漲日：`today['close'] > df['close'].iloc[-2]`（核心 bugfix）
+2. 整理期量縮：後10日均量 ≤ 前10日均量 × 1.1
+3. `_TRI_VOL_CONFIRM`: 1.3 → 1.8
+
+`detect_double_bottom()` 新增：
+1. 兩低點最小間距 ≥ 8 根
+2. 第一底前有下跌趨勢（前高 ≥ 第一底 × 1.10）
+3. `_DBL_BOUNCE`: 5% → 8%
+4. `_DBL_PRICE_DIFF`: 3% → 5%（稍放寬允許自然差距）
+5. `_DBL_VOL_CONFIRM`: 1.2 → 1.5
+
+全 22 tests 通過。
+
+---
+
+## 目前狀態（2026-06-29 更新）
+
+### VCP 重寫：三波量縮突破 ✅（2026-06-29）
+
+**問題根源（4503 金雨誤報）**：
+- 舊版只看「15日平台振幅<10%+量縮+突破」，本質是「平台突破」，不是 VCP
+- 4503 在下跌途中（40.15→36.75），15日偶然振幅4.5%、量縮6%、微突破 → 全過
+- 完全不符合 Mark Minervini VCP 結構：三波幅度遞減回檔 + 前置上升趨勢
+
+**新實作（`detect_vcp`，`screener/patterns.py`）**：
+1. 在近 50 日視窗內找 peak→trough 波段（`_local_maxima` / `_local_minima`）
+2. 每波回檔幅度 < 前一波 × 80%（三波約各半）
+3. 每波均量收縮（後波 ≤ 前波 × 1.05）
+4. **前置趨勢**：65日前收盤 < 第一個峰值 × 95%（確認是上漲後整理，非下跌途中）
+5. 突破最後一波峰值 + 今日爆量 ≥ 整理均量 × 2.0
+
+**測試**：22/22 通過，新增 `test_vcp_not_detected_downtrend` 和 `test_vcp_not_detected_pullback_not_contracting`
+
+---
+
+### 三角突破修復 ✅（2026-06-29）
+
+**根本原因（雙重 bug）**：
+1. `np.polyfit(all_20_bars)` 把整個 20 日 K 棒全迴歸，非峰值 bar 把壓力線往下拉 → 幾乎所有收盤都超過，從不觸發
+2. TWSE 日 CSV 的 `high`/`low` 欄位全為 NaN → polyfit 直接得 nan
+
+**修法**：
+- 新增 `_pivot_trendline(arr, find_peaks, radius=2)` — 只找局部高/低點，連最後兩個 pivot 成線
+- NaN fallback：`highs = np.where(np.isnan(highs_raw), close_arr, highs_raw)`
+- 測試資料改為真實 zigzag（有局部峰/谷）
+
+**結果**：2026-06-29 掃出 三角突破 12 支、三角跌破 8 支（之前 0）
 
 ### 代辦清單（依優先順序）
 
 **P1 — 資料補齊（先做，其他任務的前置依賴）**
-- [ ] `python main.py --backfill-institutional` — 這台法人資料只到 2026-06-26，需補齊；home 那台跑完也要確認
+- [x] `python main.py --backfill-institutional` — 補齊至 2026-06-29，寫入 1328 支（2026-06-29）
 - [ ] `python main.py --backfill-twse 6` — 每日收盤後（17:00+）跑，避免 TWSE rate limiting
 - [ ] `import_csv_prices()` 全量匯入 — DuckDB 只有最近 134 天，CSV 有 2017 年至今，需全量匯入讓 backtest 能用完整歷史
 
 **P1 — 回測（已完成）**
-- [x] `python main.py --backtest` — 巨量換手訊號 299 個（2025-12-30~2026-06-24），D+5勝率44% 均報+0.96%
-- [x] `python main.py --backtest-patterns 120` — 雙底3616次(D+10:53%/+4.7%)、雙頂518次(D+5:61%/+2.9%)
+- [x] `python main.py --backtest` — 巨量換手 393訊號（2026-01-06~06-29），D+5勝率47%/+1.71%（資料更完整後改善）
+- [x] `python main.py --backtest-patterns 120` — 雙底5248次(D+10:43%/-1.1%)、雙頂905次(D+10:60%/+4.3%)、60日突破582次(D+10:21%/-5.5%)
+  - 注意：雙底勝率大幅下滑（前53%→43%），原因是TWSE補齊後市場覆蓋更廣，2026H1空頭環境假突破多
+  - 60日突破在下跌市表現極差，需加市場廣度過濾條件
 
 **P1/P2 — UI 改版**
 - [x] chips.html Tab 切換：8 個表格 → [🔥強力訊號][外資/投信][⚠融資警示][META分析] 4 個 Tab (2026-06-29, commit a7a1757)
@@ -30,13 +91,13 @@
   - 全量跑 1040 支：成功率 ~97%（約 30 支 SSL EOF 失敗，屬 TDCC 間歇性問題）
 - [x] `screener/database.py` 新增 `get_shareholder_top()` 查詢函式
 - [x] chips.html 新增大戶增倉區塊（tab-holder，連增/連減倉各顯示 30/20 支）
-- [ ] 綜合評分系統 0-100：外資25+投信20+形態25+量能15+大戶15，融資扣分（依賴 shareholder + backtest）
+- [x] 綜合評分系統 0-100：外資25+投信20+形態25+量能15+大戶15，融資扣分 — `calc_composite_score()` in screener/patterns.py（2026-06-29）
 
 **每週執行（週五盤後）**
 - `python main.py --update-shareholder` — 集保大戶持倉更新（~1040 支，35min）
 
 **P3 — 低優先**
-- [ ] 上市/上櫃分開顯示
+- [x] 上市/上櫃分開顯示 — exchange 欄位 + [全部/上市/上櫃] 過濾按鈕（chips.html + patterns.html）（2026-06-29）
 
 ---
 

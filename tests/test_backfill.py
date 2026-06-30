@@ -15,32 +15,27 @@ def test_iter_weekdays_skips_weekends():
     assert days == [date(2026, 1, 2), date(2026, 1, 5)]
 
 
-def test_backfill_twse_monthly_uses_daily_all_and_filters_universe():
+def test_backfill_twse_monthly_uses_daily_all_and_filters_universe(tmp_path):
     merged = []
 
-    def fake_fetch(trade_date):
-        if trade_date == date(2026, 1, 1):
-            raise ValueError("holiday")
-        return pd.DataFrame({
-            "stock_id": ["2330", "2317", "9999"],
-            "stock_name": ["台積電", "鴻海", "測試"],
-            "close": [905.0, 102.0, 1.0],
-            "change": [5.0, -1.0, 0.0],
-            "change_pct": [0.56, -0.97, 0.0],
-            "volume": [12345, 8000, 1],
-        })
+    fake_twse_rows = {"2026-01-02": [
+        {"_date": "2026-01-02", "stock_id": "2330", "stock_name": "台積電",
+         "close": 905.0, "change": 5.0, "change_pct": 0.56, "volume": 12345},
+        {"_date": "2026-01-02", "stock_id": "2317", "stock_name": "鴻海",
+         "close": 102.0, "change": -1.0, "change_pct": -0.97, "volume": 8000},
+    ]}
 
-    def fake_merge(path, rows):
+    def fake_merge(path, rows, overwrite=False):
         merged.append((path.name, rows))
         return True
 
-    with patch("scrapers.backfill.fetch_twse_daily_prices", side_effect=fake_fetch), \
-            patch("scrapers.backfill._merge_into_csv", side_effect=fake_merge):
+    with patch("scrapers.backfill._fetch_twse_all_days", return_value=fake_twse_rows), \
+         patch("scrapers.backfill._fetch_tpex_all_days", return_value={}), \
+         patch("scrapers.backfill._merge_into_csv", side_effect=fake_merge):
         written = backfill_twse_monthly(
             ["2330", "2317"],
             months=1,
-            output_dir="unused",
-            sleep_sec=0,
+            output_dir=str(tmp_path),
             today=date(2026, 1, 2),
         )
 

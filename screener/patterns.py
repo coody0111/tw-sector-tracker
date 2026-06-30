@@ -406,7 +406,7 @@ def detect_breakout_confirm(df: pd.DataFrame) -> bool:
             rr          = round((target - anchor) / (anchor - stop), 2) if anchor > stop else 0.0
             return {"anchor": anchor, "stop": stop, "target": target, "rr": rr}
 
-    return None
+    return False
 
 
 def detect_box_consolidation(df: pd.DataFrame) -> bool:

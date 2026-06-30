@@ -28,7 +28,7 @@ def test_generate_creates_file(tmp_path):
     out = tmp_path / "patterns.html"
     generate(date(2026, 6, 27), _SAMPLE, str(out))
     assert out.exists()
-    html = out.read_text()
+    html = out.read_text(encoding="utf-8")
     assert "台積電" in html
     assert "2330" in html
 
@@ -36,7 +36,7 @@ def test_generate_creates_file(tmp_path):
 def test_generate_sections_present(tmp_path):
     out = tmp_path / "patterns.html"
     generate(date(2026, 6, 27), _SAMPLE, str(out))
-    html = out.read_text()
+    html = out.read_text(encoding="utf-8")
     assert "做多候選" in html
     assert "避開清單" in html
     assert "箱型整理" in html or "盤整觀察" in html
@@ -45,8 +45,7 @@ def test_generate_sections_present(tmp_path):
 def test_generate_screener_only_shows_bullish(tmp_path):
     out = tmp_path / "patterns.html"
     generate(date(2026, 6, 27), _SAMPLE, str(out))
-    html = out.read_text()
-    # Screener table section should contain 台積電 (bullish, score 6)
-    # 雙頂 stock (3034) should only appear in 避開清單, not in screener
-    screener_section = html.split("做多候選")[1].split("形態分區")[0]
+    html = out.read_text(encoding="utf-8")
+    # Screener tab div should contain 台積電 (bullish, score 6)
+    screener_section = html.split('id="tab-screener"')[1].split('id="tab-patterns"')[0]
     assert "2330" in screener_section

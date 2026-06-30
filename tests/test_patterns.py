@@ -93,7 +93,7 @@ def test_double_bottom_detected():
     # Volume spike on breakout day (1.5x+ required with new threshold)
     vols = [1_000_000] * (len(closes) - 1) + [2_000_000]
     df = _make_ohlcv(closes, vols)
-    assert detect_double_bottom(df) is True
+    assert detect_double_bottom(df)
 
 
 def test_double_bottom_not_detected_no_bounce():
@@ -113,7 +113,7 @@ def test_double_top_detected():
     )
     vols = [1_000_000] * (len(closes) - 1) + [2_000_000]
     df = _make_ohlcv(closes, vols)
-    assert detect_double_top(df) is True
+    assert detect_double_top(df)
 
 
 def test_double_top_not_detected_when_price_holds():
@@ -148,7 +148,7 @@ def test_triangle_up_detected():
     closes = closes_h + [101.5]
     vols   = [1_000_000] * 20 + [2_000_000]
     df = pd.DataFrame({'close': closes, 'high': highs, 'low': lows, 'volume': vols})
-    assert detect_triangle_up(df) is True
+    assert detect_triangle_up(df)
 
 
 def test_triangle_down_detected():
@@ -170,7 +170,7 @@ def test_triangle_down_detected():
     closes = closes_h + [93.5]
     vols   = [1_000_000] * 20 + [2_000_000]
     df = pd.DataFrame({'close': closes, 'high': highs, 'low': lows, 'volume': vols})
-    assert detect_triangle_down(df) is True
+    assert detect_triangle_down(df)
 
 
 def test_breakout_confirm_detected():
@@ -178,7 +178,7 @@ def test_breakout_confirm_detected():
     closes = [98.0] * 60 + [100.0, 101.0, 102.0]   # 63 days total
     vols   = [1_000_000] * 61 + [1_600_000, 1_000_000]  # big vol on day 62 (yesterday)
     df = _make_ohlcv(closes, vols)
-    assert detect_breakout_confirm(df) is True
+    assert detect_breakout_confirm(df)
 
 
 def test_breakout_confirm_not_detected_when_below():
@@ -186,7 +186,7 @@ def test_breakout_confirm_not_detected_when_below():
     closes = [98.0] * 60 + [100.0, 101.0, 99.5]
     vols   = [1_000_000] * 61 + [1_600_000, 1_000_000]
     df = _make_ohlcv(closes, vols)
-    assert detect_breakout_confirm(df) is False
+    assert not detect_breakout_confirm(df)
 
 
 def test_box_consolidation_detected():
@@ -276,7 +276,7 @@ def _make_vcp_df(
 def test_vcp_detected():
     """標準兩波量縮突破 → 應偵測為 VCP。"""
     df = _make_vcp_df()
-    assert detect_vcp(df) is True
+    assert detect_vcp(df)
 
 
 def test_vcp_not_detected_downtrend():

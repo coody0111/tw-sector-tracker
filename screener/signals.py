@@ -22,6 +22,11 @@ logger = logging.getLogger(__name__)
 _DB_PATH = "data/screener.db"
 _UNIVERSE_PATH = "data/stock_universe.csv"
 
+# lookback 視窗至少要有這麼多筆真實資料，量倍數才有統計意義。
+# 少於這個門檻代表該股歷史回補不足（例如只有錨點日 + 今天兩筆），
+# 拿去算「今日量 / 均量」會是無意義的雜訊，不能當正常訊號用。
+_MIN_WINDOW_DAYS = 20
+
 
 def _load_universe_map() -> dict:
     try:
@@ -112,7 +117,9 @@ def scan_volume_turnover(
         # ① 爆量：今日量 = 過去 lookback 日最大值
         window_start = max(0, today_idx - lookback + 1)
         window = grp.iloc[window_start: today_idx + 1]
-        if len(window) < 2:
+        if len(window) < _MIN_WINDOW_DAYS:
+            # 歷史資料不足（例如 TWSE 回補被封鎖，只剩錨點日+今天兩筆），
+            # 均量/量倍數統計上沒有意義，直接跳過該股票，不要產生誤導性訊號。
             continue
         vol_max = window["volume"].max()
         if int(today["volume"]) < int(vol_max):

@@ -495,6 +495,165 @@ def backfill_prices(
     return written
 
 
+def backfill_yfinance(
+    universe_path: str = "data/stock_universe.csv",
+    months: int = 18,
+    db_path: str = "data/screener.db",
+    output_dir: str = "data/daily_prices",
+    batch_size: int = 50,
+) -> int:
+    """
+    用 Yahoo Finance 補齊歷史行情，無需 token，支援 18+ 個月。
+
+    Exchange 對應：
+      TWSE → {id}.TW
+      TPEx  → {id}.TWO
+      未知  → 先試 .TW 再試 .TWO
+
+    直接 upsert 進 DuckDB（含 open/high/low），同時同步 daily_prices CSV。
+    """
+    import duckdb
+
+    univ = pd.read_csv(universe_path, dtype={"stock_id": str})
+    exch_map: dict[str, str] = {}
+    for _, row in univ.iterrows():
+        sid = str(row["stock_id"])
+        ex = str(row.get("exchange", "")).upper()
+        if "TPEX" in ex or "OTC" in ex or ex == "TWO":
+            exch_map[sid] = f"{sid}.TWO"
+        else:
+            exch_map[sid] = f"{sid}.TW"
+
+    all_sids = list(exch_map.keys())
+    logger.info("Yahoo Finance 補齊：%d 支股票  最近 %d 個月  batch=%d", len(all_sids), months, batch_size)
+
+    import math
+    period_str = f"{months}mo"
+    rows_all: list[dict] = []
+
+    def _yf_fetch(tickers_str: str, sids_in_batch: list[str]) -> list[dict]:
+        try:
+            raw = yf.download(
+                tickers_str,
+                period=period_str,
+                auto_adjust=True,
+                progress=False,
+                threads=False,
+            )
+        except Exception as exc:
+            logger.warning("yf.download 失敗: %s", exc)
+            return []
+
+        if raw.empty:
+            return []
+
+        # yfinance >= 0.2.x: columns are always MultiIndex (Price, Ticker)
+        is_multi = isinstance(raw.columns, pd.MultiIndex)
+        available_tickers = set(raw.columns.get_level_values(1)) if is_multi else set()
+
+        results = []
+        for sid in sids_in_batch:
+            ticker = exch_map[sid]
+            try:
+                if is_multi:
+                    if ticker not in available_tickers:
+                        logger.debug("  %s: 無資料 (%s)", sid, ticker)
+                        continue
+                    df_s = raw.xs(ticker, axis=1, level=1).copy()
+                else:
+                    df_s = raw.copy()
+
+                if df_s.empty:
+                    logger.debug("  %s: empty after xs (%s)", sid, ticker)
+                    continue
+
+                df_s = df_s.dropna(subset=["Close"])
+                df_s = df_s[df_s["Volume"] > 0]
+                if df_s.empty:
+                    continue
+
+                closes = df_s["Close"].values.astype(float)
+                changes = [0.0] + list(closes[1:] - closes[:-1])
+                prev_closes = [closes[0]] + list(closes[:-1])
+                change_pcts = [
+                    round(ch / pc * 100, 2) if pc != 0 else 0.0
+                    for ch, pc in zip(changes, prev_closes)
+                ]
+
+                for i, (dt_idx, row_s) in enumerate(df_s.iterrows()):
+                    dt_str = dt_idx.date().isoformat() if hasattr(dt_idx, "date") else str(dt_idx)[:10]
+                    results.append({
+                        "stock_id":   sid,
+                        "date":       dt_str,
+                        "open":       round(float(row_s.get("Open") or 0), 4),
+                        "high":       round(float(row_s.get("High") or 0), 4),
+                        "low":        round(float(row_s.get("Low") or 0), 4),
+                        "close":      round(float(row_s["Close"]), 4),
+                        "volume":     int(row_s["Volume"]) // 1000,
+                        "change":     round(changes[i], 4),
+                        "change_pct": change_pcts[i],
+                    })
+            except Exception as exc:
+                logger.debug("  %s 解析失敗: %s", sid, exc)
+
+        return results
+
+    n_batches = math.ceil(len(all_sids) / batch_size)
+    for b in range(n_batches):
+        batch = all_sids[b * batch_size:(b + 1) * batch_size]
+        tickers_str = " ".join(exch_map[s] for s in batch)
+        batch_rows = _yf_fetch(tickers_str, batch)
+        rows_all.extend(batch_rows)
+        logger.info("  batch [%d/%d]  取得 %d 筆", b + 1, n_batches, len(batch_rows))
+        time.sleep(0.5)
+
+    if not rows_all:
+        logger.info("Yahoo Finance 無資料回傳，DuckDB 不更新。")
+        return 0
+
+    df_new = pd.DataFrame(rows_all)
+    df_new["date"] = pd.to_datetime(df_new["date"]).dt.date
+
+    # upsert DuckDB
+    con = duckdb.connect(db_path)
+    con.register("_yf_new", df_new)
+    con.execute("DELETE FROM daily_prices WHERE (stock_id, date) IN (SELECT stock_id, date FROM _yf_new)")
+    con.execute("""
+        INSERT INTO daily_prices (stock_id, date, open, high, low, close, volume, change, change_pct)
+        SELECT stock_id, date, open, high, low, close, volume, change, change_pct FROM _yf_new
+    """)
+    total = len(df_new)
+    con.close()
+
+    # 同步寫 CSV（維持現有格式，讓 reimport_db 可重建；失敗不中斷）
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+    csv_ok = csv_fail = 0
+    for d_str, grp in df_new.groupby(df_new["date"].astype(str)):
+        csv_rows = [
+            {
+                "stock_id":   r["stock_id"],
+                "close":      r["close"],
+                "change":     r["change"],
+                "change_pct": r["change_pct"],
+                "volume":     r["volume"],
+            }
+            for _, r in grp.iterrows()
+        ]
+        try:
+            _merge_into_csv(output_path / f"{d_str}.csv", csv_rows, overwrite=True)
+            csv_ok += 1
+        except OSError as exc:
+            csv_fail += 1
+            logger.debug("CSV 寫入失敗 %s: %s", d_str, exc)
+
+    if csv_fail:
+        logger.warning("CSV 同步：成功 %d 日，失敗 %d 日（DuckDB 已更新，CSV 可用 --reimport 補）", csv_ok, csv_fail)
+
+    logger.info("Yahoo Finance 補齊完成：upsert %d 筆進 DuckDB", total)
+    return total
+
+
 def backfill_margin(
     days: int = 60,
     db_path: str = "data/screener.db",

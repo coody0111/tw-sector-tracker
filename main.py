@@ -511,6 +511,8 @@ if __name__ == "__main__":
                         help="補齊集保持股分散表過去 N 週資料（每支股票一次請求，約 17 分鐘/週）")
     parser.add_argument("--update-broker", action="store_true",
                         help="抓今日各股券商分點買賣超（需先設定 broker_branch.py 的 _TWSE_BROKER_URL）")
+    parser.add_argument("--backfill-yf", type=int, default=0, metavar="MONTHS",
+                        help="用 Yahoo Finance 補齊過去 N 個月歷史行情（無需 token，含 OHLCV，建議 18~24）")
     parser.add_argument("--reimport", action="store_true",
                         help="清空 daily_prices 並從所有 CSV 重新匯入（自動過濾假資料），用於修復資料庫錯誤")
     parser.add_argument("--fix-stale", action="store_true",
@@ -542,6 +544,11 @@ if __name__ == "__main__":
         _backfill_shareholder(weeks=args.backfill_shareholder)
     elif args.update_broker:
         _update_broker()
+    elif args.backfill_yf:
+        from scrapers.backfill import backfill_yfinance
+        init_db()
+        n = backfill_yfinance(months=args.backfill_yf)
+        logger.info("=== backfill-yf 完成：%d 筆 ===", n)
     elif args.reimport:
         from screener.database import reimport_db
         init_db()

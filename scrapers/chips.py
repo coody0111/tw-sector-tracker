@@ -3,13 +3,39 @@
 - 三大法人：TWSE T86（上市）
 - 融資融券：FinMind API（上市+上櫃）
 """
+import os
 import requests
 import pandas as pd
 from datetime import date
+from dotenv import load_dotenv
+
+load_dotenv()
 
 TWSE_T86_URL = "https://www.twse.com.tw/rwd/zh/fund/T86"
 FINMIND_URL = "https://api.finmindtrade.com/api/v4/data"
-FINMIND_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoiY29keWxpdTAxMTEiLCJlbWFpbCI6ImxlYXJuY29keTFAZ21haWwuY29tIiwidG9rZW5fdmVyc2lvbiI6MH0.neT8oLd-W13Mfp3m8Y8XRnihhF_YO8aQ4HCzm11P7fg"
+FINMIND_TOKEN = os.environ.get("FINMIND_TOKEN", "")
+
+_HEADERS_TWSE = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+    ),
+    "Referer": "https://www.twse.com.tw/",
+}
+
+
+class TWSEBlockedError(RuntimeError):
+    """TWSE 回傳資安擋頁（WAF block／IP 被限流），不是合法的『尚未發布』回應。"""
+
+
+def _check_twse_response(resp) -> None:
+    """偵測 TWSE 擋頁：合法回應一律是 200 + JSON，擋頁是 30x 導向 + text/html。"""
+    ctype = resp.headers.get("Content-Type", "")
+    if resp.status_code != 200 or "json" not in ctype.lower():
+        raise TWSEBlockedError(
+            f"TWSE 疑似封鎖此 IP（status={resp.status_code}, content-type={ctype!r}），"
+            "並非資料尚未發布"
+        )
 
 
 def _parse_num(val: str) -> int:
@@ -29,9 +55,11 @@ def fetch_institutional(trade_date: date) -> pd.DataFrame:
     resp = requests.get(
         TWSE_T86_URL,
         params={"response": "json", "date": date_str, "selectType": "ALLBUT0999"},
-        timeout=30
+        headers=_HEADERS_TWSE,
+        timeout=30,
+        verify=False,
     )
-    resp.raise_for_status()
+    _check_twse_response(resp)
     data = resp.json()
 
     if data.get("stat") != "OK" or not data.get("data"):
@@ -54,13 +82,6 @@ def fetch_institutional(trade_date: date) -> pd.DataFrame:
 
 
 _TWSE_MARGN_URL = "https://www.twse.com.tw/rwd/zh/marginTrading/MI_MARGN"
-_HEADERS_TWSE = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
-    ),
-    "Referer": "https://www.twse.com.tw/",
-}
 
 
 def fetch_margin_all_twse(trade_date: date) -> pd.DataFrame:
@@ -74,8 +95,9 @@ def fetch_margin_all_twse(trade_date: date) -> pd.DataFrame:
         params={"date": date_str, "selectType": "ALL", "response": "json"},
         headers=_HEADERS_TWSE,
         timeout=20,
+        verify=False,
     )
-    resp.raise_for_status()
+    _check_twse_response(resp)
     data = resp.json()
 
     if data.get("stat") != "OK":

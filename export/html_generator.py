@@ -193,10 +193,12 @@ def _stock_card_html(sid: str, stock_name: str, prices_map, chips_map, stock_spa
         chips_html = ""
         if sid in chips_map.index:
             c = chips_map.loc[sid]
-            fn = int(c.get("foreign_net") or 0)
-            tn = int(c.get("trust_net") or 0)
-            mb = int(c.get("margin_balance") or 0)
-            mc = int(c.get("margin_change") or 0)
+            import pandas as pd
+            def _na(v): return 0 if (v is None or pd.isna(v)) else v
+            fn = int(_na(c.get("foreign_net")))
+            tn = int(_na(c.get("trust_net")))
+            mb = int(_na(c.get("margin_balance")))
+            mc = int(_na(c.get("margin_change")))
             chips_data = {"foreign": fn, "trust": tn, "marginBal": mb, "marginChg": mc}
             foreign = _fmt_chips_num(c.get("foreign_net"), _CHIPS_BADGE_MIN)
             trust = _fmt_chips_num(c.get("trust_net"), _TRUST_BADGE_MIN)
@@ -326,10 +328,12 @@ def _stock_table(sector_name: str, sectors_df: pd.DataFrame, prices_df: pd.DataF
         chips_data: dict = {}
         if sid in chips_map.index:
             c = chips_map.loc[sid]
-            fn = int(c.get("foreign_net") or 0)
-            tn = int(c.get("trust_net") or 0)
-            mb = int(c.get("margin_balance") or 0)
-            mc = int(c.get("margin_change") or 0)
+            import pandas as pd
+            def _na(v): return 0 if (v is None or pd.isna(v)) else v
+            fn = int(_na(c.get("foreign_net")))
+            tn = int(_na(c.get("trust_net")))
+            mb = int(_na(c.get("margin_balance")))
+            mc = int(_na(c.get("margin_change")))
             chips_data = {"foreign": fn, "trust": tn, "marginBal": mb, "marginChg": mc}
 
         spark_json = json.dumps(spark)
@@ -344,14 +348,14 @@ def _stock_table(sector_name: str, sectors_df: pd.DataFrame, prices_df: pd.DataF
             f' data-code="{sid}" data-wpct="{wpct}"'
             f' data-foreign="{fn}" data-trust="{tn}" data-margin="{mb}"'
             f' onclick="openStockModal(this)" style="cursor:pointer">'
-            f'<td style="color:#64748b;font-size:.78rem;font-weight:600">{sid}</td>'
-            f'<td style="color:#cbd5e1">{stock_name}</td>'
-            f'<td style="color:#f1f5f9;font-weight:700">{_fmt_price(close)}</td>'
-            f'<td><span style="color:{color};font-weight:700">{arrow} {sign}{pct:.2f}%</span></td>'
-            f'<td><span style="color:{wcolor};font-weight:700">{warrow} {wsign}{wpct:.2f}%</span></td>'
+            f'<td style="color:#64748b;font-size:.92rem;font-weight:600">{sid}</td>'
+            f'<td style="color:#cbd5e1;font-size:1.1rem;font-weight:600">{stock_name}</td>'
+            f'<td style="color:#f1f5f9;font-weight:700;font-size:1.15rem">{_fmt_price(close)}</td>'
+            f'<td><span style="color:{color};font-weight:700;font-size:1.1rem">{arrow} {sign}{pct:.2f}%</span></td>'
+            f'<td><span style="color:{wcolor};font-weight:700;font-size:1.1rem">{warrow} {wsign}{wpct:.2f}%</span></td>'
             f'<td>{_fmt_chips_num(fn, _CHIPS_BADGE_MIN)}</td>'
             f'<td>{_fmt_chips_num(tn, _TRUST_BADGE_MIN)}</td>'
-            f'<td style="font-size:.78rem">{margin_html}</td>'
+            f'<td style="font-size:.95rem">{margin_html}</td>'
             f'</tr>'
         )
 
@@ -434,7 +438,7 @@ def _sector_mini_card(row, card_id: str, sectors_df=None, prices_df=None, chips_
 def _top10_card(row, rank: int, sectors_df=None, prices_df=None, chips_df=None, stock_sparklines=None) -> str:
     pct = row["avg_change_pct"]
     up, down, flat = int(row["up_count"]), int(row["down_count"]), int(row["flat_count"])
-    detail = _stock_cards(row["sector_name"], sectors_df, prices_df, chips_df, stock_sparklines=stock_sparklines)
+    detail = _stock_table(row["sector_name"], sectors_df, prices_df, chips_df, stock_sparklines=stock_sparklines)
     has_detail = bool(detail)
     onclick = ' onclick="toggleDetail(this)"' if has_detail else ""
     chevron = '<span class="chevron">›</span>' if has_detail else ""
@@ -457,10 +461,7 @@ def _top10_card(row, rank: int, sectors_df=None, prices_df=None, chips_df=None, 
 def _meta_stock_cards(sub_names: list, sectors_df, prices_df, chips_df=None,
                       universe_df=None, stock_ids: list = None, as_row: bool = True,
                       stock_sparklines: dict = None) -> str:
-    """合併所有子族群的個股卡片。
-    若傳入 universe_df + stock_ids，直接從 universe 查詢（無重複）；
-    否則 fallback 到舊的 sectors_df + sub_names 查詢。
-    """
+    """合併所有子族群的個股排行表（可排序）。"""
     if prices_df is None:
         return ""
 
@@ -478,16 +479,90 @@ def _meta_stock_cards(sub_names: list, sectors_df, prices_df, chips_df=None,
         name_map = dict(zip(sub_df["stock_id"].astype(str), sub_df["stock_name"].astype(str)))
     else:
         return ""
+
     prices_map = prices_df.set_index("stock_id") if not prices_df.empty else pd.DataFrame()
     chips_map = chips_df.set_index("stock_id") if chips_df is not None and not chips_df.empty else pd.DataFrame()
 
-    cards = [_stock_card_html(sid, name_map[sid], prices_map, chips_map, stock_sparklines)
-             for sid in sorted(name_map.keys())]
+    rows_html = []
+    for sid in sorted(name_map.keys(), key=lambda s: float(prices_map.loc[s, "change_pct"]) if s in prices_map.index else -999, reverse=True):
+        stock_name = name_map[sid]
+        if sid not in prices_map.index:
+            rows_html.append(
+                f'<tr><td style="color:#475569;font-size:.78rem">{sid}</td>'
+                f'<td style="color:#334155">{stock_name}</td>'
+                f'<td colspan="6" style="color:#334155;font-size:.75rem">無行情</td></tr>'
+            )
+            continue
 
-    cards_html = f'<div class="stock-cards-wrap">{"".join(cards)}</div>'
+        p = prices_map.loc[sid]
+        close = float(p["close"])
+        pct = float(p["change_pct"])
+        vol = int(p["volume"])
+        color = _pct_color(pct)
+        sign = "+" if pct >= 0 else ""
+        arrow = "▲" if pct > 0 else ("▼" if pct < 0 else "─")
+
+        spark = (stock_sparklines or {}).get(sid, [])
+        wpct = _weekly_pct(spark)
+        wcolor = _pct_color(wpct)
+        wsign = "+" if wpct >= 0 else ""
+        warrow = "▲" if wpct > 0 else ("▼" if wpct < 0 else "─")
+
+        fn = tn = mb = mc = 0
+        chips_data: dict = {}
+        if sid in chips_map.index:
+            c = chips_map.loc[sid]
+            import pandas as pd
+            def _na(v): return 0 if (v is None or pd.isna(v)) else v
+            fn = int(_na(c.get("foreign_net")))
+            tn = int(_na(c.get("trust_net")))
+            mb = int(_na(c.get("margin_balance")))
+            mc = int(_na(c.get("margin_change")))
+            chips_data = {"foreign": fn, "trust": tn, "marginBal": mb, "marginChg": mc}
+
+        spark_json = json.dumps(spark)
+        chips_json = json.dumps(chips_data)
+        name_safe = stock_name.replace('"', "&quot;")
+        margin_html = _fmt_margin(mb, mc) if mb > 0 else "<span style='color:#334155'>─</span>"
+
+        rows_html.append(
+            f'<tr class="st-row" data-sid="{sid}" data-name="{name_safe}"'
+            f' data-close="{close}" data-pct="{pct}" data-vol="{vol}"'
+            f' data-sparkline=\'{spark_json}\' data-chips=\'{chips_json}\''
+            f' data-code="{sid}" data-wpct="{wpct}"'
+            f' data-foreign="{fn}" data-trust="{tn}" data-margin="{mb}"'
+            f' onclick="openStockModal(this)" style="cursor:pointer">'
+            f'<td style="color:#64748b;font-size:.92rem;font-weight:600">{sid}</td>'
+            f'<td style="color:#cbd5e1;font-size:1.1rem;font-weight:600">{stock_name}</td>'
+            f'<td style="color:#f1f5f9;font-weight:700;font-size:1.15rem">{_fmt_price(close)}</td>'
+            f'<td><span style="color:{color};font-weight:700;font-size:1.1rem">{arrow} {sign}{pct:.2f}%</span></td>'
+            f'<td><span style="color:{wcolor};font-weight:700;font-size:1.1rem">{warrow} {wsign}{wpct:.2f}%</span></td>'
+            f'<td>{_fmt_chips_num(fn, _CHIPS_BADGE_MIN)}</td>'
+            f'<td>{_fmt_chips_num(tn, _TRUST_BADGE_MIN)}</td>'
+            f'<td style="font-size:.95rem">{margin_html}</td>'
+            f'</tr>'
+        )
+
+    if not rows_html:
+        return ""
+
+    thead = (
+        f'<thead><tr>'
+        f'<th onclick="sortStockTable(this)" data-key="code">代號</th>'
+        f'<th onclick="sortStockTable(this)" data-key="name">股名</th>'
+        f'<th onclick="sortStockTable(this)" data-key="close">收盤</th>'
+        f'<th onclick="sortStockTable(this)" data-key="pct">今日%</th>'
+        f'<th onclick="sortStockTable(this)" data-key="wpct">週漲跌%</th>'
+        f'<th onclick="sortStockTable(this)" data-key="foreign">外資</th>'
+        f'<th onclick="sortStockTable(this)" data-key="trust">投信</th>'
+        f'<th onclick="sortStockTable(this)" data-key="margin">融資</th>'
+        f'</tr></thead>'
+    )
+    tbody = f'<tbody>{"".join(rows_html)}</tbody>'
+    table = f'<table class="stock-table">{thead}{tbody}</table>'
     if as_row:
-        return f'<tr class="detail-row" style="display:none"><td colspan="4">{cards_html}</td></tr>'
-    return cards_html
+        return f'<tr class="detail-row" style="display:none"><td colspan="4">{table}</td></tr>'
+    return table
 
 
 _CUM_THRESHOLD = 15     # 累積排名超過此數字則不顯示 badge
@@ -703,18 +778,18 @@ def _vol_turnover_section(signals: list) -> str:
             f"</tr>"
         )
     return f"""
-<div style='background:#0f1624;border:1px solid #1e293b;border-radius:10px;padding:14px 16px;margin-bottom:16px'>
+<div style='background:#080c14;border:1px solid #1a2436;border-radius:10px;padding:14px 16px;margin-bottom:16px'>
   <div style='font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#475569;margin-bottom:10px'>
     ⚡ 巨量換手訊號（前日漲停 → 今日爆量收跌，共 {len(signals)} 檔）
   </div>
   <table style='width:100%;border-collapse:collapse'>
     <thead><tr>
-      <th style='text-align:left;padding:4px 8px;font-size:.65rem;color:#334155;border-bottom:1px solid #1e293b'>代號 / 名稱</th>
-      <th style='text-align:left;padding:4px 8px;font-size:.65rem;color:#334155;border-bottom:1px solid #1e293b'>族群</th>
-      <th style='text-align:left;padding:4px 8px;font-size:.65rem;color:#334155;border-bottom:1px solid #1e293b'>今日漲跌</th>
-      <th style='text-align:left;padding:4px 8px;font-size:.65rem;color:#334155;border-bottom:1px solid #1e293b'>量倍數</th>
-      <th style='text-align:left;padding:4px 8px;font-size:.65rem;color:#334155;border-bottom:1px solid #1e293b'>外資</th>
-      <th style='text-align:left;padding:4px 8px;font-size:.65rem;color:#334155;border-bottom:1px solid #1e293b'>確認</th>
+      <th style='text-align:left;padding:4px 8px;font-size:.65rem;color:#334155;border-bottom:1px solid #1a2436'>代號 / 名稱</th>
+      <th style='text-align:left;padding:4px 8px;font-size:.65rem;color:#334155;border-bottom:1px solid #1a2436'>族群</th>
+      <th style='text-align:left;padding:4px 8px;font-size:.65rem;color:#334155;border-bottom:1px solid #1a2436'>今日漲跌</th>
+      <th style='text-align:left;padding:4px 8px;font-size:.65rem;color:#334155;border-bottom:1px solid #1a2436'>量倍數</th>
+      <th style='text-align:left;padding:4px 8px;font-size:.65rem;color:#334155;border-bottom:1px solid #1a2436'>外資</th>
+      <th style='text-align:left;padding:4px 8px;font-size:.65rem;color:#334155;border-bottom:1px solid #1a2436'>確認</th>
     </tr></thead>
     <tbody>{rows_html}</tbody>
   </table>
@@ -859,25 +934,29 @@ def generate(
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>台股電子族群 {date_str}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Fira+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <style>
     *{{box-sizing:border-box;margin:0;padding:0}}
-    body{{font-family:-apple-system,"Segoe UI",sans-serif;background:#0b0f18;color:#e2e8f0;padding:12px 20px}}
+    body{{font-family:"Fira Sans",-apple-system,"Segoe UI",sans-serif;background:#020617;color:#e2e8f0;padding:12px 20px}}
+    .mono{{font-family:"Fira Code",monospace;font-variant-numeric:tabular-nums}}
 
     /* Header */
     .header{{margin-bottom:24px}}
-    h1{{font-size:1.1rem;font-weight:600;color:#94a3b8;letter-spacing:.05em;text-transform:uppercase}}
-    .mkt-bar{{display:flex;align-items:center;gap:20px;margin-top:8px;padding:12px 16px;background:#141c2e;border-radius:10px;flex-wrap:wrap}}
+    h1{{font-family:"Fira Sans",sans-serif;font-size:1.1rem;font-weight:600;color:#94a3b8;letter-spacing:.05em;text-transform:uppercase}}
+    .mkt-bar{{display:flex;align-items:center;gap:20px;margin-top:8px;padding:12px 16px;background:#0a0e1a;border:1px solid #1e293b;border-radius:10px;flex-wrap:wrap}}
     .mkt-date{{font-size:1rem;font-weight:600;color:#f1f5f9}}
-    .mkt-avg{{font-size:1.3rem;font-weight:800;color:{mkt_color}}}
+    .mkt-avg{{font-family:"Fira Code",monospace;font-size:1.3rem;font-weight:800;color:{mkt_color};text-shadow:0 0 12px {mkt_color}55}}
     .mkt-stat{{font-size:.82rem;color:#64748b}}
     .mkt-stat span{{font-weight:600}}
 
     /* 累積排名 badge */
     .mc-badges{{display:flex;gap:3px;margin-top:5px;flex-wrap:wrap}}
-    .cum-badge{{font-size:.58rem;color:#475569;background:#0a0e18;border:1px solid #1e293b;border-radius:3px;padding:1px 5px;white-space:nowrap;cursor:default}}
+    .cum-badge{{font-family:"Fira Code",monospace;font-size:.58rem;color:#475569;background:#04070f;border:1px solid #1a2436;border-radius:3px;padding:1px 5px;white-space:nowrap;cursor:default}}
     .cum-badge b{{color:#94a3b8;font-weight:700;margin-left:1px}}
-    .cum-val{{font-size:.58rem;font-weight:600;margin-left:3px}}
-    .sig-badge{{font-size:.58rem;border-radius:3px;padding:1px 5px;white-space:nowrap;cursor:default;border:1px solid}}
+    .cum-val{{font-family:"Fira Code",monospace;font-size:.58rem;font-weight:600;margin-left:3px}}
+    .sig-badge{{font-family:"Fira Code",monospace;font-size:.58rem;border-radius:3px;padding:1px 5px;white-space:nowrap;cursor:default;border:1px solid}}
     .rank-up{{color:#f87171;background:rgba(127,29,29,.18);border-color:rgba(127,29,29,.4)}}
     .rank-dn{{color:#4ade80;background:rgba(6,78,59,.18);border-color:rgba(6,78,59,.4)}}
     .streak-up{{color:#fbbf24;background:rgba(120,53,15,.25);border-color:rgba(120,53,15,.5);font-weight:700}}
@@ -887,7 +966,7 @@ def generate(
     .sparkline-wrap{{padding:8px 0 4px;overflow-x:auto;margin-bottom:8px}}
 
     /* 籌碼摘要（展開面板頂部）*/
-    .chips-summary{{background:#0a0e18;border:1px solid #1e293b;border-radius:6px;padding:8px 12px;margin-bottom:8px}}
+    .chips-summary{{background:#04070f;border:1px solid #1a2436;border-radius:6px;padding:8px 12px;margin-bottom:8px}}
     .cs-row{{display:flex;align-items:center;gap:8px;font-size:.75rem;line-height:2}}
     .cs-label{{color:#475569;font-size:.65rem;text-transform:uppercase;letter-spacing:.05em;min-width:28px}}
     .cs-sub{{color:#475569;font-size:.65rem}}
@@ -902,18 +981,18 @@ def generate(
     .mc-grid{{display:grid;grid-template-columns:repeat(10,1fr);gap:5px}}
     @media(max-width:1000px){{.mc-grid{{grid-template-columns:repeat(5,1fr)}}}}
     @media(max-width:540px){{.mc-grid{{grid-template-columns:repeat(3,1fr)}}}}
-    .mc-card{{padding:8px 10px;border-radius:8px;border:1px solid #1e293b;cursor:pointer;transition:filter .12s}}
-    .mc-card:hover,.mc-card.active{{filter:brightness(1.15);border-color:#475569}}
+    .mc-card{{padding:8px 10px;border-radius:8px;border:1px solid #1a2436;background:#080c14;cursor:pointer;transition:border-color .15s,background .15s}}
+    .mc-card:hover,.mc-card.active{{border-color:#334155;background:#0d1525}}
     .mc-hd{{display:flex;align-items:baseline;justify-content:space-between;gap:4px;margin-bottom:2px}}
     .mc-rank{{font-size:.7rem;color:#475569;font-weight:600}}
-    .mc-pct{{font-size:1.05rem;font-weight:800;white-space:nowrap}}
+    .mc-pct{{font-family:"Fira Code",monospace;font-size:1.05rem;font-weight:800;white-space:nowrap}}
     .mc-name{{font-size:.85rem;color:#94a3b8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}}
     .mc-cnt{{font-size:.78rem;font-weight:600}}
-    .mc-panel{{background:#070b12;border:1px solid #1e293b;border-radius:8px;padding:12px 16px;margin-top:5px}}
+    .mc-panel{{background:#04070f;border:1px solid #1a2436;border-radius:8px;padding:12px 16px;margin-top:5px}}
 
     /* Fallback table Top10 */
-    .top-card{{background:#0f1624;border:1px solid #1e293b;border-radius:12px;overflow:hidden;margin-bottom:10px}}
-    .top-card-title{{padding:10px 16px;font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;border-bottom:1px solid #1e293b}}
+    .top-card{{background:#080c14;border:1px solid #1a2436;border-radius:12px;overflow:hidden;margin-bottom:10px}}
+    .top-card-title{{padding:10px 16px;font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;border-bottom:1px solid #1a2436}}
     .up-title{{color:#d97070}} .down-title{{color:#009933}}
     .top-row{{cursor:pointer}} .top-row:hover > td{{background:#1a2235}}
     .top-rank{{width:28px;padding:10px 0 10px 14px;font-size:.75rem;font-weight:700;color:#334155;text-align:center}}
@@ -929,86 +1008,87 @@ def generate(
 
     /* Sector table */
     table{{width:100%;border-collapse:collapse}}
-    th{{text-align:left;padding:6px 12px;font-size:.7rem;color:#475569;text-transform:uppercase;border-bottom:1px solid #1e293b}}
-    td{{padding:9px 12px;border-bottom:1px solid #0b0f18;font-size:.85rem}}
+    th{{text-align:left;padding:6px 12px;font-size:.7rem;color:#475569;text-transform:uppercase;border-bottom:1px solid #1a2436}}
+    td{{padding:9px 12px;border-bottom:1px solid #020617;font-size:.85rem}}
     .name{{font-weight:500;color:#e2e8f0;max-width:160px}}
     .cnt{{font-size:.78rem;margin-right:4px}}
     .bar-cell{{width:70px}}
-    .clickable-sector{{cursor:pointer}}
-    .clickable-sector:hover > td{{background:#141c2e}}
+    .clickable-sector{{cursor:pointer;transition:background .12s}}
+    .clickable-sector:hover > td{{background:#080c14}}
 
     /* Stock cards */
-    .detail-row > td{{padding:12px 16px;background:#070b12}}
+    .detail-row > td{{padding:12px 16px;background:#04070f}}
     .stock-cards-wrap{{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}}
-    .stock-card{{background:#0f1624;border:1px solid #1e293b;border-radius:8px;padding:10px 12px;transition:border-color .15s}}
-    .stock-card:hover{{border-color:#334155}}
-    .no-data{{opacity:.5}}
+    .stock-card{{background:#080c14;border:1px solid #1a2436;border-radius:8px;padding:10px 12px;transition:border-color .15s,background .15s}}
+    .stock-card:hover{{border-color:#334155;background:#0d1525}}
+    .no-data{{opacity:.4}}
     .sc-header{{display:flex;align-items:baseline;gap:6px;margin-bottom:6px}}
-    .sc-id{{font-size:.72rem;color:#475569;font-weight:600}}
+    .sc-id{{font-family:"Fira Code",monospace;font-size:.72rem;color:#475569;font-weight:600}}
     .sc-name{{font-size:.82rem;color:#94a3b8;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
     .sc-body{{display:flex;align-items:baseline;justify-content:space-between;gap:6px;margin-bottom:4px}}
-    .sc-price{{font-size:1rem;font-weight:700;color:#f1f5f9}}
-    .sc-pct{{font-size:.82rem;font-weight:700}}
-    .sc-vol{{font-size:.7rem;color:#334155}}
+    .sc-price{{font-family:"Fira Code",monospace;font-size:1rem;font-weight:700;color:#f1f5f9}}
+    .sc-pct{{font-family:"Fira Code",monospace;font-size:.82rem;font-weight:700}}
+    .sc-vol{{font-family:"Fira Code",monospace;font-size:.7rem;color:#475569}}
     .sc-chips{{font-size:.72rem;color:#64748b;margin-top:4px;line-height:1.6}}
     .chip-label{{color:#334155;margin-right:2px}}
 
     /* Stock sortable table (sub-sector expand) */
-    .stock-table{{width:100%;border-collapse:collapse;font-size:.82rem}}
-    .stock-table thead th{{text-align:left;padding:5px 10px;font-size:.65rem;color:#94a3b8;text-transform:uppercase;cursor:pointer;user-select:none;white-space:nowrap;border-bottom:1px solid #1e293b}}
+    .stock-table{{width:100%;border-collapse:collapse;font-size:1.05rem}}
+    .stock-table thead th{{text-align:left;padding:7px 14px;font-size:.8rem;color:#94a3b8;text-transform:uppercase;cursor:pointer;user-select:none;white-space:nowrap;border-bottom:1px solid #1a2436;transition:color .12s}}
     .stock-table thead th:hover{{color:#e2e8f0}}
-    .stock-table td{{padding:7px 10px;border-bottom:1px solid #070b12}}
-    .st-row:hover>td{{background:#0f1624}}
+    .stock-table td{{padding:10px 14px;border-bottom:1px solid #04070f}}
+    .st-row{{cursor:pointer;transition:background .12s}}
+    .st-row:hover>td{{background:#080c14}}
 
     /* Groups */
     .section-bar{{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}}
     .groups-grid{{display:grid;grid-template-columns:1fr;gap:8px}}
     .section-title{{font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;color:#475569}}
-    .collapse-all-btn{{background:none;border:1px solid #1e293b;color:#475569;padding:4px 12px;border-radius:6px;cursor:pointer;font-size:.75rem;transition:all .15s}}
+    .collapse-all-btn{{background:none;border:1px solid #1a2436;color:#475569;padding:4px 12px;border-radius:6px;cursor:pointer;font-size:.75rem;transition:all .15s}}
     .collapse-all-btn:hover{{border-color:#334155;color:#94a3b8}}
-    .group-block{{border:1px solid #1e293b;border-radius:10px;margin-bottom:8px;overflow:hidden}}
-    .group-header{{display:flex;align-items:center;gap:10px;padding:11px 16px;cursor:pointer;list-style:none;background:#0f1624;user-select:none}}
-    .group-header:hover{{background:#141c2e}}
+    .group-block{{border:1px solid #1a2436;border-radius:10px;margin-bottom:8px;overflow:hidden}}
+    .group-header{{display:flex;align-items:center;gap:10px;padding:11px 16px;cursor:pointer;list-style:none;background:#080c14;user-select:none;transition:background .15s}}
+    .group-header:hover{{background:#0d1525}}
     .group-header::-webkit-details-marker{{display:none}}
-    details[open] > .group-header{{border-bottom:1px solid #1e293b}}
+    details[open] > .group-header{{border-bottom:1px solid #1a2436;background:#0d1525}}
     .g-name{{font-weight:600;color:#e2e8f0;flex:1;font-size:.9rem}}
-    .g-avg{{font-weight:800;font-size:1rem}}
+    .g-avg{{font-family:"Fira Code",monospace;font-weight:800;font-size:1rem}}
     .g-count{{font-size:.72rem;color:#334155}}
 
     /* Sub-sector mini-card grid */
-    .sc-mini-grid{{display:grid;grid-template-columns:repeat(5,1fr);gap:4px;padding:10px 12px}}
+    .sc-mini-grid{{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;padding:10px 12px}}
     @media(max-width:900px){{.sc-mini-grid{{grid-template-columns:repeat(4,1fr)}}}}
     @media(max-width:540px){{.sc-mini-grid{{grid-template-columns:repeat(3,1fr)}}}}
-    .sc-mini-card{{padding:6px 8px;border-radius:6px;border:1px solid #1e293b;cursor:pointer;transition:filter .12s}}
-    .sc-mini-card:hover,.sc-mini-card.active{{filter:brightness(1.18);border-color:#475569}}
-    .sc-mini-pct{{font-size:.78rem;font-weight:800;white-space:nowrap}}
-    .sc-mini-name{{font-size:.62rem;color:#94a3b8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin:2px 0}}
-    .sc-mini-cnt{{font-size:.58rem;color:#64748b}}
-    .sc-mini-panel{{background:#070b12;border:1px solid #1e293b;border-radius:8px;padding:12px 16px;margin:0 12px 10px}}
+    .sc-mini-card{{padding:9px 11px;border-radius:6px;border:1px solid #1a2436;background:#080c14;cursor:pointer;transition:border-color .15s,background .15s}}
+    .sc-mini-card:hover,.sc-mini-card.active{{border-color:#475569;background:#0d1525}}
+    .sc-mini-pct{{font-family:"Fira Code",monospace;font-size:1rem;font-weight:800;white-space:nowrap}}
+    .sc-mini-name{{font-size:.85rem;color:#94a3b8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin:3px 0}}
+    .sc-mini-cnt{{font-size:.75rem;color:#64748b}}
+    .sc-mini-panel{{background:#04070f;border:1px solid #1a2436;border-radius:8px;padding:12px 16px;margin:0 12px 10px}}
 
     /* Search */
     .search-wrap{{position:relative;margin-top:10px;max-width:360px}}
-    .stock-search{{width:100%;background:#0f1624;border:1px solid #1e293b;border-radius:8px;padding:8px 14px;color:#e2e8f0;font-size:.85rem;outline:none;transition:border-color .15s}}
-    .stock-search:focus{{border-color:#475569}}
-    .search-dropdown{{position:absolute;top:calc(100% + 4px);left:0;right:0;background:#0f1624;border:1px solid #1e293b;border-radius:8px;z-index:100;overflow:hidden;box-shadow:0 8px 24px rgba(0,0,0,.5)}}
+    .stock-search{{width:100%;background:#080c14;border:1px solid #1a2436;border-radius:8px;padding:8px 14px;color:#e2e8f0;font-family:"Fira Sans",sans-serif;font-size:.85rem;outline:none;transition:border-color .15s}}
+    .stock-search:focus{{border-color:#475569;box-shadow:0 0 0 2px rgba(71,85,105,.2)}}
+    .search-dropdown{{position:absolute;top:calc(100% + 4px);left:0;right:0;background:#080c14;border:1px solid #1a2436;border-radius:8px;z-index:100;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,.7)}}
     .search-item{{display:flex;align-items:center;gap:8px;padding:8px 12px;cursor:pointer;font-size:.8rem;transition:background .1s}}
-    .search-item:hover{{background:#141c2e}}
-    .si-id{{color:#475569;font-size:.72rem;min-width:36px}}
+    .search-item:hover{{background:#0d1525}}
+    .si-id{{font-family:"Fira Code",monospace;color:#475569;font-size:.72rem;min-width:36px}}
     .si-name{{color:#e2e8f0;flex:1;font-weight:500}}
     .si-meta{{color:#334155;font-size:.7rem}}
-    .si-pct{{font-weight:700;font-size:.8rem;min-width:52px;text-align:right}}
-    .search-item-meta{{border-top:1px solid #0f1624}}
+    .si-pct{{font-family:"Fira Code",monospace;font-weight:700;font-size:.8rem;min-width:52px;text-align:right}}
+    .search-item-meta{{border-top:1px solid #080c14}}
     .si-meta-icon{{color:#60a5fa;font-size:.65rem;font-weight:700;min-width:36px;background:rgba(30,58,138,.3);border-radius:3px;text-align:center;padding:1px 4px}}
 
     .search-highlight{{outline:2px solid #475569;outline-offset:2px;border-radius:8px}}
 
     /* Nav */
     .nav-links{{display:flex;gap:8px;margin-top:10px}}
-    .nav-link{{font-size:.78rem;padding:5px 14px;border-radius:6px;border:1px solid #1e293b;color:#64748b;text-decoration:none;transition:all .15s}}
-    .nav-link:hover{{border-color:#475569;color:#94a3b8}}
-    .nav-link.active{{border-color:#475569;color:#e2e8f0;background:#141c2e}}
+    .nav-link{{font-size:.78rem;padding:5px 14px;border-radius:6px;border:1px solid #1a2436;color:#64748b;text-decoration:none;transition:all .15s}}
+    .nav-link:hover{{border-color:#475569;color:#94a3b8;background:#080c14}}
+    .nav-link.active{{border-color:#334155;color:#e2e8f0;background:#0d1525}}
 
-    .footer{{margin-top:28px;font-size:.7rem;color:#1e293b;text-align:center;padding-bottom:20px}}
+    .footer{{margin-top:28px;font-size:.7rem;color:#1a2436;text-align:center;padding-bottom:20px}}
 
     /* ── RWD Mobile ── */
     @media(max-width:540px){{
@@ -1036,20 +1116,20 @@ def generate(
     }}
 
     /* ── Stock Modal ── */
-    .smodal-overlay{{position:fixed;inset:0;z-index:2000;background:rgba(0,0,0,.75);display:flex;align-items:center;justify-content:center;padding:16px}}
-    .smodal{{background:#0f1624;border:1px solid #1e293b;border-radius:14px;width:100%;max-width:420px;max-height:90vh;overflow-y:auto;box-shadow:0 24px 64px rgba(0,0,0,.7)}}
-    .smodal-hd{{display:flex;align-items:center;justify-content:space-between;padding:16px 18px 10px;border-bottom:1px solid #1e293b}}
-    .smodal-sid{{font-size:1.1rem;font-weight:700;color:#e2e8f0;margin-right:8px}}
+    .smodal-overlay{{position:fixed;inset:0;z-index:2000;background:rgba(0,0,0,.85);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:16px}}
+    .smodal{{background:#080c14;border:1px solid #1a2436;border-radius:14px;width:100%;max-width:420px;max-height:90vh;overflow-y:auto;box-shadow:0 32px 80px rgba(0,0,0,.9)}}
+    .smodal-hd{{display:flex;align-items:center;justify-content:space-between;padding:16px 18px 10px;border-bottom:1px solid #1a2436}}
+    .smodal-sid{{font-family:"Fira Code",monospace;font-size:1.1rem;font-weight:700;color:#e2e8f0;margin-right:8px}}
     .smodal-name{{font-size:.9rem;color:#64748b}}
-    .smodal-close{{background:none;border:none;color:#475569;font-size:1.2rem;cursor:pointer;padding:2px 6px;border-radius:4px;line-height:1}}
-    .smodal-close:hover{{color:#94a3b8;background:#1e293b}}
+    .smodal-close{{background:none;border:none;color:#475569;font-size:1.2rem;cursor:pointer;padding:2px 6px;border-radius:4px;line-height:1;transition:all .15s}}
+    .smodal-close:hover{{color:#94a3b8;background:#1a2436}}
     .smodal-price{{display:flex;align-items:baseline;gap:12px;padding:12px 18px 8px}}
-    .smodal-val{{font-size:1.6rem;font-weight:800;color:#f1f5f9}}
-    .smodal-pct{{font-size:1rem;font-weight:700}}
-    .smodal-vol{{font-size:.78rem;color:#64748b;margin-left:auto}}
+    .smodal-val{{font-family:"Fira Code",monospace;font-size:1.6rem;font-weight:800;color:#f1f5f9}}
+    .smodal-pct{{font-family:"Fira Code",monospace;font-size:1rem;font-weight:700}}
+    .smodal-vol{{font-family:"Fira Code",monospace;font-size:.78rem;color:#64748b;margin-left:auto}}
     .smodal-spark{{padding:4px 18px 8px;overflow-x:auto}}
     .smodal-chips{{padding:10px 18px 18px}}
-    .sm-chip-row{{display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid #0b0f18;font-size:.85rem}}
+    .sm-chip-row{{display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid #04070f;font-size:.85rem}}
     .sm-chip-row:last-child{{border-bottom:none}}
     .sm-chip-label{{color:#475569;font-size:.7rem;min-width:36px}}
     .sm-chip-val{{font-weight:600}}
@@ -1283,14 +1363,16 @@ def generate(
       const chips = d.chips ? JSON.parse(d.chips) : {{}};
       let ch = '';
       if (chips.foreign !== undefined) {{
-        const fc = chips.foreign >= 0 ? '#ef4444' : '#22c55e';
-        const fs = chips.foreign >= 0 ? '+' : '';
-        ch += `<div class="sm-chip-row"><span class="sm-chip-label">外資</span><span class="sm-chip-val" style="color:${{fc}}">${{fs}}${{parseInt(chips.foreign).toLocaleString()}} 張</span></div>`;
+        const fLots = Math.round(chips.foreign / 1000);
+        const fc = fLots >= 0 ? '#ef4444' : '#22c55e';
+        const fs = fLots >= 0 ? '+' : '';
+        ch += `<div class="sm-chip-row"><span class="sm-chip-label">外資</span><span class="sm-chip-val" style="color:${{fc}}">${{fs}}${{fLots.toLocaleString()}} 張</span></div>`;
       }}
       if (chips.trust !== undefined) {{
-        const tc = chips.trust >= 0 ? '#ef4444' : '#22c55e';
-        const ts = chips.trust >= 0 ? '+' : '';
-        ch += `<div class="sm-chip-row"><span class="sm-chip-label">投信</span><span class="sm-chip-val" style="color:${{tc}}">${{ts}}${{parseInt(chips.trust).toLocaleString()}} 張</span></div>`;
+        const tLots = Math.round(chips.trust / 1000);
+        const tc = tLots >= 0 ? '#ef4444' : '#22c55e';
+        const ts = tLots >= 0 ? '+' : '';
+        ch += `<div class="sm-chip-row"><span class="sm-chip-label">投信</span><span class="sm-chip-val" style="color:${{tc}}">${{ts}}${{tLots.toLocaleString()}} 張</span></div>`;
       }}
       if (chips.marginBal !== undefined) {{
         const mc = chips.marginChg > 0 ? '#f87171' : (chips.marginChg < 0 ? '#4ade80' : '#64748b');

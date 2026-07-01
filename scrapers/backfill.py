@@ -12,7 +12,6 @@
 """
 import logging
 import os
-import random
 import time
 import threading
 from collections import defaultdict
@@ -27,13 +26,10 @@ import requests
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-from scrapers.twse import fetch_daily_prices as fetch_twse_daily_prices
-
 logger = logging.getLogger(__name__)
 
 FINMIND_URL = "https://api.finmindtrade.com/api/v4/data"
 TWSE_STOCK_DAY_URL = "https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY"
-TPEX_STOCK_DAY_URL = "https://www.tpex.org.tw/web/stock/aftertrading/daily_trading_info/st43_result.php"
 
 _HEADERS_TWSE = {
     "User-Agent": (
@@ -44,21 +40,22 @@ _HEADERS_TWSE = {
     "Referer": "https://www.twse.com.tw/",
 }
 
-_HEADERS_TPEX = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/125.0.0.0 Safari/537.36"
-    ),
-    "Referer": "https://www.tpex.org.tw/",
-}
-
 _HEADERS = _HEADERS_TWSE  # backward compat
 
 # FinMind 連續失敗超過此數就視為 rate-limit 到上限，提早退出
 _CONSECUTIVE_FAIL_LIMIT = 30
 
 _csv_lock = threading.Lock()
+_block_lock = threading.Lock()
+
+
+def _looks_like_twse_block(resp) -> bool:
+    """偵測 TWSE 資安擋頁（WAF block／IP 被限流），區別於合法的『該月無資料』JSON 回應。
+    合法回應一律是 status 200 + JSON content-type，即使 stat != OK 也一樣；
+    擋頁則是 30x 導向 + text/html，這裡專門抓這種情況。
+    """
+    ctype = resp.headers.get("Content-Type", "")
+    return resp.status_code != 200 or "json" not in ctype.lower()
 
 
 def _merge_into_csv(path: Path, new_rows: list, overwrite: bool = False) -> bool:
@@ -84,7 +81,11 @@ def _merge_into_csv(path: Path, new_rows: list, overwrite: bool = False) -> bool
                 merged = pd.concat([old_df, to_add], ignore_index=True)
         else:
             merged = new_df
-        merged.to_csv(path, index=False, encoding="utf-8-sig")
+        try:
+            merged.to_csv(path, index=False, encoding="utf-8-sig")
+        except OSError as exc:
+            logger.warning("寫入 %s 失敗（可能被鎖定，例如 OneDrive 同步中）：%s，跳過該日期", path.name, exc)
+            return False
     return True
 
 
@@ -111,14 +112,19 @@ def _iter_weekdays(start: date, end: date):
         current += timedelta(days=1)
 
 
-def _fetch_stock_months(sid: str, month_starts: list) -> tuple[str, list]:
+def _fetch_stock_months(sid: str, month_starts: list, stop_event: threading.Event = None) -> tuple[str, list]:
     """
     抓取單支 TWSE 股票的所有月份資料（只用於已確認為 TWSE 的股票）。
+    stop_event：跨 thread 共用，偵測到 TWSE 封鎖時會被設起來，之後所有 thread
+    看到就直接跳出、不再送新請求，避免在被封鎖期間繼續狂打。
     回傳 (stock_id, rows_list)
     """
     rows = []
 
     for mo in month_starts:
+        if stop_event is not None and stop_event.is_set():
+            break  # 已偵測到封鎖，不再送出新請求
+
         date_str = mo.strftime("%Y%m%d")
         for attempt in range(3):
             try:
@@ -129,6 +135,17 @@ def _fetch_stock_months(sid: str, month_starts: list) -> tuple[str, list]:
                     timeout=15,
                     verify=False,
                 )
+                if _looks_like_twse_block(resp):
+                    with _block_lock:
+                        if stop_event is not None and not stop_event.is_set():
+                            stop_event.set()
+                            logger.error(
+                                "TWSE 疑似封鎖此 IP（status=%d, content-type=%s），"
+                                "中止 Phase 1 剩餘請求，本次不會覆蓋現有歷史資料",
+                                resp.status_code, resp.headers.get("Content-Type", ""),
+                            )
+                    break  # 不重試，換下一個月（stop_event 會讓其他 thread 立即跳出）
+
                 data = resp.json()
                 if data.get("stat") != "OK" or not data.get("data"):
                     break  # 該月無資料（假日/下市），跳到下一個月
@@ -179,133 +196,6 @@ def _fetch_stock_months(sid: str, month_starts: list) -> tuple[str, list]:
         time.sleep(0.5)
 
     return sid, rows
-
-
-TPEX_DAILY_URL = "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes"
-
-
-def _fetch_tpex_all_days(stock_ids: set, start: date, end: date) -> dict:
-    """
-    用 TPEx OpenAPI 逐日抓全市場收盤，回傳 {date_str: [rows]} dict。
-    每次 API 呼叫回傳當日所有上櫃股票，再過濾出我們需要的 stock_ids。
-    """
-    day_rows: dict = defaultdict(list)
-    all_dates = list(_iter_weekdays(start, end))
-    done = 0
-
-    for d in all_dates:
-        date_param = f"{d.year}/{d.month:02d}/{d.day:02d}"
-        try:
-            resp = requests.get(
-                TPEX_DAILY_URL,
-                params={"date": date_param},
-                headers=_HEADERS_TPEX,
-                timeout=15,
-            )
-            data = resp.json()
-            if not data:
-                time.sleep(0.3)
-                continue
-
-            for item in data:
-                sid = str(item.get("SecuritiesCompanyCode", "")).strip()
-                if sid not in stock_ids:
-                    continue
-                try:
-                    close  = float(item["Close"].replace(",", ""))
-                    change = float(item["Change"].strip().replace(",", "").replace("+", ""))
-                    prev   = close - change
-                    change_pct = round(change / prev * 100, 2) if prev != 0 else 0.0
-                    vol    = int(item["TradingShares"].replace(",", "")) // 1000
-                    # Date field is Minguo: '1150627' → 2026-06-27
-                    mg = item["Date"]
-                    y   = int(mg[:3]) + 1911
-                    m   = int(mg[3:5])
-                    day = int(mg[5:])
-                    d_str = f"{y}-{m:02d}-{day:02d}"
-                    day_rows[d_str].append({
-                        "stock_id":   sid,
-                        "close":      close,
-                        "change":     change,
-                        "change_pct": change_pct,
-                        "volume":     vol,
-                        "_date":      d_str,
-                    })
-                except (ValueError, KeyError):
-                    continue
-
-        except Exception as exc:
-            logger.debug("TPEx daily %s 失敗: %s", date_param, exc)
-
-        done += 1
-        time.sleep(0.3)
-        if done % 20 == 0 or done == len(all_dates):
-            logger.info("  TPEx daily [%d/%d]", done, len(all_dates))
-
-    return day_rows
-
-
-def _fetch_twse_one_day(d: date, stock_ids_set: set, sleep_sec: float = 0.6) -> tuple[str, list]:
-    """
-    用 STOCK_DAY_ALL 抓單日所有 TWSE 上市股收盤，過濾到 stock_ids_set。
-    一次 API call 取代原本 n_stocks 次 STOCK_DAY call。
-    """
-    time.sleep(sleep_sec + random.random() * 0.15)
-    try:
-        df = fetch_twse_daily_prices(d)
-        if df.empty:
-            return d.isoformat(), []
-        rows = []
-        for _, row in df.iterrows():
-            sid = str(row["stock_id"]).strip()
-            if sid not in stock_ids_set:
-                continue
-            try:
-                rows.append({
-                    "stock_id":   sid,
-                    "close":      float(row["close"]),
-                    "change":     float(row.get("change", 0) or 0),
-                    "change_pct": float(row.get("change_pct", 0) or 0),
-                    "volume":     int(row.get("volume", 0) or 0),
-                    "_date":      d.isoformat(),
-                })
-            except (ValueError, TypeError):
-                continue
-        return d.isoformat(), rows
-    except Exception as exc:
-        logger.debug("TWSE_ALL %s: %s", d, exc)
-        return d.isoformat(), []
-
-
-def _fetch_twse_all_days(
-    stock_ids_set: set,
-    start: date,
-    end: date,
-    workers: int = 3,
-) -> dict:
-    """
-    並行逐日用 STOCK_DAY_ALL 抓 TWSE 全市場收盤。
-    n_days 次 API call（vs 舊版 n_stocks × n_months 次），快約 50 倍。
-    workers 建議 2-4（過高可能觸發 TWSE 限速）。
-    """
-    day_rows: dict = defaultdict(list)
-    all_dates = list(_iter_weekdays(start, end))
-    done = 0
-    total = len(all_dates)
-
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        futures = {executor.submit(_fetch_twse_one_day, d, stock_ids_set): d
-                   for d in all_dates}
-        for fut in as_completed(futures):
-            d_str, rows = fut.result()
-            for r in rows:
-                day_rows[d_str].append(r)
-            done += 1
-            if done % 30 == 0 or done == total:
-                total_records = sum(len(v) for v in day_rows.values())
-                logger.info("  TWSE_ALL [%d/%d 日]  已取 %d 筆", done, total, total_records)
-
-    return day_rows
 
 
 def _fetch_yfinance_history(
@@ -484,17 +374,12 @@ def backfill_twse_monthly(
     注意：STOCK_DAY_ALL 永遠回傳今天的資料，不能用於歷史。Phase 1 必須用逐股 STOCK_DAY。
     TPEx 官方 OpenAPI 同樣無歷史資料；FinMind 是目前唯一免費的上櫃歷史來源。
 
-    clean=True（預設）：執行前刪除所有現有 CSV，確保乾淨起始點。
+    clean=True（預設）：Phase 1 成功（未被 TWSE 封鎖）才會刪除現有 CSV 確保乾淨起始點；
+                       若偵測到封鎖，為了不讓現有歷史資料比執行前更差，直接放棄本次寫入、
+                       完全不動現有 CSV。
     """
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
-
-    if clean:
-        old_csvs = list(output_path.glob("*.csv"))
-        if old_csvs:
-            for f in old_csvs:
-                f.unlink()
-            logger.info("清除舊 CSV：已刪除 %d 個檔案", len(old_csvs))
 
     today = today or date.today()
     start = _first_month_start(today, months)
@@ -527,12 +412,13 @@ def backfill_twse_monthly(
 
     day_rows: dict = defaultdict(list)
     twse_done = 0
+    stop_event = threading.Event()
 
     # Phase 1: TWSE 逐股月別（並行）
     logger.info("Phase 1 TWSE 逐股月別 STOCK_DAY：workers=%d ...", workers)
     with ThreadPoolExecutor(max_workers=workers) as executor:
         futures = {
-            executor.submit(_fetch_stock_months, sid, month_starts): sid
+            executor.submit(_fetch_stock_months, sid, month_starts, stop_event): sid
             for sid in twse_stocks
         }
         done = 0
@@ -551,7 +437,15 @@ def backfill_twse_monthly(
                 )
     logger.info("Phase 1 完成：TWSE %d 支成功（共 %d 支）", twse_done, len(twse_stocks))
 
-    # Phase 2: TPEx 逐股 via FinMind TaiwanStockPrice
+    twse_blocked = stop_event.is_set()
+    if twse_blocked:
+        logger.error(
+            "TWSE 疑似封鎖此 IP，Phase 1 未完整取得資料（已成功的部分仍會保留、寫入）。"
+            "為避免用不完整資料覆蓋掉還沒抓到的 TWSE 股票，本次跳過清空舊 CSV 這步。"
+        )
+
+    # Phase 2: TPEx 逐股 via FinMind TaiwanStockPrice — 跟 TWSE 是不同服務，
+    # 不受 TWSE 封鎖影響，就算 Phase 1 被擋也照常執行。
     if tpex_stocks:
         if not finmind_token:
             logger.warning("Phase 2 跳過：未提供 finmind_token，TPEx %d 支無法補齊", len(tpex_stocks))
@@ -560,6 +454,18 @@ def backfill_twse_monthly(
             _fetch_finmind_history(
                 tpex_stocks, start.isoformat(), today.isoformat(), day_rows, finmind_token
             )
+
+    if clean and not twse_blocked:
+        old_csvs = list(output_path.glob("*.csv"))
+        if old_csvs:
+            deleted = skipped = 0
+            for f in old_csvs:
+                try:
+                    f.unlink()
+                    deleted += 1
+                except PermissionError:
+                    skipped += 1
+            logger.info("清除舊 CSV：刪除 %d 個，跳過 %d 個（被鎖定）", deleted, skipped)
 
     written = 0
     for d_str, rows in sorted(day_rows.items()):
@@ -674,7 +580,7 @@ def backfill_margin(
     補齊過去 N 個工作日的 TWSE 融資融券資料（MI_MARGN API）。
     已有資料的日期會跳過。回傳：成功寫入的交易日數。
     """
-    from scrapers.chips import fetch_margin_all_twse
+    from scrapers.chips import fetch_margin_all_twse, TWSEBlockedError
     import duckdb
 
     today = today or date.today()
@@ -721,6 +627,12 @@ def backfill_margin(
             con.close()
             written += 1
             logger.info("  [%d/%d] %s 寫入 %d 筆", i, len(trade_days), d_str, len(margin_df))
+        except TWSEBlockedError as exc:
+            logger.error(
+                "  [%d/%d] %s 疑似被 TWSE 封鎖：%s，提早中止剩餘 %d 日",
+                i, len(trade_days), d_str, exc, len(trade_days) - i,
+            )
+            break
         except Exception as exc:
             logger.warning("  [%d/%d] %s 失敗: %s", i, len(trade_days), d_str, exc)
         time.sleep(sleep_sec)
@@ -740,7 +652,7 @@ def backfill_institutional(
     已有資料的日期會跳過，只補缺漏。
     回傳：成功寫入的交易日數。
     """
-    from scrapers.chips import fetch_institutional
+    from scrapers.chips import fetch_institutional, TWSEBlockedError
     import duckdb
 
     today = today or date.today()
@@ -795,6 +707,12 @@ def backfill_institutional(
             written += 1
             logger.info("  [%d/%d] %s 寫入 %d 筆", i, len(trade_days), d_str, len(inst_df))
 
+        except TWSEBlockedError as exc:
+            logger.error(
+                "  [%d/%d] %s 疑似被 TWSE 封鎖：%s，提早中止剩餘 %d 日",
+                i, len(trade_days), d_str, exc, len(trade_days) - i,
+            )
+            break
         except Exception as exc:
             logger.warning("  [%d/%d] %s 失敗: %s", i, len(trade_days), d_str, exc)
 

@@ -9,7 +9,7 @@ from pathlib import Path
 from scrapers.moneydj import scrape_industry_sectors
 from scrapers.finmind import fetch_prices_for_stocks
 from scrapers.realtime import fetch_realtime_prices
-from scrapers.chips import fetch_institutional, fetch_margin_all_twse
+from scrapers.chips import fetch_institutional, fetch_margin_all_twse, TWSEBlockedError
 from scrapers.backfill import backfill_prices, backfill_twse_monthly, backfill_institutional, backfill_margin
 from processors.changes import detect_changes
 from processors.performance import calc_sector_performance, calc_meta_performance, calc_universe_performance, calc_cumulative_meta, calc_meta_signals, calc_meta_chips_signals, calc_stock_sparklines, get_stock_chips_ranking, get_margin_divergence
@@ -59,6 +59,9 @@ def _update_chips_db(trade_date: date, stock_ids: list) -> None:
         inst_date = trade_date
         try:
             inst_df = fetch_institutional(inst_date)
+        except TWSEBlockedError as exc:
+            logger.warning("三大法人抓取失敗（非『尚未發布』）：%s，本次跳過", exc)
+            inst_df = pd.DataFrame()
         except ValueError:
             inst_date = _prev_trading_day(trade_date)
             logger.info("三大法人今日尚未發布，改抓前一交易日 %s", inst_date)
@@ -77,6 +80,9 @@ def _update_chips_db(trade_date: date, stock_ids: list) -> None:
         marg_date = trade_date
         try:
             margin_df = fetch_margin_all_twse(marg_date)
+        except TWSEBlockedError as exc:
+            logger.warning("融資融券抓取失敗（非『尚未發布』）：%s，本次跳過", exc)
+            margin_df = pd.DataFrame()
         except ValueError:
             marg_date = _prev_trading_day(trade_date)
             logger.info("融資融券今日尚未發布，改抓前一交易日 %s", marg_date)
@@ -134,8 +140,13 @@ def backfill_twse(months: int = 6, workers: int = 3) -> None:
         return
     universe_df = pd.read_csv(UNIVERSE_PATH, encoding="utf-8-sig", dtype={"stock_id": str})
     stock_ids = universe_df["stock_id"].tolist()
+    exchange_map = dict(zip(universe_df["stock_id"], universe_df["exchange"])) if "exchange" in universe_df.columns else None
+    from scrapers.chips import FINMIND_TOKEN
     logger.info("=== 逐股月別補齊（往前 %d 個月，workers=%d）===", months, workers)
-    n = backfill_twse_monthly(stock_ids, months=months, workers=workers, clean=True)
+    n = backfill_twse_monthly(
+        stock_ids, months=months, workers=workers, clean=True,
+        exchange_map=exchange_map, finmind_token=FINMIND_TOKEN,
+    )
     if n > 0:
         from screener.database import reimport_db
         init_db()

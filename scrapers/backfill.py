@@ -516,6 +516,7 @@ def backfill_yfinance(
     import urllib3
     import duckdb
 
+    _orig_ssl_ctx = ssl._create_default_https_context
     ssl._create_default_https_context = ssl._create_unverified_context
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -533,14 +534,17 @@ def backfill_yfinance(
     logger.info("Yahoo Finance 補齊：%d 支股票  最近 %d 個月  batch=%d", len(all_sids), months, batch_size)
 
     import math
-    period_str = f"{months}mo"
+    from datetime import timedelta as _td
+    yf_start = (date.today() - _td(days=months * 31)).isoformat()
+    yf_end   = date.today().isoformat()
     rows_all: list[dict] = []
 
     def _yf_fetch(tickers_str: str, sids_in_batch: list[str]) -> list[dict]:
         try:
             raw = yf.download(
                 tickers_str,
-                period=period_str,
+                start=yf_start,
+                end=yf_end,
                 auto_adjust=True,
                 progress=False,
                 threads=False,
@@ -638,6 +642,9 @@ def backfill_yfinance(
         csv_rows = [
             {
                 "stock_id":   r["stock_id"],
+                "open":       r["open"],
+                "high":       r["high"],
+                "low":        r["low"],
                 "close":      r["close"],
                 "change":     r["change"],
                 "change_pct": r["change_pct"],
@@ -656,6 +663,7 @@ def backfill_yfinance(
         logger.warning("CSV 同步：成功 %d 日，失敗 %d 日（DuckDB 已更新，CSV 可用 --reimport 補）", csv_ok, csv_fail)
 
     logger.info("Yahoo Finance 補齊完成：upsert %d 筆進 DuckDB", total)
+    ssl._create_default_https_context = _orig_ssl_ctx
     return total
 
 

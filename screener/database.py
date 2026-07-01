@@ -129,25 +129,29 @@ def init_db() -> None:
 
 def _filter_stale(df: pd.DataFrame, min_streak: int = 5) -> pd.DataFrame:
     """
-    排除假資料：同一股票若有 ≥ min_streak 天 close+volume 完全相同，
+    排除假資料：同一股票若有「連續」≥ min_streak 天 close+volume 完全相同，
     整批視為 placeholder，從 df 中移除。
+    只計連續出現（日期排序後相鄰相同才累計），避免誤刪合法的偶發重複收盤。
     """
-    df = df.copy()
+    df = df.copy().sort_values(["stock_id", "date"]).reset_index(drop=True)
     df["_cv"] = df["close"].astype(str) + "_" + df["volume"].astype(str)
-    # 找出每個 (stock_id, close+volume) 出現次數 >= min_streak 的組合
-    counts = df.groupby(["stock_id", "_cv"]).size().reset_index(name="cnt")
-    stale = counts[counts["cnt"] >= min_streak].set_index(["stock_id", "_cv"])
-    if stale.empty:
-        return df.drop(columns=["_cv"])
-    stale_index = set(zip(stale.index.get_level_values(0), stale.index.get_level_values(1)))
-    mask = pd.Series(
-        [( r["stock_id"], r["_cv"]) in stale_index for _, r in df.iterrows()],
-        index=df.index,
-    )
+
+    # 連續出現計數：換 stock 或換 _cv 就重置
+    df["_streak"] = (
+        (df["_cv"] != df["_cv"].shift()) | (df["stock_id"] != df["stock_id"].shift())
+    ).cumsum()
+    streak_max = df.groupby(["stock_id", "_cv", "_streak"]).size().reset_index(name="run")
+    stale_keys = streak_max[streak_max["run"] >= min_streak][["stock_id", "_cv"]].drop_duplicates()
+
+    if stale_keys.empty:
+        return df.drop(columns=["_cv", "_streak"])
+
+    stale_index = set(zip(stale_keys["stock_id"], stale_keys["_cv"]))
+    mask = df.apply(lambda r: (r["stock_id"], r["_cv"]) in stale_index, axis=1)
     removed = mask.sum()
     if removed:
-        logger.info("_filter_stale: 排除 %d 筆重複假資料（%d 個 stock×key）", removed, len(stale_index))
-    return df[~mask].drop(columns=["_cv"])
+        logger.info("_filter_stale: 排除 %d 筆連續假資料（%d 個 stock×key）", removed, len(stale_index))
+    return df[~mask].drop(columns=["_cv", "_streak"])
 
 
 def import_csv_prices(filter_stale: bool = False) -> int:

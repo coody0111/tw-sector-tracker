@@ -817,16 +817,16 @@ def detect_inverse_hs(df: pd.DataFrame) -> dict | None:
                 if pk2_idx == pk1_idx:
                     continue
 
-                # 頸線斜率延伸至今日（第 seg_n 根）
+                # 頸線斜率延伸至今日（index = seg_n-1）
                 neckline_slope = (pk2 - pk1) / (pk2_idx - pk1_idx)
-                neckline_today = pk1 + neckline_slope * (seg_n - pk1_idx)
+                neckline_today     = pk1 + neckline_slope * (seg_n - 1 - pk1_idx)
+                neckline_yesterday = pk1 + neckline_slope * (seg_n - 2 - pk1_idx)
 
                 # 今日必須突破頸線且為首日突破（昨日仍在頸線下方）
                 if close[-1] <= neckline_today:
                     continue
                 if close[-1] <= close[-2]:
                     continue
-                neckline_yesterday = pk1 + neckline_slope * (seg_n - 1 - pk1_idx)
                 if close[-2] > neckline_yesterday:
                     continue
 
@@ -1553,6 +1553,10 @@ def backtest_patterns_rr(
     if start_date is not None:
         cutoff = pd.to_datetime(start_date)
         scan_dates = [d for d in scan_dates if d >= cutoff]
+
+    if not scan_dates:
+        print(f"[backtest_patterns_rr] start_date={start_date} 超出資料範圍，無可掃描的交易日。")
+        return
 
     stop_label = f"回撤>{max_dd:.0f}%" if max_dd is not None else "偵測函數stop"
     print(f"掃描期間: {str(scan_dates[0])[:10]} ~ {str(scan_dates[-1])[:10]}  ({len(scan_dates)} 個交易日)")

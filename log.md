@@ -5,6 +5,92 @@
 
 ---
 
+## 目前狀態（2026-07-01 更新）
+
+### ⚠️ DuckDB 資料有假資料，需先修復再跑回測
+
+| 指標 | 數值 |
+|------|------|
+| daily_prices 總筆數 | 214,435 |
+| 涵蓋股票數 | 1,037 |
+| 最新資料日期 | 2026-06-30 |
+| 有假資料的股票數 | **~450 支**（同 close+vol 出現 >30% 天數） |
+
+**假資料特徵**：初始化時 placeholder 被複製到多個日期，導致同一股票同一 close+volume 重複數十～數百次。  
+**例**：2327 國巨 close 範圍 134.5 ~ 1140.0（1140.0 是 placeholder，134.5 是分割後真實值）。
+
+---
+
+### 資料來源一覽
+
+| 來源 | 指令 | 涵蓋 | 備註 |
+|------|------|------|------|
+| **TWSE STOCK_DAY_ALL** | `--backfill-twse N --workers W` | 上市（Phase 1） | 逐日批次，平行，~1分/日 |
+| **TPEx OpenAPI** | `--backfill-twse N --workers W` | 上櫃（Phase 2） | 同指令，Phase 2 自動跑 |
+| **TWSE 逐股月別** | `--backfill-twse N` | Phase 3 补漏 | STOCK_DAY_ALL 漏掉的上市股 |
+| **Yahoo Finance** | `--backfill-yf N` | 上市+上櫃 | 無需 token，含 OHLCV，直接 upsert DuckDB |
+| **FinMind** | `--backfill N` | 上市+上櫃 | 需 token，每日 600 次上限 |
+
+> **Yahoo Finance SSL 問題**：公司/企業網路可能出現 `SSL certificate problem: unable to get local issuer certificate`。  
+> 已在 `backfill_yfinance()` 內加 `ssl._create_unverified_context` + `urllib3.disable_warnings` 繞過。  
+> 若仍失敗，改用 `--backfill-twse 18 --workers 3` + `--reimport`。
+
+---
+
+### Import / 資料庫 Pipeline
+
+```
+CSV 檔案 (data/daily_prices/*.csv)
+    ↑ 由 --backfill-twse 或 --backfill-yf 寫入（overwrite=True）
+    ↓
+DuckDB (data/screener.db → daily_prices 表)
+    由 import_csv_prices() 讀 CSV upsert
+    由 reimport_db() 清空重建（自動過濾假資料）
+```
+
+**假資料修復流程（二選一）**
+
+方案 A（推薦，Yahoo Finance）：
+```bash
+python main.py --backfill-yf 18      # 直接抓乾淨資料 upsert DuckDB，約 15 分鐘
+python main.py --reimport             # 清空重建（清除殘留假資料）
+```
+
+方案 B（TWSE+TPEx 批次）：
+```bash
+python main.py --fix-stale --workers 3   # 重抓 CSV + 清空重建 DuckDB，約 15 分鐘
+```
+
+---
+
+### Pattern 偵測器現況（2026-06-30 commit 5000f24）
+
+| 型態 | EV | 止損率 | 訊號數（18M 回測） |
+|------|-----|--------|-----|
+| 頭肩底（新增） | +11.92% | 20% | 574 |
+| 60日突破 | +9.1% | 24% | 682 |
+| 雙底 | +7.3% | 28% | 1,205 |
+| VCP突破 | +6.8% | 31% | 387 |
+| 三角突破（MA50 filter 新增） | +5.2% | 35% | 493 |
+| **整體 EV** | **+8.07%** | — | — |
+
+**主要改進（本 session）**：
+- `detect_inverse_hs`：頭肩底新型態，RR 最高
+- VCP stop：改用最後一個 trough close（不再固定 3%）→ 止損率 71% → 31%
+- 三角突破：加 MA50 uptrend filter（收盤需 > MA50 × 0.98）
+- `backtest_patterns_rr`：新增 `--start-date` 參數，可模擬指定日期後的 walk-forward
+
+---
+
+### 待辦清單
+
+- [ ] **修假資料**（最優先）：跑 `--backfill-yf 18` + `--reimport`
+- [ ] **重跑回測**（資料乾淨後）：`--backtest-patterns-rr 350` + `--start-date 2026-01-01`
+- [ ] **確認 2327 國巨**：修後應出現底部整理突破型態
+- [ ] 型態訊號 active list 重掃（舊假資料可能產生虛假訊號）
+
+---
+
 ## 目前狀態（2026-06-30 更新）
 
 ### Pattern 偵測器鮮度修正 ✅（2026-06-30，commit fe26e9a）

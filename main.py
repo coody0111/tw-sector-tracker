@@ -516,7 +516,7 @@ if __name__ == "__main__":
     parser.add_argument("--reimport", action="store_true",
                         help="清空 daily_prices 並從所有 CSV 重新匯入（自動過濾假資料），用於修復資料庫錯誤")
     parser.add_argument("--fix-stale", action="store_true",
-                        help="自動偵測並修復 DuckDB+CSV 中有假資料的股票（同 close+vol 重複≥5次 → 用 TWSE 逐股 API 重抓）")
+                        help="一鍵修復假資料：重抓 TWSE+TPEx 所有 CSV（平行），再清空 DuckDB 重建（自動過濾假資料）")
     args = parser.parse_args()
 
     if args.update_sectors:

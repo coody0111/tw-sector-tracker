@@ -512,7 +512,12 @@ def backfill_yfinance(
 
     直接 upsert 進 DuckDB（含 open/high/low），同時同步 daily_prices CSV。
     """
+    import ssl
+    import urllib3
     import duckdb
+
+    ssl._create_default_https_context = ssl._create_unverified_context
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
     univ = pd.read_csv(universe_path, dtype={"stock_id": str})
     exch_map: dict[str, str] = {}

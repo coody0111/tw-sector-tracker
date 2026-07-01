@@ -194,14 +194,14 @@ def import_csv_prices(filter_stale: bool = False) -> int:
 
 
 def reimport_db() -> int:
-    """完整重建 daily_prices：清空後從所有 CSV 重新匯入（自動過濾假資料）。"""
+    """完整重建 daily_prices：清空後從所有 CSV 重新匯入。"""
     import logging as _log
     _logger = _log.getLogger(__name__)
     con = get_conn()
     con.execute("DELETE FROM daily_prices")
     con.close()
     _logger.info("daily_prices 已清空，開始重新匯入...")
-    n = import_csv_prices(filter_stale=True)
+    n = import_csv_prices()
     _logger.info("reimport 完成：共 %d 筆", n)
     return n
 

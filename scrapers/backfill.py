@@ -21,14 +21,11 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import List
 
-import certifi
+import urllib3
 import pandas as pd
 import requests
-import yfinance as yf
 
-# Windows SSL fix for yfinance (curl_cffi)
-os.environ.setdefault("CURL_CA_BUNDLE", certifi.where())
-os.environ.setdefault("SSL_CERT_FILE", certifi.where())
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 from scrapers.twse import fetch_daily_prices as fetch_twse_daily_prices
 
@@ -114,76 +111,74 @@ def _iter_weekdays(start: date, end: date):
         current += timedelta(days=1)
 
 
-def _fetch_stock_months(sid: str, month_starts: list) -> tuple[str, list, bool, int]:
+def _fetch_stock_months(sid: str, month_starts: list) -> tuple[str, list]:
     """
-    抓取單支股票的所有月份資料。
-    回傳 (stock_id, rows_list, is_twse, months_ok)
-    months_ok: 成功取得資料的月份數（用來偵測 Phase 1 部分失敗）
+    抓取單支 TWSE 股票的所有月份資料（只用於已確認為 TWSE 的股票）。
+    回傳 (stock_id, rows_list)
     """
     rows = []
-    stock_fail = 0
-    is_twse = False
-    months_ok = 0
 
     for mo in month_starts:
         date_str = mo.strftime("%Y%m%d")
-        try:
-            resp = requests.get(
-                TWSE_STOCK_DAY_URL,
-                params={"stockNo": sid, "date": date_str, "response": "json"},
-                headers=_HEADERS,
-                timeout=15,
-            )
-            data = resp.json()
-            if data.get("stat") != "OK" or not data.get("data"):
-                stock_fail += 1
-                if stock_fail >= 2 and not is_twse:
-                    break  # 連兩個月都查無 → 非 TWSE，提早結束
-                continue
+        for attempt in range(3):
+            try:
+                resp = requests.get(
+                    TWSE_STOCK_DAY_URL,
+                    params={"stockNo": sid, "date": date_str, "response": "json"},
+                    headers=_HEADERS,
+                    timeout=15,
+                    verify=False,
+                )
+                data = resp.json()
+                if data.get("stat") != "OK" or not data.get("data"):
+                    break  # 該月無資料（假日/下市），跳到下一個月
 
-            fields = data.get("fields", [])
-            close_idx = fields.index("收盤價") if "收盤價" in fields else 6
-            spread_idx = fields.index("漲跌價差") if "漲跌價差" in fields else 7
-            vol_idx = fields.index("成交股數") if "成交股數" in fields else 1
+                fields = data.get("fields", [])
+                close_idx = fields.index("收盤價") if "收盤價" in fields else 6
+                spread_idx = fields.index("漲跌價差") if "漲跌價差" in fields else 7
+                vol_idx = fields.index("成交股數") if "成交股數" in fields else 1
 
-            for row in data["data"]:
-                minguo = row[0]
-                parts = minguo.split("/")
-                if len(parts) != 3:
-                    continue
-                try:
-                    year_ad = int(parts[0]) + 1911
-                    d_str = f"{year_ad}-{parts[1]}-{parts[2]}"
-                    close = float(row[close_idx].replace(",", ""))
-                    spread = float(row[spread_idx].replace(",", "").replace("+", ""))
-                    prev_close = close - spread
-                    change_pct = round(spread / prev_close * 100, 2) if prev_close != 0 else 0.0
-                    vol_lots = int(row[vol_idx].replace(",", "")) // 1000
-                except (ValueError, IndexError):
-                    continue
+                for row in data["data"]:
+                    minguo = row[0]
+                    parts = minguo.split("/")
+                    if len(parts) != 3:
+                        continue
+                    try:
+                        year_ad = int(parts[0]) + 1911
+                        d_str = f"{year_ad}-{parts[1]}-{parts[2]}"
+                        close = float(row[close_idx].replace(",", ""))
+                        spread = float(row[spread_idx].replace(",", "").replace("+", ""))
+                        prev_close = close - spread
+                        change_pct = round(spread / prev_close * 100, 2) if prev_close != 0 else 0.0
+                        vol_lots = int(row[vol_idx].replace(",", "")) // 1000
+                    except (ValueError, IndexError):
+                        continue
 
-                rows.append({
-                    "stock_id":   sid,
-                    "close":      close,
-                    "change":     spread,
-                    "change_pct": change_pct,
-                    "volume":     vol_lots,
-                    "_date":      d_str,
-                })
+                    rows.append({
+                        "stock_id":   sid,
+                        "close":      close,
+                        "change":     spread,
+                        "change_pct": change_pct,
+                        "volume":     vol_lots,
+                        "_date":      d_str,
+                    })
+                break  # 成功，跳出 retry 迴圈
 
-            is_twse = True
-            months_ok += 1
-            stock_fail = 0  # reset on success
+            except (ValueError, requests.exceptions.JSONDecodeError,
+                    requests.exceptions.SSLError, requests.exceptions.ConnectionError):
+                # 暫時性網路/SSL 問題，重試
+                if attempt < 2:
+                    time.sleep(3)
+                else:
+                    logger.debug("  %s %s 三次失敗，略過", sid, date_str)
 
-        except Exception as exc:
-            stock_fail += 1
-            logger.debug("  %s %s 失敗: %s", sid, date_str, exc)
-            if stock_fail >= 2 and not is_twse:
+            except Exception as exc:
+                logger.debug("  %s %s 失敗: %s", sid, date_str, exc)
                 break
 
-        time.sleep(0.4)  # 每次 request 後稍等，避免被 TWSE 封鎖
+        time.sleep(0.5)
 
-    return sid, rows, is_twse, months_ok
+    return sid, rows
 
 
 TPEX_DAILY_URL = "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes"
@@ -313,85 +308,258 @@ def _fetch_twse_all_days(
     return day_rows
 
 
+def _fetch_yfinance_history(
+    stock_ids: List[str],
+    start_date: str,
+    end_date: str,
+    day_rows: dict,
+    batch_size: int = 50,
+) -> int:
+    """用 yfinance 批量抓 TPEx 上櫃股歷史行情（.TWO suffix），append 到 day_rows。回傳成功股數。"""
+    import warnings
+    warnings.filterwarnings("ignore")
+    import yfinance as yf
+    import requests as _req
+
+    session = _req.Session()
+    session.verify = False  # Windows SSL workaround
+
+    ok = fail = 0
+    total_batches = (len(stock_ids) + batch_size - 1) // batch_size
+
+    for b_idx in range(0, len(stock_ids), batch_size):
+        batch = stock_ids[b_idx:b_idx + batch_size]
+        tickers = [f"{sid}.TWO" for sid in batch]
+
+        try:
+            # retry up to 3 times; yfinance returns empty df on rate limit (no exception)
+            hist = None
+            for attempt in range(3):
+                try:
+                    hist = yf.download(
+                        tickers, start=start_date, end=end_date,
+                        progress=False, session=session, auto_adjust=True,
+                    )
+                except Exception as exc:
+                    logger.warning("yfinance download error (attempt %d): %s", attempt + 1, exc)
+                    hist = None
+                if hist is not None and not hist.empty:
+                    break
+                if attempt < 2:
+                    wait = 30 * (attempt + 1)
+                    logger.warning("yfinance empty result, rate limit? retry %d/3 in %ds", attempt + 1, wait)
+                    time.sleep(wait)
+
+            if hist is None or hist.empty:
+                fail += len(batch)
+                logger.debug("yfinance batch %d empty", b_idx // batch_size + 1)
+                continue
+
+            # yfinance 1.4+ always returns MultiIndex (Price, Ticker)
+            for sid, ticker in zip(batch, tickers):
+                try:
+                    close_s = hist["Close"][ticker].dropna()
+                    vol_s   = hist["Volume"][ticker].reindex(close_s.index).fillna(0)
+                except KeyError:
+                    fail += 1
+                    continue
+                if close_s.empty:
+                    fail += 1
+                    continue
+
+                prev_close = close_s.shift(1)
+                change_s   = (close_s - prev_close).fillna(0)
+                pct_s      = (change_s / prev_close.replace(0, float("nan")) * 100).fillna(0)
+
+                for dt, cl, ch, pct, vol in zip(
+                    close_s.index, close_s, change_s, pct_s, vol_s
+                ):
+                    d = dt.strftime("%Y-%m-%d")
+                    day_rows[d].append({
+                        "stock_id":   sid,
+                        "close":      round(float(cl), 2),
+                        "change":     round(float(ch), 2),
+                        "change_pct": round(float(pct), 2),
+                        "volume":     max(0, int(float(vol)) // 1000),
+                        "_date":      d,
+                    })
+                ok += 1
+
+        except Exception as exc:
+            logger.warning("yfinance batch %s~%s: %s", batch[0], batch[-1], exc)
+            fail += len(batch)
+
+        batch_num = b_idx // batch_size + 1
+        logger.info("  yfinance [%d/%d]  ok=%d  fail=%d", batch_num, total_batches, ok, fail)
+        if b_idx + batch_size < len(stock_ids):
+            time.sleep(3)  # avoid rate limit between batches
+
+    return ok
+
+
+def _fetch_finmind_history(
+    stock_ids: List[str],
+    start_date: str,
+    end_date: str,
+    day_rows: dict,
+    token: str,
+    sleep_sec: float = 0.5,
+) -> int:
+    """用 FinMind TaiwanStockPrice 逐股抓歷史行情，append 到 day_rows。回傳成功股數。"""
+    total = len(stock_ids)
+    ok = fail = consecutive_fail = 0
+
+    for i, sid in enumerate(stock_ids, 1):
+        try:
+            resp = requests.get(FINMIND_URL, params={
+                "dataset":    "TaiwanStockPrice",
+                "data_id":    sid,
+                "start_date": start_date,
+                "end_date":   end_date,
+                "token":      token,
+            }, timeout=10)
+            data = resp.json()
+
+            if data.get("status") != 200 or not data.get("data"):
+                fail += 1
+                consecutive_fail += 1
+            else:
+                for row in data["data"]:
+                    d = row["date"]
+                    vol_lots = int(row["Trading_Volume"]) // 1000
+                    close = float(row["close"])
+                    spread = float(row.get("spread", 0))
+                    prev_close = close - spread
+                    change_pct = round(spread / prev_close * 100, 2) if prev_close != 0 else 0.0
+                    day_rows[d].append({
+                        "stock_id":   sid,
+                        "close":      close,
+                        "change":     spread,
+                        "change_pct": change_pct,
+                        "volume":     vol_lots,
+                    })
+                ok += 1
+                consecutive_fail = 0
+
+        except Exception as exc:
+            fail += 1
+            consecutive_fail += 1
+            logger.debug("  %s 失敗: %s", sid, exc)
+
+        if i % 50 == 0 or i == total:
+            logger.info("  FinMind [%d/%d]  ok=%d  fail=%d", i, total, ok, fail)
+
+        if consecutive_fail >= _CONSECUTIVE_FAIL_LIMIT:
+            logger.warning(
+                "FinMind 連續失敗 %d 次（可能達到每日上限 600），提早結束（已處理 %d/%d 支）",
+                consecutive_fail, i, total,
+            )
+            break
+
+        time.sleep(sleep_sec)
+
+    logger.info("FinMind 完成：ok=%d  fail=%d  共 %d 支", ok, fail, total)
+    return ok
+
+
 def backfill_twse_monthly(
     stock_ids: List[str],
     months: int = 6,
     output_dir: str = "data/daily_prices",
-    workers: int = 3,
+    workers: int = 5,
     today: date = None,
+    clean: bool = True,
+    exchange_map: dict = None,
+    finmind_token: str = "",
 ) -> int:
     """
-    TWSE STOCK_DAY_ALL + TPEx st43 逐日全市場補齊（快速版）。
+    全市場歷史行情補齊。
 
-    Phase 1: TWSE 用 STOCK_DAY_ALL，每日一次 API 取所有上市股（n_days 次）
-    Phase 2: TPEx 用 OpenAPI 逐日全市場（n_days 次），補上櫃股
-    workers 控制 Phase 1 並行數，建議 3-4，約 8-12 分鐘完成 18 個月。
+    Phase 1: TWSE 上市股 — 逐股月別 STOCK_DAY API（並行，workers 個 thread）
+    Phase 2: TPEx 上櫃股 — FinMind TaiwanStockPrice（逐股，需 token，免費帳號每日 600 次）
+
+    exchange_map: {stock_id: "TWSE"|"TPEx"} 預分類，直接從 stock_universe.csv 的 exchange 欄取得。
+                  不提供時所有股票走 Phase 1（兼容舊行為）。
+
+    注意：STOCK_DAY_ALL 永遠回傳今天的資料，不能用於歷史。Phase 1 必須用逐股 STOCK_DAY。
+    TPEx 官方 OpenAPI 同樣無歷史資料；FinMind 是目前唯一免費的上櫃歷史來源。
+
+    clean=True（預設）：執行前刪除所有現有 CSV，確保乾淨起始點。
     """
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
+    if clean:
+        old_csvs = list(output_path.glob("*.csv"))
+        if old_csvs:
+            for f in old_csvs:
+                f.unlink()
+            logger.info("清除舊 CSV：已刪除 %d 個檔案", len(old_csvs))
+
     today = today or date.today()
     start = _first_month_start(today, months)
-    stock_ids_set = {str(s) for s in stock_ids}
 
-    all_days = list(_iter_weekdays(start, today))
+    month_starts: List[date] = []
+    y, m = start.year, start.month
+    while date(y, m, 1) <= today:
+        month_starts.append(date(y, m, 1))
+        m += 1
+        if m > 12:
+            m = 1
+            y += 1
+
+    # 用 exchange_map 預分類；無 map 時全部走 TWSE Phase 1（相容舊行為）
+    if exchange_map:
+        twse_stocks = [sid for sid in stock_ids if exchange_map.get(sid) == "TWSE"]
+        tpex_stocks = [sid for sid in stock_ids if exchange_map.get(sid) != "TWSE"]
+        logger.info(
+            "預分類完成：TWSE %d 支，TPEx %d 支（共 %d 支股票）",
+            len(twse_stocks), len(tpex_stocks), len(stock_ids),
+        )
+    else:
+        twse_stocks = list(stock_ids)
+        tpex_stocks = []
+
     logger.info(
-        "TWSE+TPEx 全市場逐日補齊：%d 支股票  %d 個交易日（%s ~ %s）  workers=%d",
-        len(stock_ids), len(all_days), start.isoformat(), today.isoformat(), workers,
+        "逐股月別補齊：%d 支 TWSE  %d 個月（%s ~ %s）",
+        len(twse_stocks), len(month_starts), start.isoformat(), today.isoformat(),
     )
 
     day_rows: dict = defaultdict(list)
+    twse_done = 0
 
-    # Phase 1: TWSE STOCK_DAY_ALL（並行逐日，每 call 取所有上市股）
-    logger.info("Phase 1 TWSE STOCK_DAY_ALL：%d 個交易日，workers=%d ...", len(all_days), workers)
-    twse_rows = _fetch_twse_all_days(stock_ids_set, start, today, workers=workers)
-    for d_str, rows in twse_rows.items():
-        day_rows[d_str].extend(rows)
-
-    twse_covered: set = {(r["_date"], r["stock_id"]) for rows in day_rows.values() for r in rows}
-    logger.info("Phase 1 完成：取得 %d 股票×日 筆", len(twse_covered))
-
-    # Phase 2: TPEx 逐日全市場（補充上櫃股）
-    logger.info("Phase 2 TPEx 逐日：%d 個交易日 ...", len(all_days))
-    tpex_rows = _fetch_tpex_all_days(stock_ids_set, start, today)
-    added = 0
-    for d_str, rows in tpex_rows.items():
-        for r in rows:
-            if (r["_date"], r["stock_id"]) not in twse_covered:
-                day_rows[r["_date"]].append(r)
-                added += 1
-    tpex_covered: set = {(r["_date"], r["stock_id"]) for rows in tpex_rows.values() for r in rows}
-    logger.info("Phase 2 完成：補充 TPEx %d 筆", added)
-
-    # Phase 3: 個股補漏（STOCK_DAY_ALL 和 TPEx 都未涵蓋的上市股 → 用逐股月別 API）
-    all_covered = twse_covered | tpex_covered
-    covered_stocks = {sid for (_, sid) in all_covered}
-    # 只補 TWSE 上市股（4位數字代號，上櫃已由 Phase 2 涵蓋）
-    missing_twse = [s for s in stock_ids_set if s not in covered_stocks and s.isdigit() and len(s) == 4]
-    if missing_twse:
-        logger.info("Phase 3 個股補漏：%d 支 TWSE 股票未被 STOCK_DAY_ALL 涵蓋，改用逐股月別 API ...", len(missing_twse))
-        month_starts = []
-        y, m = start.year, start.month
-        while date(y, m, 1) <= today:
-            month_starts.append(date(y, m, 1))
-            m += 1
-            if m > 12:
-                m = 1
-                y += 1
-
-        for sid in missing_twse:
-            _, rows, is_twse, _ = _fetch_stock_months(sid, month_starts)
+    # Phase 1: TWSE 逐股月別（並行）
+    logger.info("Phase 1 TWSE 逐股月別 STOCK_DAY：workers=%d ...", workers)
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = {
+            executor.submit(_fetch_stock_months, sid, month_starts): sid
+            for sid in twse_stocks
+        }
+        done = 0
+        for fut in as_completed(futures):
+            sid, rows = fut.result()
+            done += 1
             if rows:
                 for r in rows:
-                    r["stock_id"] = sid
-                    d_str = r.pop("_date")
-                    r["_date"] = d_str
-                    day_rows[d_str].append(r)
-                logger.info("  %s: 補齊 %d 筆", sid, len(rows))
-            else:
-                logger.debug("  %s: 逐股 API 也無資料", sid)
-    else:
-        logger.info("Phase 3：無需補漏")
+                    day_rows[r["_date"]].append(r)
+                twse_done += 1
+            if done % 50 == 0 or done == len(twse_stocks):
+                total_so_far = sum(len(v) for v in day_rows.values())
+                logger.info(
+                    "  [%d/%d 股]  TWSE成功=%d  目前 %d 筆",
+                    done, len(twse_stocks), twse_done, total_so_far,
+                )
+    logger.info("Phase 1 完成：TWSE %d 支成功（共 %d 支）", twse_done, len(twse_stocks))
+
+    # Phase 2: TPEx 逐股 via FinMind TaiwanStockPrice
+    if tpex_stocks:
+        if not finmind_token:
+            logger.warning("Phase 2 跳過：未提供 finmind_token，TPEx %d 支無法補齊", len(tpex_stocks))
+        else:
+            logger.info("Phase 2 TPEx via FinMind：%d 支（每日上限 600 次）...", len(tpex_stocks))
+            _fetch_finmind_history(
+                tpex_stocks, start.isoformat(), today.isoformat(), day_rows, finmind_token
+            )
 
     written = 0
     for d_str, rows in sorted(day_rows.items()):
@@ -494,177 +662,6 @@ def backfill_prices(
     logger.info("寫入/更新 %d 個日期的 CSV", written)
     return written
 
-
-def backfill_yfinance(
-    universe_path: str = "data/stock_universe.csv",
-    months: int = 18,
-    db_path: str = "data/screener.db",
-    output_dir: str = "data/daily_prices",
-    batch_size: int = 50,
-) -> int:
-    """
-    用 Yahoo Finance 補齊歷史行情，無需 token，支援 18+ 個月。
-
-    Exchange 對應：
-      TWSE → {id}.TW
-      TPEx  → {id}.TWO
-      未知  → 先試 .TW 再試 .TWO
-
-    直接 upsert 進 DuckDB（含 open/high/low），同時同步 daily_prices CSV。
-    """
-    import ssl
-    import urllib3
-    import duckdb
-
-    _orig_ssl_ctx = ssl._create_default_https_context
-    ssl._create_default_https_context = ssl._create_unverified_context
-    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-    univ = pd.read_csv(universe_path, dtype={"stock_id": str})
-    exch_map: dict[str, str] = {}
-    for _, row in univ.iterrows():
-        sid = str(row["stock_id"])
-        ex = str(row.get("exchange", "")).upper()
-        if "TPEX" in ex or "OTC" in ex or ex == "TWO":
-            exch_map[sid] = f"{sid}.TWO"
-        else:
-            exch_map[sid] = f"{sid}.TW"
-
-    all_sids = list(exch_map.keys())
-    logger.info("Yahoo Finance 補齊：%d 支股票  最近 %d 個月  batch=%d", len(all_sids), months, batch_size)
-
-    import math
-    from datetime import timedelta as _td
-    yf_start = (date.today() - _td(days=months * 31)).isoformat()
-    yf_end   = date.today().isoformat()
-    rows_all: list[dict] = []
-
-    def _yf_fetch(tickers_str: str, sids_in_batch: list[str]) -> list[dict]:
-        try:
-            raw = yf.download(
-                tickers_str,
-                start=yf_start,
-                end=yf_end,
-                auto_adjust=True,
-                progress=False,
-                threads=False,
-            )
-        except Exception as exc:
-            logger.warning("yf.download 失敗: %s", exc)
-            return []
-
-        if raw.empty:
-            return []
-
-        # yfinance >= 0.2.x: columns are always MultiIndex (Price, Ticker)
-        is_multi = isinstance(raw.columns, pd.MultiIndex)
-        available_tickers = set(raw.columns.get_level_values(1)) if is_multi else set()
-
-        results = []
-        for sid in sids_in_batch:
-            ticker = exch_map[sid]
-            try:
-                if is_multi:
-                    if ticker not in available_tickers:
-                        logger.debug("  %s: 無資料 (%s)", sid, ticker)
-                        continue
-                    df_s = raw.xs(ticker, axis=1, level=1).copy()
-                else:
-                    df_s = raw.copy()
-
-                if df_s.empty:
-                    logger.debug("  %s: empty after xs (%s)", sid, ticker)
-                    continue
-
-                df_s = df_s.dropna(subset=["Close"])
-                df_s = df_s[df_s["Volume"] > 0]
-                if df_s.empty:
-                    continue
-
-                closes = df_s["Close"].values.astype(float)
-                changes = [0.0] + list(closes[1:] - closes[:-1])
-                prev_closes = [closes[0]] + list(closes[:-1])
-                change_pcts = [
-                    round(ch / pc * 100, 2) if pc != 0 else 0.0
-                    for ch, pc in zip(changes, prev_closes)
-                ]
-
-                for i, (dt_idx, row_s) in enumerate(df_s.iterrows()):
-                    dt_str = dt_idx.date().isoformat() if hasattr(dt_idx, "date") else str(dt_idx)[:10]
-                    results.append({
-                        "stock_id":   sid,
-                        "date":       dt_str,
-                        "open":       round(float(row_s.get("Open") or 0), 4),
-                        "high":       round(float(row_s.get("High") or 0), 4),
-                        "low":        round(float(row_s.get("Low") or 0), 4),
-                        "close":      round(float(row_s["Close"]), 4),
-                        "volume":     int(row_s["Volume"]) // 1000,
-                        "change":     round(changes[i], 4),
-                        "change_pct": change_pcts[i],
-                    })
-            except Exception as exc:
-                logger.debug("  %s 解析失敗: %s", sid, exc)
-
-        return results
-
-    n_batches = math.ceil(len(all_sids) / batch_size)
-    for b in range(n_batches):
-        batch = all_sids[b * batch_size:(b + 1) * batch_size]
-        tickers_str = " ".join(exch_map[s] for s in batch)
-        batch_rows = _yf_fetch(tickers_str, batch)
-        rows_all.extend(batch_rows)
-        logger.info("  batch [%d/%d]  取得 %d 筆", b + 1, n_batches, len(batch_rows))
-        time.sleep(0.5)
-
-    if not rows_all:
-        logger.info("Yahoo Finance 無資料回傳，DuckDB 不更新。")
-        return 0
-
-    df_new = pd.DataFrame(rows_all)
-    df_new["date"] = pd.to_datetime(df_new["date"]).dt.date
-
-    # upsert DuckDB
-    con = duckdb.connect(db_path)
-    con.register("_yf_new", df_new)
-    con.execute("DELETE FROM daily_prices WHERE (stock_id, date) IN (SELECT stock_id, date FROM _yf_new)")
-    con.execute("""
-        INSERT INTO daily_prices (stock_id, date, open, high, low, close, volume, change, change_pct)
-        SELECT stock_id, date, open, high, low, close, volume, change, change_pct FROM _yf_new
-    """)
-    total = len(df_new)
-    con.close()
-
-    # 同步寫 CSV（維持現有格式，讓 reimport_db 可重建；失敗不中斷）
-    output_path = Path(output_dir)
-    output_path.mkdir(parents=True, exist_ok=True)
-    csv_ok = csv_fail = 0
-    for d_str, grp in df_new.groupby(df_new["date"].astype(str)):
-        csv_rows = [
-            {
-                "stock_id":   r["stock_id"],
-                "open":       r["open"],
-                "high":       r["high"],
-                "low":        r["low"],
-                "close":      r["close"],
-                "change":     r["change"],
-                "change_pct": r["change_pct"],
-                "volume":     r["volume"],
-            }
-            for _, r in grp.iterrows()
-        ]
-        try:
-            _merge_into_csv(output_path / f"{d_str}.csv", csv_rows, overwrite=True)
-            csv_ok += 1
-        except OSError as exc:
-            csv_fail += 1
-            logger.debug("CSV 寫入失敗 %s: %s", d_str, exc)
-
-    if csv_fail:
-        logger.warning("CSV 同步：成功 %d 日，失敗 %d 日（DuckDB 已更新，CSV 可用 --reimport 補）", csv_ok, csv_fail)
-
-    logger.info("Yahoo Finance 補齊完成：upsert %d 筆進 DuckDB", total)
-    ssl._create_default_https_context = _orig_ssl_ctx
-    return total
 
 
 def backfill_margin(

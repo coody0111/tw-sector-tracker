@@ -1,7 +1,10 @@
 import io
+import urllib3
 import requests
 import pandas as pd
 from datetime import date
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 TWSE_URL = "https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY_ALL"
 _HEADERS = {
@@ -21,6 +24,7 @@ def fetch_daily_prices(trade_date: date) -> pd.DataFrame:
         params={"response": "json", "date": date_str},
         headers=_HEADERS,
         timeout=30,
+        verify=False,
     )
     resp.raise_for_status()
 

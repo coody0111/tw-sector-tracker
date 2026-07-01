@@ -1470,7 +1470,7 @@ def backtest_patterns(days: int = 120, db_path: str = _DB_PATH) -> None:
     print(fmt.format("形態", "次數", "勝率3d", "均報3d", "勝率5d", "均報5d", "勝率10d", "均報10d", "最大虧損"))
     print("-" * 80)
 
-    for pattern in ["多頭拐點", "雙底", "收斂三角", "上升三角", "下降楔型", "雙頂", "三角跌破"]:
+    for pattern in ["多頭拐點", "VCP突破", "頭肩底", "雙底", "收斂三角", "上升三角", "下降楔型", "雙頂", "三角跌破"]:
         sub = signals_df[signals_df["pattern"] == pattern]
         if sub.empty:
             continue

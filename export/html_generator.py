@@ -66,28 +66,40 @@ def _sparkline(daily_pct: list, dates: list) -> str:
     if not daily_pct:
         return ""
     n = len(daily_pct)
-    h = 54          # SVG 總高
-    mid = 27        # 零線 y 座標
+    chart_h = 72
+    label_h = 13
+    h = chart_h + label_h
+    mid = chart_h // 2          # zero line y = 36
     max_abs = max(abs(p) for p in daily_pct) or 1
-    bar_w = max(4, int(320 / n) - 2)
-    gap = 2
-    total_w = n * (bar_w + gap) - gap + 20
+    bar_w = max(8, int(420 / n) - 3)
+    gap = 3
+    total_w = n * (bar_w + gap) - gap + 24
 
     bars = []
     labels = []
     for i, (pct, label) in enumerate(zip(daily_pct, dates)):
-        x = 10 + i * (bar_w + gap)
-        bar_h = max(2, int(abs(pct) / max_abs * 20))
+        x = 12 + i * (bar_w + gap)
+        bar_h = max(3, int(abs(pct) / max_abs * (mid - 5)))
         if pct >= 0:
             y = mid - bar_h
-            color = "rgba(127,29,29,.85)" if pct >= 1 else "rgba(127,29,29,.4)"
+            color = "#ef4444" if abs(pct) >= 1 else "#fca5a5"
         else:
             y = mid
-            color = "rgba(6,78,59,.85)" if pct <= -1 else "rgba(6,78,59,.4)"
-        bars.append(f'<rect x="{x}" y="{y}" width="{bar_w}" height="{bar_h}" fill="{color}" rx="1"/>')
-        labels.append(f'<text x="{x + bar_w//2}" y="{h - 1}" text-anchor="middle" fill="#334155" font-size="6">{label}</text>')
+            color = "#22c55e" if abs(pct) >= 1 else "#86efac"
+        sign = "+" if pct >= 0 else ""
+        bars.append(
+            f'<rect x="{x}" y="{y}" width="{bar_w}" height="{bar_h}" fill="{color}" rx="2">'
+            f'<title>{sign}{pct:.2f}%</title></rect>'
+        )
+        labels.append(
+            f'<text x="{x + bar_w // 2}" y="{h - 1}" text-anchor="middle" '
+            f'fill="#64748b" font-size="8">{label}</text>'
+        )
 
-    zero_line = f'<line x1="8" y1="{mid}" x2="{total_w - 8}" y2="{mid}" stroke="#1e293b" stroke-width="1"/>'
+    zero_line = (
+        f'<line x1="10" y1="{mid}" x2="{total_w - 10}" y2="{mid}" '
+        f'stroke="#334155" stroke-width="0.8"/>'
+    )
     svg = (
         f'<svg width="{total_w}" height="{h}" xmlns="http://www.w3.org/2000/svg">'
         f'{zero_line}{"".join(bars)}{"".join(labels)}'
@@ -112,6 +124,17 @@ def _fmt_price(val: float) -> str:
     if val >= 100 and val == int(val):
         return f"{int(val):,}"
     return f"{val:.2f}"
+
+
+def _weekly_pct(spark: list) -> float:
+    """複利計算 sparkline 最後 5 個交易日的週漲跌幅。"""
+    if not spark:
+        return 0.0
+    last5 = spark[-5:]
+    result = 1.0
+    for p in last5:
+        result *= (1 + p / 100)
+    return round((result - 1) * 100, 2)
 
 
 _CHIPS_BADGE_MIN = 1_000_000   # 外資/投信股數超過此值才加 badge 框
@@ -153,7 +176,86 @@ def _fmt_margin(balance, change) -> str:
         return "-"
 
 
-def _stock_cards(sector_name: str, sectors_df: pd.DataFrame, prices_df: pd.DataFrame, chips_df: pd.DataFrame = None, as_row: bool = True) -> str:
+def _stock_card_html(sid: str, stock_name: str, prices_map, chips_map, stock_sparklines: dict = None) -> str:
+    """單一個股卡片 HTML（帶 modal data attributes）。"""
+    import json as _json
+    if sid in prices_map.index:
+        p = prices_map.loc[sid]
+        close = float(p["close"])
+        pct = float(p["change_pct"])
+        vol = int(p["volume"])
+        color = _pct_color(pct)
+        sign = "+" if pct >= 0 else ""
+        arrow = "▲" if pct > 0 else ("▼" if pct < 0 else "─")
+
+        # chips data for modal
+        chips_data: dict = {}
+        chips_html = ""
+        if sid in chips_map.index:
+            c = chips_map.loc[sid]
+            fn = int(c.get("foreign_net") or 0)
+            tn = int(c.get("trust_net") or 0)
+            mb = int(c.get("margin_balance") or 0)
+            mc = int(c.get("margin_change") or 0)
+            chips_data = {"foreign": fn, "trust": tn, "marginBal": mb, "marginChg": mc}
+            foreign = _fmt_chips_num(c.get("foreign_net"), _CHIPS_BADGE_MIN)
+            trust = _fmt_chips_num(c.get("trust_net"), _TRUST_BADGE_MIN)
+            margin = _fmt_margin(c.get("margin_balance"), c.get("margin_change"))
+            try:
+                margin_badge = (
+                    f' <span style="font-size:.65rem;color:#fb923c;background:rgba(124,45,18,.25);'
+                    f'border:1px solid rgba(124,45,18,.5);border-radius:3px;padding:0 4px">↑{mc/mb*100:.1f}%</span>'
+                    if mb > 0 and mc / mb > 0.05 else ""
+                )
+            except (ZeroDivisionError, TypeError):
+                margin_badge = ""
+            chips_html = (
+                f'<div class="sc-chips">'
+                f'<span class="chip-label">外資</span>{foreign} '
+                f'<span class="chip-label">投信</span>{trust}'
+                f'</div>'
+                f'<div class="sc-chips">'
+                f'<span class="chip-label">融資</span>{margin}{margin_badge}'
+                f'</div>'
+            )
+
+        spark = (stock_sparklines or {}).get(sid, [])
+        spark_json = _json.dumps(spark)
+        chips_json = _json.dumps(chips_data)
+        name_safe = stock_name.replace('"', "&quot;")
+
+        return (
+            f'<div class="stock-card" data-sid="{sid}"'
+            f' data-name="{name_safe}" data-close="{close}" data-pct="{pct}" data-vol="{vol}"'
+            f' data-sparkline=\'{spark_json}\' data-chips=\'{chips_json}\''
+            f' style="border-color:{color}33;cursor:pointer" onclick="openStockModal(this)">'
+            f'<div class="sc-header">'
+            f'<span class="sc-id">{sid}</span>'
+            f'<span class="sc-name">{stock_name}</span>'
+            f'</div>'
+            f'<div class="sc-body">'
+            f'<span class="sc-price">{_fmt_price(close)}</span>'
+            f'<span class="sc-pct" style="color:{color}">{arrow} {sign}{pct:.2f}%</span>'
+            f'</div>'
+            f'<div class="sc-vol">{vol:,} 張</div>'
+            f'{chips_html}'
+            f'</div>'
+        )
+    else:
+        return (
+            f'<div class="stock-card no-data">'
+            f'<div class="sc-header">'
+            f'<span class="sc-id">{sid}</span>'
+            f'<span class="sc-name">{stock_name}</span>'
+            f'</div>'
+            f'<div class="sc-body"><span class="sc-price" style="color:#334155">無行情</span></div>'
+            f'</div>'
+        )
+
+
+def _stock_cards(sector_name: str, sectors_df: pd.DataFrame, prices_df: pd.DataFrame,
+                 chips_df: pd.DataFrame = None, as_row: bool = True,
+                 stock_sparklines: dict = None) -> str:
     if sectors_df is None or prices_df is None:
         return ""
     sector_stocks = sectors_df[sectors_df["sector_name"] == sector_name]
@@ -167,69 +269,8 @@ def _stock_cards(sector_name: str, sectors_df: pd.DataFrame, prices_df: pd.DataF
     prices_map = prices_df.set_index("stock_id") if not prices_df.empty else pd.DataFrame()
     chips_map = chips_df.set_index("stock_id") if chips_df is not None and not chips_df.empty else pd.DataFrame()
 
-    cards = []
-    for sid in sorted(name_map.keys()):
-        stock_name = name_map[sid]
-        if sid in prices_map.index:
-            p = prices_map.loc[sid]
-            close = float(p["close"])
-            pct = float(p["change_pct"])
-            vol = int(p["volume"])
-            color = _pct_color(pct)
-            sign = "+" if pct >= 0 else ""
-            arrow = "▲" if pct > 0 else ("▼" if pct < 0 else "─")
-
-            # 籌碼區塊
-            chips_html = ""
-            if sid in chips_map.index:
-                c = chips_map.loc[sid]
-                foreign = _fmt_chips_num(c.get("foreign_net"), _CHIPS_BADGE_MIN)
-                trust = _fmt_chips_num(c.get("trust_net"), _TRUST_BADGE_MIN)
-                margin = _fmt_margin(c.get("margin_balance"), c.get("margin_change"))
-                try:
-                    mc = int(c.get("margin_change", 0) or 0)
-                    mb = int(c.get("margin_balance", 0) or 0)
-                    margin_badge = (
-                        f' <span style="font-size:.65rem;color:#fb923c;background:rgba(124,45,18,.25);'
-                        f'border:1px solid rgba(124,45,18,.5);border-radius:3px;padding:0 4px">↑{mc/mb*100:.1f}%</span>'
-                        if mb > 0 and mc / mb > 0.05 else ""
-                    )
-                except (ZeroDivisionError, TypeError):
-                    margin_badge = ""
-                chips_html = (
-                    f'<div class="sc-chips">'
-                    f'<span class="chip-label">外資</span>{foreign} '
-                    f'<span class="chip-label">投信</span>{trust}'
-                    f'</div>'
-                    f'<div class="sc-chips">'
-                    f'<span class="chip-label">融資</span>{margin}{margin_badge}'
-                    f'</div>'
-                )
-
-            cards.append(
-                f'<div class="stock-card" data-sid="{sid}" style="border-color:{color}33">'
-                f'<div class="sc-header">'
-                f'<span class="sc-id">{sid}</span>'
-                f'<span class="sc-name">{stock_name}</span>'
-                f'</div>'
-                f'<div class="sc-body">'
-                f'<span class="sc-price">{_fmt_price(close)}</span>'
-                f'<span class="sc-pct" style="color:{color}">{arrow} {sign}{pct:.2f}%</span>'
-                f'</div>'
-                f'<div class="sc-vol">{vol:,} 張</div>'
-                f'{chips_html}'
-                f'</div>'
-            )
-        else:
-            cards.append(
-                f'<div class="stock-card no-data">'
-                f'<div class="sc-header">'
-                f'<span class="sc-id">{sid}</span>'
-                f'<span class="sc-name">{stock_name}</span>'
-                f'</div>'
-                f'<div class="sc-body"><span class="sc-price" style="color:#334155">無行情</span></div>'
-                f'</div>'
-            )
+    cards = [_stock_card_html(sid, name_map[sid], prices_map, chips_map, stock_sparklines)
+             for sid in sorted(name_map.keys())]
 
     cards_html = f'<div class="stock-cards-wrap">{"".join(cards)}</div>'
     if as_row:
@@ -237,10 +278,109 @@ def _stock_cards(sector_name: str, sectors_df: pd.DataFrame, prices_df: pd.DataF
     return cards_html
 
 
-def _sector_row(row, sectors_df=None, prices_df=None, chips_df=None, compact=False) -> str:
+def _stock_table(sector_name: str, sectors_df: pd.DataFrame, prices_df: pd.DataFrame,
+                 chips_df: pd.DataFrame = None, stock_sparklines: dict = None,
+                 as_row: bool = True) -> str:
+    """可排序個股列表 table（子族群展開用）。"""
+    if sectors_df is None or prices_df is None:
+        return ""
+    sector_stocks = sectors_df[sectors_df["sector_name"] == sector_name]
+    if sector_stocks.empty:
+        return ""
+
+    name_map = dict(zip(
+        sector_stocks["stock_id"].astype(str),
+        sector_stocks["stock_name"].astype(str)
+    ))
+    prices_map = prices_df.set_index("stock_id") if not prices_df.empty else pd.DataFrame()
+    chips_map = chips_df.set_index("stock_id") if chips_df is not None and not chips_df.empty else pd.DataFrame()
+
+    rows_html = []
+    for sid in sorted(name_map.keys()):
+        stock_name = name_map[sid]
+        if sid not in prices_map.index:
+            rows_html.append(
+                f'<tr>'
+                f'<td style="color:#475569;font-size:.78rem">{sid}</td>'
+                f'<td style="color:#334155">{stock_name}</td>'
+                f'<td colspan="6" style="color:#334155;font-size:.75rem">無行情</td>'
+                f'</tr>'
+            )
+            continue
+
+        p = prices_map.loc[sid]
+        close = float(p["close"])
+        pct = float(p["change_pct"])
+        vol = int(p["volume"])
+        color = _pct_color(pct)
+        sign = "+" if pct >= 0 else ""
+        arrow = "▲" if pct > 0 else ("▼" if pct < 0 else "─")
+
+        spark = (stock_sparklines or {}).get(sid, [])
+        wpct = _weekly_pct(spark)
+        wcolor = _pct_color(wpct)
+        wsign = "+" if wpct >= 0 else ""
+        warrow = "▲" if wpct > 0 else ("▼" if wpct < 0 else "─")
+
+        fn = tn = mb = mc = 0
+        chips_data: dict = {}
+        if sid in chips_map.index:
+            c = chips_map.loc[sid]
+            fn = int(c.get("foreign_net") or 0)
+            tn = int(c.get("trust_net") or 0)
+            mb = int(c.get("margin_balance") or 0)
+            mc = int(c.get("margin_change") or 0)
+            chips_data = {"foreign": fn, "trust": tn, "marginBal": mb, "marginChg": mc}
+
+        spark_json = json.dumps(spark)
+        chips_json = json.dumps(chips_data)
+        name_safe = stock_name.replace('"', "&quot;")
+        margin_html = _fmt_margin(mb, mc) if mb > 0 else "<span style='color:#334155'>─</span>"
+
+        rows_html.append(
+            f'<tr class="st-row" data-sid="{sid}" data-name="{name_safe}"'
+            f' data-close="{close}" data-pct="{pct}" data-vol="{vol}"'
+            f' data-sparkline=\'{spark_json}\' data-chips=\'{chips_json}\''
+            f' data-code="{sid}" data-wpct="{wpct}"'
+            f' data-foreign="{fn}" data-trust="{tn}" data-margin="{mb}"'
+            f' onclick="openStockModal(this)" style="cursor:pointer">'
+            f'<td style="color:#64748b;font-size:.78rem;font-weight:600">{sid}</td>'
+            f'<td style="color:#cbd5e1">{stock_name}</td>'
+            f'<td style="color:#f1f5f9;font-weight:700">{_fmt_price(close)}</td>'
+            f'<td><span style="color:{color};font-weight:700">{arrow} {sign}{pct:.2f}%</span></td>'
+            f'<td><span style="color:{wcolor};font-weight:700">{warrow} {wsign}{wpct:.2f}%</span></td>'
+            f'<td>{_fmt_chips_num(fn, _CHIPS_BADGE_MIN)}</td>'
+            f'<td>{_fmt_chips_num(tn, _TRUST_BADGE_MIN)}</td>'
+            f'<td style="font-size:.78rem">{margin_html}</td>'
+            f'</tr>'
+        )
+
+    if not rows_html:
+        return ""
+
+    thead = (
+        f'<thead><tr>'
+        f'<th onclick="sortStockTable(this)" data-key="code">代號</th>'
+        f'<th onclick="sortStockTable(this)" data-key="name">股名</th>'
+        f'<th onclick="sortStockTable(this)" data-key="close">收盤</th>'
+        f'<th onclick="sortStockTable(this)" data-key="pct">今日%</th>'
+        f'<th onclick="sortStockTable(this)" data-key="wpct">週漲跌%</th>'
+        f'<th onclick="sortStockTable(this)" data-key="foreign">外資</th>'
+        f'<th onclick="sortStockTable(this)" data-key="trust">投信</th>'
+        f'<th onclick="sortStockTable(this)" data-key="margin">融資</th>'
+        f'</tr></thead>'
+    )
+    tbody = f'<tbody>{"".join(rows_html)}</tbody>'
+    table = f'<table class="stock-table">{thead}{tbody}</table>'
+    if as_row:
+        return f'<tr class="detail-row" style="display:none"><td colspan="4">{table}</td></tr>'
+    return table
+
+
+def _sector_row(row, sectors_df=None, prices_df=None, chips_df=None, compact=False, stock_sparklines=None) -> str:
     pct = row["avg_change_pct"]
     up, down, flat = int(row["up_count"]), int(row["down_count"]), int(row["flat_count"])
-    detail = _stock_cards(row["sector_name"], sectors_df, prices_df, chips_df)
+    detail = _stock_table(row["sector_name"], sectors_df, prices_df, chips_df, stock_sparklines=stock_sparklines)
     has_detail = bool(detail)
 
     chevron = '<span class="chevron">›</span>' if has_detail else ""
@@ -260,7 +400,7 @@ def _sector_row(row, sectors_df=None, prices_df=None, chips_df=None, compact=Fal
     )
 
 
-def _sector_mini_card(row, card_id: str, sectors_df=None, prices_df=None, chips_df=None) -> tuple:
+def _sector_mini_card(row, card_id: str, sectors_df=None, prices_df=None, chips_df=None, stock_sparklines=None) -> tuple:
     """分組區子族群 mini-card，回傳 (card_html, panel_html)"""
     pct = row["avg_change_pct"]
     up, down = int(row["up_count"]), int(row["down_count"])
@@ -269,7 +409,7 @@ def _sector_mini_card(row, card_id: str, sectors_df=None, prices_df=None, chips_
     sign = "+" if pct >= 0 else ""
     arrow = "▲" if pct > 0 else ("▼" if pct < 0 else "─")
 
-    detail_inner = _stock_cards(row["sector_name"], sectors_df, prices_df, chips_df, as_row=False)
+    detail_inner = _stock_table(row["sector_name"], sectors_df, prices_df, chips_df, stock_sparklines=stock_sparklines, as_row=False)
     has_detail = bool(detail_inner)
     onclick = f' onclick="selectMiniCard(\'{card_id}\')"' if has_detail else ""
 
@@ -291,10 +431,10 @@ def _sector_mini_card(row, card_id: str, sectors_df=None, prices_df=None, chips_
     return card, panel
 
 
-def _top10_card(row, rank: int, sectors_df=None, prices_df=None, chips_df=None) -> str:
+def _top10_card(row, rank: int, sectors_df=None, prices_df=None, chips_df=None, stock_sparklines=None) -> str:
     pct = row["avg_change_pct"]
     up, down, flat = int(row["up_count"]), int(row["down_count"]), int(row["flat_count"])
-    detail = _stock_cards(row["sector_name"], sectors_df, prices_df, chips_df)
+    detail = _stock_cards(row["sector_name"], sectors_df, prices_df, chips_df, stock_sparklines=stock_sparklines)
     has_detail = bool(detail)
     onclick = ' onclick="toggleDetail(this)"' if has_detail else ""
     chevron = '<span class="chevron">›</span>' if has_detail else ""
@@ -315,7 +455,8 @@ def _top10_card(row, rank: int, sectors_df=None, prices_df=None, chips_df=None) 
 
 
 def _meta_stock_cards(sub_names: list, sectors_df, prices_df, chips_df=None,
-                      universe_df=None, stock_ids: list = None, as_row: bool = True) -> str:
+                      universe_df=None, stock_ids: list = None, as_row: bool = True,
+                      stock_sparklines: dict = None) -> str:
     """合併所有子族群的個股卡片。
     若傳入 universe_df + stock_ids，直接從 universe 查詢（無重複）；
     否則 fallback 到舊的 sectors_df + sub_names 查詢。
@@ -340,68 +481,8 @@ def _meta_stock_cards(sub_names: list, sectors_df, prices_df, chips_df=None,
     prices_map = prices_df.set_index("stock_id") if not prices_df.empty else pd.DataFrame()
     chips_map = chips_df.set_index("stock_id") if chips_df is not None and not chips_df.empty else pd.DataFrame()
 
-    cards = []
-    for sid in sorted(name_map.keys()):
-        stock_name = name_map[sid]
-        if sid in prices_map.index:
-            p = prices_map.loc[sid]
-            close = float(p["close"])
-            pct = float(p["change_pct"])
-            vol = int(p["volume"])
-            color = _pct_color(pct)
-            sign = "+" if pct >= 0 else ""
-            arrow = "▲" if pct > 0 else ("▼" if pct < 0 else "─")
-
-            chips_html = ""
-            if sid in chips_map.index:
-                c = chips_map.loc[sid]
-                foreign = _fmt_chips_num(c.get("foreign_net"), _CHIPS_BADGE_MIN)
-                trust = _fmt_chips_num(c.get("trust_net"), _TRUST_BADGE_MIN)
-                margin = _fmt_margin(c.get("margin_balance"), c.get("margin_change"))
-                try:
-                    mc = int(c.get("margin_change", 0) or 0)
-                    mb = int(c.get("margin_balance", 0) or 0)
-                    margin_badge = (
-                        f' <span style="font-size:.65rem;color:#fb923c;background:rgba(124,45,18,.25);'
-                        f'border:1px solid rgba(124,45,18,.5);border-radius:3px;padding:0 4px">↑{mc/mb*100:.1f}%</span>'
-                        if mb > 0 and mc / mb > 0.05 else ""
-                    )
-                except (ZeroDivisionError, TypeError):
-                    margin_badge = ""
-                chips_html = (
-                    f'<div class="sc-chips">'
-                    f'<span class="chip-label">外資</span>{foreign} '
-                    f'<span class="chip-label">投信</span>{trust}'
-                    f'</div>'
-                    f'<div class="sc-chips">'
-                    f'<span class="chip-label">融資</span>{margin}{margin_badge}'
-                    f'</div>'
-                )
-
-            cards.append(
-                f'<div class="stock-card" data-sid="{sid}" style="border-color:{color}33">'
-                f'<div class="sc-header">'
-                f'<span class="sc-id">{sid}</span>'
-                f'<span class="sc-name">{stock_name}</span>'
-                f'</div>'
-                f'<div class="sc-body">'
-                f'<span class="sc-price">{_fmt_price(close)}</span>'
-                f'<span class="sc-pct" style="color:{color}">{arrow} {sign}{pct:.2f}%</span>'
-                f'</div>'
-                f'<div class="sc-vol">{vol:,} 張</div>'
-                f'{chips_html}'
-                f'</div>'
-            )
-        else:
-            cards.append(
-                f'<div class="stock-card no-data">'
-                f'<div class="sc-header">'
-                f'<span class="sc-id">{sid}</span>'
-                f'<span class="sc-name">{stock_name}</span>'
-                f'</div>'
-                f'<div class="sc-body"><span class="sc-price" style="color:#334155">無行情</span></div>'
-                f'</div>'
-            )
+    cards = [_stock_card_html(sid, name_map[sid], prices_map, chips_map, stock_sparklines)
+             for sid in sorted(name_map.keys())]
 
     cards_html = f'<div class="stock-cards-wrap">{"".join(cards)}</div>'
     if as_row:
@@ -537,7 +618,8 @@ def _signal_badges(meta_name: str, cum_ranks: dict, meta_signals: dict, today_ra
 
 def _meta_card(row: dict, rank: int, card_id: str, sectors_df=None, prices_df=None,
                chips_df=None, universe_df=None, cum_ranks: dict = None,
-               meta_signals: dict = None, meta_chips: dict = None) -> tuple:
+               meta_signals: dict = None, meta_chips: dict = None,
+               stock_sparklines: dict = None) -> tuple:
     """小卡片，回傳 (card_html, panel_html)"""
     pct = row["avg_change_pct"]
     up, down = int(row["up_count"]), int(row["down_count"])
@@ -549,6 +631,7 @@ def _meta_card(row: dict, rank: int, card_id: str, sectors_df=None, prices_df=No
     detail_inner = _meta_stock_cards(
         row["sub_names"], sectors_df, prices_df, chips_df,
         universe_df=universe_df, stock_ids=row.get("stock_ids"), as_row=False,
+        stock_sparklines=stock_sparklines,
     )
     onclick = f' onclick="selectMeta(\'{card_id}\')"' if detail_inner else ""
     badges = _signal_badges(row["meta_name"], cum_ranks or {}, meta_signals or {}, rank)
@@ -711,12 +794,12 @@ def generate(
 
         top_cards, top_panels = [], []
         for i, r in enumerate(top_source):
-            c, p = _meta_card(r, i+1, f"t{i}", sectors_df, prices_df, chips_df, universe_df, cum_ranks, meta_signals, meta_chips)
+            c, p = _meta_card(r, i+1, f"t{i}", sectors_df, prices_df, chips_df, universe_df, cum_ranks, meta_signals, meta_chips, stock_sparklines=stock_sparklines)
             top_cards.append(c); top_panels.append(p)
 
         bot_cards, bot_panels = [], []
         for i, r in enumerate(bot_source):
-            c, p = _meta_card(r, i+1, f"b{i}", sectors_df, prices_df, chips_df, universe_df, cum_ranks, meta_signals, meta_chips)
+            c, p = _meta_card(r, i+1, f"b{i}", sectors_df, prices_df, chips_df, universe_df, cum_ranks, meta_signals, meta_chips, stock_sparklines=stock_sparklines)
             bot_cards.append(c); bot_panels.append(p)
 
         top10_block = (
@@ -731,8 +814,8 @@ def generate(
         )
         top_section_inner = f'{top10_block}<div style="margin-top:10px">{bot10_block}</div>'
     else:
-        top10_html = "".join(_top10_card(r, i+1, sectors_df, prices_df, chips_df) for i, (_, r) in enumerate(df.head(10).iterrows()))
-        bot10_html = "".join(_top10_card(r, i+1, sectors_df, prices_df, chips_df) for i, (_, r) in enumerate(df.tail(10).iloc[::-1].iterrows()))
+        top10_html = "".join(_top10_card(r, i+1, sectors_df, prices_df, chips_df, stock_sparklines=stock_sparklines) for i, (_, r) in enumerate(df.head(10).iterrows()))
+        bot10_html = "".join(_top10_card(r, i+1, sectors_df, prices_df, chips_df, stock_sparklines=stock_sparklines) for i, (_, r) in enumerate(df.tail(10).iloc[::-1].iterrows()))
         top_section_inner = (
             f'<div class="top-card"><div class="top-card-title up-title">▲ 今日漲幅 Top 10</div><table><tbody>{top10_html}</tbody></table></div>'
             f'<div class="top-card"><div class="top-card-title down-title">▼ 今日跌幅 Top 10</div><table><tbody>{bot10_html}</tbody></table></div>'
@@ -754,7 +837,7 @@ def generate(
         mini_cards, mini_panels = [], []
         for s_idx, (_, r) in enumerate(subset.iterrows()):
             cid = f"sg{g_idx}s{s_idx}"
-            mc, mp = _sector_mini_card(r, cid, sectors_df, prices_df, chips_df)
+            mc, mp = _sector_mini_card(r, cid, sectors_df, prices_df, chips_df, stock_sparklines=stock_sparklines)
             mini_cards.append(mc)
             mini_panels.append(mp)
 
@@ -870,6 +953,13 @@ def generate(
     .sc-chips{{font-size:.72rem;color:#64748b;margin-top:4px;line-height:1.6}}
     .chip-label{{color:#334155;margin-right:2px}}
 
+    /* Stock sortable table (sub-sector expand) */
+    .stock-table{{width:100%;border-collapse:collapse;font-size:.82rem}}
+    .stock-table thead th{{text-align:left;padding:5px 10px;font-size:.65rem;color:#94a3b8;text-transform:uppercase;cursor:pointer;user-select:none;white-space:nowrap;border-bottom:1px solid #1e293b}}
+    .stock-table thead th:hover{{color:#e2e8f0}}
+    .stock-table td{{padding:7px 10px;border-bottom:1px solid #070b12}}
+    .st-row:hover>td{{background:#0f1624}}
+
     /* Groups */
     .section-bar{{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}}
     .groups-grid{{display:grid;grid-template-columns:1fr;gap:8px}}
@@ -945,9 +1035,45 @@ def generate(
       .sc-mini-panel{{margin:0 6px 8px}}
     }}
 
+    /* ── Stock Modal ── */
+    .smodal-overlay{{position:fixed;inset:0;z-index:2000;background:rgba(0,0,0,.75);display:flex;align-items:center;justify-content:center;padding:16px}}
+    .smodal{{background:#0f1624;border:1px solid #1e293b;border-radius:14px;width:100%;max-width:420px;max-height:90vh;overflow-y:auto;box-shadow:0 24px 64px rgba(0,0,0,.7)}}
+    .smodal-hd{{display:flex;align-items:center;justify-content:space-between;padding:16px 18px 10px;border-bottom:1px solid #1e293b}}
+    .smodal-sid{{font-size:1.1rem;font-weight:700;color:#e2e8f0;margin-right:8px}}
+    .smodal-name{{font-size:.9rem;color:#64748b}}
+    .smodal-close{{background:none;border:none;color:#475569;font-size:1.2rem;cursor:pointer;padding:2px 6px;border-radius:4px;line-height:1}}
+    .smodal-close:hover{{color:#94a3b8;background:#1e293b}}
+    .smodal-price{{display:flex;align-items:baseline;gap:12px;padding:12px 18px 8px}}
+    .smodal-val{{font-size:1.6rem;font-weight:800;color:#f1f5f9}}
+    .smodal-pct{{font-size:1rem;font-weight:700}}
+    .smodal-vol{{font-size:.78rem;color:#64748b;margin-left:auto}}
+    .smodal-spark{{padding:4px 18px 8px;overflow-x:auto}}
+    .smodal-chips{{padding:10px 18px 18px}}
+    .sm-chip-row{{display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid #0b0f18;font-size:.85rem}}
+    .sm-chip-row:last-child{{border-bottom:none}}
+    .sm-chip-label{{color:#475569;font-size:.7rem;min-width:36px}}
+    .sm-chip-val{{font-weight:600}}
+    .sm-chip-sub{{font-size:.72rem;color:#64748b;margin-left:4px}}
+
   </style>
 </head>
 <body>
+  <!-- Stock Detail Modal -->
+  <div id="stock-modal" class="smodal-overlay" style="display:none" onclick="closeModalBg(event)">
+    <div class="smodal">
+      <div class="smodal-hd">
+        <span><span id="sm-sid" class="smodal-sid"></span><span id="sm-name" class="smodal-name"></span></span>
+        <button class="smodal-close" onclick="closeStockModal()">✕</button>
+      </div>
+      <div class="smodal-price">
+        <span id="sm-close" class="smodal-val"></span>
+        <span id="sm-pct" class="smodal-pct"></span>
+        <span id="sm-vol" class="smodal-vol"></span>
+      </div>
+      <div id="sm-spark" class="smodal-spark"></div>
+      <div id="sm-chips" class="smodal-chips"></div>
+    </div>
+  </div>
   <div class="header">
     <h1>台股電子半導體族群追蹤</h1>
     <div class="mkt-bar">
@@ -1112,6 +1238,98 @@ def generate(
       document.querySelectorAll('.clickable-sector.open').forEach(r => r.classList.remove('open'));
       document.querySelectorAll('.sc-mini-panel').forEach(p => p.style.display = 'none');
       document.querySelectorAll('.sc-mini-card.active').forEach(c => c.classList.remove('active'));
+    }}
+
+    /* ── Stock Modal ── */
+    function _modalSparkSVG(pcts) {{
+      if (!pcts || !pcts.length) return '';
+      const n = pcts.length;
+      const maxAbs = Math.max(...pcts.map(Math.abs)) || 1;
+      const chartH = 72, midY = chartH / 2;
+      const barW = Math.max(8, Math.floor(360 / n) - 3);
+      const gap = 3;
+      const totalW = n * (barW + gap) - gap + 24;
+      let bars = '';
+      pcts.forEach((pct, i) => {{
+        const x = 12 + i * (barW + gap);
+        const barH = Math.max(3, Math.round(Math.abs(pct) / maxAbs * (midY - 5)));
+        const up = pct >= 0;
+        const y = up ? midY - barH : midY;
+        const col = up ? (Math.abs(pct) >= 1 ? '#ef4444' : '#fca5a5') : (Math.abs(pct) >= 1 ? '#22c55e' : '#86efac');
+        const sign = up ? '+' : '';
+        bars += `<rect x="${{x}}" y="${{y}}" width="${{barW}}" height="${{barH}}" fill="${{col}}" rx="2"><title>${{sign}}${{pct.toFixed(2)}}%</title></rect>`;
+      }});
+      const zero = `<line x1="10" y1="${{midY}}" x2="${{totalW-10}}" y2="${{midY}}" stroke="#334155" stroke-width="0.8"/>`;
+      return `<svg width="${{totalW}}" height="${{chartH}}" xmlns="http://www.w3.org/2000/svg">${{zero}}${{bars}}</svg>`;
+    }}
+
+    function openStockModal(el) {{
+      const d = el.dataset;
+      const pct = parseFloat(d.pct || 0);
+      const col = pct > 0 ? '#ef4444' : (pct < 0 ? '#22c55e' : '#64748b');
+      const sign = pct >= 0 ? '+' : '';
+      const arrow = pct > 0 ? '▲' : (pct < 0 ? '▼' : '─');
+
+      document.getElementById('sm-sid').textContent = d.sid || '';
+      document.getElementById('sm-name').textContent = d.name || '';
+      document.getElementById('sm-close').textContent = parseFloat(d.close || 0).toLocaleString();
+      document.getElementById('sm-pct').innerHTML = `<span style="color:${{col}}">${{arrow}} ${{sign}}${{pct.toFixed(2)}}%</span>`;
+      const vol = parseInt(d.vol || 0);
+      document.getElementById('sm-vol').textContent = vol ? vol.toLocaleString() + ' 張' : '';
+
+      const spark = d.sparkline ? JSON.parse(d.sparkline) : [];
+      document.getElementById('sm-spark').innerHTML = _modalSparkSVG(spark);
+
+      const chips = d.chips ? JSON.parse(d.chips) : {{}};
+      let ch = '';
+      if (chips.foreign !== undefined) {{
+        const fc = chips.foreign >= 0 ? '#ef4444' : '#22c55e';
+        const fs = chips.foreign >= 0 ? '+' : '';
+        ch += `<div class="sm-chip-row"><span class="sm-chip-label">外資</span><span class="sm-chip-val" style="color:${{fc}}">${{fs}}${{parseInt(chips.foreign).toLocaleString()}} 張</span></div>`;
+      }}
+      if (chips.trust !== undefined) {{
+        const tc = chips.trust >= 0 ? '#ef4444' : '#22c55e';
+        const ts = chips.trust >= 0 ? '+' : '';
+        ch += `<div class="sm-chip-row"><span class="sm-chip-label">投信</span><span class="sm-chip-val" style="color:${{tc}}">${{ts}}${{parseInt(chips.trust).toLocaleString()}} 張</span></div>`;
+      }}
+      if (chips.marginBal !== undefined) {{
+        const mc = chips.marginChg > 0 ? '#f87171' : (chips.marginChg < 0 ? '#4ade80' : '#64748b');
+        const ms = chips.marginChg >= 0 ? '+' : '';
+        ch += `<div class="sm-chip-row"><span class="sm-chip-label">融資</span><span class="sm-chip-val">${{parseInt(chips.marginBal).toLocaleString()}} 張</span><span class="sm-chip-sub" style="color:${{mc}}">${{ms}}${{parseInt(chips.marginChg).toLocaleString()}}</span></div>`;
+      }}
+      document.getElementById('sm-chips').innerHTML = ch || '<span style="color:#334155;font-size:.8rem">無籌碼資料</span>';
+
+      document.getElementById('stock-modal').style.display = 'flex';
+      document.body.style.overflow = 'hidden';
+    }}
+    function closeStockModal() {{
+      document.getElementById('stock-modal').style.display = 'none';
+      document.body.style.overflow = '';
+    }}
+    function closeModalBg(e) {{
+      if (e.target.id === 'stock-modal') closeStockModal();
+    }}
+    document.addEventListener('keydown', e => {{ if (e.key === 'Escape') closeStockModal(); }});
+
+    /* ── Stock Table Sort ── */
+    function sortStockTable(th) {{
+      const table = th.closest('table');
+      const tbody = table.querySelector('tbody');
+      const ths = Array.from(th.parentElement.children);
+      const key = th.dataset.key;
+      const labels = {{'code':'代號','name':'股名','close':'收盤','pct':'今日%','wpct':'週漲跌%','foreign':'外資','trust':'投信','margin':'融資'}};
+      const asc = th.dataset.sort !== 'asc';
+      ths.forEach(t => {{ t.dataset.sort = ''; t.textContent = labels[t.dataset.key] || ''; }});
+      th.dataset.sort = asc ? 'asc' : 'desc';
+      th.textContent = labels[key] + (asc ? ' ▲' : ' ▼');
+      const rows = Array.from(tbody.querySelectorAll('tr'));
+      rows.sort((a, b) => {{
+        const av = a.dataset[key] || '', bv = b.dataset[key] || '';
+        const an = parseFloat(av), bn = parseFloat(bv);
+        if (!isNaN(an) && !isNaN(bn)) return asc ? an - bn : bn - an;
+        return asc ? av.localeCompare(bv, 'zh-TW') : bv.localeCompare(av, 'zh-TW');
+      }});
+      rows.forEach(r => tbody.appendChild(r));
     }}
 
   </script>

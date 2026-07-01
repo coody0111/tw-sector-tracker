@@ -105,10 +105,11 @@ def _first_month_start(today: date, months: int) -> date:
 
 
 def _iter_weekdays(start: date, end: date):
-    """Yield weekdays only; TWSE holidays are skipped after API response."""
+    """Yield trading days only (skip weekends and Taiwan national holidays)."""
+    from config import is_trading_day
     current = start
     while current <= end:
-        if current.weekday() < 5:
+        if is_trading_day(current.isoformat()):
             yield current
         current += timedelta(days=1)
 

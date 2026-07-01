@@ -25,9 +25,10 @@ UNIVERSE_PATH = Path("data/stock_universe.csv")
 
 
 def _prev_trading_day(d: date) -> date:
-    """回前一個交易日（跳過週末，不處理國定假日）。"""
+    """回前一個交易日（跳過週末與國定假日）。"""
+    from config import is_trading_day
     d -= timedelta(days=1)
-    while d.weekday() >= 5:
+    while not is_trading_day(d.isoformat()):
         d -= timedelta(days=1)
     return d
 

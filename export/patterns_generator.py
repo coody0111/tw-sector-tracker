@@ -6,15 +6,17 @@ from datetime import date
 from pathlib import Path
 from urllib.parse import quote as _q
 
-_BULLISH = {"雙底", "頭肩底", "三角突破", "60日突破", "VCP突破"}
+_BULLISH = {"雙底", "頭肩底", "收斂三角", "上升三角", "下降楔型", "多頭拐點", "VCP突破"}
 _BEARISH = {"雙頂", "三角跌破"}
 _NEUTRAL = {"箱型整理"}
 
 _PATTERN_LABEL = {
     "雙底":    ("🟢", "#86efac"),
     "頭肩底":  ("🏔", "#34d399"),
-    "三角突破": ("🔺", "#86efac"),
-    "60日突破": ("⚡", "#fbbf24"),
+    "收斂三角": ("🔺", "#86efac"),
+    "上升三角": ("📐", "#6ee7b7"),
+    "下降楔型": ("📉", "#67e8f9"),
+    "多頭拐點": ("🔥", "#fbbf24"),
     "VCP突破":  ("🚀", "#a78bfa"),
     "雙頂":    ("🔴", "#fca5a5"),
     "三角跌破": ("🔻", "#fca5a5"),
@@ -325,7 +327,7 @@ _BACKTEST_NOTE = (
     "<tbody>"
     + _backtest_row("🟢雙底",           5248, 41, 40, 43, -1.1)
     + _backtest_row("🔺三角突破",        3146, 43, 45, 48, +2.9)
-    + _backtest_row("⚡60日突破",         582, 27, 25, 21, -5.5)
+    + _backtest_row("🔥多頭拐點",          582, 27, 25, 21, -5.5)
     + _backtest_row("🔻雙頂（做空）",     905, 51, 58, 60, +4.3)
     + _backtest_row("▽三角跌破（做空）",  951, 47, 49, 55, +3.1)
     + "</tbody></table>"
@@ -413,9 +415,9 @@ def generate(trade_date: date, results: list[dict], output_path: str) -> None:
     )[:50]
 
     # Pattern groups
-    s60d   = [r for r in bullish if "60日突破"  in r["patterns"] and r["score"] >= 2]
+    s60d   = [r for r in bullish if "多頭拐點"  in r["patterns"] and r["score"] >= 2]
     s_dbl  = [r for r in bullish if "雙底"      in r["patterns"] and r["score"] >= 2]
-    s_tri  = [r for r in bullish if "三角突破"  in r["patterns"] and r["score"] >= 2]
+    s_tri  = [r for r in bullish if any(p in r["patterns"] for p in ("收斂三角", "上升三角", "下降楔型")) and r["score"] >= 2]
     s_vcp  = [r for r in bullish if "VCP突破"   in r["patterns"] and r["score"] >= 2]
     s_avoid = [r for r in bearish if r["score"] <= -2]
     s_box  = sorted(neutral, key=lambda x: abs(x["score"]), reverse=True)
@@ -428,7 +430,7 @@ def generate(trade_date: date, results: list[dict], output_path: str) -> None:
         _section("🚀 VCP 量縮底部突破",  s_vcp),
         _section("🔺 三角整理向上突破",  s_tri),
         _section("🟢 雙底",              s_dbl),
-        _section("⚡ 60日新高突破確認",  s60d),
+        _section("🔥 多頭排列拐點",     s60d),
     ])
 
     tab3 = _meta_hits_section(results)

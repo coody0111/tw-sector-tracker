@@ -82,15 +82,14 @@ def _make_ohlcv(closes, volumes=None):
 
 
 def test_double_bottom_detected():
-    # Baseline 100, first low 90 at idx 15, bounce to 97, second low 90.5 at idx 40, today 98 (above neckline)
+    # 前置高點 106（106/90=1.178 ≥ 1.15 ✓），兩底間距 25 根 ≥ 10 ✓，第二底距今 6 根 ≤ 10 ✓
     closes = (
-        [100.0] * 12 +
-        [95.0, 92.0, 90.0, 92.0, 94.0] +      # first bottom ~idx 14
-        [96.0, 98.0, 98.0, 97.0, 98.0] * 4 +  # bounce / neckline ~98 (9%+ bounce from 90)
-        [95.0, 92.0, 90.5, 92.0, 94.0] +      # second bottom ~idx 38
-        [95.0, 96.0, 99.0]                     # today breaks neckline
+        [106.0] * 12 +
+        [95.0, 92.0, 90.0, 92.0, 94.0] +      # first bottom ~idx 14 (90)
+        [96.0, 98.0, 98.0, 97.0, 98.0] * 4 +  # bounce / neckline ~98 (8.9%+ bounce from 90)
+        [95.0, 92.0, 90.5, 92.0, 94.0] +      # second bottom ~idx 39 (90.5)
+        [95.0, 96.0, 99.0]                     # today 99 > neckline 98
     )
-    # Volume spike on breakout day (1.5x+ required with new threshold)
     vols = [1_000_000] * (len(closes) - 1) + [2_000_000]
     df = _make_ohlcv(closes, vols)
     assert detect_double_bottom(df)
@@ -124,67 +123,185 @@ def test_double_top_not_detected_when_price_holds():
 
 from screener.patterns import (
     detect_triangle_up, detect_triangle_down,
+    detect_ascending_triangle, detect_falling_wedge,
     detect_breakout_confirm, detect_box_consolidation,
     detect_vcp,
 )
 
+# ── Triangle / Wedge helpers ─────────────────────────────────────────────────
+# All tests need 62 bars (1 padding + 60 hist + 1 today).
+# hist = df.iloc[-61:-1]; hist[i] == df[i+1] when len(df)==62.
+# Peaks/troughs placed at hist[15]/hist[45] and hist[20]/hist[50]
+# with _TRI_PIVOT_R=4 neighbours on each side set to enforce strict local extrema.
+
+def _tri_df(highs, lows, closes, vols):
+    return pd.DataFrame({'close': closes, 'high': highs, 'low': lows, 'volume': vols})
+
+
+def _set_peak(highs, df_idx, peak_val, surround_val):
+    highs[df_idx] = peak_val
+    for j in range(df_idx - 4, df_idx + 5):
+        if j != df_idx:
+            highs[j] = surround_val
+
+
+def _set_trough(lows, df_idx, trough_val, surround_val):
+    lows[df_idx] = trough_val
+    for j in range(df_idx - 4, df_idx + 5):
+        if j != df_idx:
+            lows[j] = surround_val
+
 
 def test_triangle_up_detected():
-    # 對稱三角收斂：壓力局部高點下降（105→103→101），支撐局部低點上升（95→97），今日突破
-    # highs: 局部高點在 idx 2(105), 7(103), 11(103), 17(101) → last-two slope = -0.333/day
-    # lows:  局部低點在 idx 4(95.0), 14(97.0) → slope = +0.2/day
-    # 壓力外推至 position 20 ≈ 100.0；today close = 101.5 > 100.0 ✓
-    highs_h = [103.0, 104.0, 105.0, 103.0, 102.0,
-               101.0, 102.0, 103.0, 102.0, 101.0,
-               100.0, 103.0, 101.5, 101.0, 100.0,
-                99.0, 100.0, 101.0, 100.0,  99.0]
-    lows_h  = [ 97.5,  96.5,  97.0,  97.5,  95.0,
-                95.5,  96.5,  97.0,  97.5,  98.0,
-                98.5,  99.0,  98.5,  98.5,  97.0,
-                97.5,  98.0,  98.5,  98.0,  99.0]
-    closes_h = [(h + l) / 2 for h, l in zip(highs_h, lows_h)]
-    highs  = highs_h  + [103.0]
-    lows   = lows_h   + [99.5]
-    closes = closes_h + [101.5]
-    vols   = [1_000_000] * 20 + [2_000_000]
-    df = pd.DataFrame({'close': closes, 'high': highs, 'low': lows, 'volume': vols})
-    assert detect_triangle_up(df)
+    # 收斂三角：高點 hist[15]=108→hist[45]=104（遞減），低點 hist[20]=92→hist[50]=96（遞增）
+    # hs=-0.133, hi=110; ls=+0.133, li=89.33; res_today=102.0, res_yest=102.13
+    N = 62
+    highs  = [100.0] * N
+    lows   = [100.0] * N
+    closes = [100.0] * N
+    vols   = [1_000_000] * N
+
+    _set_peak(highs,   16, 108.0, 105.0)   # hist[15]: peak1
+    _set_peak(highs,   46, 104.0, 101.5)   # hist[45]: peak2 (lower → hs<0)
+    _set_trough(lows,  21,  92.0,  95.0)   # hist[20]: trough1
+    _set_trough(lows,  51,  96.0,  98.0)   # hist[50]: trough2 (higher → ls>0)
+
+    closes[60] = 100.0   # yesterday: below res_yest ≈ 102.13
+    highs[60]  = 101.0
+    lows[60]   = 99.0
+
+    closes[61] = 103.0   # today: above res_today=102.0 and above yesterday
+    highs[61]  = 104.0
+    lows[61]   = 101.5
+
+    for j in range(1, 31): vols[j] = 1_200_000   # early hist: higher vol
+    vols[61] = 1_800_000                           # breakout vol ≥ MA20×1.5
+
+    assert detect_triangle_up(_tri_df(highs, lows, closes, vols))
 
 
 def test_triangle_down_detected():
-    # 下降三角：壓力高點下降（105→103→101），支撐低點水平（95.0 / 95.2），今日跌破
-    # highs: 局部高點在 idx 2(105), 7(103), 11(102), 17(100) → declining ✓
-    # lows:  局部低點在 idx 4(95.0), 14(95.2) → slope = 0.02/day → |slope|/mean < 0.5% ✓
-    # 支撐外推至 position 20 ≈ 95.32；today close = 93.5 < 95.32 ✓
-    highs_h = [103.0, 104.0, 105.0, 103.0, 102.0,
-               101.0, 102.0, 103.0, 102.0, 101.0,
-               100.0, 102.0, 100.5, 100.0,  99.0,
-                98.0,  99.0, 100.0,  99.0,  98.0]
-    lows_h  = [ 96.5,  96.0,  96.5,  97.0,  95.0,
-                95.5,  96.0,  96.5,  97.0,  97.0,
-                97.5,  97.0,  97.5,  97.5,  95.2,
-                95.8,  96.0,  96.5,  96.0,  96.5]
-    closes_h = [(h + l) / 2 for h, l in zip(highs_h, lows_h)]
-    highs  = highs_h  + [97.0]
-    lows   = lows_h   + [92.5]
-    closes = closes_h + [93.5]
-    vols   = [1_000_000] * 20 + [2_000_000]
-    df = pd.DataFrame({'close': closes, 'high': highs, 'low': lows, 'volume': vols})
-    assert detect_triangle_down(df)
+    # 下降三角：高點 hist[15]=108→hist[45]=104（遞減），低點 hist[20]=95→hist[50]=95.5（近水平）
+    # |t2-t1|/t1=0.005<3%; ls≈0.017; |ls|/mean=0.00017<0.002
+    # sup_today=95.667, sup_yest=95.65; yesterday close=96 (above), today=94 (below)
+    N = 62
+    highs  = [100.0] * N
+    lows   = [100.0] * N
+    closes = [100.0] * N
+    vols   = [1_000_000] * N
+
+    _set_peak(highs,   16, 108.0, 105.0)   # hist[15]: peak1
+    _set_peak(highs,   46, 104.0, 101.5)   # hist[45]: peak2 (lower → hs<0)
+    _set_trough(lows,  21,  95.0,  97.5)   # hist[20]: trough1
+    _set_trough(lows,  51,  95.5,  97.5)   # hist[50]: trough2 (flat ≈ trough1)
+
+    closes[60] = 96.0    # yesterday: above flat support ≈ 95.65
+    highs[60]  = 97.0
+    lows[60]   = 95.8
+
+    closes[61] = 94.0    # today: below sup_today=95.667 and below yesterday
+    highs[61]  = 95.5
+    lows[61]   = 93.5
+
+    vols[61] = 1_800_000   # breakdown vol ≥ MA20×1.5
+
+    assert detect_triangle_down(_tri_df(highs, lows, closes, vols))
+
+
+def test_ascending_triangle_detected():
+    # 上升三角：高點 hist[15]=105→hist[45]=105.5（水平，差0.5%<3%），低點遞增
+    # hs≈+0.017→|hs|/mean=0.00017<0.002; res_today=105.75, yesterday=104.0
+    N = 62
+    highs  = [102.0] * N
+    lows   = [100.0] * N
+    closes = [100.0] * N
+    vols   = [1_000_000] * N
+
+    _set_peak(highs,   16, 105.0, 103.0)   # hist[15]: peak1
+    _set_peak(highs,   46, 105.5, 103.0)   # hist[45]: peak2 (nearly same height)
+    _set_trough(lows,  21,  92.0,  95.0)   # hist[20]: trough1
+    _set_trough(lows,  51,  96.0,  98.0)   # hist[50]: trough2 (higher → ls>0)
+
+    closes[60] = 104.0   # yesterday: below res_yest≈105.73
+    highs[60]  = 105.0
+    lows[60]   = 103.0
+
+    closes[61] = 107.0   # today: above res_today=105.75 and above yesterday
+    highs[61]  = 108.0
+    lows[61]   = 106.0
+
+    for j in range(1, 31): vols[j] = 1_200_000
+    vols[61] = 1_800_000
+
+    assert detect_ascending_triangle(_tri_df(highs, lows, closes, vols))
+
+
+def test_falling_wedge_detected():
+    # 下降楔型：高點 hist[15]=110→hist[45]=100（hs=-10/30=-0.333），低點 hist[20]=95→hist[50]=88（ls=-7/30=-0.233）
+    # hs(-0.333) < ls(-0.233) < 0 ✓; gap收斂(15.33→9.43)
+    # res_today=95.0, res_yest=95.33; yesterday=94.0 (below), today=97.0 (above)
+    N = 62
+    highs  = [95.0] * N   # default below all surroundings
+    lows   = [100.0] * N
+    closes = [100.0] * N
+    vols   = [1_000_000] * N
+
+    _set_peak(highs,   16, 110.0, 107.0)   # hist[15]: peak1=110
+    _set_peak(highs,   46, 100.0,  97.0)   # hist[45]: peak2=100 → hs=-10/30=-0.333
+    _set_trough(lows,  21,  95.0,  98.0)   # hist[20]: trough1
+    _set_trough(lows,  51,  88.0,  91.0)   # hist[50]: trough2 (lower → ls<0, but less steep)
+
+    closes[60] = 94.0    # yesterday: below res_yest≈95.33
+    highs[60]  = 94.5
+    lows[60]   = 93.0
+
+    closes[61] = 97.0    # today: above res_today=95.0 and above yesterday
+    highs[61]  = 98.0
+    lows[61]   = 95.5
+
+    for j in range(1, 31): vols[j] = 1_200_000
+    vols[61] = 1_800_000
+
+    assert detect_falling_wedge(_tri_df(highs, lows, closes, vols))
 
 
 def test_breakout_confirm_detected():
-    # 60-day high = 100; yesterday (day 63) close = 101 with big volume; today = 102
-    closes = [98.0] * 60 + [100.0, 101.0, 102.0]   # 63 days total
-    vols   = [1_000_000] * 61 + [1_600_000, 1_000_000]  # big vol on day 62 (yesterday)
+    # Stage 2 起漲：bars 0-19 高位(120)→ bars 20-59 低位整理(88)→ bars 60-79 回升(95→130)
+    # 20日前：MA20(88) < MA60(98.3) ✓；今日：MA20(112) > MA60(96) > MA60走平(-2.4%) ✓
+    closes = (
+        [120.0] * 20                              # 高位（拉高 MA60_20d_ago）
+        + [88.0] * 40                             # 整理低位（MA20 被壓低）
+        + list(np.linspace(95, 130, 20))          # 回升起漲
+    )
+    vols = [1_000_000] * 69 + [2_000_000] + [1_000_000] * 10  # 爆量在 bar 69
     df = _make_ohlcv(closes, vols)
     assert detect_breakout_confirm(df)
 
 
-def test_breakout_confirm_not_detected_when_below():
-    # Breakout happened but today fell back below
-    closes = [98.0] * 60 + [100.0, 101.0, 99.5]
-    vols   = [1_000_000] * 61 + [1_600_000, 1_000_000]
+def test_breakout_confirm_not_detected_already_bullish():
+    # 20日前 MA20 已 > MA60（早已多頭）→ 不是拐點，拒絕
+    closes = list(np.linspace(80, 130, 80))   # 全段線性上升
+    vols   = [1_000_000] * 79 + [2_000_000]
+    df = _make_ohlcv(closes, vols)
+    assert not detect_breakout_confirm(df)
+
+
+def test_breakout_confirm_not_detected_bearish():
+    # MA60 強烈下跌（空頭趨勢）→ 拒絕
+    closes = list(np.linspace(150, 80, 80))   # 全段下跌
+    vols   = [1_000_000] * 79 + [2_000_000]
+    df = _make_ohlcv(closes, vols)
+    assert not detect_breakout_confirm(df)
+
+
+def test_breakout_confirm_not_detected_no_vol_spike():
+    # 條件全過但無爆量 → 拒絕
+    closes = (
+        [120.0] * 20
+        + [88.0] * 40
+        + list(np.linspace(95, 130, 20))
+    )
+    vols = [1_000_000] * 80   # 量均勻，無爆量
     df = _make_ohlcv(closes, vols)
     assert not detect_breakout_confirm(df)
 

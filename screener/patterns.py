@@ -22,7 +22,11 @@ _DBL_PRICE_DIFF  = 0.05   # 雙底/頂兩端差距 < 5%（原3%太嚴）
 _DBL_BOUNCE      = 0.08   # 中間反彈/拉回 >= 8%（原5%太小）
 _DBL_VOL_CONFIRM = 1.5    # 突破頸線量確認（原1.2）
 _TRI_VOL_CONFIRM = 1.8    # 三角突破量確認（原1.3）
-_BRK_VOL_CONFIRM = 1.5    # 60日突破量確認
+_TRI_WINDOW      = 60     # 三角/楔型整理視窗（交易日）
+_TRI_PIVOT_R     = 4      # 局部 pivot 最小半徑（減少噪音）
+_TRI_VOL_CONTRACT = 1.1   # 整理期量縮容忍度
+_TRI_VOL_BREAKOUT = 1.5   # 突破日量能下限（vs 20MA）
+_BRK_VOL_CONFIRM = 2.0    # 60日突破量確認（嚴格：需強勁爆量）
 _BOX_RANGE       = 0.08   # 箱型整理最大振幅 8%
 _IHS_PRICE_DIFF  = 0.15   # 頭肩底左右肩差距 < 15%
 _IHS_VOL_CONFIRM = 1.5    # 頭肩底突破頸線量確認
@@ -116,13 +120,8 @@ def _local_maxima(arr: np.ndarray, radius: int = 3) -> list[int]:
 def _pivot_trendline(
     arr: np.ndarray, find_peaks: bool, radius: int = 2
 ) -> tuple[float | None, float | None]:
-    """
-    連接局部高點（find_peaks=True）或低點（False）的趨勢線。
-    用最後兩個 pivot 連線，回傳 (slope, intercept)。
-    若 pivot 不足，fallback 到前後兩半的極值連線。
-    """
+    """連接局部高/低點的趨勢線（舊版，僅雙底/頭肩底使用）。"""
     pivots = _local_maxima(arr, radius) if find_peaks else _local_minima(arr, radius)
-
     if len(pivots) >= 2:
         x1, x2 = pivots[-2], pivots[-1]
     else:
@@ -133,7 +132,6 @@ def _pivot_trendline(
         else:
             x1 = int(np.argmin(arr[:half]))
             x2 = half + int(np.argmin(arr[half:]))
-
     if x2 == x1:
         return None, None
     slope = (arr[x2] - arr[x1]) / (x2 - x1)
@@ -141,10 +139,32 @@ def _pivot_trendline(
     return slope, intercept
 
 
+def _tri_trendline(arr: np.ndarray, pivot_idxs: list) -> tuple[float | None, float | None]:
+    """用最後兩個 pivot 連線，回傳 (slope, intercept)；不足則回傳 (None, None)。"""
+    if len(pivot_idxs) < 2:
+        return None, None
+    x1, x2 = int(pivot_idxs[-2]), int(pivot_idxs[-1])
+    if x2 <= x1:
+        return None, None
+    s = (arr[x2] - arr[x1]) / (x2 - x1)
+    b = arr[x1] - s * x1
+    return s, b
+
+
+def _safe_arr(hist: pd.DataFrame, col: str, fallback: np.ndarray) -> np.ndarray:
+    """取 hist[col]，NaN 補 fallback（TWSE 日 CSV 無 high/low 時以 close 代替）。"""
+    if col in hist.columns:
+        raw = hist[col].values.astype(float)
+        return np.where(np.isnan(raw), fallback, raw)
+    return fallback.copy()
+
+
 def detect_double_bottom(df: pd.DataFrame) -> bool:
     """
-    雙底：近60日兩個局部低點（差<5%，間距≥8根），中間反彈≥8%（頸線），
-    第一低點前有下跌趨勢（前高≥低點×1.10），今日突破頸線 + 量>20MA×1.5。
+    雙底：近60日兩個局部低點（差<5%，間距≥10根），中間反彈≥8%（頸線），
+    第一低點前有下跌趨勢（前高≥低點×1.15），第二底在最後10根內，
+    今日首次突破頸線 + 量>20MA×1.5。
+    Stop 設在兩低點之下（非頸線），R/R 才有意義。
     """
     if len(df) < 30:
         return False
@@ -169,16 +189,16 @@ def detect_double_bottom(df: pd.DataFrame) -> bool:
             if min(low1, low2) <= 0:
                 continue
 
-            # 兩低點至少相距 8 根（避免同一個底被計兩次）
-            if i2 - i1 < 8:
+            # 兩低點至少相距 10 根
+            if i2 - i1 < 10:
                 continue
 
             # 兩低點差距 < 5%
             if abs(low1 - low2) / min(low1, low2) >= _DBL_PRICE_DIFF:
                 continue
 
-            # 第一個底之前要有過較高的價格（確認先有下跌趨勢，需高 10% 以上）
-            if i1 > 0 and seg[:i1].max() < seg[i1] * 1.10:
+            # 第一個底之前要有過較高的價格（前置下跌 ≥ 15%）
+            if i1 == 0 or seg[:i1].max() < seg[i1] * 1.15:
                 continue
 
             # 中間最高點為頸線
@@ -187,8 +207,8 @@ def detect_double_bottom(df: pd.DataFrame) -> bool:
             if bounce < _DBL_BOUNCE:
                 continue
 
-            # 第二個底要夠新（離今日不超過 15 根）
-            if i2 < seg_n - 15:
+            # 第二個底要夠新（離今日不超過 10 根）
+            if i2 < seg_n - 10:
                 continue
 
             # 今日收盤突破頸線（需為首日突破：昨日仍在頸線下方）
@@ -201,10 +221,12 @@ def detect_double_bottom(df: pd.DataFrame) -> bool:
             if vol_ma20 > 0 and volume[-1] < vol_ma20 * _DBL_VOL_CONFIRM:
                 continue
 
+            # Stop 設在兩低點下方 1%（而非頸線下方 3%）
+            actual_low = float(min(low1, low2))
             anchor = float(neckline)
-            stop   = round(anchor * 0.97, 2)
-            target = round(anchor + (anchor - float(min(low1, low2))), 2)
-            rr     = round((target - anchor) / (anchor - stop), 2)
+            stop   = round(actual_low * 0.99, 2)
+            target = round(anchor + (anchor - actual_low), 2)
+            rr     = round((target - anchor) / (anchor - stop), 2) if anchor > stop else 0.0
             return {"anchor": anchor, "stop": stop, "target": target, "rr": rr}
 
     return False
@@ -267,150 +289,347 @@ def detect_double_top(df: pd.DataFrame) -> bool:
     return False
 
 
-def detect_triangle_up(df: pd.DataFrame) -> bool:
+def detect_triangle_up(df: pd.DataFrame) -> dict | bool:
     """
-    三角向上突破：近20日壓力局部高點連線斜率<0 + 支撐局部低點連線斜率>0（對稱三角），
-    整理期量縮（後10日均量 ≤ 前10日×1.1），今日必須上漲且收盤突破壓力外推值 + 量>20MA×1.8。
-    加上 MA50 上升趨勢過濾：收盤需在 MA50 之上才算有效突破。
+    收斂三角突破（對稱三角）：
+    - 60日整理期，高點遞減（壓力線向下）+ 低點遞增（支撐線向上）
+    - 兩線收斂驗證：起點振幅 > 終點振幅
+    - 今日首次突破壓力線（昨日仍在下方）且上漲
+    - 整理期量縮，突破日爆量 ≥ 20MA × 1.5
     """
-    if len(df) < 21:
+    if len(df) < _TRI_WINDOW + 2:
         return False
 
-    # MA50 上升趨勢過濾：確保不在空頭整理中
-    if len(df) >= 51:
-        ma50 = df['close'].iloc[-51:-1].mean()
-        if df['close'].iloc[-1] < ma50 * 0.98:
-            return False
+    hist      = df.iloc[-(_TRI_WINDOW + 1):-1]
+    today     = df.iloc[-1]
+    close_arr = hist['close'].values.astype(float)
+    highs     = _safe_arr(hist, 'high', close_arr)
+    lows      = _safe_arr(hist, 'low',  close_arr)
+    volume    = df['volume'].values
 
-    hist   = df.iloc[-21:-1]   # 20 days before today
-    today  = df.iloc[-1]
-    volume = df['volume'].values
-    close_arr = hist['close'].values
-    highs_raw = hist['high'].values if 'high' in hist.columns else close_arr
-    lows_raw  = hist['low'].values  if 'low'  in hist.columns else close_arr
-    # 若 high/low 全為 NaN（TWSE 日 CSV 無高低欄），以 close 補替
-    highs = np.where(np.isnan(highs_raw), close_arr, highs_raw)
-    lows  = np.where(np.isnan(lows_raw),  close_arr, lows_raw)
-
-    high_slope, high_intercept = _pivot_trendline(highs, find_peaks=True)
-    low_slope, _               = _pivot_trendline(lows,  find_peaks=False)
-
-    if high_slope is None or low_slope is None:
-        return False
-    if not (high_slope < 0 and low_slope > 0):
+    pk = _local_maxima(highs, _TRI_PIVOT_R)
+    tr = _local_minima(lows,  _TRI_PIVOT_R)
+    if len(pk) < 2 or len(tr) < 2:
         return False
 
-    # 壓力線外推至今日位置（第20根，hist 佔0-19）
-    predicted_resistance = high_slope * 20 + high_intercept
-    if today['close'] <= predicted_resistance:
+    # 高點遞減、低點遞增
+    if highs[pk[-1]] >= highs[pk[-2]]:
+        return False
+    if lows[tr[-1]] <= lows[tr[-2]]:
         return False
 
-    # 突破日必須是上漲日（排除下跌日假突破）
+    hs, hi = _tri_trendline(highs, pk)
+    ls, li = _tri_trendline(lows,  tr)
+    if hs is None or ls is None:
+        return False
+    if hs >= 0 or ls <= 0:
+        return False
+
+    # 收斂驗證：前端間距 > 後端間距 > 0
+    n     = _TRI_WINDOW
+    gap0  = hi - li
+    gap_n = (hs * (n - 1) + hi) - (ls * (n - 1) + li)
+    if gap0 <= 0 or gap_n <= 0 or gap_n >= gap0:
+        return False
+
+    # 首日突破壓力線（昨日在下方）
+    res_today = hs * n + hi
+    res_yest  = hs * (n - 1) + hi
+    if today['close'] <= res_today:
+        return False
+    if df['close'].iloc[-2] > res_yest:
+        return False
     if today['close'] <= df['close'].iloc[-2]:
         return False
 
-    # 整理期量能應收縮（後10日均量不超過前10日均量 × 1.1）
-    vol_early = volume[-21:-11].mean()
-    vol_late  = volume[-11:-1].mean()
-    if vol_early > 0 and vol_late > vol_early * 1.1:
+    # 整理期量縮 + 突破爆量
+    vol_hist  = volume[-(_TRI_WINDOW + 1):-1]
+    vol_early = vol_hist[:n // 2].mean()
+    vol_late  = vol_hist[n // 2:].mean()
+    if vol_early > 0 and vol_late > vol_early * _TRI_VOL_CONTRACT:
         return False
-
     vol_ma20 = volume[-21:-1].mean()
-    if vol_ma20 > 0 and volume[-1] < vol_ma20 * _TRI_VOL_CONFIRM:
+    if vol_ma20 > 0 and volume[-1] < vol_ma20 * _TRI_VOL_BREAKOUT:
         return False
 
-    anchor    = float(today['close'])
-    tri_range = float(highs.max() - lows.min())
-    stop      = round(anchor * 0.97, 2)
-    target    = round(anchor + tri_range, 2)
-    rr        = round((target - anchor) / (anchor - stop), 2) if anchor > stop else 0.0
+    anchor = float(today['close'])
+    stop   = round(float(lows[tr[-1]]), 2)
+    target = round(anchor + gap0, 2)
+    rr     = round((target - anchor) / (anchor - stop), 2) if anchor > stop else 0.0
     return {"anchor": anchor, "stop": stop, "target": target, "rr": rr}
 
 
-def detect_triangle_down(df: pd.DataFrame) -> bool:
+def detect_ascending_triangle(df: pd.DataFrame) -> dict | bool:
     """
-    下降三角跌破：近20日壓力局部高點連線斜率<0（壓力下降）+ 支撐局部低點連線近乎水平，
-    今日收盤跌破支撐趨勢線外推值 + 量>20MA×1.3。
+    上升三角突破：
+    - 壓力線近水平（高點差距 < 3%），支撐線上升（低點遞增）
+    - 今日首次突破水平壓力
+    - 整理期量縮，突破日爆量
     """
-    if len(df) < 21:
+    if len(df) < _TRI_WINDOW + 2:
         return False
 
-    hist   = df.iloc[-21:-1]
-    today  = df.iloc[-1]
-    volume = df['volume'].values
-    close_arr = hist['close'].values
-    highs_raw = hist['high'].values if 'high' in hist.columns else close_arr
-    lows_raw  = hist['low'].values  if 'low'  in hist.columns else close_arr
-    highs = np.where(np.isnan(highs_raw), close_arr, highs_raw)
-    lows  = np.where(np.isnan(lows_raw),  close_arr, lows_raw)
+    hist      = df.iloc[-(_TRI_WINDOW + 1):-1]
+    today     = df.iloc[-1]
+    close_arr = hist['close'].values.astype(float)
+    highs     = _safe_arr(hist, 'high', close_arr)
+    lows      = _safe_arr(hist, 'low',  close_arr)
+    volume    = df['volume'].values
 
-    high_slope, _                     = _pivot_trendline(highs, find_peaks=True)
-    low_slope,  low_intercept         = _pivot_trendline(lows,  find_peaks=False)
-
-    if high_slope is None or low_slope is None:
+    pk = _local_maxima(highs, _TRI_PIVOT_R)
+    tr = _local_minima(lows,  _TRI_PIVOT_R)
+    if len(pk) < 2 or len(tr) < 2:
         return False
 
-    # 下降三角：壓力斜率<0，支撐近水平（|low_slope|相對低點均值 < 0.5%/日）
-    low_mean = lows.mean()
-    if low_mean == 0:
+    # 高點近水平（兩高點差距 < 3%）
+    p1, p2 = highs[pk[-2]], highs[pk[-1]]
+    if p1 == 0 or abs(p2 - p1) / p1 > 0.03:
         return False
-    low_slope_pct = abs(low_slope) / low_mean * 100
-    if not (high_slope < 0 and low_slope_pct < 0.5):
+    # 低點遞增
+    if lows[tr[-1]] <= lows[tr[-2]]:
         return False
 
-    predicted_support = low_slope * 20 + low_intercept
-    if today['close'] >= predicted_support:
+    hs, hi = _tri_trendline(highs, pk)
+    ls, li = _tri_trendline(lows,  tr)
+    if hs is None or ls is None:
+        return False
+
+    # 壓力線斜率幾乎水平（< 0.2%/日），支撐線向上
+    mean_price = float(np.mean(close_arr))
+    if mean_price == 0:
+        return False
+    if abs(hs) / mean_price > 0.002:
+        return False
+    if ls <= 0:
+        return False
+
+    n         = _TRI_WINDOW
+    res_today = hs * n + hi
+    res_yest  = hs * (n - 1) + hi
+
+    # 首日突破水平壓力
+    if today['close'] <= res_today:
+        return False
+    if df['close'].iloc[-2] > res_yest:
+        return False
+    if today['close'] <= df['close'].iloc[-2]:
+        return False
+
+    # 整理期量縮 + 突破爆量
+    vol_hist  = volume[-(_TRI_WINDOW + 1):-1]
+    vol_early = vol_hist[:n // 2].mean()
+    vol_late  = vol_hist[n // 2:].mean()
+    if vol_early > 0 and vol_late > vol_early * _TRI_VOL_CONTRACT:
+        return False
+    vol_ma20 = volume[-21:-1].mean()
+    if vol_ma20 > 0 and volume[-1] < vol_ma20 * _TRI_VOL_BREAKOUT:
+        return False
+
+    anchor      = float(today['close'])
+    resistance  = float(np.mean([p1, p2]))          # 水平壓力均值
+    tri_height  = resistance - float(lows[tr[-2]])  # 三角最寬處高度
+    stop        = round(float(lows[tr[-1]]), 2)
+    target      = round(anchor + tri_height, 2)
+    rr          = round((target - anchor) / (anchor - stop), 2) if anchor > stop else 0.0
+    return {"anchor": anchor, "stop": stop, "target": target, "rr": rr}
+
+
+def detect_falling_wedge(df: pd.DataFrame) -> dict | bool:
+    """
+    下降楔型向上突破：
+    - 高點降（壓力線向下）且低點也降（支撐線向下）
+    - 但壓力線比支撐線更陡（high_slope < low_slope，兩者皆負）→ 楔型收縮
+    - 今日首次突破壓力線，整理期量縮、突破爆量
+    """
+    if len(df) < _TRI_WINDOW + 2:
+        return False
+
+    hist      = df.iloc[-(_TRI_WINDOW + 1):-1]
+    today     = df.iloc[-1]
+    close_arr = hist['close'].values.astype(float)
+    highs     = _safe_arr(hist, 'high', close_arr)
+    lows      = _safe_arr(hist, 'low',  close_arr)
+    volume    = df['volume'].values
+
+    pk = _local_maxima(highs, _TRI_PIVOT_R)
+    tr = _local_minima(lows,  _TRI_PIVOT_R)
+    if len(pk) < 2 or len(tr) < 2:
+        return False
+
+    # 高點遞減、低點也遞減
+    if highs[pk[-1]] >= highs[pk[-2]]:
+        return False
+    if lows[tr[-1]] >= lows[tr[-2]]:
+        return False
+
+    hs, hi = _tri_trendline(highs, pk)
+    ls, li = _tri_trendline(lows,  tr)
+    if hs is None or ls is None:
+        return False
+
+    # 兩線都向下，壓力線更陡（hs < ls < 0）
+    if hs >= 0 or ls >= 0:
+        return False
+    if hs >= ls:
+        return False
+
+    # 收斂驗證
+    n     = _TRI_WINDOW
+    gap0  = hi - li
+    gap_n = (hs * (n - 1) + hi) - (ls * (n - 1) + li)
+    if gap0 <= 0 or gap_n <= 0 or gap_n >= gap0:
+        return False
+
+    # 首日突破壓力線
+    res_today = hs * n + hi
+    res_yest  = hs * (n - 1) + hi
+    if today['close'] <= res_today:
+        return False
+    if df['close'].iloc[-2] > res_yest:
+        return False
+    if today['close'] <= df['close'].iloc[-2]:
+        return False
+
+    # 整理期量縮 + 突破爆量
+    vol_hist  = volume[-(_TRI_WINDOW + 1):-1]
+    vol_early = vol_hist[:n // 2].mean()
+    vol_late  = vol_hist[n // 2:].mean()
+    if vol_early > 0 and vol_late > vol_early * _TRI_VOL_CONTRACT:
+        return False
+    vol_ma20 = volume[-21:-1].mean()
+    if vol_ma20 > 0 and volume[-1] < vol_ma20 * _TRI_VOL_BREAKOUT:
+        return False
+
+    anchor = float(today['close'])
+    stop   = round(float(lows[tr[-1]]), 2)
+    target = round(anchor + gap0, 2)
+    rr     = round((target - anchor) / (anchor - stop), 2) if anchor > stop else 0.0
+    return {"anchor": anchor, "stop": stop, "target": target, "rr": rr}
+
+
+def detect_triangle_down(df: pd.DataFrame) -> dict | bool:
+    """
+    下降三角跌破（空頭）：
+    - 60日整理期，高點遞減（壓力向下）+ 低點近水平（支撐平坦）
+    - 今日首次跌破支撐線
+    """
+    if len(df) < _TRI_WINDOW + 2:
+        return False
+
+    hist      = df.iloc[-(_TRI_WINDOW + 1):-1]
+    today     = df.iloc[-1]
+    close_arr = hist['close'].values.astype(float)
+    highs     = _safe_arr(hist, 'high', close_arr)
+    lows      = _safe_arr(hist, 'low',  close_arr)
+    volume    = df['volume'].values
+
+    pk = _local_maxima(highs, _TRI_PIVOT_R)
+    tr = _local_minima(lows,  _TRI_PIVOT_R)
+    if len(pk) < 2 or len(tr) < 2:
+        return False
+
+    # 高點遞減
+    if highs[pk[-1]] >= highs[pk[-2]]:
+        return False
+    # 低點近水平（差距 < 3%）
+    t1, t2 = lows[tr[-2]], lows[tr[-1]]
+    if t1 == 0 or abs(t2 - t1) / t1 > 0.03:
+        return False
+
+    hs, hi = _tri_trendline(highs, pk)
+    ls, li = _tri_trendline(lows,  tr)
+    if hs is None or ls is None:
+        return False
+
+    mean_price = float(np.mean(close_arr))
+    if mean_price == 0:
+        return False
+    if hs >= 0:
+        return False
+    if abs(ls) / mean_price > 0.002:  # 支撐線必須近水平
+        return False
+
+    n          = _TRI_WINDOW
+    sup_today  = ls * n + li
+    sup_yest   = ls * (n - 1) + li
+
+    # 首日跌破支撐（昨日仍在上方）
+    if today['close'] >= sup_today:
+        return False
+    if df['close'].iloc[-2] < sup_yest:
+        return False
+    if today['close'] >= df['close'].iloc[-2]:
         return False
 
     vol_ma20 = volume[-21:-1].mean()
-    if vol_ma20 > 0 and volume[-1] < vol_ma20 * _TRI_VOL_CONFIRM:
+    if vol_ma20 > 0 and volume[-1] < vol_ma20 * _TRI_VOL_BREAKOUT:
         return False
 
     anchor    = float(today['close'])
-    tri_range = float(highs.max() - lows.min())
-    stop      = round(anchor * 1.03, 2)
-    target    = round(anchor - tri_range, 2)
+    gap0      = hi - li
+    stop      = round(float(highs[pk[-1]]), 2)
+    target    = round(anchor - gap0, 2)
     rr        = round((anchor - target) / (stop - anchor), 2) if stop > anchor else 0.0
     return {"anchor": anchor, "stop": stop, "target": target, "rr": rr}
 
 
-def detect_breakout_confirm(df: pd.DataFrame) -> bool:
+def detect_breakout_confirm(df: pd.DataFrame) -> dict | bool:
     """
-    60日新高突破確認：過去3個交易日內有一天創60日新高+量>20MA×1.5，
-    今日收盤仍守在突破日收盤上方。
+    MA平台突破（Weinstein Stage 2 起漲）：
+    對應金居/光聖/聯亞圖型 — 長期均線走平後，短均線從下方穿越，多頭排列確認。
+    條件：
+      1. 今日 close > MA5 > MA20 > MA60（多頭排列）
+      2. MA5/MA20 斜率向上
+      3. MA60 近 20 日走平（漲跌幅 < 5%）← 長期整理的定義
+      4. 20 日前 MA20 < MA60（確認是近期剛穿越，非早已多頭）
+      5. 近 10 日有爆量（> 20日均量 × 1.5）← 突破量能確認
+    Stop：MA60 下方 1%；Target：2:1 RR
     """
-    if len(df) < 63:
+    if len(df) < 80:
         return False
 
-    close  = df['close'].values
-    volume = df['volume'].values
+    close  = df['close'].values.astype(float)
+    volume = df['volume'].values.astype(float)
     n      = len(close)
+
+    # ── 1. 今日多頭排列 ────────────────────────────────────────────────
+    ma5_now  = close[-5:].mean()
+    ma20_now = close[-20:].mean()
+    ma60_now = close[-60:].mean()
+    if not (close[-1] > ma5_now > ma20_now > ma60_now):
+        return False
+
+    # ── 2. MA5/MA20 斜率向上 ──────────────────────────────────────────
+    ma5_prev  = close[-15:-10].mean()   # MA5 as of 10 days ago
+    ma20_prev = close[-40:-20].mean()   # MA20 as of 20 days ago
+    if not (ma5_now > ma5_prev and ma20_now > ma20_prev):
+        return False
+
+    # ── 3. MA60 走平（±5% 過去20日） ─────────────────────────────────
+    ma60_20d_ago = close[-80:-20].mean()
+    if ma60_now <= 0:
+        return False
+    ma60_chg = (ma60_now - ma60_20d_ago) / ma60_now
+    if ma60_chg < -0.05 or ma60_chg > 0.05:
+        return False  # MA60 強烈下跌（空頭）或強烈上漲（已過拐點太久）
+
+    # ── 4. 近期才穿越（20日前 MA20 < MA60） ──────────────────────────
+    if ma20_prev >= ma60_20d_ago:
+        return False  # 早就多頭排列了
+
+    # ── 5. 近 10 日爆量確認 ───────────────────────────────────────────
     vol_ma20 = volume[-21:-1].mean()
+    if vol_ma20 <= 0:
+        return False
+    has_spike = any(volume[i] > vol_ma20 * 1.5 for i in range(n - 11, n - 1) if i >= 0)
+    if not has_spike:
+        return False
 
-    # Check days at indices -4, -3, -2 (past 3 days, not including today)
-    for offset in range(-4, -1):
-        day_idx = n + offset   # e.g. n-4, n-3, n-2
-        breakout_close = close[day_idx]
-        breakout_vol   = volume[day_idx]
-
-        # 60-day high strictly before this day
-        hist_start = max(0, day_idx - 60)
-        sixty_d_high = close[hist_start:day_idx].max()
-
-        if breakout_close <= sixty_d_high:
-            continue
-        if vol_ma20 > 0 and breakout_vol < vol_ma20 * _BRK_VOL_CONFIRM:
-            continue
-        # Today holds above breakout close
-        if close[-1] >= breakout_close:
-            anchor      = float(breakout_close)
-            sixty_d_low = float(close[hist_start:day_idx].min())
-            stop        = round(anchor * 0.97, 2)
-            target      = round(anchor + (anchor - sixty_d_low) * 0.5, 2)
-            rr          = round((target - anchor) / (anchor - stop), 2) if anchor > stop else 0.0
-            return {"anchor": anchor, "stop": stop, "target": target, "rr": rr}
-
-    return False
+    anchor = float(close[-1])
+    stop   = round(float(ma60_now) * 0.99, 2)
+    target = round(anchor + (anchor - stop) * 2.0, 2)
+    rr     = round((target - anchor) / (anchor - stop), 2) if anchor > stop else 0.0
+    return {"anchor": anchor, "stop": stop, "target": target, "rr": rr}
 
 
 def detect_box_consolidation(df: pd.DataFrame) -> bool:
@@ -749,10 +968,16 @@ def scan_patterns(date_str: str, db_path: str = _DB_PATH) -> list[dict]:
             patterns.append("頭肩底")
             pattern_score += 3
         if detect_triangle_up(grp):
-            patterns.append("三角突破")
+            patterns.append("收斂三角")
+            pattern_score += 2
+        if detect_ascending_triangle(grp):
+            patterns.append("上升三角")
+            pattern_score += 2
+        if detect_falling_wedge(grp):
+            patterns.append("下降楔型")
             pattern_score += 2
         if detect_breakout_confirm(grp):
-            patterns.append("60日突破")
+            patterns.append("多頭拐點")
             pattern_score += 2
         if detect_double_top(grp):
             patterns.append("雙頂")
@@ -920,13 +1145,15 @@ def scan_and_track(date_str: str, db_path: str = _DB_PATH) -> list[dict]:
 
     # ── 偵測今日新訊號並寫入 DB ───────────────────────────────────────────
     _ALL_DETECTORS = [
-        ("雙底",    detect_double_bottom),
-        ("頭肩底",  detect_inverse_hs),
-        ("三角突破", detect_triangle_up),
-        ("60日突破", detect_breakout_confirm),
-        ("VCP突破",  detect_vcp),
-        ("雙頂",    detect_double_top),
-        ("三角跌破", detect_triangle_down),
+        ("雙底",     detect_double_bottom),
+        ("頭肩底",   detect_inverse_hs),
+        ("收斂三角",  detect_triangle_up),
+        ("上升三角",  detect_ascending_triangle),
+        ("下降楔型",  detect_falling_wedge),
+        ("多頭拐點",  detect_breakout_confirm),
+        ("VCP突破",   detect_vcp),
+        ("雙頂",     detect_double_top),
+        ("三角跌破",  detect_triangle_down),
     ]
     _BEARISH_PATTERNS = {"雙頂", "三角跌破"}
 
@@ -1048,7 +1275,7 @@ def scan_and_track(date_str: str, db_path: str = _DB_PATH) -> list[dict]:
 
         pattern_score = 0
         for p in all_patterns:
-            if p in ("雙底", "三角突破", "60日突破"):
+            if p in ("雙底", "收斂三角", "上升三角", "下降楔型", "多頭拐點"):
                 pattern_score += 2
             elif p in ("VCP突破", "頭肩底"):
                 pattern_score += 3
@@ -1133,9 +1360,11 @@ def calc_composite_score(
     for p in patterns:
         if p == "雙底":          pattern_pts += 25
         elif p == "頭肩底":      pattern_pts += 28
-        elif p == "三角突破":    pattern_pts += 20
+        elif p == "收斂三角":    pattern_pts += 20
+        elif p == "上升三角":    pattern_pts += 20
+        elif p == "下降楔型":    pattern_pts += 18
         elif p == "VCP突破":     pattern_pts += 22
-        elif p == "60日突破":    pattern_pts += 15
+        elif p == "多頭拐點":    pattern_pts += 15
         elif p == "雙頂":        pattern_pts -= 25
         elif p == "三角跌破":    pattern_pts -= 20
 
@@ -1241,7 +1470,7 @@ def backtest_patterns(days: int = 120, db_path: str = _DB_PATH) -> None:
     print(fmt.format("形態", "次數", "勝率3d", "均報3d", "勝率5d", "均報5d", "勝率10d", "均報10d", "最大虧損"))
     print("-" * 80)
 
-    for pattern in ["60日突破", "雙底", "三角突破", "雙頂", "三角跌破"]:
+    for pattern in ["多頭拐點", "雙底", "收斂三角", "上升三角", "下降楔型", "雙頂", "三角跌破"]:
         sub = signals_df[signals_df["pattern"] == pattern]
         if sub.empty:
             continue
@@ -1289,13 +1518,15 @@ def backtest_patterns_rr(
     _DETECTORS = [
         ("雙底",    detect_double_bottom),
         ("頭肩底",  detect_inverse_hs),
-        ("三角突破", detect_triangle_up),
-        ("60日突破", detect_breakout_confirm),
+        ("收斂三角", detect_triangle_up),
+        ("上升三角", detect_ascending_triangle),
+        ("下降楔型", detect_falling_wedge),
+        ("多頭拐點", detect_breakout_confirm),
         ("VCP突破",  detect_vcp),
         ("雙頂",    detect_double_top),
         ("三角跌破", detect_triangle_down),
     ]
-    _PATTERN_ORDER = ["60日突破", "VCP突破", "頭肩底", "雙底", "三角突破", "雙頂", "三角跌破"]
+    _PATTERN_ORDER = ["多頭拐點", "VCP突破", "頭肩底", "雙底", "收斂三角", "上升三角", "下降楔型", "雙頂", "三角跌破"]
 
     print("正在載入價格資料庫...")
     con = duckdb.connect(db_path, read_only=True)

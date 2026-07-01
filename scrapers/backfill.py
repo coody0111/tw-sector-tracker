@@ -198,93 +198,131 @@ def _fetch_stock_months(sid: str, month_starts: list, stop_event: threading.Even
     return sid, rows
 
 
-def _fetch_yfinance_history(
-    stock_ids: List[str],
+def _fetch_yfinance_one_stock(
+    sid: str,
+    ticker: str,
     start_date: str,
     end_date: str,
-    day_rows: dict,
-    batch_size: int = 50,
-) -> int:
-    """用 yfinance 批量抓 TPEx 上櫃股歷史行情（.TWO suffix），append 到 day_rows。回傳成功股數。"""
-    import warnings
-    warnings.filterwarnings("ignore")
+    max_retries: int = 2,
+) -> tuple[str, list]:
+    """
+    逐支抓單一股票的 yfinance 歷史行情（ticker 已含 .TW/.TWO 後綴）。
+    用 Ticker.history()（不是批次 yf.download()）+ 隨機延遲 + 失敗重試退避，
+    降低被 Yahoo 限流的風險（比對 downloader_tw.py 驗證過的防封鎖手法）。
+    回傳 (stock_id, rows_list)。
+    """
+    import random
     import yfinance as yf
-    import requests as _req
 
-    session = _req.Session()
-    session.verify = False  # Windows SSL workaround
+    time.sleep(random.uniform(0.5, 1.2))
 
-    ok = fail = 0
-    total_batches = (len(stock_ids) + batch_size - 1) // batch_size
-
-    for b_idx in range(0, len(stock_ids), batch_size):
-        batch = stock_ids[b_idx:b_idx + batch_size]
-        tickers = [f"{sid}.TWO" for sid in batch]
-
+    for attempt in range(max_retries + 1):
         try:
-            # retry up to 3 times; yfinance returns empty df on rate limit (no exception)
-            hist = None
-            for attempt in range(3):
-                try:
-                    hist = yf.download(
-                        tickers, start=start_date, end=end_date,
-                        progress=False, session=session, auto_adjust=True,
-                    )
-                except Exception as exc:
-                    logger.warning("yfinance download error (attempt %d): %s", attempt + 1, exc)
-                    hist = None
-                if hist is not None and not hist.empty:
-                    break
-                if attempt < 2:
-                    wait = 30 * (attempt + 1)
-                    logger.warning("yfinance empty result, rate limit? retry %d/3 in %ds", attempt + 1, wait)
-                    time.sleep(wait)
-
-            if hist is None or hist.empty:
-                fail += len(batch)
-                logger.debug("yfinance batch %d empty", b_idx // batch_size + 1)
-                continue
-
-            # yfinance 1.4+ always returns MultiIndex (Price, Ticker)
-            for sid, ticker in zip(batch, tickers):
-                try:
-                    close_s = hist["Close"][ticker].dropna()
-                    vol_s   = hist["Volume"][ticker].reindex(close_s.index).fillna(0)
-                except KeyError:
-                    fail += 1
-                    continue
-                if close_s.empty:
-                    fail += 1
-                    continue
-
-                prev_close = close_s.shift(1)
-                change_s   = (close_s - prev_close).fillna(0)
-                pct_s      = (change_s / prev_close.replace(0, float("nan")) * 100).fillna(0)
-
-                for dt, cl, ch, pct, vol in zip(
-                    close_s.index, close_s, change_s, pct_s, vol_s
-                ):
-                    d = dt.strftime("%Y-%m-%d")
-                    day_rows[d].append({
+            hist = yf.Ticker(ticker).history(start=start_date, end=end_date, timeout=15)
+            if hist is not None and not hist.empty:
+                hist = hist.reset_index()
+                closes = hist["Close"].astype(float).tolist()
+                rows = []
+                for i, row in hist.iterrows():
+                    close = closes[i]
+                    prev = closes[i - 1] if i > 0 else close
+                    change = round(close - prev, 2)
+                    change_pct = round(change / prev * 100, 2) if prev else 0.0
+                    dt = row["Date"]
+                    d_str = dt.date().isoformat() if hasattr(dt, "date") else str(dt)[:10]
+                    rows.append({
                         "stock_id":   sid,
-                        "close":      round(float(cl), 2),
-                        "change":     round(float(ch), 2),
-                        "change_pct": round(float(pct), 2),
-                        "volume":     max(0, int(float(vol)) // 1000),
-                        "_date":      d,
+                        "close":      round(close, 2),
+                        "change":     change,
+                        "change_pct": change_pct,
+                        "volume":     max(0, int(row.get("Volume") or 0) // 1000),
+                        "_date":      d_str,
                     })
-                ok += 1
-
+                return sid, rows
         except Exception as exc:
-            logger.warning("yfinance batch %s~%s: %s", batch[0], batch[-1], exc)
-            fail += len(batch)
+            logger.debug("  yfinance %s (%s) 第%d次失敗: %s", sid, ticker, attempt + 1, exc)
+        if attempt < max_retries:
+            time.sleep(random.uniform(3, 7))
 
-        batch_num = b_idx // batch_size + 1
-        logger.info("  yfinance [%d/%d]  ok=%d  fail=%d", batch_num, total_batches, ok, fail)
-        if b_idx + batch_size < len(stock_ids):
-            time.sleep(3)  # avoid rate limit between batches
+    return sid, []
 
-    return ok
+
+def backfill_yfinance(
+    stock_ids: List[str],
+    exchange_map: dict,
+    months: int = 19,
+    output_dir: str = "data/daily_prices",
+    workers: int = 3,
+    clean: bool = True,
+    today: date = None,
+) -> int:
+    """
+    用 Yahoo Finance 補齊歷史行情，不需要 token，TWSE（.TW）+ TPEx（.TWO）都支援。
+    逐支抓（Ticker.history()），搭配隨機延遲、失敗重試退避、每 100 支額外暫停、
+    降並發（預設 3），取代舊版批次 yf.download() 容易被 Yahoo 限流擋掉的做法。
+    """
+    import random
+
+    today = today or date.today()
+    start = _first_month_start(today, months)
+    start_str = start.isoformat()
+    end_str = (today + timedelta(days=1)).isoformat()
+
+    def _ticker_for(sid: str) -> str:
+        return f"{sid}.TWO" if exchange_map.get(sid) == "TPEx" else f"{sid}.TW"
+
+    logger.info(
+        "yfinance 逐股補齊：%d 支股票  %s ~ %s  workers=%d",
+        len(stock_ids), start_str, end_str, workers,
+    )
+
+    day_rows: dict = defaultdict(list)
+    ok = 0
+    done = 0
+    total = len(stock_ids)
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = {
+            executor.submit(_fetch_yfinance_one_stock, sid, _ticker_for(sid), start_str, end_str): sid
+            for sid in stock_ids
+        }
+        for fut in as_completed(futures):
+            sid, rows = fut.result()
+            done += 1
+            if rows:
+                for r in rows:
+                    day_rows[r["_date"]].append(r)
+                ok += 1
+            if done % 50 == 0 or done == total:
+                logger.info("  yfinance [%d/%d]  成功=%d", done, total, ok)
+            if done % 100 == 0:
+                time.sleep(random.uniform(5, 10))
+
+    logger.info("yfinance 完成：成功 %d / 共 %d 支", ok, total)
+
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    if clean:
+        old_csvs = list(output_path.glob("*.csv"))
+        if old_csvs:
+            deleted = skipped = 0
+            for f in old_csvs:
+                try:
+                    f.unlink()
+                    deleted += 1
+                except PermissionError:
+                    skipped += 1
+            logger.info("清除舊 CSV：刪除 %d 個，跳過 %d 個（被鎖定）", deleted, skipped)
+
+    written = 0
+    for d_str, rows in sorted(day_rows.items()):
+        if _merge_into_csv(output_path / f"{d_str}.csv", rows, overwrite=True):
+            written += 1
+
+    total_records = sum(len(v) for v in day_rows.values())
+    logger.info("補齊完成：寫入/更新 %d 日，共 %d 筆", written, total_records)
+    return written
 
 
 def _fetch_finmind_history(

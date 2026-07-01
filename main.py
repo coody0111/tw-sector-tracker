@@ -10,7 +10,7 @@ from scrapers.moneydj import scrape_industry_sectors
 from scrapers.finmind import fetch_prices_for_stocks
 from scrapers.realtime import fetch_realtime_prices
 from scrapers.chips import fetch_institutional, fetch_margin_all_twse, TWSEBlockedError
-from scrapers.backfill import backfill_prices, backfill_twse_monthly, backfill_institutional, backfill_margin
+from scrapers.backfill import backfill_prices, backfill_twse_monthly, backfill_institutional, backfill_margin, backfill_yfinance
 from processors.changes import detect_changes
 from processors.performance import calc_sector_performance, calc_meta_performance, calc_universe_performance, calc_cumulative_meta, calc_meta_signals, calc_meta_chips_signals, calc_stock_sparklines, get_stock_chips_ranking, get_margin_divergence
 from storage.csv_writer import CsvWriter
@@ -147,6 +147,24 @@ def backfill_twse(months: int = 6, workers: int = 3) -> None:
         stock_ids, months=months, workers=workers, clean=True,
         exchange_map=exchange_map, finmind_token=FINMIND_TOKEN,
     )
+    if n > 0:
+        from screener.database import reimport_db
+        init_db()
+        imported = reimport_db()
+        logger.info("DuckDB 更新：共 %d 筆", imported)
+    logger.info("=== 補齊完成，共寫入/更新 %d 日 ===", n)
+
+
+def backfill_yf(months: int = 19, workers: int = 3) -> None:
+    """Yahoo Finance 逐股補齊（TWSE+TPEx 都支援，不需要 token）"""
+    if not UNIVERSE_PATH.exists():
+        logger.error("找不到 stock_universe.csv，請先確認資料目錄。")
+        return
+    universe_df = pd.read_csv(UNIVERSE_PATH, encoding="utf-8-sig", dtype={"stock_id": str})
+    stock_ids = universe_df["stock_id"].tolist()
+    exchange_map = dict(zip(universe_df["stock_id"], universe_df["exchange"])) if "exchange" in universe_df.columns else {}
+    logger.info("=== Yahoo Finance 逐股補齊（往前 %d 個月，workers=%d）===", months, workers)
+    n = backfill_yfinance(stock_ids, exchange_map=exchange_map, months=months, workers=workers, clean=True)
     if n > 0:
         from screener.database import reimport_db
         init_db()
@@ -506,8 +524,11 @@ if __name__ == "__main__":
                         help="FinMind 補齊過去 N 日曆天歷史行情（每日 600 次上限）")
     parser.add_argument("--backfill-twse", type=int, default=0, metavar="MONTHS",
                         help="TWSE 逐股月別補齊過去 N 個月歷史行情（建議 18，會刪舊 CSV 重抓）")
+    parser.add_argument("--backfill-yf", type=int, default=0, metavar="MONTHS",
+                        help="Yahoo Finance 逐股補齊過去 N 個月歷史行情（TWSE+TPEx 都支援，不需要 token，"
+                             "建議 19，會刪舊 CSV 重抓）")
     parser.add_argument("--workers", type=int, default=3, metavar="N",
-                        help="backfill-twse 並行 workers 數（預設 3，建議 3-5，過高可能被 TWSE 限速）")
+                        help="backfill-twse / backfill-yf 並行 workers 數（預設 3，過高可能被限速）")
     parser.add_argument("--backfill-institutional", type=int, default=0, metavar="DAYS",
                         help="TWSE T86 補齊過去 N 個工作日三大法人資料（建議 60）")
     parser.add_argument("--backfill-margin", type=int, default=0, metavar="DAYS",
@@ -546,6 +567,8 @@ if __name__ == "__main__":
         backfill(days=args.backfill)
     elif args.backfill_twse:
         backfill_twse(months=args.backfill_twse, workers=args.workers)
+    elif args.backfill_yf:
+        backfill_yf(months=args.backfill_yf, workers=args.workers)
     elif args.backfill_institutional:
         backfill_inst(days=args.backfill_institutional)
     elif args.backfill_margin:

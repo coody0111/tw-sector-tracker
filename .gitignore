@@ -8,3 +8,5 @@ __pycache__/
 notes/
 .env
 .superpowers/
+.claude/
+.cursor/

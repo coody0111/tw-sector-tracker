@@ -54,7 +54,8 @@ def _parse_stock_table(soup: BeautifulSoup) -> List[tuple]:
         if not cells:
             continue
         first = cells[0].get_text(strip=True)
-        m = re.match(r'^(\d{4,6})(.*)$', first)
+        # 一般股票代號 4 碼；TDR（台灣存託憑證）代號 6 碼、固定以 91 開頭
+        m = re.match(r'^(91\d{4}|\d{4})(.*)$', first)
         if not m:
             continue
         stock_id = m.group(1)

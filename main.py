@@ -204,8 +204,11 @@ def _backfill_shareholder(weeks: int = 4) -> None:
     init_db()
     stock_ids = pd.read_csv(UNIVERSE_PATH, dtype=str)["stock_id"].tolist()
     available = get_available_dates()
-    target_dates = available[:weeks]
-    logger.info("=== 集保補齊 %d 週：%s ===", len(target_dates), target_dates)
+    # available[0] 是最新週；save_to_db 內的週變化/連增減週數計算是拿「DB 裡目前最新一筆」
+    # 當作上一週比較基準，所以這裡務必由舊到新依序寫入，否則會拿較新的週去對較舊的週算出
+    # 方向相反、毫無意義的 week_chg/streak。
+    target_dates = list(reversed(available[:weeks]))
+    logger.info("=== 集保補齊 %d 週（由舊到新）：%s ===", len(target_dates), target_dates)
     for d_str in target_dates:
         logger.info("  抓 %s ...", d_str)
         rows = fetch_shareholder_weekly(stock_ids, date_str=d_str)

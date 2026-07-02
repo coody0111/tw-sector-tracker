@@ -312,7 +312,7 @@ def _concentration_table(meta_chips: dict) -> str:
     if not rows:
         return "<div class='no-data'>無資料</div>"
 
-    html = "<table class='ct'><thead><tr><th>族群</th><th>外資買超比例（今日買超家數 / 成分股）</th><th>外資今日</th></tr></thead><tbody>"
+    html = "<table class='ct'><thead><tr><th>族群</th><th>外資買超比例（今日買超家數 / 上市成分股，三大法人資料無上櫃來源）</th><th>外資今日</th></tr></thead><tbody>"
     for name, ratio, data in rows:
         buy_count = data.get("foreign_buy_count", 0)
         total = data.get("total_stocks", 1)
@@ -467,6 +467,9 @@ def generate(
         " style='background:transparent;color:#94a3b8;border:1px solid #334155;border-radius:6px;"
         "padding:3px 12px;cursor:pointer;font-size:.72rem'>🏪 上櫃</button>"
         "</div>"
+        "<p style='color:#64748b;font-size:.68rem;margin:0 0 8px'>"
+        "⚠️ 三大法人／融資融券資料目前只有上市（TWSE）來源，切換「🏪 上櫃」篩選時，"
+        "籌碼相關表格會是空的（大戶持倉集保資料不受此限制）</p>"
     )
 
     date_str = trade_date.strftime("%Y-%m-%d")

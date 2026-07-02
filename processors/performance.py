@@ -580,7 +580,7 @@ def calc_meta_chips_signals(
     if inst_df.empty:
         return {}
 
-    universe = universe_df[["stock_id", "meta_sector"]].copy()
+    universe = universe_df[["stock_id", "meta_sector", "exchange"]].copy()
     universe["stock_id"] = universe["stock_id"].astype(str)
     inst_df["stock_id"] = inst_df["stock_id"].astype(str)
 
@@ -617,7 +617,13 @@ def calc_meta_chips_signals(
                     "margin_alert": mb > 0 and mc / mb > 0.05,
                 }
 
-    meta_stock_count = universe.groupby("meta_sector")["stock_id"].count().to_dict()
+    # institutional/margin 兩張表目前都只有 TWSE 上市股票的資料（T86／MI_MARGN 皆為上市專屬
+    # API，沒有上櫃來源），分母只能算「該族群上市成分股數」，否則含上櫃成分股的族群買超比例
+    # 會被系統性低估（且各族群低估幅度不同，不是均勻偏移）。
+    meta_stock_count = (
+        universe[universe["exchange"] == "TWSE"]
+        .groupby("meta_sector")["stock_id"].count().to_dict()
+    )
 
     def _streak(vals: list) -> int:
         if not vals:

@@ -67,12 +67,12 @@ tw-sector-tracker/
 ## 工作流程
 
 ### 每次開始前
-1. 讀 `C:\Users\Cody\Desktop\bug-reports.md`，有 bug 先修
+1. 讀 `bug-reports.md`，有 bug 先修
 2. 確認目前任務範圍
 
 ### 完成任務後
 1. `git add . && git commit -m "簡短描述"`
-2. 更新 `C:\Users\Cody\Desktop\debug-tasks.md`：
+2. 更新 `debug-tasks.md`：
 
 ```
 ## [YYYY-MM-DD] 任務名稱
@@ -96,6 +96,13 @@ tw-sector-tracker/
 
 ---
 
+## 設計原則
+
+- **開發功能前先 brainstorming**：新增/調整功能邏輯之前，先用 `superpowers:brainstorming` skill 釐清需求跟設計，不要直接動手寫 code。
+- **UI 設計要用 UI Pro Max**：畫面/視覺相關的設計（配色、排版、元件風格）要用 `ui-ux-pro-max` skill，不要憑感覺套版。
+
+---
+
 ## 其他注意事項
 
 - **config.py 很大**，改動前先確認影響範圍
@@ -108,7 +115,7 @@ tw-sector-tracker/
 
 每次對話開始時，依序讀取：
 1. 這份 `CLAUDE.md`（了解你的角色）
-2. `C:\Users\Cody\Desktop\bug-reports.md`（有沒有待修的問題）
+2. `bug-reports.md`（有沒有待修的問題）
 3. `git log --oneline -5`（確認最近做了什麼）
 
 然後告訴 Cody：目前狀態是什麼、有沒有未完成的事。

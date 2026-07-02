@@ -190,7 +190,7 @@ git commit -m "feat: add calc_weekly_rank() for rolling 5-day rank comparison"
 - Create: `export/data_generator.py`
 - Create: `tests/test_data_generator.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/test_data_generator.py`:
 
@@ -267,12 +267,12 @@ def test_generate_writes_expected_json_shape(tmp_path):
     assert stock["sparkline"] == [0.1, 4.99, 4.99, 4.99, 4.99, 4.99]
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pytest tests/test_data_generator.py -v`
 Expected: FAIL with `ModuleNotFoundError: No module named 'export.data_generator'`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Create `export/data_generator.py`:
 
@@ -415,12 +415,12 @@ def generate(
     out.write_text(json.dumps(payload, ensure_ascii=False, indent=None), encoding="utf-8")
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `pytest tests/test_data_generator.py -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add export/data_generator.py tests/test_data_generator.py

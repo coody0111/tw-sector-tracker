@@ -4,6 +4,8 @@ import requests
 import pandas as pd
 from datetime import date
 
+from scrapers.chips import TWSEBlockedError
+
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 TWSE_URL = "https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY_ALL"
@@ -31,8 +33,23 @@ def fetch_daily_prices(trade_date: date) -> pd.DataFrame:
     try:
         data = resp.json()
     except ValueError:
-        # TWSE returns CSV when browser-like User-Agent is sent
-        return _parse_csv(resp.content.decode("utf-8-sig"))
+        # 非 JSON 回應有兩種可能：(1) 瀏覽器 UA 觸發的合法 CSV 回應；
+        # (2) TWSE 資安擋頁（WAF block／IP 被限流），內容是 HTML。
+        # 擋頁一律是 text/html，合法 CSV 不是，用 content-type 先擋一層。
+        ctype = resp.headers.get("Content-Type", "")
+        if "html" in ctype.lower():
+            raise TWSEBlockedError(
+                f"TWSE 疑似封鎖此 IP（content-type={ctype!r}），並非合法 CSV 回應"
+            )
+        text = resp.content.decode("utf-8-sig")
+        try:
+            return _parse_csv(text)
+        except pd.errors.ParserError as exc:
+            # content-type 沒標成 html，但內容根本不是合法 CSV，同樣視為擋頁，
+            # 不要讓原始的 pandas 解析錯誤看起來像無關的資料格式 bug。
+            raise TWSEBlockedError(
+                f"TWSE 回應無法解析為 CSV（疑似擋頁）：{exc}"
+            ) from exc
     return _parse_json(data)
 
 

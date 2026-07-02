@@ -333,18 +333,23 @@ def run(trade_date: date = None, realtime: bool = False) -> None:
     if not realtime and prices_df is not None and not prices_df.empty:
         prev_day = _prev_trading_day(trade_date)
         prev_csv = Path(f"data/daily_prices/{prev_day.isoformat()}.csv")
-        if prev_csv.exists():
+        # 探測股固定用 2330（大型權值股，資料最穩定）。如果它不在這次抓到的資料裡
+        # （例如 TWSE 抓取失敗/被封鎖，只剩 TPEx 資料），代表這批資料本身就不完整，
+        # 不能拿任意一支替代股票來判斷「市場是否更新」——那支股票剛好跟昨天收盤
+        # 價格相同純屬巧合，會誤判成「市場沒更新」而錯誤地把整批今日資料當成前一天。
+        if prev_csv.exists() and "2330" in prices_df["stock_id"].values:
             try:
                 prev_df = pd.read_csv(prev_csv, dtype={"stock_id": str})
-                probe_id = "2330" if "2330" in prices_df["stock_id"].values else prices_df.iloc[0]["stock_id"]
-                new_close = prices_df[prices_df["stock_id"] == probe_id]["close"].values
-                old_close = prev_df[prev_df["stock_id"] == probe_id]["close"].values if "close" in prev_df.columns else []
+                new_close = prices_df[prices_df["stock_id"] == "2330"]["close"].values
+                old_close = prev_df[prev_df["stock_id"] == "2330"]["close"].values if "close" in prev_df.columns else []
                 if len(new_close) and len(old_close) and float(new_close[0]) == float(old_close[0]):
                     logger.info("今日行情（%s）與前一交易日（%s）相同，市場尚未更新，切換基準日期", trade_date, prev_day)
                     prices_are_new = False
                     trade_date = prev_day
             except Exception:
                 pass
+        elif prev_csv.exists():
+            logger.warning("探測股 2330 不在本次抓到的行情裡（可能 TWSE 抓取失敗或不完整），跳過『市場尚未更新』防呆檢查")
 
     if prices_are_new and prices_df is not None and not prices_df.empty:
         writer.write_daily_prices(prices_df, trade_date)

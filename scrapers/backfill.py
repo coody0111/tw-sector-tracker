@@ -204,11 +204,23 @@ def _fetch_yfinance_one_stock(
     start_date: str,
     end_date: str,
     max_retries: int = 2,
+    pause_state: dict = None,
+    pause_every: int = 100,
 ) -> tuple[str, list]:
     """
     逐支抓單一股票的 yfinance 歷史行情（ticker 已含 .TW/.TWO 後綴）。
     用 Ticker.history()（不是批次 yf.download()）+ 隨機延遲 + 失敗重試退避，
     降低被 Yahoo 限流的風險（比對 downloader_tw.py 驗證過的防封鎖手法）。
+
+    抓取範圍會往前多抓 5 個日曆天當緩衝，這樣區間內第一個交易日才有真正的
+    前一日收盤價可以算漲跌，不會出現「第一天 change_pct 一律是 0」這種假數值
+    （緩衝天數本身不會出現在回傳結果裡，只用來算後面幾天的漲跌）。
+
+    pause_state：跨 thread 共用的 {"lock": threading.Lock(), "count": 0}。
+    每完成 pause_every 支，剛好完成那支的 worker 會自己暫停一下，讓限速
+    真正作用在 worker 身上（不是像主執行緒 as_completed 迴圈裡暫停那樣，
+    完全不影響其他還在跑的 worker 繼續送請求）。
+
     回傳 (stock_id, rows_list)。
     """
     import random
@@ -216,20 +228,26 @@ def _fetch_yfinance_one_stock(
 
     time.sleep(random.uniform(0.5, 1.2))
 
+    buffer_start = (date.fromisoformat(start_date) - timedelta(days=5)).isoformat()
+    rows: list = []
+
     for attempt in range(max_retries + 1):
         try:
-            hist = yf.Ticker(ticker).history(start=start_date, end=end_date, timeout=15)
+            hist = yf.Ticker(ticker).history(start=buffer_start, end=end_date, timeout=15)
             if hist is not None and not hist.empty:
                 hist = hist.reset_index()
                 closes = hist["Close"].astype(float).tolist()
-                rows = []
                 for i, row in hist.iterrows():
-                    close = closes[i]
-                    prev = closes[i - 1] if i > 0 else close
-                    change = round(close - prev, 2)
-                    change_pct = round(change / prev * 100, 2) if prev else 0.0
+                    if i == 0:
+                        continue  # 緩衝天數的第一筆，沒有更早資料可比較，跳過
                     dt = row["Date"]
                     d_str = dt.date().isoformat() if hasattr(dt, "date") else str(dt)[:10]
+                    if d_str < start_date:
+                        continue  # 緩衝天數，只用來當前面的 prev_close，不放進輸出
+                    close = closes[i]
+                    prev = closes[i - 1]
+                    change = round(close - prev, 2)
+                    change_pct = round(change / prev * 100, 2) if prev else 0.0
                     rows.append({
                         "stock_id":   sid,
                         "close":      round(close, 2),
@@ -238,13 +256,26 @@ def _fetch_yfinance_one_stock(
                         "volume":     max(0, int(row.get("Volume") or 0) // 1000),
                         "_date":      d_str,
                     })
-                return sid, rows
+                break
         except Exception as exc:
             logger.debug("  yfinance %s (%s) 第%d次失敗: %s", sid, ticker, attempt + 1, exc)
         if attempt < max_retries:
             time.sleep(random.uniform(3, 7))
 
-    return sid, []
+    if pause_state is not None:
+        should_pause = False
+        with pause_state["lock"]:
+            pause_state["count"] += 1
+            if pause_state["count"] % pause_every == 0:
+                should_pause = True
+        if should_pause:
+            time.sleep(random.uniform(5, 10))
+
+    return sid, rows
+
+
+# 成功率低於此比例，視為疑似被限流，不清空舊 CSV（避免用不完整資料覆蓋現有歷史）
+_YFINANCE_MIN_SUCCESS_RATE = 0.5
 
 
 def backfill_yfinance(
@@ -261,15 +292,13 @@ def backfill_yfinance(
     逐支抓（Ticker.history()），搭配隨機延遲、失敗重試退避、每 100 支額外暫停、
     降並發（預設 3），取代舊版批次 yf.download() 容易被 Yahoo 限流擋掉的做法。
     """
-    import random
-
     today = today or date.today()
     start = _first_month_start(today, months)
     start_str = start.isoformat()
     end_str = (today + timedelta(days=1)).isoformat()
 
     def _ticker_for(sid: str) -> str:
-        return f"{sid}.TWO" if exchange_map.get(sid) == "TPEx" else f"{sid}.TW"
+        return f"{sid}.TW" if exchange_map.get(sid) == "TWSE" else f"{sid}.TWO"
 
     logger.info(
         "yfinance 逐股補齊：%d 支股票  %s ~ %s  workers=%d",
@@ -277,13 +306,17 @@ def backfill_yfinance(
     )
 
     day_rows: dict = defaultdict(list)
+    pause_state = {"lock": threading.Lock(), "count": 0}
     ok = 0
     done = 0
     total = len(stock_ids)
 
     with ThreadPoolExecutor(max_workers=workers) as executor:
         futures = {
-            executor.submit(_fetch_yfinance_one_stock, sid, _ticker_for(sid), start_str, end_str): sid
+            executor.submit(
+                _fetch_yfinance_one_stock, sid, _ticker_for(sid), start_str, end_str,
+                pause_state=pause_state,
+            ): sid
             for sid in stock_ids
         }
         for fut in as_completed(futures):
@@ -295,13 +328,20 @@ def backfill_yfinance(
                 ok += 1
             if done % 50 == 0 or done == total:
                 logger.info("  yfinance [%d/%d]  成功=%d", done, total, ok)
-            if done % 100 == 0:
-                time.sleep(random.uniform(5, 10))
 
     logger.info("yfinance 完成：成功 %d / 共 %d 支", ok, total)
 
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
+
+    success_rate = (ok / total) if total else 0.0
+    if clean and success_rate < _YFINANCE_MIN_SUCCESS_RATE:
+        logger.error(
+            "yfinance 成功率過低（%d/%d = %.0f%%），疑似被限流。為避免用不完整資料"
+            "覆蓋掉現有歷史，本次跳過清空舊 CSV。",
+            ok, total, success_rate * 100,
+        )
+        clean = False
 
     if clean:
         old_csvs = list(output_path.glob("*.csv"))

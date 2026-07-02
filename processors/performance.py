@@ -179,6 +179,69 @@ def calc_meta_performance(
     return sorted(results, key=lambda r: r["avg_change_pct"], reverse=True)
 
 
+def calc_weekly_rank(
+    universe_df: pd.DataFrame,
+    db_path: str = "data/screener.db",
+) -> Dict[str, Dict[str, Optional[int]]]:
+    """
+    比較「上週5日累積報酬排名」vs「本週至今5日累積報酬排名」（滾動比較）。
+    今天往前 5 個交易日算一組累積報酬排名，再往前推 5 個交易日算另一組，
+    兩組排名互相比較。跟 cum5（5日累積報酬%）概念一致，只是拿排名版本。
+    回傳 {meta_name: {"this_week_rank": int|None, "last_week_rank": int|None}}
+    """
+    try:
+        con = duckdb.connect(db_path, read_only=True)
+        dates_df = con.execute(
+            "SELECT DISTINCT date FROM daily_prices ORDER BY date DESC LIMIT 10"
+        ).fetchdf()
+        prices_df = con.execute(
+            "SELECT stock_id, date, change_pct FROM daily_prices"
+        ).fetchdf()
+        con.close()
+    except Exception:
+        return {}
+
+    if prices_df.empty or len(dates_df) < 10:
+        return {}
+
+    all_dates = sorted(dates_df["date"].tolist())
+    universe = universe_df[["stock_id", "meta_sector"]].copy()
+    universe["stock_id"] = universe["stock_id"].astype(str)
+    prices_df["stock_id"] = prices_df["stock_id"].astype(str)
+
+    merged = prices_df.merge(universe, on="stock_id", how="inner")
+    merged = merged.dropna(subset=["change_pct", "meta_sector"])
+
+    pivot = (
+        merged.groupby(["meta_sector", "date"])["change_pct"].mean()
+        .unstack(level="date")
+        .reindex(columns=all_dates)
+        .fillna(0)
+    )
+
+    def _cum_rank(cols) -> Dict[str, int]:
+        cum: Dict[str, float] = {}
+        for meta_name in pivot.index:
+            row = pivot.loc[meta_name]
+            f = 1.0
+            for c in cols:
+                f *= (1 + row[c] / 100)
+            cum[meta_name] = (f - 1) * 100
+        ranked = sorted(cum.items(), key=lambda x: -x[1])
+        return {meta: i + 1 for i, (meta, _) in enumerate(ranked)}
+
+    this_week_rank = _cum_rank(all_dates[-5:])
+    last_week_rank = _cum_rank(all_dates[-10:-5])
+
+    return {
+        meta_name: {
+            "this_week_rank": this_week_rank.get(meta_name),
+            "last_week_rank": last_week_rank.get(meta_name),
+        }
+        for meta_name in pivot.index
+    }
+
+
 def calc_meta_signals(
     universe_df: pd.DataFrame,
     db_path: str = "data/screener.db",

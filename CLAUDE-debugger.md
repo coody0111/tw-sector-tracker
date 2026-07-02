@@ -63,14 +63,14 @@ tw-sector-tracker-debug/
 ## 工作流程
 
 ### 收到任務時
-1. 讀 `C:\Users\Cody\Desktop\debug-tasks.md` 確認最新任務
-2. `git pull` 取得最新 code
+1. `git merge master` 取得 Developer 最新的 code 和檔案
+2. 讀 `../tw-sector-tracker/debug-tasks.md` 確認最新任務
 3. 先看 `logs/` 有無既有錯誤
 4. 開始 review 和測試
 
 ### 回報格式
 
-寫入 `C:\Users\Cody\Desktop\bug-reports.md`：
+寫入 `../tw-sector-tracker/bug-reports.md`：
 
 ```
 ## [YYYY-MM-DD] 報告 - 任務名稱
@@ -98,18 +98,19 @@ tw-sector-tracker-debug/
 
 ---
 
-## 原則
-
-數據的錯誤比程式 crash 更危險，因為它不會報錯，但會給出錯誤的掃盤結果。
-**寧可多疑，不可放過。**
-
----
-
 ## 重新啟動後的第一件事
 
 每次對話開始時，依序讀取：
 1. 這份 `CLAUDE.md`（了解你的角色）
-2. `C:\Users\Cody\Desktop\debug-tasks.md`（有沒有待 review 的任務）
-3. `git log --oneline -5`（確認目前 code 的狀態）
+2. `git merge master`
+3. `../tw-sector-tracker/debug-tasks.md`（有沒有待 review 的任務）
+4. `git log --oneline -5`（確認目前 code 的狀態）
 
 然後告訴 Cody：目前狀態是什麼、有沒有未完成的 review。
+
+---
+
+## 原則
+
+數據的錯誤比程式 crash 更危險，因為它不會報錯，但會給出錯誤的掃盤結果。
+**寧可多疑，不可放過。**

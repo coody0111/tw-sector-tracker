@@ -617,13 +617,13 @@ def calc_meta_chips_signals(
                     "margin_alert": mb > 0 and mc / mb > 0.05,
                 }
 
-    # institutional/margin 兩張表目前都只有 TWSE 上市股票的資料（T86／MI_MARGN 皆為上市專屬
-    # API，沒有上櫃來源），分母只能算「該族群上市成分股數」，否則含上櫃成分股的族群買超比例
-    # 會被系統性低估（且各族群低估幅度不同，不是均勻偏移）。
-    meta_stock_count = (
-        universe[universe["exchange"] == "TWSE"]
-        .groupby("meta_sector")["stock_id"].count().to_dict()
-    )
+    # institutional/margin 現在同時有 TWSE（T86/MI_MARGN）跟 TPEx（tpex_3insti_daily_trading/
+    # tpex_mainboard_margin_balance）來源，分母可以算整個族群成分股數。
+    # 注意：TPEx 這兩支官方 API 都不支援查歷史日期，只能抓「當下」，所以剛接上的當下，
+    # institutional/margin 表裡舊日期還是只有 TWSE 資料，要等 --realtime／每日更新實際跑過
+    # 幾天、TPEx 當日資料持續累積後，lookback 窗口內的連買天數（foreign_streak/trust_streak）
+    # 才會涵蓋完整雙市場；當日（today）的買超比例則從第一次成功寫入 TPEx 資料那天就會正確。
+    meta_stock_count = universe.groupby("meta_sector")["stock_id"].count().to_dict()
 
     def _streak(vals: list) -> int:
         if not vals:

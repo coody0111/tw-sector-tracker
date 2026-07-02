@@ -9,7 +9,7 @@ from pathlib import Path
 from scrapers.moneydj import scrape_industry_sectors
 from scrapers.finmind import fetch_prices_for_stocks
 from scrapers.realtime import fetch_realtime_prices
-from scrapers.chips import fetch_institutional, fetch_margin_all_twse, TWSEBlockedError
+from scrapers.chips import fetch_institutional, fetch_institutional_tpex, fetch_margin_all_twse, fetch_margin_all_tpex, TWSEBlockedError
 from scrapers.backfill import backfill_prices, backfill_twse_monthly, backfill_institutional, backfill_margin, backfill_yfinance
 from processors.changes import detect_changes
 from processors.performance import calc_sector_performance, calc_meta_performance, calc_universe_performance, calc_cumulative_meta, calc_meta_signals, calc_meta_chips_signals, calc_stock_sparklines, get_stock_chips_ranking, get_margin_divergence
@@ -77,6 +77,31 @@ def _update_chips_db(trade_date: date, stock_ids: list) -> None:
         logger.warning("三大法人寫入失敗: %s", exc)
 
     try:
+        # TPEx OpenAPI 沒有日期參數，只回傳當下這支 API 認定的「今天」，可能跟 trade_date 對不上
+        # （例如 TPEx 還沒更新），所以用回應裡自己的 date 欄位為準，不強套 trade_date。
+        # DELETE 只刪這批 TPEx stock_id，避免把上面剛寫入的 TWSE 同日資料誤刪。
+        inst_tpex_df = fetch_institutional_tpex()
+        if not inst_tpex_df.empty:
+            resp_dates = inst_tpex_df["date"].unique().tolist()
+            if len(resp_dates) > 1:
+                logger.warning("TPEx 三大法人回應包含多個日期 %s，只留最新一天", resp_dates)
+                inst_tpex_df = inst_tpex_df[inst_tpex_df["date"] == max(resp_dates)]
+            resp_date = inst_tpex_df["date"].iloc[0]
+            if resp_date != inst_date.isoformat():
+                logger.info("TPEx 三大法人目前是 %s（跟 TWSE 端 %s 不同天，可能尚未更新）", resp_date, inst_date)
+            import duckdb
+            con = duckdb.connect("data/screener.db")
+            con.execute(
+                "DELETE FROM institutional WHERE date = ? AND stock_id IN (SELECT stock_id FROM inst_tpex_df)",
+                [resp_date],
+            )
+            con.execute("INSERT INTO institutional SELECT * FROM inst_tpex_df")
+            con.close()
+            logger.info("TPEx 三大法人寫入 %d 筆（%s）", len(inst_tpex_df), resp_date)
+    except Exception as exc:
+        logger.warning("TPEx 三大法人寫入失敗: %s", exc)
+
+    try:
         marg_date = trade_date
         try:
             margin_df = fetch_margin_all_twse(marg_date)
@@ -96,6 +121,28 @@ def _update_chips_db(trade_date: date, stock_ids: list) -> None:
             logger.info("融資融券寫入 %d 筆（%s）", len(margin_df), marg_date)
     except Exception as exc:
         logger.warning("融資融券寫入失敗: %s", exc)
+
+    try:
+        margin_tpex_df = fetch_margin_all_tpex()
+        if not margin_tpex_df.empty:
+            resp_dates = margin_tpex_df["date"].unique().tolist()
+            if len(resp_dates) > 1:
+                logger.warning("TPEx 融資融券回應包含多個日期 %s，只留最新一天", resp_dates)
+                margin_tpex_df = margin_tpex_df[margin_tpex_df["date"] == max(resp_dates)]
+            resp_date = margin_tpex_df["date"].iloc[0]
+            if resp_date != marg_date.isoformat():
+                logger.info("TPEx 融資融券目前是 %s（跟 TWSE 端 %s 不同天，可能尚未更新）", resp_date, marg_date)
+            import duckdb
+            con = duckdb.connect("data/screener.db")
+            con.execute(
+                "DELETE FROM margin WHERE date = ? AND stock_id IN (SELECT stock_id FROM margin_tpex_df)",
+                [resp_date],
+            )
+            con.execute("INSERT INTO margin SELECT * FROM margin_tpex_df")
+            con.close()
+            logger.info("TPEx 融資融券寫入 %d 筆（%s）", len(margin_tpex_df), resp_date)
+    except Exception as exc:
+        logger.warning("TPEx 融資融券寫入失敗: %s", exc)
 
 
 def _push_html(trade_date: date) -> None:

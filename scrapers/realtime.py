@@ -124,7 +124,7 @@ def fetch_realtime_prices(stock_ids: List[str]) -> pd.DataFrame:
             seen.add(sid)
 
             price = _best_price(item)
-            if price is None:
+            if price is None or price <= 0:
                 continue
 
             y_str = item.get("y", "-")

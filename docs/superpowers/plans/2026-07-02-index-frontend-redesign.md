@@ -434,7 +434,7 @@ git commit -m "feat: add data_generator.py to produce docs/data.json"
 **Files:**
 - Modify: `main.py:9-22` (imports), `main.py:392-403` (generate_html call site), `main.py:101-116` (`_push_html`)
 
-- [ ] **Step 1: Modify imports**
+- [x] **Step 1: Modify imports**
 
 In `main.py`, near the existing generator imports:
 
@@ -452,7 +452,7 @@ from processors.performance import calc_weekly_rank
 
 (`calc_weekly_rank` should already be importable from the same `processors.performance` import line that already lists `calc_sector_performance, calc_meta_performance, ...` — add `calc_weekly_rank` to that list instead of a separate import line.)
 
-- [ ] **Step 2: Replace the generate_html call site**
+- [x] **Step 2: Replace the generate_html call site**
 
 Find the block (originally `main.py:392-403`):
 
@@ -489,7 +489,7 @@ Replace with:
 
 Note: `vol_signals`（巨量換手訊號）不再傳進去——這批訊號依規格書移出 index 範圍。`vol_signals` 變數本身在 main.py 後面（`scan_institutional` 那段）可能還有別的用途，不要整段刪掉，只是不再傳給 index 的產生函式。
 
-- [ ] **Step 3: Update `_push_html` to include the new build outputs**
+- [x] **Step 3: Update `_push_html` to include the new build outputs**
 
 Find (`main.py:101-116`):
 
@@ -519,12 +519,12 @@ def _push_html(trade_date: date) -> None:
 
 `docs/index.html`／`docs/assets` 是 `npm run build` 產生的（見 Task 12），日常跑 `python main.py` 只會更新 `docs/data.json`；`git add` 對沒變化的檔案是no-op，不會多產生 commit。
 
-- [ ] **Step 4: Verify main.py still imports cleanly**
+- [x] **Step 4: Verify main.py still imports cleanly**
 
 Run: `python -c "import main"`
 Expected: no output, exit code 0（不用跑 pytest，這步只是語法/import 檢查）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add main.py

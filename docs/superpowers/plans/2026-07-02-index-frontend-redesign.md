@@ -42,7 +42,7 @@
 - Modify: `processors/performance.py`
 - Test: `tests/test_processors.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `tests/test_processors.py`:
 
@@ -97,12 +97,12 @@ def test_calc_weekly_rank_returns_empty_when_insufficient_history(tmp_path):
     assert result == {}
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `pytest tests/test_processors.py -k weekly_rank -v`
 Expected: FAIL with `ImportError: cannot import name 'calc_weekly_rank'`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Add to `processors/performance.py` (near `calc_meta_signals`, same imports already present: `duckdb`, `pandas as pd`, `Dict`, `Any`, `Optional`):
 
@@ -170,12 +170,12 @@ def calc_weekly_rank(
     }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `pytest tests/test_processors.py -k weekly_rank -v`
 Expected: PASS (2 tests)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add processors/performance.py tests/test_processors.py

@@ -117,5 +117,6 @@ tw-sector-tracker/
 1. 這份 `CLAUDE.md`（了解你的角色）
 2. `bug-reports.md`（有沒有待修的問題）
 3. `git log --oneline -5`（確認最近做了什麼）
+4. `docs/superpowers/specs/` 底下有沒有還沒對應 `docs/superpowers/plans/` 計畫的 spec（代表有已核准但還沒拆解成實作任務的設計，換平台/換機器接續工作時容易漏掉）
 
 然後告訴 Cody：目前狀態是什麼、有沒有未完成的事。

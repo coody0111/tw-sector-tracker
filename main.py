@@ -326,8 +326,11 @@ def run(trade_date: date = None, realtime: bool = False) -> None:
             prices_df = None
 
     # 3. 寫入行情（盤前/非交易日不寫入重複資料）
+    # 這道防呆是為了偵測「TWSE 官方收盤資料還沒公布」（批次模式），只適用於盤後批次抓取。
+    # --realtime 抓的是當下即時快照，即使探測股價格剛好與前一天收盤相同（例如尚未成交、
+    # API 延遲），也仍是「今天」的合法資料，不應該把 trade_date 切回前一天。
     prices_are_new = True
-    if prices_df is not None and not prices_df.empty:
+    if not realtime and prices_df is not None and not prices_df.empty:
         prev_day = _prev_trading_day(trade_date)
         prev_csv = Path(f"data/daily_prices/{prev_day.isoformat()}.csv")
         if prev_csv.exists():

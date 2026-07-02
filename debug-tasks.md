@@ -155,6 +155,30 @@
 - [ ] `stock_universe.csv` 674191 → 6741 修正後，`--backfill-yf` 之類的流程會不會正常抓到這支股票的資料了（之前是因為代號錯誤查無此代號，不是下市）
 
 ### 特別注意
-- 還沒 commit
+- 已 commit（`8e61d71`）並 push 到 origin/master
 - 這次「順手修正」的 stock_universe.csv 代號 bug 不在 Debugger 這次回報範圍內，是 Cody 直接貼截圖發現的，之後如果要追溯可以參考這則記錄
 - 建議之後找機會重新跑一次 sector 抓取（`scrape_industry_sectors`），確認正則式修正後不會再產生類似的代號污染，並可以順便清一下 `data/sectors/industry_sectors.csv`／`changes_log.csv` 裡的舊錯誤記錄（非急迫）
+
+---
+
+## [2026-07-02] 修復 Cody 實測回報：`--realtime` 執行後首頁日期被切回前一天
+
+### 改了什麼
+- 異動檔案：`main.py`
+- 邏輯說明：
+  - **背景**：Cody 跑 `python main.py --realtime`（13:05），log 顯示完全正常、`docs/index.html` 正確產生並 push（commit `38f5afa`，日期 2026-07-02）。但 5 分鐘後（13:10）又有一次執行，把 `docs/index.html` 的日期切回 2026-07-01（commit `216c332`），蓋掉剛才正確的版本。整個過程沒有任何錯誤訊息，純粹是邏輯誤判。
+  - **根本原因**：`run()` 第 328-344 行有一段「防重複寫入」檢查——比對這次抓到的探測股（2330）價格跟前一交易日收盤價是否相同，相同就判定「市場尚未更新」，把 `trade_date` 切回前一天、不寫入今日資料。這段邏輯是設計給**批次收盤模式**（`fetch_prices_for_stocks`）用的，用來偵測「TWSE 官方收盤資料還沒公布」，但原本寫法沒有排除 `--realtime` 模式，兩種模式共用同一段判斷。
+    `--realtime` 抓的是當下即時快照，即使探測股價格剛好等於前一天收盤（可能尚未成交、API 延遲等情況），仍然是「今天當下」合法的即時資料，不代表「市場沒更新」，不應該被切回前一天。
+  - 修法：把這段檢查限制成 `if not realtime and prices_df is not None and not prices_df.empty:`，`--realtime` 模式完全跳過這道防呆，永遠信任自己抓到的即時快照、用今天的日期寫入。批次模式（`--realtime` 未指定）行為不變。
+
+### 資料來源相關（如有異動）
+- 無資料來源變更，純粹是 `--realtime` 模式下 `trade_date` 判斷邏輯的修正
+
+### 請 Debugger／Cody 驗證
+- [ ] 連續跑兩次以上 `--realtime`（間隔幾分鐘），確認不會再把 `docs/index.html` 的日期切回前一天
+- [ ] 批次模式（不加 `--realtime`）在 TWSE 官方資料還沒公布時，仍然會正確切換回前一交易日（沒有被這次改動影響到）
+- [ ] 確認這次修法沒有影響 `writer.write_daily_prices()` 之後的下游流程（族群績效、HTML 產生等），`prices_are_new` 在 realtime 模式下永遠是 `True`，行為符合預期
+
+### 特別注意
+- 還沒 commit，Cody 說要自己先驗證
+- 額外發現（非 bug，記錄一下）：`main.py::_push_html()` 執行 `git commit` 時是提交「當下所有已 staged 的檔案」，不是只提交它自己 `git add` 的那三個 docs/*.html。如果之前手動 `git add` 過其他檔案但還沒 commit，下次跑 `main.py`（會自動收盤/即時 commit+push）時會被一起帶進去，commit message 卻是自動產生的「update: sector performance {date}」，訊息跟實際內容對不上。這次意外把 4 個角色/協作 md 檔案（`CLAUDE-developer.md` 等）跟著 sector performance 一起進了 commit `4dadc23`，就是這樣發生的。不算 bug，但操作上要注意：手動 `git add` 之後如果不馬上 commit，最好記得跑 main.py 前先確認 staging area 是乾淨的。

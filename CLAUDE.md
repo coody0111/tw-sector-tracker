@@ -96,6 +96,13 @@ tw-sector-tracker/
 
 ---
 
+## 設計原則
+
+- **開發功能前先 brainstorming**：新增/調整功能邏輯之前，先用 `superpowers:brainstorming` skill 釐清需求跟設計，不要直接動手寫 code。
+- **UI 設計要用 UI Pro Max**：畫面/視覺相關的設計（配色、排版、元件風格）要用 `ui-ux-pro-max` skill，不要憑感覺套版。
+
+---
+
 ## 其他注意事項
 
 - **config.py 很大**，改動前先確認影響範圍

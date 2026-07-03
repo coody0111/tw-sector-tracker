@@ -1395,7 +1395,7 @@ git commit -m "feat: add RankList component with per-row SignalChips and color-s
 - Create: `frontend/src/components/SectorDetail.tsx`
 - Create: `frontend/src/components/SectorDetail.test.tsx`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `frontend/src/components/SectorDetail.test.tsx`:
 
@@ -1438,12 +1438,12 @@ describe('SectorDetail', () => {
 })
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd frontend && npm run test -- SectorDetail`
 Expected: FAIL — `Cannot find module './SectorDetail'`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Create `frontend/src/components/SectorDetail.tsx`:
 
@@ -1497,12 +1497,12 @@ export function SectorDetail({ meta }: SectorDetailProps) {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd frontend && npm run test -- SectorDetail`
 Expected: PASS (2 tests)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add frontend/src/components/SectorDetail.tsx frontend/src/components/SectorDetail.test.tsx

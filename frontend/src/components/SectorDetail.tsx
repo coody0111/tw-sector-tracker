@@ -1,12 +1,16 @@
-import type { MetaSector } from '../types'
+import { useState } from 'react'
+import type { MetaSector, Stock } from '../types'
 import { sortStocksWithinGroups } from '../lib/group'
 import { SignalChips } from './SignalChips'
+import { StockModal } from './StockModal'
 
 interface SectorDetailProps {
   meta: MetaSector | null
 }
 
 export function SectorDetail({ meta }: SectorDetailProps) {
+  const [selectedStock, setSelectedStock] = useState<Stock | null>(null)
+
   if (!meta) {
     return <div className="sector-detail-empty">請選擇左側的族群查看個股明細</div>
   }
@@ -30,7 +34,12 @@ export function SectorDetail({ meta }: SectorDetailProps) {
           {group.stocks.map((stock) => {
             const pctSign = (stock.changePct ?? 0) >= 0 ? '+' : ''
             return (
-              <div key={stock.id} className="stock-row">
+              <div
+                key={stock.id}
+                className="stock-row"
+                onClick={() => setSelectedStock(stock)}
+                style={{ cursor: 'pointer' }}
+              >
                 <span className="stock-id">{stock.id}</span>
                 <span className="stock-name">{stock.name}</span>
                 <span className="stock-close">{stock.close ?? '—'}</span>
@@ -42,6 +51,9 @@ export function SectorDetail({ meta }: SectorDetailProps) {
           })}
         </div>
       ))}
+      {selectedStock && (
+        <StockModal stock={selectedStock} onClose={() => setSelectedStock(null)} />
+      )}
     </div>
   )
 }

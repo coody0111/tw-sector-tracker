@@ -73,7 +73,10 @@ tw-sector-tracker/
 
 ### 完成任務後
 1. `git add . && git commit -m "簡短描述"`
-2. 更新 `debug-tasks.md`：
+2. **主動同步到 debug worktree**：去 `../tw-sector-tracker-debug` 資料夾確認乾淨
+   （沒有未 commit 的東西）後執行 `git merge master`，不用等 Cody 提醒。如果那邊
+   有未 commit 的變更，先跟 Cody 確認怎麼處理，不要硬蓋過去。
+3. 更新 `debug-tasks.md`：
 
 ```
 ## [YYYY-MM-DD] 任務名稱

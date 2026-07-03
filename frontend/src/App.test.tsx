@@ -24,7 +24,7 @@ const fakeData: SectorData = {
 }
 
 beforeEach(() => {
-  global.fetch = vi.fn(() =>
+  globalThis.fetch = vi.fn(() =>
     Promise.resolve({ ok: true, json: () => Promise.resolve(fakeData) } as Response),
   )
   window.matchMedia = vi.fn().mockImplementation((query: string) => ({

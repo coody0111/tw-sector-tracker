@@ -78,18 +78,6 @@ def init_db() -> None:
         )
     """)
     con.execute("""
-        CREATE TABLE IF NOT EXISTS broker_branch (
-            stock_id        VARCHAR NOT NULL,
-            date            DATE NOT NULL,
-            broker_id       VARCHAR NOT NULL,
-            broker_name     VARCHAR,
-            buy_shares      BIGINT,
-            sell_shares     BIGINT,
-            net_shares      BIGINT,
-            PRIMARY KEY (stock_id, date, broker_id)
-        )
-    """)
-    con.execute("""
         CREATE TABLE IF NOT EXISTS pattern_signals (
             stock_id     VARCHAR NOT NULL,
             pattern      VARCHAR NOT NULL,

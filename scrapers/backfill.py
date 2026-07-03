@@ -3,7 +3,7 @@
 
 方式：
   1. backfill_twse_monthly()     — TWSE STOCK_DAY + TPEx st43 逐股月別（完整覆蓋上市+上櫃）
-  2. backfill_prices()           — FinMind TaiwanStockPrice（備用，每日 600 次上限）
+  2. backfill_yfinance()         — Yahoo Finance 逐股月別（不需 token，雙市場都支援）
   3. backfill_institutional()    — TWSE T86 逐日三大法人（每日一次 API，速度快）
 
 建議流程：
@@ -171,6 +171,9 @@ def _fetch_stock_months(sid: str, month_starts: list, stop_event: threading.Even
                     except (ValueError, IndexError):
                         continue
 
+                    if close <= 0:  # 零成交/停牌股偶爾回傳 close=0，比照 realtime.py 的防呆跳過
+                        continue
+
                     rows.append({
                         "stock_id":   sid,
                         "close":      close,
@@ -245,6 +248,8 @@ def _fetch_yfinance_one_stock(
                     if d_str < start_date:
                         continue  # 緩衝天數，只用來當前面的 prev_close，不放進輸出
                     close = closes[i]
+                    if close <= 0:  # yfinance 偶爾對停牌/冷門股回傳 0，比照 realtime.py 的防呆跳過
+                        continue
                     prev = closes[i - 1]
                     change = round(close - prev, 2)
                     change_pct = round(change / prev * 100, 2) if prev else 0.0
@@ -396,6 +401,8 @@ def _fetch_finmind_history(
                     d = row["date"]
                     vol_lots = int(row["Trading_Volume"]) // 1000
                     close = float(row["close"])
+                    if close <= 0:  # FinMind 偶爾對冷門股回傳 close=0（已實測發生過），比照 realtime.py 的防呆跳過
+                        continue
                     spread = float(row.get("spread", 0))
                     prev_close = close - spread
                     change_pct = round(spread / prev_close * 100, 2) if prev_close != 0 else 0.0
@@ -553,99 +560,6 @@ def backfill_twse_monthly(
     total_records = sum(len(v) for v in day_rows.values())
     logger.info("補齊完成：寫入/更新 %d 日，共 %d 筆", written, total_records)
     return written
-
-
-def backfill_prices(
-    stock_ids: List[str],
-    token: str,
-    days: int = 180,
-    output_dir: str = "data/daily_prices",
-    sleep_sec: float = 0.4,
-) -> int:
-    """
-    用 FinMind 逐股抓歷史行情，重組成 daily_prices/YYYY-MM-DD.csv。
-    多次執行時會 merge 已有的 CSV（補上前次漏掉的股票）。
-    FinMind 免費帳號每日約 600 次，超過後自動提早退出。
-    回傳：成功寫入（含更新）的日期數。
-    """
-    output_path = Path(output_dir)
-    output_path.mkdir(parents=True, exist_ok=True)
-
-    today = date.today()
-    start_date = (today - timedelta(days=days)).isoformat()
-    end_date = today.isoformat()
-
-    day_rows: dict = defaultdict(list)
-    total = len(stock_ids)
-    ok = fail = consecutive_fail = 0
-
-    logger.info("FinMind 逐股補齊：%d 支股票  %s ~ %s", total, start_date, end_date)
-
-    for i, sid in enumerate(stock_ids, 1):
-        try:
-            resp = requests.get(FINMIND_URL, params={
-                "dataset":    "TaiwanStockPrice",
-                "data_id":    sid,
-                "start_date": start_date,
-                "end_date":   end_date,
-                "token":      token,
-            }, timeout=5)
-            data = resp.json()
-
-            if data.get("status") != 200 or not data.get("data"):
-                fail += 1
-                consecutive_fail += 1
-            else:
-                for row in data["data"]:
-                    d = row["date"]
-                    vol_lots = int(row["Trading_Volume"]) // 1000
-                    close = float(row["close"])
-                    spread = float(row.get("spread", 0))
-                    prev_close = close - spread
-                    change_pct = round(spread / prev_close * 100, 2) if prev_close != 0 else 0.0
-                    day_rows[d].append({
-                        "stock_id":   sid,
-                        "close":      close,
-                        "change":     spread,
-                        "change_pct": change_pct,
-                        "volume":     vol_lots,
-                    })
-                ok += 1
-                consecutive_fail = 0
-
-        except Exception as exc:
-            fail += 1
-            consecutive_fail += 1
-            logger.debug("  %s 失敗: %s", sid, exc)
-
-        if i % 50 == 0:
-            logger.info("  [%d/%d] 已處理 %d 支，失敗 %d", i, total, ok, fail)
-
-        if consecutive_fail >= _CONSECUTIVE_FAIL_LIMIT:
-            logger.warning(
-                "連續失敗 %d 次（可能已達 FinMind 每日上限），提早停止。"
-                "明日重跑可補齊剩餘 %d 支。",
-                consecutive_fail, total - i,
-            )
-            break
-
-        time.sleep(sleep_sec)
-
-    logger.info("抓取完成：成功 %d / 失敗 %d，整理成每日 CSV...", ok, fail)
-
-    if not day_rows:
-        logger.info("本次未取得任何資料，CSV 不更新。")
-        return 0
-
-    written = 0
-    output_path_obj = Path(output_dir)
-    for d_str, new_rows in sorted(day_rows.items()):
-        if _merge_into_csv(output_path_obj / f"{d_str}.csv", new_rows):
-            written += 1
-
-    logger.info("寫入/更新 %d 個日期的 CSV", written)
-    return written
-
 
 
 def backfill_margin(

@@ -611,7 +611,7 @@ def calc_meta_chips_signals(
     回傳 {meta_name: {
         foreign_net_today, trust_net_today,  # 今日合計（原始股數）
         foreign_buy_count, total_stocks,
-        foreign_buy_ratio,                    # 外資買超股數 / META 總股數
+        foreign_buy_ratio,                    # 外資買超檔數 / META 總檔數（分母只算 today 當天實際有資料的交易所）
         foreign_streak,                       # 正=連買天數, 負=連賣
         trust_streak,
         margin_change_today, margin_balance_today,
@@ -681,12 +681,16 @@ def calc_meta_chips_signals(
                 }
 
     # institutional/margin 現在同時有 TWSE（T86/MI_MARGN）跟 TPEx（tpex_3insti_daily_trading/
-    # tpex_mainboard_margin_balance）來源，分母可以算整個族群成分股數。
-    # 注意：TPEx 這兩支官方 API 都不支援查歷史日期，只能抓「當下」，所以剛接上的當下，
-    # institutional/margin 表裡舊日期還是只有 TWSE 資料，要等 --realtime／每日更新實際跑過
-    # 幾天、TPEx 當日資料持續累積後，lookback 窗口內的連買天數（foreign_streak/trust_streak）
-    # 才會涵蓋完整雙市場；當日（today）的買超比例則從第一次成功寫入 TPEx 資料那天就會正確。
-    meta_stock_count = universe.groupby("meta_sector")["stock_id"].count().to_dict()
+    # tpex_mainboard_margin_balance）來源，理想狀況分母可以算整個族群成分股數。
+    # 但 TPEx 這兩支官方 API 只能抓「當下」、沒有日期參數，發布時間可能跟 TWSE 錯開一天；
+    # 若 TPEx 當天抓取失敗（main.py 的 try/except 只會 log warning、不阻擋），或單純兩所發布
+    # 日期不同步，institutional 表當天就可能只有單一交易所的資料。分母若仍固定用「TWSE+TPEx
+    # 全族群成分股數」，分子（buy_count）卻只能來自實際有資料的那個交易所，比例會被系統性低估
+    # ——尤其是上櫃佔比高的族群。改成分母只算「today 這天實際有資料的交易所」涵蓋的成分股數，
+    # 跟分子的交易所範圍保持一致；等兩所資料都到齊，分母會自動回到全族群。
+    meta_stock_count_by_exchange = (
+        universe.groupby(["meta_sector", "exchange"])["stock_id"].count()
+    )
 
     def _streak(vals: list) -> int:
         if not vals:
@@ -712,7 +716,14 @@ def calc_meta_chips_signals(
         trust_net_today = int(t_row.get(today, 0))
 
         meta_today = today_inst[today_inst["meta_sector"] == meta_name]
-        total_stocks = meta_stock_count.get(meta_name, 1)
+        covered_exchanges = meta_today["exchange"].dropna().unique().tolist()
+        if covered_exchanges and meta_name in meta_stock_count_by_exchange.index.get_level_values(0):
+            total_stocks = int(
+                meta_stock_count_by_exchange.loc[meta_name]
+                .reindex(covered_exchanges).fillna(0).sum()
+            )
+        else:
+            total_stocks = 0
         buy_count = int((meta_today["foreign_net"] > 0).sum())
 
         foreign_streak = _streak([float(f_row.get(d, 0)) for d in all_dates])

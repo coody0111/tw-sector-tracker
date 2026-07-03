@@ -10,7 +10,7 @@ from scrapers.moneydj import scrape_industry_sectors
 from scrapers.finmind import fetch_prices_for_stocks
 from scrapers.realtime import fetch_realtime_prices
 from scrapers.chips import fetch_institutional, fetch_institutional_tpex, fetch_margin_all_twse, fetch_margin_all_tpex, TWSEBlockedError
-from scrapers.backfill import backfill_prices, backfill_twse_monthly, backfill_institutional, backfill_margin, backfill_yfinance
+from scrapers.backfill import backfill_twse_monthly, backfill_institutional, backfill_margin, backfill_yfinance
 from processors.changes import detect_changes
 from processors.performance import calc_sector_performance, calc_meta_performance, calc_universe_performance, calc_cumulative_meta, calc_meta_signals, calc_meta_chips_signals, calc_stock_sparklines, get_stock_chips_ranking, get_margin_divergence, calc_weekly_rank
 from storage.csv_writer import CsvWriter
@@ -166,23 +166,6 @@ def _push_html(trade_date: date) -> None:
         logger.warning("Git push failed: %s", exc)
 
 
-def backfill(days: int = 180) -> None:
-    """歷史行情補齊 — 用 FinMind 逐股抓，約 15 分鐘（每日 600 次上限）"""
-    if not UNIVERSE_PATH.exists():
-        logger.error("找不到 stock_universe.csv，請先確認資料目錄。")
-        return
-    from scrapers.chips import FINMIND_TOKEN
-    universe_df = pd.read_csv(UNIVERSE_PATH, encoding="utf-8-sig", dtype={"stock_id": str})
-    stock_ids = universe_df["stock_id"].tolist()
-    logger.info("=== 歷史行情補齊（FinMind，往前 %d 日曆天）===", days)
-    n = backfill_prices(stock_ids, token=FINMIND_TOKEN, days=days)
-    if n > 0:
-        init_db()
-        imported = import_csv_prices()
-        logger.info("DuckDB 更新：共 %d 筆", imported)
-    logger.info("=== 補齊完成，共寫入 %d 日 ===", n)
-
-
 def backfill_twse(months: int = 6, workers: int = 3) -> None:
     """TWSE 逐股月別補齊（STOCK_DAY 歷史 API）+ TPEx via FinMind"""
     if not UNIVERSE_PATH.exists():
@@ -265,18 +248,6 @@ def _backfill_shareholder(weeks: int = 4) -> None:
         n = sh_save(rows)
         logger.info("  %s 寫入 %d 筆", d_str, n)
     logger.info("=== 集保補齊完成 ===")
-
-
-def _update_broker() -> None:
-    """抓今日各股券商分點買賣超（需先設定 _TWSE_BROKER_URL）。"""
-    from scrapers.broker_branch import fetch_broker_batch, save_to_db as bb_save
-    init_db()
-    stock_ids = pd.read_csv(UNIVERSE_PATH, dtype=str)["stock_id"].tolist()
-    trade_date = date.today()
-    logger.info("=== 分點買賣超更新 %s（%d 支股票）===", trade_date, len(stock_ids))
-    broker_map = fetch_broker_batch(stock_ids, trade_date)
-    n = bb_save(trade_date, broker_map)
-    logger.info("=== 分點更新完成，寫入 %d 筆 ===", n)
 
 
 def _full_rebuild(months: int = 19, workers: int = 3) -> None:
@@ -580,8 +551,6 @@ if __name__ == "__main__":
                         help="Re-scrape MoneyDJ sectors (~15 min). Run weekly.")
     parser.add_argument("--limit", type=int, default=None,
                         help="Limit sectors for testing (use with --update-sectors)")
-    parser.add_argument("--backfill", type=int, default=0, metavar="DAYS",
-                        help="FinMind 補齊過去 N 日曆天歷史行情（每日 600 次上限）")
     parser.add_argument("--backfill-twse", type=int, default=0, metavar="MONTHS",
                         help="TWSE 逐股月別補齊過去 N 個月歷史行情（建議 18，會刪舊 CSV 重抓）")
     parser.add_argument("--backfill-yf", type=int, default=0, metavar="MONTHS",
@@ -611,8 +580,6 @@ if __name__ == "__main__":
                         help="抓 TDCC 集保持股分散表（最新週），計算大戶持倉比例與週變化")
     parser.add_argument("--backfill-shareholder", type=int, default=0, metavar="WEEKS",
                         help="補齊集保持股分散表過去 N 週資料（每支股票一次請求，約 17 分鐘/週）")
-    parser.add_argument("--update-broker", action="store_true",
-                        help="抓今日各股券商分點買賣超（需先設定 broker_branch.py 的 _TWSE_BROKER_URL）")
     parser.add_argument("--reimport", action="store_true",
                         help="清空 daily_prices 並從所有現有 CSV 重新匯入，用於修復資料庫錯誤")
     parser.add_argument("--full-rebuild", action="store_true",
@@ -623,8 +590,6 @@ if __name__ == "__main__":
 
     if args.update_sectors:
         update_sectors(limit=args.limit)
-    elif args.backfill:
-        backfill(days=args.backfill)
     elif args.backfill_twse:
         backfill_twse(months=args.backfill_twse, workers=args.workers)
     elif args.backfill_yf:
@@ -646,8 +611,6 @@ if __name__ == "__main__":
         _update_shareholder()
     elif args.backfill_shareholder:
         _backfill_shareholder(weeks=args.backfill_shareholder)
-    elif args.update_broker:
-        _update_broker()
     elif args.reimport:
         from screener.database import reimport_db
         init_db()

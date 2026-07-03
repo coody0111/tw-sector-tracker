@@ -18,8 +18,10 @@
 - 不適用（這是部署基礎設施，不是資料抓取邏輯）
 
 ### 請 Debugger 驗證
-- [ ] 下次 `python main.py` 正常執行、push 之後，確認 GitHub Actions 的 `Deploy Pages` workflow 有自動觸發並成功（`gh run list --workflow=pages.yml`），網站內容有跟著更新
-- [ ] 確認 `docs/.nojekyll` 沒有造成任何非預期副作用（理論上只是讓 GitHub 不要用 Jekyll 處理，純靜態 HTML 站不需要 Jekyll，應該無風險）
+- [~] 下次 `python main.py` 正常執行、push 之後，確認 GitHub Actions 的 `Deploy Pages` workflow 有自動觸發並成功（`gh run list --workflow=pages.yml`），網站內容有跟著更新
+  - ✅ Debugger 2026-07-03（設定）：`pages.yml` 觸發條件（push master + `docs/**`）、標準 actions、permissions 都正確。⏳ **workflow 實際執行紀錄無法在本機驗證**（`codyliu` 筆電未裝 `gh` CLI），需 Cody 在有 gh 的機器跑 `gh run list --workflow=pages.yml` 或下次 push 後看 Actions 頁。
+- [x] 確認 `docs/.nojekyll` 沒有造成任何非預期副作用（理論上只是讓 GitHub 不要用 Jekyll 處理，純靜態 HTML 站不需要 Jekyll，應該無風險）
+  - ✅ Debugger 2026-07-03：`docs/.nojekyll`（0 bytes）存在，純靜態 HTML/JSON 站不需 Jekyll，無風險。
 
 ### 特別注意
 - workflow 觸發條件是 `push` 到 `master` 且改到 `docs/**`（見 `.github/workflows/pages.yml`），`python main.py` 每次執行完都會自動 push `docs/` 底下的產出檔案，所以正常流程下這個 workflow 會自動觸發，不需要手動介入
@@ -62,9 +64,12 @@
   TPEx 融資融券寫入 910 筆（2026-07-02）
   ```
   查 DB 交叉比對 `stock_universe.csv`：`institutional` 表 2026-07-02 這天已同時有 511 檔 TWSE + 501 檔 TPEx（掃盤名單內），`margin` 表 499 檔 TWSE + 488 檔 TPEx。已 commit `ee09b2e` 並 push 上 GitHub Pages。
-- [ ] 上市/上櫃資料來源沒有混用（這次最容易出錯的地方：確認 `foreign_net`/`dealer_net` 的口徑在兩個交易所是同一個定義，不是同名不同義）——**這項我只用當天全量資料驗證了數學恆等式（見上方 commit 說明），沒有交叉比對 TPEx 官網或第三方資料源確認數字本身正確，麻煩 Debugger 額外抽查**
-- [ ] Section 5 族群外資買超比例，這次改回全族群分母，確認上櫃佔比高的族群（例如「資通訊/工業電腦」）比例有沒有反映出上櫃股票的買超狀況（而不是仍然被當成缺資料跳過）——今天剛好三大法人「今日尚未發布，改抓前一交易日」，`docs/chips.html` 已經是用有 TPEx 資料的 2026-07-02 產生，可以直接看現在的頁面
-- [ ] TPEx 回應日期跟 TWSE 對不上時（log 會印出提示）的行為是否符合預期，不會互相覆蓋或報錯中斷——這次實跑兩邊剛好都是同一天（2026-07-02），沒有實際測試到不對齊的情境
+- [x] 上市/上櫃資料來源沒有混用（這次最容易出錯的地方：確認 `foreign_net`/`dealer_net` 的口徑在兩個交易所是同一個定義，不是同名不同義）——**這項我只用當天全量資料驗證了數學恆等式（見上方 commit 說明），沒有交叉比對 TPEx 官網或第三方資料源確認數字本身正確，麻煩 Debugger 額外抽查**
+  - ✅ Debugger 2026-07-03 抽查：實測 TWSE T86（1325檔）+ TPEx（930檔）欄位語意。`foreign_net`/`trust_net`/`total_net` 口徑**一致**。**但 `dealer_net` 不一致**（🟡）：TWSE dealer 不含外資自營商、TPEx code 併入外資自營商，差額=外資自營商（測試日兩邊都=0）。只在 institutional.py 顯示欄位消費、不進彙總，影響小。詳見 bug-reports.md。
+- [x] Section 5 族群外資買超比例，這次改回全族群分母，確認上櫃佔比高的族群（例如「資通訊/工業電腦」）比例有沒有反映出上櫃股票的買超狀況（而不是仍然被當成缺資料跳過）——今天剛好三大法人「今日尚未發布，改抓前一交易日」，`docs/chips.html` 已經是用有 TPEx 資料的 2026-07-02 產生，可以直接看現在的頁面
+  - ✅ Debugger 2026-07-03：實跑 `calc_meta_chips_signals` 對正式 DB，高上櫃佔比族群買超檔數合理（軟體/雲端 49/83、MCU/嵌入式 22/27、遊戲/電競 5/17）→ TPEx 確實計入分子。🟡 但發現「TWSE/TPEx 日期不同步時買超比例會被低估」的隱患（Developer 沒測到的情境），詳見 bug-reports.md。
+- [x] TPEx 回應日期跟 TWSE 對不上時（log 會印出提示）的行為是否符合預期，不會互相覆蓋或報錯中斷——這次實跑兩邊剛好都是同一天（2026-07-02），沒有實際測試到不對齊的情境
+  - ✅ Debugger 2026-07-03（靜態）：`_update_chips_db` TWSE/TPEx 各寫自己日期分區，TPEx DELETE 加 `stock_id IN (...)` 範圍限定 + 兩所代號不重疊 → 不會互相覆蓋；日期不同只 `logger.info` 提示、兩段互相獨立不阻擋，行為符合預期。
 
 ### 特別注意
 - **歷史資料還是有落差**：TPEx 這兩支 API 只能抓「當下」，`institutional`/`margin` 表裡今天以前的舊日期還是只有 TWSE 資料，要等每天正常執行、慢慢累積才會補齊上櫃的歷史。沒有回補（backfill）路徑可以一次補齊過去——TPEx 官方沒有提供歷史日期查詢的 openapi 端點，只能考慮之後另外找 TPEx 網站上的歷史頁面解析（非 openapi），這次沒做。
@@ -98,10 +103,14 @@
 - 上櫃資料（FinMind）：**未處理**，見下方「特別注意」
 
 ### 請 Debugger 驗證
-- [ ] `_backfill_shareholder` 修好順序後，實際跑 `--backfill-shareholder` 多週，確認 `shareholder` 表 `week_chg`/`streak` 方向正確（越新週 streak 應該累加，不是遞減）
-- [ ] Section 5 族群外資買超比例，修復前後數字對照幾個上櫃佔比高的族群（例如「資通訊/工業電腦」），確認比例有明顯回升且合理
-- [ ] 上市/上櫃資料來源沒有混用（這次改動本身是在修正混用，不是新增混用）
-- [ ] 沒有影響其他模組（`universe` 這個 DataFrame 多帶一欄 `exchange`，確認沒有其他下游用到同名變數但欄位數量寫死的地方壞掉）
+- [~] `_backfill_shareholder` 修好順序後，實際跑 `--backfill-shareholder` 多週，確認 `shareholder` 表 `week_chg`/`streak` 方向正確（越新週 streak 應該累加，不是遞減）
+  - ✅ Debugger 2026-07-03（程式碼）：`target_dates = list(reversed(available[:weeks]))`（main.py:260）由舊到新寫入，配合 `save_to_db` 「跟 DB 最新一筆比」的假設正確。⏳ **實跑 streak 方向待 Cody 執行 `--backfill-shareholder 8`**（逐股 2 請求×1.2s×8週≈3hr，Cody 2026-07-03 執行中）。
+  - 🔧 **順帶修好 going-forward 隱患（Cody 授權）**：`_add_week_change_streak` 原本沒排除同一週，導致「每日 cron／同週重跑」時 streak 會被自己洗成 0。已加 `date < 本次週` guard + 新增 `tests/test_shareholder.py`（3 測試全過）。詳見 bug-reports.md。→ 回答 Cody「以後同資料來源 OK 嗎」：歷史+每週更新兩條路現在都正確。
+- [x] Section 5 族群外資買超比例，修復前後數字對照幾個上櫃佔比高的族群（例如「資通訊/工業電腦」），確認比例有明顯回升且合理
+  - ✅ Debugger 2026-07-03：實跑確認高上櫃族群買超檔數合理（見上一則 Task 的同項驗證），分母已改回全族群。
+- [x] 上市/上櫃資料來源沒有混用（這次改動本身是在修正混用，不是新增混用）
+- [x] 沒有影響其他模組（`universe` 這個 DataFrame 多帶一欄 `exchange`，確認沒有其他下游用到同名變數但欄位數量寫死的地方壞掉）
+  - ✅ Debugger 2026-07-03：`calc_meta_chips_signals` 對正式 DB 實跑無 crash、41 族群正常回傳，`exchange` 欄沒弄壞下游。
 
 ### 特別注意
 - **範圍縮小說明**：這次掃描還發現一個更大的結構性缺口——三大法人（institutional）完全沒有上櫃資料來源，且 `scrapers/chips.py::fetch_margin`/`fetch_margin_all_today`（FinMind 版融資融券，理論上可以覆蓋上櫃）目前是死碼，沒有任何地方呼叫。這次只先修「用現有資料算出正確結果」（分母排除上櫃），**沒有**去接上 FinMind 補上櫃資料——因為那牽涉到：(a) FinMind 每日 600 次配額怎麼跟其他既有的抓取工作分配、(b) 三大法人的上櫃對應資料源要另外研究（FinMind 有沒有涵蓋上櫃的三大法人 dataset 還沒查證，融資融券已經有現成函式但沒接）。這塊如果要做是新功能規模，需要先 brainstorm 再動工，這次先不做。
@@ -122,6 +131,8 @@
 
 ### 特別注意
 - 未寫測試（照 CLAUDE-developer.md：測試交給 Debugger），麻煩驗證时可以用假造 `item`（`z="0"`, 五檔／今高／今開皆 `"-"` 或 `"0"`）confirm `fetch_realtime_prices` 不會產生該筆 row
+  - ✅ **Debugger 2026-07-03 驗證通過**：假造 4 種零值 item（`z="0"`／五檔全 `-`／`0_0_0`／今高今開 `0`）呼叫 `_best_price` 全回 `None`→呼叫端 `price<=0` 跳過；正常盤（900.0）、漲停鎖死只有買方五檔（50.5）都正確取值。防呆有效。
+  - ✅ **順帶清掉殘留髒點**：`2321` 2026-07-02 的 `close=0.0`（防呆上線前寫入的舊值）已由 Cody 授權修成 `13.9` 並 reimport。附帶發現 🟡：**FinMind 對 2321 這幾天普遍回 `close=0`**（06-26/06-29/07-01/07-02，成交量卻非零），故不能用 FinMind 值，改用其穩定真實價 13.9；建議 batch/backfill 路徑也比照 realtime 加 `close<=0` 防呆（見 bug-reports.md）。
 - `stock_universe.csv` `生物辨識` 只有 2 檔（5203/6910）那項還沒處理，需要 Cody 確認是否為完整清單，不是程式 bug，先留著
 
 ---
@@ -140,3 +151,4 @@
 ### 特別注意
 - 這不是程式碼修復，純資料修正，git 不會有 diff（`data/` 已 gitignore）
 - bug-reports.md 對應的 🟡 建議改善（`2321` 即時行情 close=0 瑕疵、`生物辨識` 族群僅 2 檔）尚未處理
+  - ⚠️ **Debugger 2026-07-03 複驗發現此修正在 `codyliu` 筆電上從未生效**：`data/daily_prices/2025-04-25.csv` 仍是髒值 `2118.96`（`data/` gitignored 不隨 git 同步，修正只做在桌電）。已由 Cody 授權在筆電重修（close→`21.19`、change/pct 重算、reimport 完成），兩台現在一致。**`2321` close=0 已一併修好（見 Task ③ 註記）**。全表資料品質稽核（37 萬筆）確認硬錯誤僅 3114+2321、均已修，詳見 bug-reports.md。

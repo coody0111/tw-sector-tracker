@@ -357,3 +357,109 @@ reimport 完成：共 372163 筆
 
 ### 結論
 - [x] 已修復 — 🔴 `3114` 離群資料已由 Developer 修正（見 debug-tasks.md `[2026-07-02] 修正 3114 離群資料`），🟡 兩項建議改善仍待之後找時間處理，不阻擋其他任務
+  - ⚠️ **更正（2026-07-03 複驗）**：這台筆電（`codyliu`）上的 `data/daily_prices/2025-04-25.csv` 與 DuckDB **仍是髒值 2118.96**，此修正在本機不存在，詳見下方 `[2026-07-03] 驗證 - debug-tasks 5 則任務` 的 🔴 項。
+
+---
+
+## [2026-07-03] 驗證 - debug-tasks.md 五則任務逐項複驗（TPEx 資料源 / 籌碼頁 / close=0 防呆 / Pages 部署 / 3114）
+
+### 驗證方式
+- 靜態 review：`scrapers/chips.py`（TPEx 兩支新函式 + TWSE 對照）、`main.py::_update_chips_db`／`_backfill_shareholder`、`processors/performance.py::calc_meta_chips_signals`、`scrapers/realtime.py`、`screener/institutional.py`、`.github/workflows/pages.yml`
+- 實測 API：直接打 TWSE T86（1325 檔）與 TPEx `tpex_3insti_daily_trading`（930 檔），核對欄位語意與恆等式
+- 實跑：`_best_price` 假造 item 測試、`calc_meta_chips_signals` 對 Developer 正式 DB 實跑、DuckDB 全表離群掃描
+- 資料源：Developer 資料夾 `C:\Users\codyliu\Desktop\tw-sector-tracker\data\screener.db`（本機這份，`data/` 為 gitignored、不隨 git 同步）
+
+### 🔴 數據問題（需立刻修）
+- 問題：**任務⑤「修正 3114 離群資料」在這台機器上根本沒有生效**。debug-tasks.md 記載「用 2118.96/100=21.19 校正…已執行 `python main.py --reimport` 重建 DuckDB」，但實測本機：
+  - `data/daily_prices/2025-04-25.csv` 第一欄仍是 `3114,2118.96,2098.06,10036.37,25`（未校正）
+  - `data/daily_prices/2025-04-28.csv` 仍是 `3114,21.57,-2097.39,-98.98,12`（仍拿髒值 2118.96 當前一天算出 -98.98%）
+  - DuckDB `daily_prices` 查 `3114`：2025-04-25 `close=2118.96, change_pct=10036.37`、2025-04-28 `change_pct=-98.98`，**跟修復前一模一樣**
+  位置：`data/daily_prices/2025-04-25.csv`、`2025-04-28.csv`、`data/screener.db`（本機 `codyliu` 筆電）
+  研判：`data/` 是 gitignored，不隨 git 同步。修正很可能是在**桌電（`cody`）**做的，這台筆電的 `data/` 從沒拿到校正後的檔案；`--reimport` 若在本機跑，也只會忠實匯入這份仍是髒值的 CSV。
+  影響：只要在這台機器執行 `python main.py`，`3114`（好德，TPEx）在 2025-04-25 附近的 126 日窗口內所有依賴歷史行情的訊號（巨量換手、累積漲跌、拐點偵測）都仍被 100 倍髒值污染——這正是 CLAUDE.md 最怕的「不報錯、但給錯結果」。
+  重現方式：`grep "^3114," data/daily_prices/2025-04-25.csv`（本機）→ 仍是 2118.96。
+  建議：確認到底哪台機器是「主力執行 main.py」的機器。若是桌電，本機這份髒 CSV 影響有限（但仍建議同步）；若這台筆電也會實際產出上線頁面，必須把校正後的 `2025-04-25.csv`／`2025-04-28.csv` 複製過來、重跑 `--reimport`。根本解：`data/` 既然 gitignored，跨機器的資料修正沒有同步管道，這類「純資料修正」在多機器環境下很容易只在一台生效。
+
+### 🟡 建議改善
+- **任務①：TPEx 與 TWSE 的 `dealer_net` 口徑不一致（同名不同義）**。實測欄位語意：
+  - TWSE T86 `dealer_net = row[11]`（自營商買賣超 = 自行+避險），**不含外資自營商**（row[7] 獨立、未存進任何欄位；row[18] 三大法人合計才含它——已用 1325 檔驗證 `row4+row7+row10+row11==row18`）
+  - TPEx code `dealer_net = ForeignDealers-Difference + Dealers-Difference`，**併入外資自營商**（`scrapers/chips.py:135`）
+  兩邊 `dealer_net` 定義不同，差額 = 外資自營商。測試日（2026-07-02）TWSE 與 TPEx 的外資自營商**剛好都是 0**（所以兩邊恆等式都成立、Developer 也因此驗證 0 誤差），但外資自營商非零時就會發作。目前 `dealer_net` 只在 `screener/institutional.py` 的顯示欄位被消費、不進任何跨所彙總，所以實務影響小。若要口徑嚴格一致，建議 TPEx `dealer_net` 改成只用 `Dealers-Difference`（不加 `ForeignDealers`）—— 代價是 TPEx 的「foreign+trust+dealer==total」恆等式會差一個外資自營商，但這剛好跟 TWSE 的行為一致（TWSE 存的三欄和本來就 ≠ total）。附註：`foreign_net`／`trust_net`／`total_net` 三欄口徑**都一致**（Section 5 用的 `foreign_net` 沒問題）。
+- **任務①：Section 5 買超比例在「TWSE/TPEx 日期不同步」時會被低估**（Developer 明說沒測到的情境）。`calc_meta_chips_signals` 的 `today = all_dates[-1]`（`performance.py:656`）取 institutional 表最大日期；TPEx OpenAPI 只能抓「當下」、TWSE T86 抓 trade_date，兩者發布時間若差一個週期，會落在不同 `date` 分區。此時 `today_inst` 只含「日期等於 today 的那個交易所」的股票（分子），但分母 `meta_stock_count` 永遠是全族群（TWSE+TPEx）→ `foreign_buy_ratio = buy_count/total_stocks` 被系統性低估。這跟任務②原本要修的「分子/分母交易所範圍不一致」是同一類 bug，只是換成由日期不同步觸發。matched 日（如 2026-07-02）正常。建議：計算 today 快照類指標時，分子分母的交易所範圍要一致（例如 today 只取「TWSE 與 TPEx 都有資料的最新日期」，或分母也跟著 today 實際涵蓋的交易所收斂）。
+- **任務③：`2321` 在 DB 的 2026-07-02 `close=0.0` 舊資料仍殘留**。`realtime.py` 的 `price<=0` 防呆只防「未來寫入」、不清舊資料。此筆為防呆上線前寫入的髒點。**確認沒有 cascade**：2321 在 2026-07-03 的 `change_pct=-7.91%` 是對前一交易日 13.9 正確算出（即時 API 自帶參考價，不吃 DB 的 0），非我先前預警的除以 0。影響僅限「任何直接讀 2321 這天 close 的消費者」，範圍小。可考慮把這筆補成前一日 13.9 或標記缺值。
+- **任務②：`foreign_buy_ratio` docstring 標示錯誤**。`performance.py:615` docstring 寫「外資買超股數 / META 總股數」，但實際計算（`:727`）是 `buy_count / total_stocks` = 「外資買超**檔數** / META 總**檔數**」，分子是股票數不是股數。純文件不符，改正即可。
+
+### ✅ 驗證通過
+- **任務①恆等式**：TPEx `tpex_3insti_daily_trading` 930/930 檔 `foreign_ex+foreign_dealer+trust+dealer==total` 成立；5 個對應欄位 key 全部存在、無打錯字。TWSE T86 1325/1325 檔 `row4+row7+row10+row11==row18` 成立。
+- **任務①口徑（一致的部分）**：`foreign_net`（兩所都排除外資自營商）、`trust_net`、`total_net`（兩所都含外資自營商）三欄定義一致，不會同名不同義。
+- **任務①串接**：`_update_chips_db` TWSE/TPEx 各寫各自日期分區；TPEx 的 DELETE 加 `AND stock_id IN (SELECT stock_id FROM <tpex_df>)`，加上 TWSE(上市)／TPEx(上櫃)代號本就不重疊，不會互相覆蓋刪除；日期對不上只 `logger.info` 提示、兩段互相獨立不阻擋，行為符合預期。
+- **任務①Section 5 實跑**：對正式 DB 跑 `calc_meta_chips_signals`，41 個 META 全部正常回傳（無 crash → 任務②的 `universe` 多帶 `exchange` 欄沒弄壞下游）。高上櫃佔比族群買超檔數合理且明顯反映 TPEx：軟體/雲端 49/83、MCU/嵌入式 22/27、遊戲/電競 5/17（TPEx 82%）——分子確實計入上櫃股票，不再被當缺資料跳過。
+- **任務② `_backfill_shareholder` 日期順序**：`target_dates = list(reversed(available[:weeks]))`（`main.py:260`）由舊到新依序寫入，配合 `save_to_db` 「跟 DB 最新一筆比」的假設正確。（`week_chg`/`streak` 方向的實跑驗證需 Cody 跑 `--backfill-shareholder 8`，本機 DB 無多週資料，無法在此重現。）
+- **任務② institutional.py docstring 單位**：已由「元」改為「股」（`:10` 明確標「institutional 表單位是股，非元」）。
+- **任務③ close=0 防呆**：呼叫端 `if price is None or price <= 0: continue`（`realtime.py:127`）+ `_best_price` 各層 fallback 都 `return v if v>0 else None`。假造 4 種零值 item（`z="0"`／五檔全 `-`／`0_0_0`／今高今開 `0`）全部回 `None` → 跳過；正常盤（900.0）、漲停鎖死只有買方五檔（50.5）都正確取值。
+- **任務④ Pages 部署設定**：`.github/workflows/pages.yml` 觸發條件 `push` to `master` + `paths: docs/**` 正確、用標準 `actions/upload-pages-artifact@v3` + `deploy-pages@v4`、`permissions`（pages: write, id-token: write）正確；`docs/.nojekyll`（0 bytes）存在。
+
+### 未能在本機完成的驗證項（需 Cody 協助）
+- **任務④ workflow 執行紀錄**：本機沒裝 `gh` CLI（bash 與 PowerShell 皆 `command not found`），無法跑 `gh run list --workflow=pages.yml` 確認實際觸發成功。debug-tasks.md 記載 Developer 已用 curl 確認網站更新到 2026-07-03，屬旁證。建議 Cody 有裝 gh 的機器上跑一次確認，或下次 `python main.py` push 後看 repo 的 Actions 頁。
+- **任務② shareholder streak 方向**：需 `python main.py --backfill-shareholder 8` 實跑後查 `shareholder` 表 `week_chg`/`streak`（本機 DB 只有單週）。
+
+### 結論
+- [ ] 需要修改後再確認 — 🔴 `3114` 髒值在本機（`codyliu` 筆電）仍未修，先釐清「主力執行機器是哪台 + `data/` 跨機器同步策略」再決定要不要在本機重補；🟡 `dealer_net` 口徑不一致、Section 5 日期不同步低估、2321 殘留 0 值、docstring 標示錯誤四項為非阻擋改善項。任務①③④主體邏輯與②全部四項修正經 review／實測驗證正確。
+
+---
+
+## [2026-07-03] 報告 - `daily_prices` 全表資料品質稽核（Cody 要求確認「是否只有 3114 錯」）
+
+### 稽核方式
+- 對象：Developer 正式 DB `data/screener.db` 全表 `daily_prices` **373,874 筆**（1040 檔，2017-12-01 ~ 2026-07-03）
+- 三種獨立錯誤偵測法交叉比對，避免單一門檻漏抓
+
+### 🔴 硬錯誤 — 全表僅 2 筆（跟先前回報一致，無新增）
+- `3114`（好德，TPEx）2025-04-25 `close=2118.96`（應為原始序列 ~22.3 / 還原序列 ~21.2）；連帶污染 2025-04-28 `change_pct=-98.98`。**源頭是 yfinance 本身**：實測 `yf.Ticker('3114.TWO').history()` 該日 raw close = 2230、還原 close = 2118.96（除息回溯 ×0.95），鄰近日 raw 22.00→22.70，真值 ~22.3 與 Yahoo 官網、FinMind 一致。**代表 `--backfill-yf` 會再抓回同一髒值，不能靠重抓修**。
+- `2321`（東訊，TWSE）2026-07-02 `close=0.0`（應為 ~13.9）；未 cascade（07-03 change_pct 正確）。
+
+### 交叉驗證（三法一致指向同 2 筆，無其他隱藏錯誤）
+- **單日暴衝彈回掃描**（close 同時 > 前一日與後一日 R 倍）：R=5/3/2 三個門檻都只抓到 `3114`、`2321`——**沒有 2~4 倍的中等錯誤漏網**。
+- **change_pct 內部自洽**（`change_pct` vs `change/(close-change)*100`）：37 萬筆只有 **1 筆**不一致，就是 `3114`——沒有系統性的漲跌幅計算 bug。
+- **close≤0 / null**：只有 `2321` 那 1 筆；負成交量 **0**；重複 `(stock_id,date)` **0**。
+
+### 🟡 灰色地帶 — 334 筆 |change_pct|>10.5%（非首日），判定絕大多數為真實事件
+- 分佈：TPEx 216 + TWSE 118。台股有 ±10% 漲跌停，超過者理論上僅發生在減資／除權息／IPO 蜜月期／停牌復牌等無漲跌停日。
+- 抽查最極端的幾檔（`4585` +51%、`4582` +45%、`7772` +84%、`6831` 2025-04 連續雙向 >10%）：全部是「**跳到新價位後維持住**」+ `change_pct` 內部自洽（例：4585 209.9/410.3=51.15% ✓），符合真實公司事件／2025-04 關稅股災的形態，**不是 3114 型的單值髒（單值髒會隔天彈回，已被上面掃描排除）**。
+- 限制：無法用程式 100% 清完全部 334 筆（需比對公司減資／除權息事件表），但**未發現任何 100 倍或彈回型錯誤混入**。屬「已盡力查、殘餘不確定性低」。
+
+### 🟡 停牌/冷門股未排除 — 2 檔（對應 CLAUDE.md「停牌股要正確排除或標注」）
+- `6236`（中湛，TPEx）、`8291`（尚茂，TPEx）：收盤價連續 30~123 天完全不變、期間總成交量僅個位數（8291 連 123 天 17.1、總量 10）→ 幾乎無交易，疑似停牌／瀕臨下市。目前掃盤名單未排除，其凍結價與每日 0% 漲跌會混進量價/換手類掃描，建議標注或排除。
+
+### 結論
+- [x] 可以繼續下一個任務（就資料品質而言）— 全表交叉稽核確認硬錯誤僅 `3114`、`2321` 兩筆，無其他隱藏的離群髒值；334 筆超限多為真實事件、2 檔停牌股為完整性提醒。惟 `3114`／`2321` 的實際修正仍受「`data/` gitignored、雙機不同步」限制，需搭配上一則報告的同步策略處理
+
+### 追記（2026-07-03，Cody 授權 Debugger 直接修）
+- **`3114` 已在 `codyliu` 筆電修正**（Cody 明確授權「直接幫我改」）：手動改 `data/daily_prices/2025-04-25.csv`（close `2118.96`→`21.19`、change `0.29`、change_pct `1.39`）與 `2025-04-28.csv`（change/pct 對 21.19 重算為 `0.38`/`1.79`，close 21.57 不動），已跑 `python main.py --reimport` 重建 DuckDB（373,874 筆）。改後 DB 驗證 3114 序列 20.90→21.19→21.57→21.71 正常；重掃單日暴衝彈回只剩 2321、change_pct 內部不一致歸零。**值用 21.19（還原序列口徑，跟桌電一致）而非官網 raw 22.3，以維持與相鄰日 20.90/21.57 的口徑一致**。
+- 兩台現況：桌電先前已修 21.19、筆電此次也修 21.19 → 一致。
+- **`2321` 尚未修**：2026-07-02 close=0.0（該日 volume=1、幾乎未交易）。正確值不明確（建議 carry-forward 前一日 13.9 或移除該列），未擅自修，待 Cody 指示。task③ 的即時防呆已防未來復發。
+  - ⚙️ **更新**：`2321` 已由 Cody 授權修成 `13.9` 並 reimport（FinMind 對 2321 這幾天普遍回 `close=0`、不可用，改用穩定真實價）。全表現已零硬錯誤。
+
+---
+
+## [2026-07-03] 報告＋修復 - 集保 streak going-forward 隱患（Cody 授權 Debugger 直接修）
+
+### 背景
+驗證 Task ②「`_backfill_shareholder` 日期順序」時，Cody 提出「希望以後同一個資料來源都 OK」。順序修正只保證**一次性歷史回補**正確；決定「以後」的是**每週例行更新**那條路（`_update_shareholder` → `save_to_db` → `_add_week_change_streak`），故額外 review going-forward 路徑。
+
+### 🔴 找到的隱患（會讓 streak 靜默失真）
+- `scrapers/shareholder.py::_add_week_change_streak()` 原本取「該股 DB 最新一筆」當 streak 比較基準：
+  ```sql
+  ... QUALIFY ROW_NUMBER() OVER (PARTITION BY stock_id ORDER BY date DESC) = 1
+  ```
+  但 `save_to_db` 的順序是「先算 streak → 再 DELETE 同 date → INSERT」，且**沒有排除跟本次要寫的同一週**。
+- 觸發情境（都很常見）：`_update_shareholder` 每次抓 TDCC「當前最新週」（`available_dates[0]`）。若①設**每日 cron** 跑 `--update-shareholder`、②同一週手動重跑、③TDCC 尚未出新週仍抓到同一週——本次 date 就跟 DB 既有那週相同，於是拿「上次寫的自己」當基準：`chg = 本週pct - 同週pct ≈ 0` → **streak 被洗成 0**，連增/連減週數失真（跟 Section 8 一開始空白同類的 streak 污染，觸發點在「重跑」）。
+- 根因：streak 基準應是「**嚴格更舊**的週」，不是「最新一筆」（最新一筆可能就是自己）。
+
+### ✅ 已修（Cody 授權直接改）
+- `_add_week_change_streak` 的 prev 查詢加上 `AND date < ?`（本次寫入週），只跟真正更早的週比。對正常「舊→新」寫入行為不變（仍取前一週）；對「重跑同週」則正確排除自己、改抓更舊那週，streak 不再被洗掉。也順帶對「某股某週抓取失敗造成的週缺口」更 robust（會自動跟最近的更舊週比，方向仍正確）。
+- 新增 `tests/test_shareholder.py`（3 個測試，全過）：連續上升 streak 累加、**重跑同週 streak 不被弄壞**（沒 guard 會失敗）、轉向時 streak 翻負。
+- 這次修改只動 `_add_week_change_streak` 內部查詢條件，不影響 `_backfill_shareholder`／`_update_shareholder` 呼叫方式。
+
+### 結論
+- [x] 已修並加測試 — 回答 Cody「以後同一個資料來源 OK 嗎」：歷史（backfill 順序）+ 以後（每週更新重跑）兩條路現在都正確。建議之後例行更新可安心設每日 cron，不會再洗壞 streak。

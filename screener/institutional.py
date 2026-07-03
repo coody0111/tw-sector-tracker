@@ -5,11 +5,11 @@
   foreign_streak   外資連買 ≥ N 日
   trust_streak     投信連買 ≥ N 日
   both_streak      外資+投信同時連買 ≥ N 日
-  min_foreign_net  今日外資買超 ≥ N 元（負值為賣超）
-  min_trust_net    今日投信買超 ≥ N 元
-  min_total_net    今日三大法人合計 ≥ N 元
-  cum_foreign_net  lookback 天內外資累計 ≥ N 元
-  cum_trust_net    lookback 天內投信累計 ≥ N 元
+  min_foreign_net  今日外資買超 ≥ N 股（負值為賣超；institutional 表單位是股，非元）
+  min_trust_net    今日投信買超 ≥ N 股
+  min_total_net    今日三大法人合計 ≥ N 股
+  cum_foreign_net  lookback 天內外資累計 ≥ N 股
+  cum_trust_net    lookback 天內投信累計 ≥ N 股
 """
 import logging
 from typing import Any, Dict, List
@@ -93,11 +93,11 @@ def scan_institutional(
     foreign_streak  : 外資連買 ≥ N 日（0 = 不限）
     trust_streak    : 投信連買 ≥ N 日（0 = 不限）
     both_streak     : 外資+投信同時連買 ≥ N 日（0 = 不限）
-    min_foreign_net : 今日外資買超門檻（元，0 = 不限）
-    min_trust_net   : 今日投信買超門檻（元，0 = 不限）
-    min_total_net   : 今日三大合計門檻（元，0 = 不限）
-    cum_foreign_net : lookback 天累計外資門檻（元，0 = 不限）
-    cum_trust_net   : lookback 天累計投信門檻（元，0 = 不限）
+    min_foreign_net : 今日外資買超門檻（股，0 = 不限）
+    min_trust_net   : 今日投信買超門檻（股，0 = 不限）
+    min_total_net   : 今日三大合計門檻（股，0 = 不限）
+    cum_foreign_net : lookback 天累計外資門檻（股，0 = 不限）
+    cum_trust_net   : lookback 天累計投信門檻（股，0 = 不限）
     sort_by         : 排序欄位，可選 total_net / foreign_net / trust_net /
                       foreign_streak / trust_streak / both_streak /
                       cum_foreign / cum_trust

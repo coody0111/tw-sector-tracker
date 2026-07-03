@@ -252,4 +252,108 @@ reimport 完成：共 372163 筆
   建議修法：直接刪掉第 515 行、第 331 行這兩個多餘的 `import pandas as pd`（模組頂部第 2 行已經 `import pandas as pd`，函式內完全不需要重複 import）。順手也可以清掉第 196 行（`_stock_card_html` 內）那個雖然目前沒有造成 bug、但同樣多餘的區域 import，避免以後有人在它前面加類似的 `pd.DataFrame()` fallback 又重演一次。
 
 ### 結論
-- [ ] 需要修改後再確認 — CRITICAL，會讓整個每日更新流程崩潰（不只是資料不準確，是完全不會更新），建議優先於其他項目盡快修
+- [x] 需要修改後再確認 — 已於下方驗證通過（見 commit `8e61d71` 驗證報告）
+
+---
+
+## [2026-07-02] 驗證 - commit 8e61d71「html_generator UnboundLocalError(pd) + moneydj 股票代號解析誤判」
+
+### 驗證方式
+- `grep -n "import pandas as pd" export/html_generator.py` 確認區域 import 是否清乾淨
+- 靜態 review `scrapers/moneydj.py::_parse_stock_table()` 正則式改動
+- 執行測試：`pytest tests/test_moneydj.py -v`、全專案 `pytest`（70 個測試，69 過 / 1 失敗，失敗為已知環境問題，見下方說明）
+- 手動直接呼叫 `_meta_stock_cards()`／`_stock_table()`／`_stock_card_html()` 三個函式並傳入空 `chips_df`，重現原始 crash 情境
+
+### ✅ 驗證通過（對照 debug-tasks.md 的「請 Debugger 驗證」清單）
+- **`UnboundLocalError` 修復確認生效**：手動用空 `chips_df`（`pd.DataFrame()`）直接呼叫三個函式，全部正常回傳 HTML 字串，沒有再拋出 `UnboundLocalError`（修復前這個情境會 100% 觸發崩潰）。
+- **區域 import 清除完整**：`grep -n "import pandas as pd" export/html_generator.py` 只剩模組頂部第 2 行，`_stock_card_html`／`_stock_table`／`_meta_stock_cards` 三處區域 import 都已移除，沒有遺漏。
+- **`scrapers/moneydj.py` 正則式修正邏輯正確**：`r'^(91\d{4}|\d{4})(.*)$'` 明確區分「91 開頭 6 碼 TDR」跟「一般 4 碼股票」兩種合法格式，不會再貪婪多吃。對應測試 `test_scrape_industry_sectors_stops_at_4_digit_code`、`test_scrape_industry_sectors_keeps_6_digit_tdr_code` 皆通過。
+- **`stock_universe.csv` 674191 → 6741 修正確認**：檔案裡已無 `674191`，`6741`（APP*-KY）只出現一次，跟既有代號沒有重複。
+
+### 🟡 建議改善（非阻擋項）
+- `export/html_generator.py` 目前沒有任何專屬的自動化測試（`tests/` 底下沒有 `test_html_generator.py`）。這類「函式內區域 import 導致 `UnboundLocalError`」的錯誤特性是：只有在特定分支（`chips_df` 為空）才會觸發，靜態 review 很容易漏看（這次稍早 review commit `6993d36` 時我自己就漏掉了）。建議至少補一個「`chips_df` 為空時 `generate_html()`／這三個子函式不會 crash」的回歸測試，避免以後有人在 `pd.DataFrame()` fallback 前面加類似的區域 import 又重演一次。
+
+### 結論
+- [x] 可以繼續下一個任務 — commit `8e61d71` 的 CRITICAL 修復經直接函式呼叫驗證確實解決了 `UnboundLocalError`，moneydj 正則式修正跟 stock_universe.csv 代號修正也都正確，沒有發現新問題
+
+---
+
+## [2026-07-02] 驗證 - commit f4f3795「scan_volume_turnover 歷史資料不足時算出誤導性量倍數」（Cody 要求再次確認）
+
+### 驗證方式
+- 靜態 review `screener/signals.py::scan_volume_turnover()` 完整邏輯
+- 執行測試：`pytest tests/test_signals.py -v`（2 個測試全過）
+
+### ✅ 驗證通過
+- **`_MIN_WINDOW_DAYS = 20` 門檻套用位置正確**：`window = grp.iloc[window_start: today_idx + 1]`（涵蓋今天這筆），`if len(window) < _MIN_WINDOW_DAYS: continue` 在計算 `vol_max`／`vol_avg` 之前執行，資料不足時確實會在算出誤導性量倍數之前就跳過，不會有「先算完才丟棄」的競態問題。
+- `test_detects_signal_with_sufficient_history`：25+ 筆歷史、符合三條件時正常產生訊號，且 `vol_window_days >= 20` 的斷言正確驗證了門檻確實用的是實際窗口天數。
+
+### 🟡 建議改善（測試精準度，非程式邏輯問題）
+- `test_skips_stock_with_insufficient_history` 這個測試雖然 `assert results == []` 成立，但逐行手算後發現：它實際上是被**更早的「② 收跌」條件**擋下（測試資料裡 `today.close=110 > prev.close=100`，不滿足「收跌」），根本沒有走到 `_MIN_WINDOW_DAYS` 那道檢查。換句話說，**這個測試目前沒有真正隔離驗證『歷史資料不足時跳過』這件事**——就算把 `_MIN_WINDOW_DAYS` 改回舊版的 `< 2`，這個測試依然會通過（因為前面的條件②已經先擋掉了），無法在未來真的保護到這個修復。
+  建議補一個測試案例：`today` 收跌、`prev` 漲停（滿足②③兩個硬性條件），但歷史資料只有 2~19 筆，確認確實是被 window 長度門檻擋下，而不是巧合被其他條件擋下。
+
+### 結論
+- [x] 可以繼續下一個任務 — production 邏輯本身經讀碼確認正確，`_MIN_WINDOW_DAYS` 門檻確實會在資料不足時跳過該股票，不影響這次驗證的正確性判斷；唯一發現是既有測試沒有精準隔離要驗證的路徑（🟡 非阻擋，建議之後補測試避免未來迴歸時測試失去保護力）
+
+---
+
+## [2026-07-02] 驗證 - commit e4a3536「TWSE 擋頁誤判成合法 CSV 導致日期被誤切回前一天」
+
+### 驗證方式
+- 執行測試：`pytest tests/test_twse.py -v`（7 個測試全過，含 3 個新增測試）與全專案 `pytest`（70 個測試，69 過 / 1 失敗，詳見下方說明）
+- 靜態 review 完整呼叫鏈：`scrapers/twse.py::fetch_daily_prices()` → `scrapers/finmind.py::fetch_twse`（別名匯入）→ `fetch_prices_for_stocks()` → `main.py::run()` 探測股防呆邏輯
+- 手動模擬三種情境驗證 `main.py` 第 328-352 行的探測股邏輯（`prices_df` 不含 2330 / 正常情境價格相同 / 正常情境價格不同）
+
+### ✅ 驗證通過（對照 debug-tasks.md 的「請 Debugger 驗證」清單）
+- **`tests/test_twse.py` 三個新測試邏輯正確**：html 擋頁（content-type 含 html）正確拋 `TWSEBlockedError`；content-type 沒標 html 但內容無法解析成 CSV（`ParserError`）也正確拋 `TWSEBlockedError`；合法的非 JSON CSV 回應（瀏覽器 UA 觸發）仍能正常解析，沒有把合法情況也誤判成擋頁（沒改過頭）。
+- **判斷順序正確**：`fetch_daily_prices()` 先檢查 content-type 是否為 html，不是的話才嘗試 `pd.read_csv()`，解析失敗才 fallback 視為擋頁，跟合法「JSON 回應但 `stat != OK`」（走 `_parse_json` 的 `ValueError` 分支）完全分開，不會誤吞。
+- **`TWSEBlockedError` 正確被上游吞掉、不會讓整個流程崩潰**：`TWSEBlockedError` 繼承 `RuntimeError`，`fetch_prices_for_stocks()` 用 broad `except Exception` 包住 TWSE 抓取，被封鎖時只會丟掉 TWSE 那個 frame（`logger.error` 記錄），`prices_df` 會正常退化成只剩 TPEx 資料，不會拋到上層。
+- **`main.py` 探測股邏輯手動模擬三種情境，全部正確**：
+  1. `prices_df` 不含 2330（模擬 TWSE 整批被擋）→ 正確進入 `elif prev_csv.exists():` 的 warning 分支，不切 `trade_date`
+  2. 正常情境、2330 價格跟前一天相同 → 正確觸發切日期（跟修復前行為一致，沒有破壞原本「市場尚未更新」防呆邏輯）
+  3. 正常情境、2330 價格跟前一天不同 → 正確不切日期
+- 沒有發現上市/上櫃資料來源混用的問題，這次修復完全侷限在 TWSE 抓取路徑跟探測股防呆邏輯。
+
+### 已知非本次改動造成的問題
+- 全專案 `pytest` 1 個失敗：`tests/test_patterns.py::test_scan_patterns_returns_list`，原因是這個 debug 工作目錄底下沒有 `data/screener.db`（`_duckdb.IOException: database does not exist`），是重複出現過好幾次的既有環境問題，與本次改動無關。
+
+### 結論
+- [x] 可以繼續下一個任務 — commit `e4a3536` 的兩個疊加 bug（TWSE 擋頁誤判成合法 CSV、探測股邏輯退而求其次誤判市場未更新）修復邏輯正確、測試齊全，手動模擬三種情境皆符合預期，沒有發現新問題
+
+---
+
+## [2026-07-02] 報告 - `data/` 資料正確性全面 review（DuckDB + stock_universe.csv）
+
+### 審查方式
+- 直接查詢 `tw-sector-tracker/data/screener.db`（Developer 資料夾的正式資料，372,539 筆、1040 檔、2025-01-02~2026-07-02）
+- `daily_prices`：null/負值/漲跌停範圍 sanity check、跟前一筆比價格暴增暴跌 5 倍以上的離群點全表掃描
+- `stock_universe.csv`：重複 `stock_id`、缺值、`exchange` 合法值、族群規模分佈
+- `institutional`／`margin` 表：資料涵蓋範圍、null 值
+- 補充說明：這個 debug 分支本地的 `data/`（gitignored）目前只有今天 `--realtime` 跑出來的單日快照（1038 檔、每檔 1 筆），不是完整歷史，這次 review 的是 Developer 資料夾裡真正在用的正式資料
+
+### 🔴 數據問題（需立刻修）
+- 問題：`daily_prices` 裡股票 `3114`（好德，TPEx，連接器族群）在 `2025-04-25` 這天的 `close` 是 `2118.96`，前後幾天正常價格都在 NT$20 上下（4/24 收 20.90、4/28 收 21.57），比值分別是 ×101.4 跟 ×0.0102——幾乎精確是 100 倍的落差，典型的小數點/單位換算錯誤（不是股票分割，分割不會在 3 天內完全復原）。
+  位置：`data/screener.db` 的 `daily_prices` 表，`stock_id='3114'`, `date='2025-04-25'`。
+  影響：
+  - 這一筆壞資料同時污染了兩天的 `change_pct`：`2025-04-25` 顯示漲幅 `+10036.37%`、`2025-04-28` 顯示跌幅 `-98.98%`，兩者都是不可能發生在台股（漲跌停 ±10%）的數字，但目前程式沒有任何欄位範圍檢查，會被當成正常資料吃進所有依賴 `change_pct`／`close` 的計算（`scan_volume_turnover`、累積漲跌 badge、拐點偵測等），如果剛好落在某支股票的 lookback 窗口內，會嚴重扭曲該股票當時的訊號判斷。
+  - 全表掃描（`close / prev_close` 比值 >5 倍或 <1/5）只抓到這一組離群點，說明**不是系統性問題**，是單一資料源在單一日期寫入時的一次性錯誤，但既然抓到了就要修。
+  - `3114` 是 TPEx 股票，寫入路徑會經過 FinMind（Phase 2）或 yfinance（`--backfill-yf`）其中一條，建議 Developer 先查 FinMind API 對 `3114` 在 `2025-04-25` 的原始回應，若正常則改查 `yfinance.Ticker('3114.TWO').history()` 同一天的數字，找出是哪個資料源、哪個轉換步驟出的錯（例如漏除 100、或誤把某個單位當成分當成元）。
+  重現方式：`SELECT * FROM daily_prices WHERE stock_id='3114' AND date BETWEEN '2025-04-24' AND '2025-04-28'`。
+
+### 🟡 建議改善
+- `stock_id='2321'`（東訊，TWSE，網通設備）在今天（`2026-07-02`）的即時行情快照裡 `close=0.0`、`volume=1`，前三天都正常收在 `13.9`。這支股票平常成交量就極低（近日 volume 常是 0），研判是即時行情源對零成交/極冷門股回傳了 `0` 而不是「延用前一筆」或「標記缺值」，是 `--realtime` 路徑上的一個資料填補瑕疵。目前只有這一筆，還沒造成下游計算錯誤，但如果隔天這支股票又正常成交，`prev_close=0` 會讓當天 `change_pct` 計算除以 0 或算出離譜倍數（重演跟 3114 類似的情況）。建議即時行情抓取對 `close<=0` 或缺值的股票，改成跳過寫入該筆（沿用前一交易日收盤）而不是寫入 0。
+  位置：`scrapers/realtime.py`（`fetch_realtime_prices`，實際路徑未逐行 review，僅從結果反推）。
+  [x] Developer 已補強 — 見 debug-tasks.md `[2026-07-02] 即時行情零成交股 close=0 防呆補強`。`fetch_realtime_prices()` call site 補上明確的 `price <= 0` 擋，但無法在目前的 `data/screener.db` 重現這筆（本機查到 `2321` 今天實際收 `13.7`，非 0），研判是 Debugger 當時另一份快照資料夾的單次快照，麻煩之後若再遇到附上當時 CSV 原始內容協助對照。
+- `stock_universe.csv` 的 `meta_sector='生物辨識'` 只有 2 檔股票（`5203` 訊連、`6910` 德鴻），是全部 41 個 meta_sector 裡最小的（其餘最小也有第二小門檻以上）。
+  [x] Cody 確認：維持現狀即可，不是分類遺漏。
+- `institutional`（1424 檔）／`margin`（1280 檔）涵蓋的 `stock_id` 數量都比 `stock_universe.csv`（1040 檔）多，研判是 T86／MI_MARGN 原始資料涵蓋全市場（含 ETF、權證等不在掃盤名單內的標的），目前看起來沒有造成問題（`inst_map.get(sid)` 用字典查找，多出來的 key 不會被存取到），純粹記錄一下，非阻擋項。
+
+### ✅ 驗證通過
+- `stock_universe.csv`：1040 筆、`stock_id` 無重複、`exchange` 欄位只有合法值（`TWSE`=515／`TPEx`=525，無缺漏無異常值）、`stock_id`/`stock_name`/`exchange`/`meta_sector`/`sub_sector` 五個核心欄位皆無缺值。
+- 「⚠️ 也在 XXX」的重複族群註記（345 檔有此標記，例如鴻海同時也在機器人/自動化、消費電子等 11 個相關族群）確認只是 `note` 欄位的描述性註記，**不是**真正的資料列重複——每支股票在 `stock_universe.csv` 裡仍然只有一個 `(meta_sector, sub_sector)` 主分類，實際計算不會有同一族群內雙重計入的問題。
+- `daily_prices` 歷史深度健康：TWSE（515 檔）與 TPEx（525 檔）中位數皆為 360 筆，最小值 93～98 筆（新上市/上櫃股票資料自然較短，合理），沒有發現任何交易所被系統性漏抓的跡象。
+- 沒有負成交量；全表 close/prev_close 比值離群掃描只抓到上述 2 筆真正的異常，其餘 372,537 筆價格序列在檢測範圍內看起來合理（含少數興櫃類無漲跌停限制個股的 >10% 波動，屬正常）。
+- 族群規模（meta_sector 層級）中位數 18 檔、最小 2 檔，沒有出現「0 檔」或明顯遺漏整個族群的情況。
+
+### 結論
+- [x] 已修復 — 🔴 `3114` 離群資料已由 Developer 修正（見 debug-tasks.md `[2026-07-02] 修正 3114 離群資料`），🟡 兩項建議改善仍待之後找時間處理，不阻擋其他任務

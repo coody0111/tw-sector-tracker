@@ -9,13 +9,14 @@ from pathlib import Path
 from scrapers.moneydj import scrape_industry_sectors
 from scrapers.finmind import fetch_prices_for_stocks
 from scrapers.realtime import fetch_realtime_prices
-from scrapers.chips import fetch_institutional, fetch_margin_all_twse, TWSEBlockedError
+from scrapers.chips import fetch_institutional, fetch_institutional_tpex, fetch_margin_all_twse, fetch_margin_all_tpex, TWSEBlockedError
 from scrapers.backfill import backfill_prices, backfill_twse_monthly, backfill_institutional, backfill_margin, backfill_yfinance
 from processors.changes import detect_changes
-from processors.performance import calc_sector_performance, calc_meta_performance, calc_universe_performance, calc_cumulative_meta, calc_meta_signals, calc_meta_chips_signals, calc_stock_sparklines, get_stock_chips_ranking, get_margin_divergence
+from processors.performance import calc_sector_performance, calc_meta_performance, calc_universe_performance, calc_cumulative_meta, calc_meta_signals, calc_meta_chips_signals, calc_stock_sparklines, get_stock_chips_ranking, get_margin_divergence, calc_weekly_rank
 from storage.csv_writer import CsvWriter
 from export.html_generator import generate as generate_html
 from export.chips_generator import generate as generate_chips_html
+from export.data_generator import generate as generate_data_json
 from screener.database import init_db, import_csv_prices, import_sector_stocks, get_chips_today
 from screener.institutional import scan_institutional
 from screener.signals import scan_volume_turnover
@@ -77,6 +78,31 @@ def _update_chips_db(trade_date: date, stock_ids: list) -> None:
         logger.warning("三大法人寫入失敗: %s", exc)
 
     try:
+        # TPEx OpenAPI 沒有日期參數，只回傳當下這支 API 認定的「今天」，可能跟 trade_date 對不上
+        # （例如 TPEx 還沒更新），所以用回應裡自己的 date 欄位為準，不強套 trade_date。
+        # DELETE 只刪這批 TPEx stock_id，避免把上面剛寫入的 TWSE 同日資料誤刪。
+        inst_tpex_df = fetch_institutional_tpex()
+        if not inst_tpex_df.empty:
+            resp_dates = inst_tpex_df["date"].unique().tolist()
+            if len(resp_dates) > 1:
+                logger.warning("TPEx 三大法人回應包含多個日期 %s，只留最新一天", resp_dates)
+                inst_tpex_df = inst_tpex_df[inst_tpex_df["date"] == max(resp_dates)]
+            resp_date = inst_tpex_df["date"].iloc[0]
+            if resp_date != inst_date.isoformat():
+                logger.info("TPEx 三大法人目前是 %s（跟 TWSE 端 %s 不同天，可能尚未更新）", resp_date, inst_date)
+            import duckdb
+            con = duckdb.connect("data/screener.db")
+            con.execute(
+                "DELETE FROM institutional WHERE date = ? AND stock_id IN (SELECT stock_id FROM inst_tpex_df)",
+                [resp_date],
+            )
+            con.execute("INSERT INTO institutional SELECT * FROM inst_tpex_df")
+            con.close()
+            logger.info("TPEx 三大法人寫入 %d 筆（%s）", len(inst_tpex_df), resp_date)
+    except Exception as exc:
+        logger.warning("TPEx 三大法人寫入失敗: %s", exc)
+
+    try:
         marg_date = trade_date
         try:
             margin_df = fetch_margin_all_twse(marg_date)
@@ -97,13 +123,37 @@ def _update_chips_db(trade_date: date, stock_ids: list) -> None:
     except Exception as exc:
         logger.warning("融資融券寫入失敗: %s", exc)
 
+    try:
+        margin_tpex_df = fetch_margin_all_tpex()
+        if not margin_tpex_df.empty:
+            resp_dates = margin_tpex_df["date"].unique().tolist()
+            if len(resp_dates) > 1:
+                logger.warning("TPEx 融資融券回應包含多個日期 %s，只留最新一天", resp_dates)
+                margin_tpex_df = margin_tpex_df[margin_tpex_df["date"] == max(resp_dates)]
+            resp_date = margin_tpex_df["date"].iloc[0]
+            if resp_date != marg_date.isoformat():
+                logger.info("TPEx 融資融券目前是 %s（跟 TWSE 端 %s 不同天，可能尚未更新）", resp_date, marg_date)
+            import duckdb
+            con = duckdb.connect("data/screener.db")
+            con.execute(
+                "DELETE FROM margin WHERE date = ? AND stock_id IN (SELECT stock_id FROM margin_tpex_df)",
+                [resp_date],
+            )
+            con.execute("INSERT INTO margin SELECT * FROM margin_tpex_df")
+            con.close()
+            logger.info("TPEx 融資融券寫入 %d 筆（%s）", len(margin_tpex_df), resp_date)
+    except Exception as exc:
+        logger.warning("TPEx 融資融券寫入失敗: %s", exc)
+
 
 def _push_html(trade_date: date) -> None:
     try:
         import os
-        files_to_add = ["docs/index.html", "docs/chips.html"]
+        files_to_add = ["docs/index.html", "docs/chips.html", "docs/data.json"]
         if os.path.exists("docs/patterns.html"):
             files_to_add.append("docs/patterns.html")
+        if os.path.exists("docs/assets"):
+            files_to_add.append("docs/assets")
         subprocess.run(["git", "add"] + files_to_add, check=True)
         result = subprocess.run(["git", "diff", "--cached", "--quiet"])
         if result.returncode != 0:
@@ -204,8 +254,11 @@ def _backfill_shareholder(weeks: int = 4) -> None:
     init_db()
     stock_ids = pd.read_csv(UNIVERSE_PATH, dtype=str)["stock_id"].tolist()
     available = get_available_dates()
-    target_dates = available[:weeks]
-    logger.info("=== 集保補齊 %d 週：%s ===", len(target_dates), target_dates)
+    # available[0] 是最新週；save_to_db 內的週變化/連增減週數計算是拿「DB 裡目前最新一筆」
+    # 當作上一週比較基準，所以這裡務必由舊到新依序寫入，否則會拿較新的週去對較舊的週算出
+    # 方向相反、毫無意義的 week_chg/streak。
+    target_dates = list(reversed(available[:weeks]))
+    logger.info("=== 集保補齊 %d 週（由舊到新）：%s ===", len(target_dates), target_dates)
     for d_str in target_dates:
         logger.info("  抓 %s ...", d_str)
         rows = fetch_shareholder_weekly(stock_ids, date_str=d_str)
@@ -426,18 +479,17 @@ def run(trade_date: date = None, realtime: bool = False) -> None:
             logger.warning("巨量換手掃描失敗: %s", exc)
             vol_signals = []
 
-        generate_html(trade_date, pd.DataFrame(perf) if perf else pd.DataFrame(),
-                      sectors_df=sectors_df,
-                      prices_df=prices_df if prices_df is not None else pd.DataFrame(),
-                      chips_df=chips_df,
-                      meta_perf=meta_perf,
-                      universe_df=universe_df,
-                      cum_data=cum_data,
-                      meta_signals=meta_signals,
-                      meta_chips=meta_chips,
-                      stock_sparklines=stock_sparklines,
-                      vol_turnover=vol_signals)
-        logger.info("HTML generated → docs/index.html")
+        weekly_rank = calc_weekly_rank(universe_df) if universe_df is not None else {}
+        generate_data_json(trade_date,
+                            meta_perf=meta_perf,
+                            universe_df=universe_df,
+                            prices_df=prices_df if prices_df is not None else pd.DataFrame(),
+                            chips_df=chips_df,
+                            cum_data=cum_data,
+                            meta_signals=meta_signals,
+                            weekly_rank=weekly_rank,
+                            stock_sparklines=stock_sparklines)
+        logger.info("data.json generated → docs/data.json")
 
         try:
             inst_results = scan_institutional(trade_date.isoformat(), lookback=40)

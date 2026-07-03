@@ -179,6 +179,69 @@ def calc_meta_performance(
     return sorted(results, key=lambda r: r["avg_change_pct"], reverse=True)
 
 
+def calc_weekly_rank(
+    universe_df: pd.DataFrame,
+    db_path: str = "data/screener.db",
+) -> Dict[str, Dict[str, Optional[int]]]:
+    """
+    比較「上週5日累積報酬排名」vs「本週至今5日累積報酬排名」（滾動比較）。
+    今天往前 5 個交易日算一組累積報酬排名，再往前推 5 個交易日算另一組，
+    兩組排名互相比較。跟 cum5（5日累積報酬%）概念一致，只是拿排名版本。
+    回傳 {meta_name: {"this_week_rank": int|None, "last_week_rank": int|None}}
+    """
+    try:
+        con = duckdb.connect(db_path, read_only=True)
+        dates_df = con.execute(
+            "SELECT DISTINCT date FROM daily_prices ORDER BY date DESC LIMIT 10"
+        ).fetchdf()
+        prices_df = con.execute(
+            "SELECT stock_id, date, change_pct FROM daily_prices"
+        ).fetchdf()
+        con.close()
+    except Exception:
+        return {}
+
+    if prices_df.empty or len(dates_df) < 10:
+        return {}
+
+    all_dates = sorted(dates_df["date"].tolist())
+    universe = universe_df[["stock_id", "meta_sector"]].copy()
+    universe["stock_id"] = universe["stock_id"].astype(str)
+    prices_df["stock_id"] = prices_df["stock_id"].astype(str)
+
+    merged = prices_df.merge(universe, on="stock_id", how="inner")
+    merged = merged.dropna(subset=["change_pct", "meta_sector"])
+
+    pivot = (
+        merged.groupby(["meta_sector", "date"])["change_pct"].mean()
+        .unstack(level="date")
+        .reindex(columns=all_dates)
+        .fillna(0)
+    )
+
+    def _cum_rank(cols) -> Dict[str, int]:
+        cum: Dict[str, float] = {}
+        for meta_name in pivot.index:
+            row = pivot.loc[meta_name]
+            f = 1.0
+            for c in cols:
+                f *= (1 + row[c] / 100)
+            cum[meta_name] = (f - 1) * 100
+        ranked = sorted(cum.items(), key=lambda x: -x[1])
+        return {meta: i + 1 for i, (meta, _) in enumerate(ranked)}
+
+    this_week_rank = _cum_rank(all_dates[-5:])
+    last_week_rank = _cum_rank(all_dates[-10:-5])
+
+    return {
+        meta_name: {
+            "this_week_rank": this_week_rank.get(meta_name),
+            "last_week_rank": last_week_rank.get(meta_name),
+        }
+        for meta_name in pivot.index
+    }
+
+
 def calc_meta_signals(
     universe_df: pd.DataFrame,
     db_path: str = "data/screener.db",
@@ -580,7 +643,7 @@ def calc_meta_chips_signals(
     if inst_df.empty:
         return {}
 
-    universe = universe_df[["stock_id", "meta_sector"]].copy()
+    universe = universe_df[["stock_id", "meta_sector", "exchange"]].copy()
     universe["stock_id"] = universe["stock_id"].astype(str)
     inst_df["stock_id"] = inst_df["stock_id"].astype(str)
 
@@ -617,6 +680,12 @@ def calc_meta_chips_signals(
                     "margin_alert": mb > 0 and mc / mb > 0.05,
                 }
 
+    # institutional/margin 現在同時有 TWSE（T86/MI_MARGN）跟 TPEx（tpex_3insti_daily_trading/
+    # tpex_mainboard_margin_balance）來源，分母可以算整個族群成分股數。
+    # 注意：TPEx 這兩支官方 API 都不支援查歷史日期，只能抓「當下」，所以剛接上的當下，
+    # institutional/margin 表裡舊日期還是只有 TWSE 資料，要等 --realtime／每日更新實際跑過
+    # 幾天、TPEx 當日資料持續累積後，lookback 窗口內的連買天數（foreign_streak/trust_streak）
+    # 才會涵蓋完整雙市場；當日（today）的買超比例則從第一次成功寫入 TPEx 資料那天就會正確。
     meta_stock_count = universe.groupby("meta_sector")["stock_id"].count().to_dict()
 
     def _streak(vals: list) -> int:

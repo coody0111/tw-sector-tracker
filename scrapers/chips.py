@@ -1,6 +1,6 @@
 """
 籌碼面資料抓取：
-- 三大法人：TWSE T86（上市）
+- 三大法人：TWSE T86（上市）+ TPEx OpenAPI（上櫃）
 - 融資融券：FinMind API（上市+上櫃）
 """
 import os
@@ -81,6 +81,64 @@ def fetch_institutional(trade_date: date) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+_TPEX_3INSTI_URL = "https://www.tpex.org.tw/openapi/v1/tpex_3insti_daily_trading"
+
+_HEADERS_TPEX = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+    ),
+}
+
+# TPEx 官方欄位 key 本身就有不一致的空白/命名，照抄避免打錯字漏抓
+_TPEX_FOREIGN_EX_DEALER = "Foreign Investors include Mainland Area Investors (Foreign Dealers excluded)-Difference"
+_TPEX_FOREIGN_DEALER = "ForeignDealers-Difference"
+_TPEX_TRUST = "SecuritiesInvestmentTrustCompanies-Difference"
+_TPEX_DEALER_SELF = "Dealers-Difference"
+_TPEX_TOTAL = "TotalDifference"
+
+
+def _roc_date_to_iso(roc_str: str) -> str:
+    """民國年日期字串（例如 '1150702'）轉 'YYYY-MM-DD'。"""
+    roc_year = int(roc_str[:3])
+    return f"{roc_year + 1911}-{roc_str[3:5]}-{roc_str[5:7]}"
+
+
+def fetch_institutional_tpex() -> pd.DataFrame:
+    """
+    抓 TPEx 上櫃股三大法人資料（tpex_3insti_daily_trading，只回傳當天，無法查歷史日期）。
+    回傳欄位跟 fetch_institutional()（TWSE）一致：
+      stock_id, date, foreign_net, trust_net, dealer_net, total_net
+
+    口徑對齊 TWSE T86：foreign_net 不含外資自營商，外資自營商買賣超併入 dealer_net
+    （已用當日全量資料驗證 foreign_net+trust_net+dealer_net == total_net，0 筆誤差）。
+    """
+    resp = requests.get(_TPEX_3INSTI_URL, headers=_HEADERS_TPEX, timeout=30, verify=False)
+    resp.raise_for_status()
+    data = resp.json()
+
+    if not data:
+        raise ValueError("TPEx 三大法人 API 回傳空資料")
+
+    rows = []
+    for row in data:
+        date_str = row.get("Date", "")
+        if not date_str:
+            continue
+        foreign_ex_dealer = _parse_num(row.get(_TPEX_FOREIGN_EX_DEALER))
+        foreign_dealer = _parse_num(row.get(_TPEX_FOREIGN_DEALER))
+        rows.append({
+            "stock_id":    str(row.get("SecuritiesCompanyCode", "")).strip(),
+            "date":        _roc_date_to_iso(date_str),
+            "foreign_net": foreign_ex_dealer,
+            "trust_net":   _parse_num(row.get(_TPEX_TRUST)),
+            "dealer_net":  foreign_dealer + _parse_num(row.get(_TPEX_DEALER_SELF)),
+            "total_net":   _parse_num(row.get(_TPEX_TOTAL)),
+        })
+
+    return pd.DataFrame(rows)
+
+
 _TWSE_MARGN_URL = "https://www.twse.com.tw/rwd/zh/marginTrading/MI_MARGN"
 
 
@@ -126,6 +184,44 @@ def fetch_margin_all_twse(trade_date: date) -> pd.DataFrame:
         rows.append({
             "stock_id":       sid,
             "date":           trade_date.isoformat(),
+            "margin_balance": margin_bal,
+            "margin_change":  margin_bal - prev_margin,
+            "short_balance":  short_bal,
+            "short_change":   short_bal - prev_short,
+        })
+
+    return pd.DataFrame(rows)
+
+
+_TPEX_MARGIN_URL = "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_margin_balance"
+
+
+def fetch_margin_all_tpex() -> pd.DataFrame:
+    """
+    TPEx 上櫃股票融資融券餘額（tpex_mainboard_margin_balance，只回傳當天，無法查歷史日期）。
+    欄位跟 fetch_margin_all_twse() 一致：stock_id, date, margin_balance, margin_change, short_balance, short_change
+    單位跟 TWSE MI_MARGN 一致，都是「張」。
+    """
+    resp = requests.get(_TPEX_MARGIN_URL, headers=_HEADERS_TPEX, timeout=30, verify=False)
+    resp.raise_for_status()
+    data = resp.json()
+
+    if not data:
+        raise ValueError("TPEx 融資融券 API 回傳空資料")
+
+    rows = []
+    for row in data:
+        date_str = row.get("Date", "")
+        sid = str(row.get("SecuritiesCompanyCode", "")).strip()
+        if not date_str or not sid:
+            continue
+        margin_bal  = _parse_num(row.get("MarginPurchaseBalance"))
+        prev_margin = _parse_num(row.get("MarginPurchaseBalancePreviousDay"))
+        short_bal   = _parse_num(row.get("ShortSaleBalance"))
+        prev_short  = _parse_num(row.get("ShortSaleBalancePreviousDay"))
+        rows.append({
+            "stock_id":       sid,
+            "date":           _roc_date_to_iso(date_str),
             "margin_balance": margin_bal,
             "margin_change":  margin_bal - prev_margin,
             "short_balance":  short_bal,

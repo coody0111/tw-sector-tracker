@@ -1132,7 +1132,7 @@ git commit -m "feat: add SignalChips component for daily/weekly rank + streak + 
 - Create: `frontend/src/lib/group.ts`
 - Create: `frontend/src/lib/group.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `frontend/src/lib/group.test.ts`:
 
@@ -1170,12 +1170,12 @@ describe('sortStocksWithinGroups', () => {
 })
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd frontend && npm run test -- group.test`
 Expected: FAIL — `Cannot find module './group'`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Create `frontend/src/lib/group.ts`:
 
@@ -1192,12 +1192,12 @@ export function sortStocksWithinGroups(subGroups: SubGroup[]): SubGroup[] {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd frontend && npm run test -- group.test`
 Expected: PASS (2 tests)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add frontend/src/lib/group.ts frontend/src/lib/group.test.ts

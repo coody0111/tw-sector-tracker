@@ -1519,7 +1519,7 @@ git commit -m "feat: add SectorDetail component grouping stocks by sub-sector"
 - Modify: `frontend/src/App.tsx`
 - Create: `frontend/src/App.test.tsx`
 
-- [ ] **Step 1: Write the failing test for the hook**
+- [x] **Step 1: Write the failing test for the hook**
 
 Create `frontend/src/hooks/useMediaQuery.test.ts`:
 
@@ -1552,12 +1552,12 @@ describe('useMediaQuery', () => {
 })
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd frontend && npm run test -- useMediaQuery`
 Expected: FAIL — `Cannot find module './useMediaQuery'`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Create `frontend/src/hooks/useMediaQuery.ts`:
 
@@ -1579,12 +1579,12 @@ export function useMediaQuery(query: string): boolean {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd frontend && npm run test -- useMediaQuery`
 Expected: PASS (2 tests)
 
-- [ ] **Step 5: Write the failing test for `App`**
+- [x] **Step 5: Write the failing test for `App`**
 
 Create `frontend/src/App.test.tsx`:
 
@@ -1635,12 +1635,12 @@ describe('App', () => {
 })
 ```
 
-- [ ] **Step 6: Run test to verify it fails**
+- [x] **Step 6: Run test to verify it fails**
 
 Run: `cd frontend && npm run test -- App.test`
 Expected: FAIL（`App` 目前只回傳 `Loading...`，找不到族群名稱）
 
-- [ ] **Step 7: Write the implementation**
+- [x] **Step 7: Write the implementation**
 
 Replace `frontend/src/App.tsx`:
 
@@ -1685,17 +1685,17 @@ export default function App() {
 }
 ```
 
-- [ ] **Step 8: Run test to verify it passes**
+- [x] **Step 8: Run test to verify it passes**
 
 Run: `cd frontend && npm run test -- App.test`
 Expected: PASS
 
-- [ ] **Step 9: Run the full frontend test suite**
+- [x] **Step 9: Run the full frontend test suite**
 
 Run: `cd frontend && npm run test`
 Expected: all test files PASS
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add frontend/src/hooks/useMediaQuery.ts frontend/src/hooks/useMediaQuery.test.ts frontend/src/App.tsx frontend/src/App.test.tsx

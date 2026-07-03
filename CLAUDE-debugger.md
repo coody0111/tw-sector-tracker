@@ -13,7 +13,7 @@
 tw-sector-tracker-debug/
 ├── main.py
 ├── config.py            # 設定檔（改動要特別注意）
-├── scrapers/            # 資料抓取（TWSE / FinMind）
+├── scrapers/            # 資料抓取（每日：TWSE / TPEx 官方 API；歷史回補：FinMind / yfinance）
 ├── processors/          # 資料處理
 ├── screener/            # 掃盤邏輯
 ├── tests/               # 優先從這裡開始
@@ -28,9 +28,10 @@ tw-sector-tracker-debug/
 這是掃盤應用，數據錯誤會直接影響判斷，每次 review 都必須嚴格確認：
 
 ### 資料來源
-- [ ] 上市股票是否走 TWSE？上櫃股票是否走 FinMind？
+- [ ] **每日流程**（`main.py` / `--update-sectors` / `--realtime`）：上市走 TWSE 官方 API（`scrapers/twse.py`）、上櫃走 TPEx 官方 API（`scrapers/tpex.py`），兩者皆非 FinMind
+- [ ] **歷史回補**（`--backfill` / `--backfill-twse` / `--backfill-yf`）：才會用到 FinMind（`--backfill`，每日 600 次上限）或 yfinance（`--backfill-yf`），確認回補指令沒有跟每日流程混用同一批資料而覆蓋掉
 - [ ] 有無混用資料來源？
-- [ ] TWSE 和 FinMind 欄位格式不同，轉換是否正確？
+- [ ] TWSE、TPEx、FinMind、yfinance 四種來源欄位格式都不同，轉換是否正確？
 
 ### 數值正確性
 - [ ] 漲跌幅計算公式正確（注意除權息日當天）

@@ -3,6 +3,7 @@
 抓各股 ≥400張 大戶持股比例，計算週變化與連增/連減週數。
 """
 import logging
+import random
 import re
 import time
 from datetime import date, datetime
@@ -21,6 +22,12 @@ _HEADERS = {
 # 等級 12-15 代表持股 ≥ 400,001 股（≥ 400張）
 _LARGE_HOLDER_LEVELS = {"12", "13", "14", "15"}
 _DB_PATH = "data/screener.db"
+
+# 防封鎖／容錯（比照 backfill_yfinance 的手法）：暫時性 SSL 斷線/限流時退避重試，
+# 每支之間隨機延遲而非固定間隔。
+_MAX_RETRIES = 3
+_RETRY_BACKOFF = (3.0, 7.0)   # 重試前隨機退避秒數
+_JITTER = 0.8                 # 每支請求間隔的隨機抖動上限（秒）
 
 
 def _get_session_tokens() -> tuple[requests.Session, str, str, list[str]]:
@@ -129,16 +136,28 @@ def fetch_shareholder_weekly(
     failed = 0
 
     for i, sid in enumerate(stock_ids, 1):
-        # 每次 POST 前都重新取 token（TDCC token 一次性）
-        try:
-            s, tok, uri, _ = _get_session_tokens()
-        except Exception as e:
-            logger.warning("  [%d] 取 token 失敗: %s，跳過 %s", i, e, sid)
+        # 每支重新取 token（TDCC token 一次性）+ 抓資料，包在重試裡：
+        # TDCC 偶發 SSL 斷線/限流是暫時性的，退避重試幾次幾乎都能救回，
+        # 不要一失敗就跳過（原本零重試，穩定失敗 ~2.4%/週）。
+        rec = None
+        ok = False
+        for attempt in range(_MAX_RETRIES):
+            try:
+                s, tok, uri, _ = _get_session_tokens()
+                rec = _fetch_one_stock(s, tok, uri, sid, target_date)
+                ok = True
+                break
+            except Exception as e:
+                if attempt < _MAX_RETRIES - 1:
+                    time.sleep(random.uniform(*_RETRY_BACKOFF))  # 退避後重試
+                else:
+                    logger.warning("  [%d] 抓取失敗（重試 %d 次）: %s，跳過 %s",
+                                   i, _MAX_RETRIES, e, sid)
+        if not ok:
             failed += 1
-            time.sleep(delay)
+            time.sleep(delay + random.uniform(0, _JITTER))
             continue
 
-        rec = _fetch_one_stock(s, tok, uri, sid, target_date)
         if rec:
             rec["stock_id"] = sid
             rec["date"] = f"{target_date[:4]}-{target_date[4:6]}-{target_date[6:]}"
@@ -150,7 +169,8 @@ def fetch_shareholder_weekly(
         if i % 50 == 0 or i == len(stock_ids):
             logger.info("  [%d/%d] 成功 %d，失敗 %d", i, len(stock_ids), len(results), failed)
 
-        time.sleep(delay)
+        # 隨機化間隔（不要固定 delay 死打），降低被 TDCC 限流的機率
+        time.sleep(delay + random.uniform(0, _JITTER))
 
     return results
 
@@ -179,14 +199,19 @@ def _add_week_change_streak(con: duckdb.DuckDBPyConnection, df) -> None:
     week_chg = []
     streak = []
 
-    # 批次查上週資料
+    # 批次查上週資料。
+    # streak 基準必須是「嚴格更舊的週」，不能是正在寫入的同一週——save_to_db 是先算
+    # streak 再 DELETE 同 date，若這裡只取「最新一筆」，同一週被重跑（例如每日 cron、
+    # 或 TDCC 尚未出新週仍抓到同一週）時會拿自己當基準，把 chg 算成 ~0、streak 洗成 0，
+    # 連增/連減週數失真。加上 date < 本次寫入週，排除同 date。
     sids = df["stock_id"].tolist()
+    write_date = df["date"].max() if not df.empty else None
     prev_rows = con.execute("""
         SELECT stock_id, lv12_15_pct, streak
         FROM shareholder
-        WHERE stock_id IN (SELECT UNNEST(?))
+        WHERE stock_id IN (SELECT UNNEST(?)) AND date < ?
         QUALIFY ROW_NUMBER() OVER (PARTITION BY stock_id ORDER BY date DESC) = 1
-    """, [sids]).df() if sids else pd.DataFrame()
+    """, [sids, write_date]).df() if sids and write_date is not None else pd.DataFrame()
 
     prev_map = {r["stock_id"]: r for _, r in prev_rows.iterrows()} if not prev_rows.empty else {}
 

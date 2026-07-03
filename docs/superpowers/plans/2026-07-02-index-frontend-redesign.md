@@ -2050,7 +2050,7 @@ git commit -m "feat: add SearchBar and wire it into App filtering"
 **Files:**
 - Modify: `frontend/src/App.css`
 
-- [ ] **Step 1: 補齊基本版面 CSS**（沿用 DESIGN.md 既有配色，不重新設計視覺風格）
+- [x] **Step 1: 補齊基本版面 CSS**（沿用 DESIGN.md 既有配色，不重新設計視覺風格）
 
 Append to `frontend/src/App.css`:
 
@@ -2084,17 +2084,17 @@ Append to `frontend/src/App.css`:
 .search-bar { margin-left: auto; background: #0a0e18; border: 1px solid #1e293b; color: #e2e8f0; padding: 4px 8px; border-radius: 6px; }
 ```
 
-- [ ] **Step 2: 完整建置**
+- [x] **Step 2: 完整建置**
 
 Run: `cd frontend && npm run build`
 Expected: exit code 0；確認 `docs/index.html`、`docs/assets/*` 有更新，`docs/chips.html`、`docs/patterns.html`、`docs/data.json` 沒被動到
 
-- [ ] **Step 3: 跑完整前後端測試**
+- [x] **Step 3: 跑完整前後端測試**
 
 Run: `cd frontend && npm run test && cd .. && pytest tests/test_data_generator.py tests/test_processors.py -v`
 Expected: all PASS
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add frontend/src/App.css docs/index.html docs/assets

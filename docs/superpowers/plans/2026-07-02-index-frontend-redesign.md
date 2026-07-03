@@ -1711,7 +1711,7 @@ git commit -m "feat: wire up App with responsive layout and rank selection"
 - Create: `frontend/src/components/StockModal.test.tsx`
 - Modify: `frontend/src/components/SectorDetail.tsx`（點個股列開 modal）
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `frontend/src/components/StockModal.test.tsx`:
 
@@ -1751,12 +1751,12 @@ describe('StockModal', () => {
 })
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd frontend && npm run test -- StockModal`
 Expected: FAIL — `Cannot find module './StockModal'`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Create `frontend/src/components/StockModal.tsx`:
 
@@ -1822,12 +1822,12 @@ export function StockModal({ stock, onClose }: StockModalProps) {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd frontend && npm run test -- StockModal`
 Expected: PASS (3 tests)
 
-- [ ] **Step 5: Wire `StockModal` into `SectorDetail`**
+- [x] **Step 5: Wire `StockModal` into `SectorDetail`**
 
 Modify `frontend/src/components/SectorDetail.tsx` — add `useState` for the selected stock and open the modal on row click:
 
@@ -1893,12 +1893,12 @@ export function SectorDetail({ meta }: SectorDetailProps) {
 }
 ```
 
-- [ ] **Step 6: Run the full frontend test suite**
+- [x] **Step 6: Run the full frontend test suite**
 
 Run: `cd frontend && npm run test`
 Expected: all PASS
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add frontend/src/components/StockModal.tsx frontend/src/components/StockModal.test.tsx frontend/src/components/SectorDetail.tsx

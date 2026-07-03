@@ -1212,7 +1212,7 @@ git commit -m "feat: add sortStocksWithinGroups pure function"
 - Create: `frontend/src/components/RankList.tsx`
 - Create: `frontend/src/components/RankList.test.tsx`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `frontend/src/components/RankList.test.tsx`:
 
@@ -1277,12 +1277,12 @@ describe('RankList', () => {
 })
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd frontend && npm run test -- RankList`
 Expected: FAIL — `Cannot find module './RankList'`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Create `frontend/src/components/RankList.tsx`:
 
@@ -1375,12 +1375,12 @@ export function RankList({ metaSectors, selectedName, onSelect }: RankListProps)
 
 `stripIntensityClass` 跟 `SignalChips` 內部的 `data-intensity` 邏輯故意保持一致（daily/weekly rank delta ≥5、連漲連跌 ≥3 日、量能 ≥2 倍任一成立 → `strip-strong`），CSS 會在 Task 14 用 `.strip-strong`/`.strip-weak` 分別畫粗橘色／細灰色左側色條。沒有訊號的列兩個 class 都不會加，維持乾淨（對應規格書「無變化→無色條」）。
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd frontend && npm run test -- RankList`
 Expected: PASS (4 tests)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add frontend/src/components/RankList.tsx frontend/src/components/RankList.test.tsx

@@ -1914,7 +1914,7 @@ git commit -m "feat: add StockModal and wire it into SectorDetail row clicks"
 - Create: `frontend/src/components/SearchBar.test.tsx`
 - Modify: `frontend/src/App.tsx`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `frontend/src/components/SearchBar.test.tsx`:
 
@@ -1935,12 +1935,12 @@ describe('SearchBar', () => {
 })
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd frontend && npm run test -- SearchBar`
 Expected: FAIL — `Cannot find module './SearchBar'`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Create `frontend/src/components/SearchBar.tsx`:
 
@@ -1961,12 +1961,12 @@ export function SearchBar({ onSearch }: SearchBarProps) {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd frontend && npm run test -- SearchBar`
 Expected: PASS
 
-- [ ] **Step 5: Wire `SearchBar` into `App`** — filter `RankList` by meta-sector name or by any stock id/name inside its sub-groups
+- [x] **Step 5: Wire `SearchBar` into `App`** — filter `RankList` by meta-sector name or by any stock id/name inside its sub-groups
 
 Modify `frontend/src/App.tsx`:
 
@@ -2031,12 +2031,12 @@ export default function App() {
 }
 ```
 
-- [ ] **Step 6: Run the full frontend test suite**
+- [x] **Step 6: Run the full frontend test suite**
 
 Run: `cd frontend && npm run test`
 Expected: all PASS（`App.test.tsx` 原本的測試不涉及搜尋，應該還是過；如果失敗，檢查是不是 `matchesQuery` 預設空字串沒有過濾掉任何東西）
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add frontend/src/components/SearchBar.tsx frontend/src/components/SearchBar.test.tsx frontend/src/App.tsx

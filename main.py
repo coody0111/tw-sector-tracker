@@ -233,7 +233,7 @@ def _update_shareholder() -> None:
 
 def _backfill_shareholder(weeks: int = 4) -> None:
     """補齊過去 N 週的集保持股分散表。"""
-    from scrapers.shareholder import fetch_shareholder_weekly, save_to_db as sh_save, get_available_dates
+    from scrapers.shareholder import fetch_shareholder_weekly, save_to_db as sh_save, get_available_dates, recompute_latest_streak
     init_db()
     stock_ids = pd.read_csv(UNIVERSE_PATH, dtype=str)["stock_id"].tolist()
     available = get_available_dates()
@@ -247,7 +247,11 @@ def _backfill_shareholder(weeks: int = 4) -> None:
         rows = fetch_shareholder_weekly(stock_ids, date_str=d_str)
         n = sh_save(rows)
         logger.info("  %s 寫入 %d 筆", d_str, n)
-    logger.info("=== 集保補齊完成 ===")
+    # 如果之前已經有更新的一週先寫入（--update-shareholder 抓最新週跟這裡補歷史是
+    # 分開跑的兩條路徑），那一週當初可能找不到更舊的週當基準，week_chg/streak 被
+    # 記成 NULL/0；現在歷史補齊了，回頭重算一次讓它們接上正確的基準。
+    updated = recompute_latest_streak()
+    logger.info("=== 集保補齊完成，回補後重算最新週 streak：%d 檔 ===", updated)
 
 
 def _full_rebuild(months: int = 19, workers: int = 3) -> None:

@@ -8,7 +8,7 @@
 import duckdb
 import pandas as pd
 
-from scrapers.shareholder import _add_week_change_streak
+from scrapers.shareholder import _add_week_change_streak, recompute_latest_streak
 
 
 def _make_table(con):
@@ -89,3 +89,45 @@ def test_streak_flips_direction_on_decrease(tmp_path):
     _add_week_change_streak(con, df)
     assert df["streak"].iloc[0] == -1
     con.close()
+
+
+def test_recompute_latest_streak_fixes_week_frozen_before_backfill(tmp_path):
+    """
+    重現真實 bug：--update-shareholder 先寫入最新週（當時 DB 是空的，沒有更舊的
+    週可比，streak 被記成 0），之後 --backfill-shareholder 才把更舊的週補進來。
+    最新週的 streak 不會自動更新，因為沒有任何呼叫再重寫那一批——
+    recompute_latest_streak() 應該把它重算成正確值。
+    """
+    db_path = tmp_path / "t.db"
+    con = duckdb.connect(str(db_path))
+    _make_table(con)
+    _insert(con, "2330", "2026-06-26", 15.0, 0)   # 先寫最新週，當時無前值 → streak=0（凍結前）
+    con.close()
+
+    # 之後才 backfill 補進更舊的週
+    con = duckdb.connect(str(db_path))
+    _insert(con, "2330", "2026-06-12", 13.0, 1)
+    con.close()
+
+    updated = recompute_latest_streak(str(db_path))
+    assert updated == 1
+
+    con = duckdb.connect(str(db_path))
+    row = con.execute(
+        "SELECT week_chg, streak FROM shareholder WHERE stock_id='2330' AND date='2026-06-26'"
+    ).fetchone()
+    con.close()
+    assert row[0] == 2.0   # 15.0 - 13.0
+    assert row[1] == 2     # 上一週 streak=1（正）且本週續升 → 累加成 2
+
+
+def test_recompute_latest_streak_skips_stock_with_only_one_week(tmp_path):
+    """只有一週資料（無前值可比）的股票，recompute 應跳過、不報錯。"""
+    db_path = tmp_path / "t.db"
+    con = duckdb.connect(str(db_path))
+    _make_table(con)
+    _insert(con, "9999", "2026-06-26", 20.0, 0)
+    con.close()
+
+    updated = recompute_latest_streak(str(db_path))
+    assert updated == 0

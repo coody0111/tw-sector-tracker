@@ -1,3 +1,55 @@
+## [2026-07-04] 報告＋修復 - Section 8「大戶持倉」永遠空白（Cody 授權 Debugger 直接修）
+
+### 🔴 找到的問題
+`docs/chips.html` Section 8（大戶持倉連增/連減排行）一直顯示「無大戶持倉資料（尚未執行
+--update-shareholder）」，但這句話是誤導的——`shareholder` 表其實已經有 7 週資料
+（2026-05-08 ~ 2026-06-26，`--backfill-shareholder 8` 確實成功跑完了）。
+
+**根因**：`--update-shareholder`（抓最新週）跟 `--backfill-shareholder`（補歷史週）是兩條
+分開呼叫的路徑，`_add_week_change_streak()` 只在「寫入當下」處理那一批資料，不會回頭重算
+已經寫入的舊批次。實際發生順序：
+1. `--update-shareholder` 先跑，寫入最新週 `2026-06-26`——當時 DB 是空的，找不到更舊的週可
+   比，`week_chg=NULL, streak=0`（這在當下是正確答案，沒有前一週可比）
+2. `--backfill-shareholder 8` 後來才跑，依序補進 `2026-05-08 ~ 06-12`，這 6 週彼此之間算
+   得都對
+3. 但沒有任何呼叫再回頭重算 `06-26`——即使現在已經有 `06-12` 可以當基準了，它的
+   `week_chg`/`streak` 還是凍結在步驟 1 寫入當下的錯誤初始值
+4. `get_shareholder_top()`（`screener/database.py:258`）只抓「每支股票最新一筆」= 全部都
+   是 `06-26` = 全部 `streak=0`
+5. `chips_generator.py:660-661` 篩選 `streak>0`/`streak<0` 建 Top 30/20 榜單，全部落空
+
+實測驗證：修復前直接查 DB，`2026-06-26` 這天 1037 筆 **100% `streak=0`、100%
+`week_chg=NULL`**，沒有例外，不是少數個股的問題，是整批凍結。
+
+這是**結構性問題**，只要「backfill 補歷史」跟「update 抓最新」分開跑、且沒有「回頭重算最新
+一週」這一步，每次都會重現一樣的空白。
+
+### ✅ 已修（Cody 授權直接改）
+- `scrapers/shareholder.py` 新增 `recompute_latest_streak()`：用 `ROW_NUMBER() OVER
+  (PARTITION BY stock_id ORDER BY date DESC)` 抓每支股票目前資料庫裡最新一筆（rn=1）跟
+  次新一筆（rn=2）比較，重算 `week_chg`/`streak` 並 `UPDATE` 回 DB。不用重打 TDCC，
+  `lv12_15_pct` 已經在 DB 裡，只是重算兩個衍生欄位。用 rn=1/rn=2 逐股比較（而非假設整批
+  同一個 `write_date`），可以正確處理個別股票資料缺一週的情況。
+- 同時把 `_add_week_change_streak()` 裡重複的 streak 方向邏輯抽成 `_streak_step()` 共用
+  helper，兩處呼叫同一份邏輯，避免以後改其中一處漏改另一處。
+- `main.py::_backfill_shareholder()` 收尾時自動呼叫 `recompute_latest_streak()`，往後每次
+  backfill 完成都會自動修正最新週，不用手動介入。
+- 新增 2 個測試（`tests/test_shareholder.py`）：`test_recompute_latest_streak_fixes_week_
+  frozen_before_backfill` 直接重現「先寫最新週、後補歷史週」的真實情境，驗證重算後
+  `week_chg`/`streak` 正確；`test_recompute_latest_streak_skips_stock_with_only_one_week`
+  驗證無前值可比時不會出錯。5 個 shareholder 測試、全專案 78 個測試全過。
+- **已對正式 `data/screener.db` 實跑修復**：修復前 `2026-06-26` 全數 `streak=0`；修復後
+  分佈為 `streak=-1` 485 檔、`streak=0` 93 檔、`streak=1` 459 檔，`week_chg` 全部非空。
+  直接呼叫 `get_shareholder_top()` + `_shareholder_table()` 驗證：連增 462 檔、連減 485
+  檔，渲染結果不再是「無資料」。
+
+### 結論
+- [x] 已修並加測試、已對正式 DB 實跑修復——下次 `python main.py` 重新產生
+  `docs/chips.html` 時 Section 8 就會正常顯示；往後每次 `--backfill-shareholder` 收尾都
+  會自動重算，不會再需要手動修
+
+---
+
 ## [2026-07-03] 報告 - TPEx 三大法人／融資融券資料源驗證（commit `3daaee5`）
 
 ### 🔴 數據問題（需立刻修）

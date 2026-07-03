@@ -193,6 +193,15 @@ def save_to_db(rows: list[dict]) -> int:
     return n
 
 
+def _streak_step(chg: float, prev_streak: int) -> int:
+    """依本週變化方向延續或翻轉 streak（正=連增，負=連減）。"""
+    if chg > 0:
+        return prev_streak + 1 if prev_streak > 0 else 1
+    if chg < 0:
+        return prev_streak - 1 if prev_streak < 0 else -1
+    return 0
+
+
 def _add_week_change_streak(con: duckdb.DuckDBPyConnection, df) -> None:
     """在 df 上原地加上 week_chg 和 streak 欄位（查 DB 上週資料）。"""
     import pandas as pd
@@ -219,13 +228,7 @@ def _add_week_change_streak(con: duckdb.DuckDBPyConnection, df) -> None:
         prev = prev_map.get(row["stock_id"])
         if prev is not None:
             chg = round(row["lv12_15_pct"] - prev["lv12_15_pct"], 4)
-            prev_streak = int(prev.get("streak", 0))
-            if chg > 0:
-                s = prev_streak + 1 if prev_streak > 0 else 1
-            elif chg < 0:
-                s = prev_streak - 1 if prev_streak < 0 else -1
-            else:
-                s = 0
+            s = _streak_step(chg, int(prev.get("streak", 0)))
         else:
             chg = None
             s = 0
@@ -234,6 +237,52 @@ def _add_week_change_streak(con: duckdb.DuckDBPyConnection, df) -> None:
 
     df["week_chg"] = week_chg
     df["streak"] = streak
+
+
+def recompute_latest_streak(db_path: str = _DB_PATH) -> int:
+    """
+    重算「每支股票目前資料庫裡最新一筆」的 week_chg/streak，跟該股次新一筆比較。
+
+    背景：--update-shareholder（抓最新週）跟 --backfill-shareholder（補歷史週）是
+    兩條分開呼叫的路徑，_add_week_change_streak 只在「寫入當下」處理那一批資料。
+    如果最新週先寫入（那時 DB 裡還沒有更舊的週可比，week_chg/streak 被記成
+    NULL/0——這在當下是正確答案），之後才 backfill 補進更舊的週，最新週的
+    衍生欄位不會自動更新，因為沒有任何呼叫再去重寫那一批，會一直卡在錯誤的初始值
+    （get_shareholder_top() 只抓每支股票最新一筆，這樣會讓 Section 8 排行永遠空白）。
+    backfill 完成後應呼叫這個函式修正回來。不需要重打 TDCC，lv12_15_pct 已經在
+    DB 裡，只是重算 week_chg/streak 兩個衍生欄位。回傳實際更新的股票數。
+    """
+    con = duckdb.connect(db_path)
+    df = con.execute("""
+        WITH ranked AS (
+            SELECT stock_id, date, lv12_15_pct, streak,
+                   ROW_NUMBER() OVER (PARTITION BY stock_id ORDER BY date DESC) AS rn
+            FROM shareholder
+        )
+        SELECT latest.stock_id, latest.date, latest.lv12_15_pct AS pct,
+               prev.lv12_15_pct AS prev_pct, prev.streak AS prev_streak
+        FROM (SELECT * FROM ranked WHERE rn = 1) latest
+        LEFT JOIN (SELECT * FROM ranked WHERE rn = 2) prev
+          ON latest.stock_id = prev.stock_id
+    """).df()
+
+    import pandas as pd
+    updates = []
+    for _, row in df.iterrows():
+        if pd.isna(row["prev_pct"]):
+            continue  # 沒有更早的週可比，維持原狀（新股或只有一週資料）
+        chg = round(float(row["pct"]) - float(row["prev_pct"]), 4)
+        prev_streak = int(row["prev_streak"]) if not pd.isna(row["prev_streak"]) else 0
+        s = _streak_step(chg, prev_streak)
+        updates.append((chg, s, row["stock_id"], row["date"]))
+
+    if updates:
+        con.executemany(
+            "UPDATE shareholder SET week_chg = ?, streak = ? WHERE stock_id = ? AND date = ?",
+            updates,
+        )
+    con.close()
+    return len(updates)
 
 
 def get_available_dates() -> list[str]:

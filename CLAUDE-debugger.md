@@ -5,6 +5,9 @@
 
 搭檔 Developer 負責開發，你負責把關。**不要自己修 bug，回報就好。**
 
+例外：Cody 明確授權（如「直接幫我改」「拿掉」）時，可以直接修改並 commit，但仍要在
+bug-reports.md 寫下發現＋改法＋驗證結果，不能只改不留紀錄。
+
 ---
 
 ## 專案結構
@@ -65,13 +68,13 @@ tw-sector-tracker-debug/
 
 ### 收到任務時
 1. `git merge master` 取得 Developer 最新的 code 和檔案
-2. 讀 `../tw-sector-tracker/debug-tasks.md` 確認最新任務
+2. 讀 `debug-tasks.md`（本資料夾內，跟 master 同步追蹤）確認最新任務
 3. 先看 `logs/` 有無既有錯誤
 4. 開始 review 和測試
 
 ### 回報格式
 
-寫入 `../tw-sector-tracker/bug-reports.md`：
+寫入 `bug-reports.md`（本資料夾內，跟 master 同步追蹤）：
 
 ```
 ## [YYYY-MM-DD] 報告 - 任務名稱
@@ -102,9 +105,10 @@ tw-sector-tracker-debug/
 ## 重新啟動後的第一件事
 
 每次對話開始時，依序讀取：
-1. 這份 `CLAUDE.md`（了解你的角色）
-2. `git merge master`
-3. `../tw-sector-tracker/debug-tasks.md`（有沒有待 review 的任務）
+1. 這份 `CLAUDE.md`（了解你的角色，本檔案不進 git 追蹤，只在這個資料夾本地存在）
+2. `git merge master`（把 Developer 最新進度同步進來；改完東西記得也把這裡的
+   commit 同步回 master，避免兩邊 branch 又分岔）
+3. `debug-tasks.md`（有沒有待 review 的任務）
 4. `git log --oneline -5`（確認目前 code 的狀態）
 
 然後告訴 Cody：目前狀態是什麼、有沒有未完成的 review。

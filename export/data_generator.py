@@ -9,6 +9,12 @@ from pathlib import Path
 import pandas as pd
 
 
+def _safe_int(value, default: int = 0) -> int:
+    """pd.NA/NaN 安全轉 int：FULL OUTER JOIN 產生的缺值不能直接用 `or 0`
+    （`pd.NA or 0` 會拋 TypeError，因為 NA.__bool__ 被刻意設計成 ambiguous）。"""
+    return default if pd.isna(value) else int(value)
+
+
 def _weekly_pct(spark: list) -> float:
     """複利計算 sparkline 最後 5 個交易日的週漲跌幅。"""
     if not spark:
@@ -84,10 +90,10 @@ def generate(
             fn = tn = mb = mc = 0
             if sid in chips_map.index:
                 c = chips_map.loc[sid]
-                fn = int(c.get("foreign_net") or 0) // 1000
-                tn = int(c.get("trust_net") or 0) // 1000
-                mb = int(c.get("margin_balance") or 0)
-                mc = int(c.get("margin_change") or 0)
+                fn = _safe_int(c.get("foreign_net")) // 1000
+                tn = _safe_int(c.get("trust_net")) // 1000
+                mb = _safe_int(c.get("margin_balance"))
+                mc = _safe_int(c.get("margin_change"))
 
             spark = stock_sparklines.get(sid, [])
 

@@ -1,3 +1,56 @@
+## [2026-07-05] 修 `python main.py --realtime` crash：`TypeError: boolean value of NA is ambiguous`
+
+### 改了什麼
+- 異動檔案：`export/data_generator.py`、`tests/test_data_generator.py`
+
+**Cody 回報的 crash**：
+```
+File "export\data_generator.py", line 89, in generate
+    mb = int(c.get("margin_balance") or 0)
+TypeError: boolean value of NA is ambiguous
+```
+
+**根因**：`screener/database.py::get_chips_today()`（第 237-253 行）用 `FULL OUTER JOIN` 合併
+`institutional` 跟 `margin` 兩張表。當某支股票當天只有其中一邊有資料（例如三大法人資料進來了
+但融資融券還沒更新，或反過來），缺的那一邊 DuckDB 回傳 `NULL`，轉成 pandas DataFrame 後這些
+BIGINT 欄位變成 **nullable `pd.NA`**（不是 `float('nan')`）。`data_generator.py::generate()`
+第 84-90 行原本寫 `int(c.get("margin_balance") or 0)`，這個寫法對 `float('nan')`（真值）沒問題，
+但 `pd.NA` 的 `__bool__` 被 pandas 刻意設計成 ambiguous（拋 TypeError），`pd.NA or 0` 直接炸掉，
+不是走到 `or` 的右邊而是在做真值判斷那一步就死掉。
+
+這不是罕見 edge case——只要當天 `institutional`／`margin` 兩張表的股票清單沒有完全對齊（新上市、
+下市、停止信用交易等任何原因），就會有 stock_id 只出現在其中一邊，FULL OUTER JOIN 就會產生這
+種缺值列，隔天就可能再炸一次。
+
+**修法**：新增 `_safe_int(value, default=0)` helper，用 `pd.isna(value)` 明確判斷缺值再轉型，
+取代所有 `int(c.get(...) or 0)` 的寫法（`foreign_net`／`trust_net`／`margin_balance`／
+`margin_change` 四個欄位全部改用同一個 helper，不是只修觸發 crash 的那一個，避免其他三個欄位
+哪天也遇到同樣的缺值組合再炸一次）。
+- 新增回歸測試 `test_generate_handles_na_margin_from_outer_join`：直接用 `pd.array([pd.NA],
+  dtype="Int64")` 建構跟 `get_chips_today()` 實際回傳型別一致的缺值欄位，修復前會重現原始
+  crash，修復後驗證缺值正確補 0、不影響有值的欄位。
+- 已用獨立腳本驗證 `pd.NA or 0` 確實拋出跟 Cody 回報一模一樣的 `TypeError: boolean value of
+  NA is ambiguous`，不是臆測的根因。
+
+### 資料來源相關（如有異動）
+- 不適用——這是資料層 JSON 序列化的防呆修復，不是資料抓取邏輯，TWSE/TPEx/FinMind 規則沒變動
+
+### 請 Debugger 驗證
+- [ ] 全專案測試（79 個，含新增的 1 個）都過，Debugger 端建議重跑一次確認
+- [ ] 建議 Cody 重新跑一次 `python main.py --realtime` 確認不再 crash、`docs/data.json` 正常產出
+- [ ] 檢查 `screener/database.py::get_chips_today()` FULL OUTER JOIN 是否還有其他呼叫端用同樣
+  `... or 0` 寫法處理這張表的欄位（目前只查到 `data_generator.py` 這一處用到 `margin_balance`
+  等欄位，但如果之後有新呼叫端消費這張表，要留意同樣的陷阱）
+
+### 特別注意
+- 一般寫法上 `x or default` 對「缺值」的防呆假設是「缺值會是 falsy 的東西（`None`/`0`/
+  `float('nan')` 沒踩到、空字串等）」，但 pandas 的 nullable 型別（`pd.NA`、`Int64`/`Float64`
+  dtype）刻意讓 `bool(pd.NA)` 直接拋例外，不是回傳 `True`/`False`。以後只要資料來源可能經過
+  DuckDB/pandas 的 outer join 或 nullable dtype，缺值防呆一律用 `pd.isna(x)` 明確判斷，不要用
+  `x or default`。
+
+---
+
 ## [2026-07-04] index 首頁前端重構完成（Vite + React + TypeScript，取代舊版 html_generator 產出）
 
 ### 改了什麼

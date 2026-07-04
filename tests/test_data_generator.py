@@ -68,3 +68,50 @@ def test_generate_writes_expected_json_shape(tmp_path):
     assert stock["foreignNet"] == 336   # 股 → 張，除以 1000
     assert stock["trustNet"] == -82
     assert stock["sparkline"] == [0.1, 4.99, 4.99, 4.99, 4.99, 4.99]
+
+
+def test_generate_handles_na_margin_from_outer_join(tmp_path):
+    """get_chips_today() 用 FULL OUTER JOIN 合併 institutional/margin，
+    某股當天只有其中一邊有資料時，缺的那一邊 DuckDB 回傳 NULL、pandas 轉成
+    pd.NA（nullable Int64），不是 float NaN。`pd.NA or 0` 會拋
+    TypeError: boolean value of NA is ambiguous —— 這裡驗證不會 crash，且缺值補 0。"""
+    output_path = tmp_path / "data.json"
+
+    meta_perf = [{
+        "meta_name": "先進封裝設備",
+        "sub_names": ["半導體製程設備"],
+        "avg_change_pct": 1.0,
+        "up_count": 1,
+        "down_count": 0,
+        "flat_count": 0,
+        "stock_ids": ["3583"],
+    }]
+    universe_df = pd.DataFrame([
+        {"stock_id": "3583", "stock_name": "辛耘", "meta_sector": "先進封裝設備",
+         "sub_sector": "半導體製程設備"},
+    ])
+    prices_df = pd.DataFrame([
+        {"stock_id": "3583", "close": 905.0, "change_pct": 0.11, "volume": 3000},
+    ])
+    chips_df = pd.DataFrame({
+        "stock_id": ["3583"],
+        "foreign_net": pd.array([336398], dtype="Int64"),
+        "trust_net": pd.array([-82000], dtype="Int64"),
+        "margin_balance": pd.array([pd.NA], dtype="Int64"),
+        "margin_change": pd.array([pd.NA], dtype="Int64"),
+    })
+
+    generate(
+        trade_date=date(2026, 7, 1),
+        meta_perf=meta_perf,
+        universe_df=universe_df,
+        prices_df=prices_df,
+        chips_df=chips_df,
+        output_path=str(output_path),
+    )
+
+    data = json.loads(output_path.read_text(encoding="utf-8"))
+    stock = data["metaSectors"][0]["subGroups"][0]["stocks"][0]
+    assert stock["marginBalance"] == 0
+    assert stock["marginChange"] == 0
+    assert stock["foreignNet"] == 336

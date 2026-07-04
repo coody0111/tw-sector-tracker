@@ -12,11 +12,10 @@ from scrapers.realtime import fetch_realtime_prices
 from scrapers.chips import fetch_institutional, fetch_institutional_tpex, fetch_margin_all_twse, fetch_margin_all_tpex, TWSEBlockedError
 from scrapers.backfill import backfill_twse_monthly, backfill_institutional, backfill_margin, backfill_yfinance
 from processors.changes import detect_changes
-from processors.performance import calc_sector_performance, calc_meta_performance, calc_universe_performance, calc_cumulative_meta, calc_meta_signals, calc_meta_chips_signals, calc_stock_sparklines, get_stock_chips_ranking, get_margin_divergence, calc_weekly_rank
+from processors.performance import calc_sector_performance, calc_meta_performance, calc_universe_performance, calc_cumulative_meta, calc_meta_signals, calc_meta_chips_signals, calc_stock_sparklines, get_stock_chips_ranking, get_margin_divergence
 from storage.csv_writer import CsvWriter
 from export.html_generator import generate as generate_html
 from export.chips_generator import generate as generate_chips_html
-from export.data_generator import generate as generate_data_json
 from screener.database import init_db, import_csv_prices, import_sector_stocks, get_chips_today
 from screener.institutional import scan_institutional
 from screener.signals import scan_volume_turnover
@@ -149,11 +148,9 @@ def _update_chips_db(trade_date: date, stock_ids: list) -> None:
 def _push_html(trade_date: date) -> None:
     try:
         import os
-        files_to_add = ["docs/index.html", "docs/chips.html", "docs/data.json"]
+        files_to_add = ["docs/index.html", "docs/chips.html"]
         if os.path.exists("docs/patterns.html"):
             files_to_add.append("docs/patterns.html")
-        if os.path.exists("docs/assets"):
-            files_to_add.append("docs/assets")
         subprocess.run(["git", "add"] + files_to_add, check=True)
         result = subprocess.run(["git", "diff", "--cached", "--quiet"])
         if result.returncode != 0:
@@ -454,17 +451,18 @@ def run(trade_date: date = None, realtime: bool = False) -> None:
             logger.warning("巨量換手掃描失敗: %s", exc)
             vol_signals = []
 
-        weekly_rank = calc_weekly_rank(universe_df) if universe_df is not None else {}
-        generate_data_json(trade_date,
-                            meta_perf=meta_perf,
-                            universe_df=universe_df,
-                            prices_df=prices_df if prices_df is not None else pd.DataFrame(),
-                            chips_df=chips_df,
-                            cum_data=cum_data,
-                            meta_signals=meta_signals,
-                            weekly_rank=weekly_rank,
-                            stock_sparklines=stock_sparklines)
-        logger.info("data.json generated → docs/data.json")
+        generate_html(trade_date, pd.DataFrame(perf) if perf else pd.DataFrame(),
+                      sectors_df=sectors_df,
+                      prices_df=prices_df if prices_df is not None else pd.DataFrame(),
+                      chips_df=chips_df,
+                      meta_perf=meta_perf,
+                      universe_df=universe_df,
+                      cum_data=cum_data,
+                      meta_signals=meta_signals,
+                      meta_chips=meta_chips,
+                      stock_sparklines=stock_sparklines,
+                      vol_turnover=vol_signals)
+        logger.info("HTML generated → docs/index.html")
 
         try:
             inst_results = scan_institutional(trade_date.isoformat(), lookback=40)

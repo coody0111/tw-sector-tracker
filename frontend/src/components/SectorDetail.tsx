@@ -17,12 +17,13 @@ export function SectorDetail({ meta }: SectorDetailProps) {
 
   const groups = sortStocksWithinGroups(meta.subGroups)
   const sign = meta.avgChangePct >= 0 ? '+' : ''
+  const headerColor = meta.avgChangePct >= 0 ? '#f87171' : '#4ade80'
 
   return (
     <div className="sector-detail">
       <div className="sector-detail-header">
         <h2>{meta.name}</h2>
-        <span>
+        <span style={{ color: headerColor }}>
           {sign}
           {meta.avgChangePct.toFixed(2)}%
         </span>
@@ -33,6 +34,7 @@ export function SectorDetail({ meta }: SectorDetailProps) {
           <div className="sub-group-label">{group.name}</div>
           {group.stocks.map((stock) => {
             const pctSign = (stock.changePct ?? 0) >= 0 ? '+' : ''
+            const pctColor = (stock.changePct ?? 0) >= 0 ? '#f87171' : '#4ade80'
             return (
               <div
                 key={stock.id}
@@ -43,7 +45,7 @@ export function SectorDetail({ meta }: SectorDetailProps) {
                 <span className="stock-id">{stock.id}</span>
                 <span className="stock-name">{stock.name}</span>
                 <span className="stock-close">{stock.close ?? '—'}</span>
-                <span className="stock-pct">
+                <span className="stock-pct" style={{ color: stock.changePct != null ? pctColor : undefined }}>
                   {stock.changePct != null ? `${pctSign}${stock.changePct.toFixed(2)}%` : '—'}
                 </span>
               </div>

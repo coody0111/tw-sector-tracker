@@ -1,34 +1,274 @@
+* { box-sizing: border-box; }
+
 body {
   margin: 0;
-  background: #0b0f18;
+  font-family: "Fira Sans", -apple-system, "Segoe UI", sans-serif;
+  background: #020617;
   color: #e2e8f0;
-  font-family: -apple-system, "Segoe UI", sans-serif;
 }
 
-.app { padding: 12px 20px; }
-.market-header { display: flex; gap: 20px; align-items: center; margin-bottom: 16px; }
-.layout-desktop { display: flex; gap: 16px; }
-.layout-mobile { display: flex; flex-direction: column; }
-.rank-list { width: 280px; flex-shrink: 0; }
+.mono,
+.rank-pct,
+.stock-close,
+.stock-pct,
+.modal-price span,
+.chip {
+  font-family: "Fira Code", monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.status {
+  padding: 40px 20px;
+  color: #64748b;
+  font-size: .9rem;
+}
+.status-error { color: #f87171; }
+
+/* ── App shell ─────────────────────────────────────────── */
+.app { padding: 12px 20px 40px; max-width: 1400px; margin: 0 auto; }
+
+.market-header {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+  padding: 12px 16px;
+  background: #0a0e1a;
+  border: 1px solid #1e293b;
+  border-radius: 10px;
+}
+.market-header > span:first-child {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #f1f5f9;
+}
+.market-header > span:nth-child(2) {
+  font-family: "Fira Code", monospace;
+  font-size: 1.1rem;
+  font-weight: 800;
+  color: #c49090;
+  text-shadow: 0 0 12px rgba(196, 144, 144, .35);
+}
+
+.layout-desktop { display: flex; gap: 16px; align-items: flex-start; }
+.layout-mobile { display: flex; flex-direction: column; gap: 14px; }
+
+/* ── Rank list (sidebar) ───────────────────────────────── */
+.rank-list {
+  width: 300px;
+  flex-shrink: 0;
+  background: #080c14;
+  border: 1px solid #1a2436;
+  border-radius: 10px;
+  overflow: hidden;
+}
 .layout-mobile .rank-list { width: 100%; }
-.rank-list ul { list-style: none; margin: 0; padding: 0; }
-.rank-list li { padding: 6px 8px; border-bottom: 1px solid #1e293b; border-left: 3px solid transparent; }
-.rank-list li.active { background: rgba(255,255,255,.05); }
+
+.rank-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  font-size: .72rem;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: #475569;
+  border-bottom: 1px solid #1a2436;
+}
+.rank-list-header button {
+  background: none;
+  border: 1px solid #1a2436;
+  color: #64748b;
+  border-radius: 6px;
+  padding: 2px 8px;
+  cursor: pointer;
+  font-size: .75rem;
+  transition: all .15s;
+}
+.rank-list-header button:hover { border-color: #334155; color: #94a3b8; }
+
+.rank-list ul { list-style: none; margin: 0; padding: 0; max-height: 78vh; overflow-y: auto; }
+.rank-list li {
+  padding: 8px 14px;
+  border-bottom: 1px solid #04070f;
+  border-left: 3px solid transparent;
+  cursor: pointer;
+  transition: background .12s, border-color .12s;
+}
+.rank-list li:hover { background: #0d1525; }
+.rank-list li.active { background: #0d1525; border-left-color: #475569; }
 .rank-list li.strip-weak { border-left-color: #475569; }
-.rank-list li.strip-strong { border-left-color: #f97316; background: rgba(124,45,18,.12); }
+.rank-list li.strip-strong { border-left-color: #fb923c; background: rgba(124, 45, 18, .12); }
+.rank-list li.strip-strong:hover { background: rgba(124, 45, 18, .2); }
+
 .rank-row-main { display: flex; gap: 10px; align-items: baseline; }
-.rank-num { font-weight: 800; width: 24px; }
-.rank-name { flex: 1; }
-.sector-detail { flex: 1; }
-.sector-detail-empty { opacity: .5; padding: 20px; }
-.sub-group-label { color: #64748b; font-size: .7rem; text-transform: uppercase; margin: 10px 0 4px; border-bottom: 1px solid #1e293b; padding-bottom: 2px; }
-.stock-row { display: flex; gap: 10px; padding: 4px 0; }
-.signal-chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0; }
-.chip { border-radius: 12px; padding: 3px 9px; font-size: .78rem; }
-.chip-rank-daily { background: rgba(248,113,113,.15); border: 1px solid rgba(248,113,113,.4); color: #f87171; font-weight: 800; }
-.chip-rank-weekly { background: rgba(248,113,113,.1); border: 1px solid rgba(248,113,113,.3); color: #fca5a5; font-weight: 800; }
-.chip-signal { background: rgba(251,146,60,.15); border: 1px solid rgba(251,146,60,.35); color: #fdba74; }
-.modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; }
-.modal { background: #0f1624; border: 1px solid #1e293b; border-radius: 10px; padding: 16px; min-width: 280px; }
-.modal-sparkline { display: flex; align-items: center; gap: 3px; height: 40px; margin: 10px 0; }
-.search-bar { margin-left: auto; background: #0a0e18; border: 1px solid #1e293b; color: #e2e8f0; padding: 4px 8px; border-radius: 6px; }
+.rank-num { font-family: "Fira Code", monospace; font-weight: 700; font-size: .72rem; color: #475569; width: 20px; }
+.rank-name { flex: 1; font-size: .88rem; font-weight: 500; color: #e2e8f0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rank-pct { font-size: .9rem; font-weight: 800; white-space: nowrap; }
+
+/* ── Signal chips ──────────────────────────────────────── */
+.signal-chips { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 6px; }
+.chip {
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: .62rem;
+  font-weight: 600;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+.chip-label { opacity: .7; margin-right: 2px; font-weight: 500; }
+.chip-rank-daily { color: #f87171; background: rgba(127, 29, 29, .18); border-color: rgba(127, 29, 29, .4); }
+.chip-rank-weekly { color: #fca5a5; background: rgba(127, 29, 29, .1); border-color: rgba(127, 29, 29, .3); }
+.chip-signal { color: #fdba74; background: rgba(251, 146, 60, .15); border-color: rgba(251, 146, 60, .35); }
+[data-intensity="strong"] .chip { font-weight: 800; }
+
+/* ── Sector detail (main panel) ───────────────────────── */
+.sector-detail {
+  flex: 1;
+  min-width: 0;
+  background: #080c14;
+  border: 1px solid #1a2436;
+  border-radius: 10px;
+  padding: 16px 18px;
+}
+.sector-detail-empty {
+  flex: 1;
+  padding: 40px 20px;
+  text-align: center;
+  color: #475569;
+  font-size: .85rem;
+  background: #080c14;
+  border: 1px solid #1a2436;
+  border-radius: 10px;
+}
+.sector-detail-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+.sector-detail-header h2 { margin: 0; font-size: 1.05rem; font-weight: 600; color: #f1f5f9; }
+.sector-detail-header span {
+  font-family: "Fira Code", monospace;
+  font-size: 1.15rem;
+  font-weight: 800;
+}
+
+.sub-group-label {
+  color: #475569;
+  font-size: .68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  margin: 16px 0 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid #1a2436;
+}
+.sub-group:first-of-type .sub-group-label { margin-top: 12px; }
+
+.stock-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 7px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background .12s;
+}
+.stock-row:hover { background: #0d1525; }
+.stock-id { font-family: "Fira Code", monospace; font-size: .72rem; color: #475569; width: 44px; flex-shrink: 0; }
+.stock-name { flex: 1; font-size: .85rem; color: #94a3b8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stock-close { font-size: .85rem; color: #cbd5e1; font-weight: 600; }
+.stock-pct { font-size: .85rem; font-weight: 700; min-width: 62px; text-align: right; }
+
+/* ── Search ────────────────────────────────────────────── */
+.search-bar {
+  margin-left: auto;
+  background: #080c14;
+  border: 1px solid #1a2436;
+  color: #e2e8f0;
+  padding: 7px 12px;
+  border-radius: 8px;
+  font-family: "Fira Sans", sans-serif;
+  font-size: .82rem;
+  outline: none;
+  min-width: 220px;
+  transition: border-color .15s;
+}
+.search-bar:focus { border-color: #475569; box-shadow: 0 0 0 2px rgba(71, 85, 105, .2); }
+.search-bar::placeholder { color: #475569; }
+
+/* ── Stock modal ───────────────────────────────────────── */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  background: rgba(0, 0, 0, .8);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+.modal {
+  position: relative;
+  background: #080c14;
+  border: 1px solid #1a2436;
+  border-radius: 14px;
+  width: 100%;
+  max-width: 400px;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 32px 80px rgba(0, 0, 0, .8);
+  padding: 0;
+}
+.modal button[aria-label="關閉"] {
+  position: absolute;
+  top: 10px;
+  right: 14px;
+  background: none;
+  border: none;
+  color: #475569;
+  font-size: 1.3rem;
+  cursor: pointer;
+  line-height: 1;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: all .15s;
+}
+.modal button[aria-label="關閉"]:hover { color: #94a3b8; background: #1a2436; }
+.modal-header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 16px 40px 10px 18px;
+  border-bottom: 1px solid #1a2436;
+}
+.modal-header > span:first-child { font-family: "Fira Code", monospace; font-size: 1.1rem; font-weight: 700; color: #e2e8f0; }
+.modal-header > span:last-child { font-size: .9rem; color: #64748b; }
+.modal-price {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 12px 18px 8px;
+}
+.modal-price span:first-child { font-family: "Fira Code", monospace; font-size: 1.6rem; font-weight: 800; color: #f1f5f9; }
+.modal-price span:last-child { font-size: 1rem; font-weight: 700; }
+.modal-sparkline { padding: 4px 18px 8px; display: flex; align-items: center; gap: 3px; height: 40px; margin: 0; }
+.modal-chips { padding: 10px 18px 18px; }
+.modal-chips > div {
+  padding: 6px 0;
+  border-bottom: 1px solid #04070f;
+  font-size: .85rem;
+  color: #cbd5e1;
+}
+.modal-chips > div:last-child { border-bottom: none; }
+
+/* ── RWD ───────────────────────────────────────────────── */
+@media (max-width: 540px) {
+  .app { padding: 12px; }
+  .market-header { padding: 10px 12px; gap: 12px; }
+  .search-bar { min-width: 0; flex: 1 1 100%; order: 3; }
+}

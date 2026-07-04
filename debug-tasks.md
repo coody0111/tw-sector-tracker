@@ -1,3 +1,66 @@
+## [2026-07-05] 首頁改回舊版 html_generator 產生，React 前端整個移到獨立分支（Cody 決定復原）
+
+### 改了什麼
+- 異動檔案：`main.py`、`processors/performance.py`、`tests/test_processors.py`；刪除
+  `frontend/`、`export/data_generator.py`、`tests/test_data_generator.py`、`docs/data.json`、
+  `docs/assets/`；`docs/index.html` 重新用舊版產生器產生
+
+**背景**：Cody 實際打開新版 React 首頁後，覺得視覺比舊版陽春很多（Task 14 當初只做了最基本的
+版面 CSS，沒有移植舊版的字體/卡片質感/hover 效果），且 React 需要多一道 `npm run build` 才能
+部署，覺得不划算，決定整個復原成舊版 `export/html_generator.py` 直接產生 `docs/index.html` 的
+方式。
+
+**怎麼做的**：
+1. 先把當時做到一半、還沒 commit 的視覺調整（字體/配色移植）commit 起來，確保不遺失
+2. 從 master 當下的狀態切一個 `react-frontend-redesign` 分支，**完整保留**這次前端重構的所有
+   歷史（Task 1-14 全部 commit、我做的視覺調整 wip），沒有任何東西被刪除或遺失，只是不再是
+   master 的一部分
+3. master 上：
+   - `main.py` 恢復呼叫 `generate_html()`（舊版單檔 HTML 產生器），移除
+     `generate_data_json()`／`calc_weekly_rank` 的接線和 `_push_html()` 對 `docs/data.json`／
+     `docs/assets` 的處理
+   - 刪除 `frontend/`、`export/data_generator.py`、`tests/test_data_generator.py`、
+     `docs/data.json`、`docs/assets/`（全部在 `react-frontend-redesign` 分支上還在）
+   - `processors/performance.py` 移除只有前端在用的 `calc_weekly_rank()`，一併移除對應測試
+   - `docs/index.html` 用舊版產生器重新產生一份有效內容（避免殘留參照到已刪除 JS/CSS 資產的
+     破損版本）
+
+**過程中的意外插曲（結果是好的，但記錄下來避免以後誤會）**：
+在我改到一半、`git rm --cached` 已經把 `frontend/`／`docs/assets` 等的刪除**暫存**在 git index
+但還沒 commit 的當下，Cody 在另一個 terminal 剛好也跑了 `python main.py`。因為 Python 是直接讀
+磁碟上的檔案（不是讀 git 已 commit 的版本），那次執行用的是我當下已經改好、但還沒 commit 的新版
+`main.py`（已經改回呼叫 `generate_html()`），所以順利用舊版產生器重新產生了 `docs/index.html`。
+但 `_push_html()` 的 `git commit` 沒有限定檔案、會把當下 git index 裡「所有」已暫存的變更一起
+提交——結果就是 Cody 那次的 `update: sector performance 2026-07-03` 自動 commit，意外地把我
+`git rm --cached` 暫存的刪除也一起帶進去 push 上去了。事後檢查確認結果是對的（`frontend/`／
+`data_generator.py`／`docs/data.json`／`docs/assets` 確實被刪除，`docs/index.html` 確實是用舊
+版產生器產生的新內容），但這提醒了一件事：**`_push_html()` 的 `git commit` 沒有限定檔案範圍，
+只要 index 裡當下有任何暫存變更（不管是誰、什麼時候 staged 的），下一次 `python main.py` 跑完
+都會被一起打包 commit+push**，如果之後又遇到類似「手動 `git add`/`git rm --cached` 到一半、
+main.py 剛好被跑」的情況，要注意這個副作用。
+
+### 資料來源相關（如有異動）
+- 不適用——這是首頁呈現方式的復原，不是資料抓取邏輯，TWSE/TPEx/FinMind 規則沒有變動
+
+### 請 Debugger 驗證
+- [ ] 確認 `docs/index.html` 現在是舊版單檔 HTML（有 `mc-card`／`stock-card` 等舊版 class），
+  不再參照任何 `docs/assets/*.js`／`*.css`
+- [ ] 確認 `docs/chips.html`、`docs/patterns.html` 沒有受影響（這次改動不動它們）
+- [ ] 全專案 75 個測試都過（移除 `calc_weekly_rank` 相關 2 個測試後，78→75，屬預期減少，不是
+  漏測）
+- [ ] 確認 `react-frontend-redesign` 分支確實完整保留了 Task 1-14 的所有歷史（`git log
+  react-frontend-redesign --oneline` 應該看得到完整的 scaffold/元件/測試 commit 序列），沒有
+  任何東西真的遺失
+
+### 特別注意
+- 如果以後想重啟 React 前端這個方向，`react-frontend-redesign` 分支就是完整的起點，不用重做
+- `main.py::_push_html()` 的 `git commit` 沒有限定檔案範圍這件事本身不是這次改動引入的新問題
+  （原本就這樣寫），只是這次意外暴露出來；如果覺得這個行為本身有風險（例如以後又不小心把不相關
+  的暫存變更一起 commit 上去），可以考慮改成 `git commit -- <files_to_add 的內容>` 限定範圍，
+  但這次沒有動它，只是先記錄下來
+
+---
+
 ## [2026-07-05] 修 `python main.py --realtime` crash：`TypeError: boolean value of NA is ambiguous`
 
 ### 改了什麼

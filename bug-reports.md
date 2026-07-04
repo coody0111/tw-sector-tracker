@@ -1,3 +1,21 @@
+## [2026-07-05] 驗證 - `--realtime` crash 修復（pd.NA 布林值判斷，commit `e8dd27d`）
+
+### 驗證方式
+- 查 git log 確認目前 code 狀態；跑全專案測試；追 `get_chips_today()` 唯一消費端的實際程式碼
+
+### ✅ 驗證通過（三項checklist）
+- **全專案測試**：75 個測試（不是原本認知的 79 個——少的 4 個是 `tests/test_data_generator.py`，隨整支檔案一起被 revert 掉了），**74 過、1 個既有環境問題**（`test_scan_patterns_returns_list` 需要本機真的有 `data/screener.db`，debug 資料夾沒有這檔案，跟本次修復無關，籌碼頁 review 時就發現過同一個環境限制）。
+- **`--realtime` 不會再 crash**：不需要真的重跑一次去賭，因為原本會炸的程式碼路徑已經不存在——中途發生 commit `71aa41e`「首頁 index.html 改回 html_generator.py 產生，React 前端移到 react-frontend-redesign 分支」，`export/data_generator.py`（這次 crash 修復的檔案）整支被刪除。`--realtime` 跟平常模式共用同一個 `run()` 函式，都是呼叫 `generate_html()`（`export/html_generator.py`），`main.py` 現在完全沒有任何地方 import 或呼叫 `data_generator`，原本的 crash 現場已經從程式碼裡消失，邏輯上不可能再重現同一個 bug。
+- **檢查其他呼叫端有沒有同樣的 `... or 0` 危險寫法**：追了 `get_chips_today()`（FULL OUTER JOIN 那個函式）唯一的消費端 `main.py:430 chips_df = get_chips_today(...) → generate_html()`。`html_generator.py` 本來就用安全的 `_na(v): return 0 if (v is None or pd.isna(v)) else v`（第 196、330、513 行各自重複定義一次，小小的重複但邏輯是對的），沒有沿用 `data_generator.py` 那種危險的 `x.get(...) or 0`。另外也查了 `chips_generator.py:638`、`screener/institutional.py:247` 類似的 `or 0` 寫法，但那邊資料源是單一表查詢（不是 FULL OUTER JOIN），欄位由 `_parse_num()` 保證一定是實際 int、經過 `int(t_net) if t_net is not None else None` 轉換成 plain Python 型別，不會出現 `pd.NA`，風險跟 `get_chips_today()` 的 join 情境不同。
+
+### 🟡 建議改善（不阻擋）
+- `html_generator.py` 的 `_na()` helper 在同一支檔案裡重複定義 3 次（196/330/513 行），完全一樣的一行邏輯，可以抽成 module-level 函式，避免以後改邏輯漏改其中一處。
+
+### 結論
+- [x] 可以繼續下一個任務——三項驗證都通過，這則任務可以標記完成。不是因為原本的 fix 被實際驗證跑過，而是上層決定（revert 前端）連帶把會炸的程式碼整支清掉了，原始 crash 場景已經不可能重現。
+
+---
+
 ## [2026-07-04] 報告＋修復 - Section 8「大戶持倉」永遠空白（Cody 授權 Debugger 直接修）
 
 ### 🔴 找到的問題

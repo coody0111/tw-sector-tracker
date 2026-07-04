@@ -43,14 +43,20 @@ main.py 剛好被跑」的情況，要注意這個副作用。
 - 不適用——這是首頁呈現方式的復原，不是資料抓取邏輯，TWSE/TPEx/FinMind 規則沒有變動
 
 ### 請 Debugger 驗證
-- [ ] 確認 `docs/index.html` 現在是舊版單檔 HTML（有 `mc-card`／`stock-card` 等舊版 class），
+- [x] 確認 `docs/index.html` 現在是舊版單檔 HTML（有 `mc-card`／`stock-card` 等舊版 class），
   不再參照任何 `docs/assets/*.js`／`*.css`
-- [ ] 確認 `docs/chips.html`、`docs/patterns.html` 沒有受影響（這次改動不動它們）
-- [ ] 全專案 75 個測試都過（移除 `calc_weekly_rank` 相關 2 個測試後，78→75，屬預期減少，不是
+  - ✅ Debugger 2026-07-05：`grep` 確認有 `mc-card`／`stock-card`，沒有任何 `docs/assets` 參照。
+- [x] 確認 `docs/chips.html`、`docs/patterns.html` 沒有受影響（這次改動不動它們）
+  - ✅ Debugger 2026-07-05：`git show --stat 71aa41e` 這兩個檔案完全沒出現在 diff 裡，確認沒動到。
+- [x] 全專案 75 個測試都過（移除 `calc_weekly_rank` 相關 2 個測試後，78→75，屬預期減少，不是
   漏測）
-- [ ] 確認 `react-frontend-redesign` 分支確實完整保留了 Task 1-14 的所有歷史（`git log
+  - ✅ Debugger 2026-07-05：74 過、1 個既有環境限制（需要本機 `data/screener.db`，debug 資料夾
+    沒有，跟這次改動無關），詳見下方 `--realtime crash` 那則任務的同項驗證。
+- [x] 確認 `react-frontend-redesign` 分支確實完整保留了 Task 1-14 的所有歷史（`git log
   react-frontend-redesign --oneline` 應該看得到完整的 scaffold/元件/測試 commit 序列），沒有
   任何東西真的遺失
+  - ✅ Debugger 2026-07-05：該分支（本機＋遠端都有）log 裡數到 30 個對應 Task/feat commit，完整
+    保留，隨時可以切回去繼續。
 
 ### 特別注意
 - 如果以後想重啟 React 前端這個方向，`react-frontend-redesign` 分支就是完整的起點，不用重做
@@ -99,11 +105,24 @@ BIGINT 欄位變成 **nullable `pd.NA`**（不是 `float('nan')`）。`data_gene
 - 不適用——這是資料層 JSON 序列化的防呆修復，不是資料抓取邏輯，TWSE/TPEx/FinMind 規則沒變動
 
 ### 請 Debugger 驗證
-- [ ] 全專案測試（79 個，含新增的 1 個）都過，Debugger 端建議重跑一次確認
-- [ ] 建議 Cody 重新跑一次 `python main.py --realtime` 確認不再 crash、`docs/data.json` 正常產出
-- [ ] 檢查 `screener/database.py::get_chips_today()` FULL OUTER JOIN 是否還有其他呼叫端用同樣
+- [x] 全專案測試（79 個，含新增的 1 個）都過，Debugger 端建議重跑一次確認
+  - ✅ Debugger 2026-07-05：現在是 75 個（`data_generator.py` 隨前端 revert 一起被刪，少的 4
+    個測試是預期減少）。74 過、1 個既有環境限制（`test_scan_patterns_returns_list` 需要本機真
+    的有 `data/screener.db`，debug 資料夾沒有，跟本次修復無關）。
+- [x] 建議 Cody 重新跑一次 `python main.py --realtime` 確認不再 crash、`docs/data.json` 正常產出
+  - ✅ Debugger 2026-07-05：不需要真的重跑去賭——`export/data_generator.py`（原本會炸的檔案）
+    已經隨 commit `71aa41e`（首頁前端 revert）整支刪除，`--realtime` 現在跟平常模式共用同一個
+    `run()`，都是呼叫 `generate_html()`，程式碼裡已經沒有任何地方會走到原本的 crash 路徑。
+- [x] 檢查 `screener/database.py::get_chips_today()` FULL OUTER JOIN 是否還有其他呼叫端用同樣
   `... or 0` 寫法處理這張表的欄位（目前只查到 `data_generator.py` 這一處用到 `margin_balance`
   等欄位，但如果之後有新呼叫端消費這張表，要留意同樣的陷阱）
+  - ✅ Debugger 2026-07-05：`get_chips_today()` 現在唯一消費端是 `main.py:430 → generate_html()`
+    （`export/html_generator.py`），本來就用安全的 `_na(v): return 0 if (v is None or
+    pd.isna(v)) else v`（196/330/513 行，三處重複定義但邏輯正確），沒有沿用危險寫法。另外查了
+    `chips_generator.py:638`、`institutional.py:247` 類似的 `or 0`，但那邊資料源是單一表查詢、
+    欄位經 `_parse_num()`/`int(...) if ... is not None else None` 保證是 plain int，不是
+    FULL OUTER JOIN 產生的 nullable 型別，風險不同，不用比照修改。🟡 `_na()` 重複定義 3 次可以
+    抽成共用函式，屬非阻擋建議。
 
 ### 特別注意
 - 一般寫法上 `x or default` 對「缺值」的防呆假設是「缺值會是 falsy 的東西（`None`/`0`/

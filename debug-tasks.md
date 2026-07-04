@@ -1,3 +1,41 @@
+## [2026-07-04] index 首頁前端重構完成（Vite + React + TypeScript，取代舊版 html_generator 產出）
+
+### 改了什麼
+- 對照 `docs/superpowers/plans/2026-07-02-index-frontend-redesign.md` Task 1-14，全部 Step 1-4（TDD：寫測試→跑失敗→實作→跑通過）已完成並逐一 commit。Task 14 Step 5（瀏覽器手動驗證）刻意留給 Cody/Debugger，不是自動化步驟。
+- **資料層**：
+  - `processors/performance.py::calc_weekly_rank()`（新增）— 滾動 5 日族群排名比較，供「排名升降」訊號使用
+  - `export/data_generator.py`（新增）— 產生 `docs/data.json`，取代舊版直接產 `docs/index.html` 的 `html_generator.generate()` 呼叫
+  - `main.py` 改呼叫 `data_generator` 而不是舊版 index HTML 產生邏輯；`_push_html()` 一併把新產出的 `docs/data.json`、`docs/assets/*` 納入 push 範圍
+  - **注意**：`docs/chips.html`、`docs/patterns.html` 這兩個頁面**沒有動**，仍走舊版 `html_generator` 路徑，只有首頁 `docs/index.html` 改走新的 React 產出
+- **前端（`frontend/` 目錄，全新專案）**：
+  - Vite + React + TypeScript + Vitest scaffold（`frontend/package.json`、`tsconfig*.json`、`vite.config.ts`）
+  - `types.ts` + `useSectorData` hook：抓 `data.json` 並轉型別
+  - 純函式：`sortMetaSectors`（族群排序）、`sortStocksWithinGroups`（子族群內個股排序）
+  - 元件：`SignalChips`（日/週排名升降 + 連漲連跌 + 量能異常 badge + sparkline）、`RankList`（左側族群列表，含訊號色條強度）、`SectorDetail`（依子族群分組列出個股）、`StockModal`（點個股彈窗，沿用原本 sparkline + 籌碼明細）、`SearchBar`（依族群名或任一子族群個股 id/名稱過濾）
+  - `App.tsx` 用 `useMediaQuery` 做響應式雙模式（桌機左右分欄／手機單欄）串起以上所有元件
+  - `App.css` 補齊基本版面 CSS（沿用 `DESIGN.md` 既有配色，沒有重新設計視覺風格）
+  - 中途有一段是從 `worktree-frontend-redesign` 分支 merge 回來的 Task 4-7 部分進度（commit `50054e4`），取代本地重複 scaffold，過程中沒有邏輯衝突
+
+### 資料來源相關（如有異動）
+- 不適用 — 這次改動是「資料怎麼呈現」（HTML 產生方式），不是「資料怎麼抓」，TWSE/TPEx/FinMind 資料來源規則沒有變動
+
+### 請 Debugger 驗證
+- [ ] **Task 14 Step 5 手動驗證**（plan 裡明確留給 Cody/Debugger 的步驟，不是我漏做）：
+  1. `python main.py`（確認會產生新的 `docs/data.json`）
+  2. `cd frontend && npm run build`
+  3. 瀏覽器打開 `docs/index.html`（或 `python -m http.server` 在 `docs/` 下起本機伺服器），確認：
+     - 桌機寬度看得到左右分欄、縮小視窗看得到單欄模式
+     - 點族群能看到個股、點個股能開 modal
+     - 搜尋能正確過濾族群/個股
+- [ ] 確認 `docs/chips.html`、`docs/patterns.html`、`docs/data.json` 這幾個舊版產出檔案沒有被新流程誤動到（Task 14 Step 2 的預期行為是「這三者不應變動」，但沒有自動化測試鎖住這件事，建議人工抽查一次 git diff）
+- [ ] 全專案 78 個 Python 測試 + 前端 Vitest 套件都過（Developer 端已確認過，Debugger 端建議重跑一次確認環境一致）
+
+### 特別注意
+- 這是**新的資料流分岔點**：首頁不再是 Python 直接產生 HTML 字串，而是 Python 產 JSON → 前端 build 產靜態頁。以後改首頁視覺/互動，要改 `frontend/src/` 底下的 React 元件，不是 `export/html_generator.py`（那支現在只服務 `chips.html`/`patterns.html`）
+- `frontend/` 底下有自己的 `package.json`／`node_modules`，跟專案原本的 Python 依賴（`requirements.txt`）是分開的兩套環境，Debugger 驗證時記得 `cd frontend && npm install`（如果還沒裝過）
+
+---
+
 ## [2026-07-03] GitHub Pages 一直沒更新：改用 GitHub Actions 部署，取代卡死的舊版 Jekyll build
 
 ### 改了什麼

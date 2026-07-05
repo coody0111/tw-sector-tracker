@@ -1,6 +1,6 @@
 from datetime import date
 
-from export.chips_generator import _esc, _meta_link, _stock_rank_table, generate
+from export.chips_generator import _coverage_flag, _esc, _meta_link, _stock_rank_table, generate
 
 
 def test_esc_escapes_html_special_characters():
@@ -54,3 +54,37 @@ def test_generate_returns_true_and_writes_when_data_present(tmp_path):
 
     assert result is True
     assert output_path.exists()
+
+
+def test_coverage_flag_empty_when_not_partial():
+    assert _coverage_flag({"partial_coverage": False}) == ""
+    assert _coverage_flag({}) == ""
+
+
+def test_coverage_flag_renders_warning_when_partial():
+    out = _coverage_flag({"partial_coverage": True})
+    assert "⚠" in out
+    assert "部分交易所" in out
+
+
+def test_generate_shows_coverage_warning_for_partial_meta_in_section1(tmp_path):
+    """族群當天 partial_coverage=True（例如 TPEx 抓取失敗）時，Section 1
+    連買/連賣表格裡該族群那一列要顯示警示 icon，讓使用者知道數字可能不完整。"""
+    output_path = tmp_path / "chips.html"
+    meta_chips = {
+        "缺資料族群": {"foreign_streak": 3, "foreign_net_today": 100, "trust_net_today": 50,
+                     "partial_coverage": True},
+        "正常族群": {"foreign_streak": 2, "foreign_net_today": 200, "trust_net_today": 80,
+                   "partial_coverage": False},
+    }
+
+    generate(date(2026, 7, 5), meta_chips, {}, output_path=str(output_path))
+    html = output_path.read_text(encoding="utf-8")
+
+    # "部分交易所" 只會出現在 _coverage_flag() 的 title 屬性裡（頁面其他地方的 "⚠"
+    # 是導覽列/Section 7 固定文字，跟這個警示 icon 無關，所以不能用 "⚠" 計數，
+    # 要用這個 _coverage_flag 專屬的字串，才能準確驗證「只有缺資料的族群被標記」。
+    # 「缺資料族群」的 foreign_streak=3（正值）同時符合 Section 1（連買族群表）跟
+    # Section 5（籌碼集中度表，無條件列出全部 meta_chips）的收錄條件，兩處都該
+    # 各自顯示一次警示，所以預期是 2 次，不是 1 次。
+    assert html.count("部分交易所") == 2

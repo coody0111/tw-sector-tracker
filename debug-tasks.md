@@ -1,3 +1,76 @@
+## [2026-07-06] 籌碼面 code review 剩餘兩項：拆 chips_generator.py::generate() + exchange-aware 防呆
+
+### 改了什麼
+- 異動檔案：`export/chips_generator.py`、`processors/performance.py`、
+  `tests/test_chips_generator.py`、`tests/test_processors.py`
+
+**背景**：接續 2026-07-05 那次籌碼面 review 修復的三項，這次處理剩下範圍較大的兩項。
+
+**1. 拆 `chips_generator.py::generate()`（原本約 360 行的單一函式，整個檔案卡在 800 行上限）**
+把 Section 1/2/3/3.5/4/5/6/7/8 全部拆成獨立的 `_build_section1()`～`_build_section8()`
+（外加 `_build_exchange_ui()` 處理交易所篩選 UI），`generate()` 現在只剩下呼叫這些函式
+組裝最終 HTML，本體約 100 行（含 HTML 樣板字串）。
+- **純重構，沒有改變任何邏輯**：用同一組合成測試資料，分別餵給重構前（git HEAD 版本）
+  跟重構後的 `generate()`，逐 byte 比對輸出 HTML，結果**完全相同**，確認這次只是搬動
+  程式碼、沒有動到行為
+- 拆出來的函式全部維持模組層級（不是巢狀 closure），只有 `_streak_row`／`_trust_row`／
+  `_dip_buy_row`／`_pct_cell`／`_is_stock` 這幾個仍是各自 section 函式內的區域 closure
+  （因為只在該 section 用得到，拆出去反而增加不必要的參數傳遞）
+
+**2. 族群層級籌碼數字的 exchange-aware 防呆（`partial_coverage` 旗標）**
+之前只修過「外資買超比例」的分母（`foreign_buy_ratio`，動態排除當天缺資料的交易所），
+但 `foreign_net_today`／`trust_net_today`／`foreign_streak`／`trust_streak`／
+`margin_change_today`／`margin_balance_today` 這些數字本身沒有比照辦理——TPEx 抓取
+失敗時，這些數字會悄悄變成「只反映 TWSE 那一半」，頁面上完全看不出來。
+- `processors/performance.py::calc_meta_chips_signals()` 新增 `meta_all_exchanges`
+  （每個族群「實際橫跨」的交易所，來自 universe 本身的成分股分布，不是憑空假設全部
+  族群都有 TWSE+TPEx）跟 `margin_covered_by_meta`（today 這天 margin 表實際有資料的
+  交易所），跟 institutional 既有的 `covered_exchanges` 一起比較。任一邊「族群應該有
+  的交易所」缺席，就標記該族群 `partial_coverage: True`
+  - **特別處理單一交易所族群**：如果某族群本來就只有 TWSE 成分股（沒有任何 TPEx
+    個股），`meta_all_exchanges` 只會是 `{"TWSE"}`，今天只有 TWSE 資料是正常狀態，
+    不會被誤判成「涵蓋不足」——這跟「族群明明橫跨兩所、但當天某一所資料源失敗」是
+    兩種不同情況，分開測試驗證過
+- `export/chips_generator.py` 新增 `_coverage_flag(data)` helper，`partial_coverage`
+  為真時在族群名稱旁加一個 ⚠ icon（hover 顯示提示文字），套用到 Section 1（外資連買/
+  連賣）、Section 3（投信加碼彙總）、Section 3.5（越跌越買）、Section 5（籌碼集中度）
+  四個會顯示這些數字的表格
+- 新增測試：`processors/performance.py` 4 個（全涵蓋/TPEx institutional 缺失/TPEx
+  margin 缺失/單一交易所族群不誤判），`chips_generator.py` 3 個（flag 本身邏輯 + 
+  實際 generate() 輸出驗證，含驗證「正常族群不會被誤標」）
+- **注意**：`calc_meta_chips_signals()` 原本完全沒有任何測試（這次順便補上第一批），
+  這次新增的 4 個測試也涵蓋了既有的「分母動態排除」行為，不是只測新功能
+
+### 資料來源相關（如有異動）
+- 不適用——這次是籌碼資料呈現層的防呆修復跟純重構，不是資料抓取邏輯，
+  TWSE/TPEx/FinMind 規則沒有變動
+
+### 請 Debugger 驗證
+- [ ] 全專案 92 個測試都過（原 85 + 新增 7 個：`test_processors.py` 4 個、
+  `test_chips_generator.py` 3 個）
+- [ ] 確認 `chips_generator.py` 拆函式前後輸出完全一致（我已經用逐 byte 比對驗證過，
+  Debugger 可以用同樣手法：checkout 前一版 `export/chips_generator.py` 到另一個檔名，
+  餵同一組測試資料分別呼叫兩邊的 `generate()`，比對輸出字串是否相同）
+- [ ] 確認 `partial_coverage` 的判斷邏輯：族群本來就只有單一交易所成分股時
+  **不會**被誤標（這是我特別加測試驗證的邊界情況，避免把「正常狀態」誤判成
+  「資料缺失警示」，反而製造出新的誤導性警示噪音）
+- [ ] 建議找一天 TPEx 資料真的有缺失/延遲的實際情境，用真實 `data/screener.db`
+  跑一次 `main.py`，確認 `docs/chips.html` 上真的會出現 ⚠ icon（我這邊只能用合成測試
+  資料驗證邏輯，沒辦法在本機重現真實的 TPEx 抓取失敗情境）
+
+### 特別注意
+- `partial_coverage` 目前只是「有沒有缺」的布林值，沒有進一步區分「institutional 缺」
+  還是「margin 缺」（兩者合併成同一個旗標）。如果之後想要更精細的提示文字（例如區分
+  「外資/投信數字可能不完整」vs「融資數字可能不完整」），要拆成
+  `inst_partial_coverage`/`margin_partial_coverage` 兩個獨立欄位，目前的實作已經內部
+  算出這兩個中間值（`inst_partial`/`margin_partial`），只是最後合併輸出，要拆分不難
+- 這次的 `_coverage_flag()` 沒有套用到 Section 6（法人持續買進個股，`inst_scan` 個股
+  層級資料）跟 Section 8（大戶持倉），因為這兩個 section 的資料結構跟來源不同
+  （個股層級 `inst_scan`、集保週資料 `shareholder_data`），沒有現成的 `partial_coverage`
+  欄位可用，這次範圍只涵蓋族群層級（`meta_chips`）的四個 section
+
+---
+
 ## [2026-07-05] 籌碼面 code review 三項修復：XSS 跳脫、chips.html 靜默失敗、week_chg NaN
 
 ### 改了什麼

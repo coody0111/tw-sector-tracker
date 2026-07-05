@@ -603,6 +603,7 @@ def calc_meta_chips_signals(
     )
 
     margin_by_meta: Dict[str, Any] = {}
+    margin_covered_by_meta: Dict[str, set] = {}
     if not margin_df.empty:
         margin_df["stock_id"] = margin_df["stock_id"].astype(str)
         margin_merged = margin_df.merge(universe, on="stock_id", how="inner")
@@ -616,6 +617,7 @@ def calc_meta_chips_signals(
                     "margin_balance_today": mb,
                     "margin_alert": mb > 0 and mc / mb > 0.05,
                 }
+                margin_covered_by_meta[meta_name] = set(grp["exchange"].dropna().unique())
 
     # institutional/margin 現在同時有 TWSE（T86/MI_MARGN）跟 TPEx（tpex_3insti_daily_trading/
     # tpex_mainboard_margin_balance）來源，理想狀況分母可以算整個族群成分股數。
@@ -628,6 +630,13 @@ def calc_meta_chips_signals(
     meta_stock_count_by_exchange = (
         universe.groupby(["meta_sector", "exchange"])["stock_id"].count()
     )
+    # 族群實際橫跨的交易所（例如純上市族群本來就沒有 TPEx 成分股，不能算「涵蓋不足」）。
+    # 用來跟「today 這天實際有資料的交易所」比較，才能分辨「單純資料源當天抓取失敗」
+    # 跟「這個族群本來就沒有那個交易所的成分股」兩種情況。
+    meta_all_exchanges: Dict[str, set] = {
+        name: set(grp.dropna().unique())
+        for name, grp in universe.groupby("meta_sector")["exchange"]
+    }
 
     def _streak(vals: list) -> int:
         if not vals:
@@ -666,6 +675,17 @@ def calc_meta_chips_signals(
         foreign_streak = _streak([float(f_row.get(d, 0)) for d in all_dates])
         trust_streak = _streak([float(t_row.get(d, 0)) for d in all_dates])
 
+        # 這個族群「應該」橫跨的交易所（該族群實際成分股所在的交易所）跟「today 這天
+        # institutional/margin 實際有資料的交易所」比較，任一邊涵蓋不足就標記
+        # partial_coverage=True。這不是指族群本來就只有單一交易所成分股的情況
+        # （那種 meta_all_exchanges 本身就只有一個交易所，不會觸發），而是指族群明明有
+        # 多交易所成分股、但當天某個交易所的資料源抓取失敗或跟另一所發布時間錯開，
+        # 導致這裡算出來的 foreign_net_today/streak/margin 數字只反映部分成分股。
+        expected_exchanges = meta_all_exchanges.get(meta_name, set())
+        inst_partial = bool(expected_exchanges - set(covered_exchanges))
+        margin_partial = bool(expected_exchanges - margin_covered_by_meta.get(meta_name, set()))
+        partial_coverage = inst_partial or margin_partial
+
         m = margin_by_meta.get(meta_name, {})
         signals[meta_name] = {
             "foreign_net_today": foreign_net_today,
@@ -675,6 +695,7 @@ def calc_meta_chips_signals(
             "foreign_buy_ratio": round(buy_count / total_stocks, 2) if total_stocks > 0 else 0,
             "foreign_streak": foreign_streak,
             "trust_streak": trust_streak,
+            "partial_coverage": partial_coverage,
             "margin_change_today": m.get("margin_change_today", 0),
             "margin_balance_today": m.get("margin_balance_today", 0),
             "margin_alert": m.get("margin_alert", False),

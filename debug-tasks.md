@@ -1,3 +1,22 @@
+## [2026-07-05] 小重構：`html_generator.py::_na()` 抽成 module-level 共用函式
+
+### 改了什麼
+- 異動檔案：`export/html_generator.py`（commit `ed7ce57`）
+- 對照 bug-reports.md 2026-07-05 那則 🟡 建議：`_na(v): return 0 if (v is None or pd.isna(v)) else v` 原本在檔案裡 3 個地方（196/330/513 行附近）各自重複定義成 nested function，內容完全一樣。改成跟 `_pct_color`/`_pct_cell`/`_heatmap_bg` 同一種寫法的 module-level 函式（檔案開頭），3 處呼叫端直接沿用，刪掉重複定義。
+- 純重構，沒有改變任何邏輯或輸出結果。
+
+### 資料來源相關（如有異動）
+- 不適用——純程式碼整理，不碰資料抓取或轉換邏輯
+
+### 請 Debugger 驗證
+- [ ] 確認 3 處呼叫端（原本 196/330/513 行附近）行為跟修改前完全一致（`fn`/`tn`/`mb`/`mc` 的計算結果不變）
+- [ ] 全專案測試通過（我只做了 `ast.parse` 語法檢查，沒有實跑測試——照分工這是 Debugger 的職責）
+
+### 特別注意
+- 這台機器（`liuyantingdeMacBook-Pro`）沒有找到 `../tw-sector-tracker-debug` worktree，無法照流程主動 merge 過去，麻煩 Debugger 端自己 `git merge master` 同步
+
+---
+
 ## [2026-07-05] 首頁改回舊版 html_generator 產生，React 前端整個移到獨立分支（Cody 決定復原）
 
 ### 改了什麼

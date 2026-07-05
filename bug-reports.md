@@ -1,3 +1,36 @@
+## [2026-07-05] 驗證 - 籌碼面 code review 三項修復（XSS 跳脫、chips.html 靜默失敗、week_chg NaN）
+
+### 驗證方式
+- 跑全專案測試；直接呼叫 `_esc()`／`json.dumps(...).replace("</", "<\/")` 實測正常字串跟惡意
+  payload 的行為；讀 `main.py::_push_html()` 前後的分支邏輯
+
+### ✅ 驗證通過
+- **測試套件**：85 個，84 過、1 個既有環境限制（`test_scan_patterns_returns_list` 需要本機真的
+  有 `data/screener.db`，debug 資料夾沒有，跟這次修復無關，前幾則任務已多次碰到同一個）。
+- **XSS 跳脫（`_esc()`）**：正常字串（`台積電`、`2330`、`半導體設備`）原樣輸出不變，`None`/`""`
+  正確轉空字串，`<script>alert(1)</script>` 正確跳脫成 `&lt;script&gt;...`，視覺輸出對一般資料
+  完全沒有影響，只有含特殊字元的輸入才會不同。
+- **`</script>` 提前結束攻擊修法**：`json.dumps(...).replace("</", "<\/")` 實測過，正常資料 JSON
+  結構不變，惡意 `</script>` 序列正確變成 `<\/script>`，不會提前結束 script 區塊、不會讓後續內容
+  被當成新 HTML 解析。
+- **`chips_html_written` 分支邏輯**：`main.py:528-532` `if chips_html_written: log 成功 else:
+  log 警告`，方向正確；`chips_generator.py::generate()` 兩者皆空提前 `return False`、正常寫檔
+  `return True`，跟 docstring 描述一致，沒有反過來。
+- **`week_chg` NaN 修法**：`main.py:517` 已改成 `None if pd.isna(row["week_chg"]) else
+  float(row["week_chg"])`，跟專案已建立的 `pd.isna()` 慣例一致。
+
+### 🟡 建議改善（不阻擋）
+- `_esc()` 用 `if value else ""` 判斷是否要跳脫，如果哪天被拿去處理整數 `0`／`False` 這種合法但
+  falsy 的值會被誤轉成空字串。目前所有呼叫端（`chips_generator.py`、`html_generator.py`）都只餵
+  字串型別的 `stock_id`／`stock_name`／族群名稱，不會踩到這個問題，純粹提醒以後如果擴充 `_esc()`
+  的使用範圍（例如拿去處理數值欄位）要注意。
+
+### 結論
+- [x] 可以繼續下一個任務——三項自動化可驗證的項目都通過，`verify=False` TLS 風險那項 Developer
+  已明確標註留給 Cody 自己決定，不在 Debugger 驗證範圍內。
+
+---
+
 ## [2026-07-05] 驗證 - `--realtime` crash 修復（pd.NA 布林值判斷，commit `e8dd27d`）
 
 ### 驗證方式

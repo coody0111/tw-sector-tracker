@@ -51,14 +51,26 @@ pandas `.df()` 轉換後變成 `float('nan')`，不是 `None`。`week_chg is not
   規則沒有變動
 
 ### 請 Debugger 驗證
-- [ ] 全專案 85 個測試都過（原 75 + 新增 10 個：`test_chips_generator.py` 5 個、
+- [x] 全專案 85 個測試都過（原 75 + 新增 10 個：`test_chips_generator.py` 5 個、
   `test_html_generator.py` 4 個、`test_shareholder.py` 新增 1 個）
-- [ ] 確認 `export/chips_generator.py`、`export/html_generator.py` 產生的頁面視覺上
+  - ✅ Debugger 2026-07-05：84 過、1 個既有環境限制（`test_scan_patterns_returns_list` 需要
+    本機真的有 `data/screener.db`，debug 資料夾沒有，跟這次修復無關，前幾則任務都碰過同一個）。
+- [x] 確認 `export/chips_generator.py`、`export/html_generator.py` 產生的頁面視覺上
   沒有變化（`_esc()` 只影響含特殊字元的輸入才會改變輸出，正常股票/族群名稱沒有
   `<`/`>`/`&`/`"` 字元，輸出應該完全一樣）
-- [ ] `main.py::_push_html()` 之後，確認 `docs/chips.html` 正常產生（`chips_html_written`
+  - ✅ Debugger 2026-07-05：直接呼叫 `_esc()` 實測：正常字串（台積電、2330、半導體設備）原樣
+    輸出不變；`None`/`""` 正確轉空字串；`<script>alert(1)</script>` 正確跳脫成
+    `&lt;script&gt;...`。`json.dumps(...).replace("</", "<\/")` 那個修法也實測過：正常資料
+    JSON 結構不變，惡意 `</script>` 序列正確變成 `<\/script>`，不會提前結束 script 區塊。
+    🟡 小發現：`_esc()` 用 `if value else ""` 判斷，如果哪天被拿去處理整數 `0`／`False`
+    這種合法但 falsy 的值會被誤轉成空字串——目前所有呼叫端都只餵字串（stock_id/stock_name/
+    族群名），不會踩到，純粹提醒以後擴充用途時注意。
+- [x] `main.py::_push_html()` 之後，確認 `docs/chips.html` 正常產生（`chips_html_written`
   分支邏輯沒有反過來）
-- [ ] **留給 Cody 決定**：`verify=False`（TLS 驗證關閉）這個殘留風險要不要處理——如果
+  - ✅ Debugger 2026-07-05：讀過 `main.py:528-532`，`if chips_html_written: log 成功 else: log
+    警告`，方向正確沒有反過來；`chips_generator.py::generate()` 也確認兩空提前 `return False`、
+    正常寫檔 `return True`，跟 docstring 描述一致。
+- **留給 Cody 決定**：`verify=False`（TLS 驗證關閉）這個殘留風險要不要處理——如果
   要修，需要 Cody 自己在有真實網路環境的機器上測試拿掉 `verify=False` 後
   TWSE/TPEx/TDCC 的請求還會不會成功（2026-07-01 加上去是為了修 Windows SSL handshake
   失敗，不確定現在還需不需要）

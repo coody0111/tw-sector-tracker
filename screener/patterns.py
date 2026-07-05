@@ -845,13 +845,14 @@ def detect_inverse_hs(df: pd.DataFrame) -> dict | None:
     return False
 
 
-def scan_patterns(date_str: str, db_path: str = _DB_PATH) -> list[dict]:
-    """
-    掃描 date_str 當日全市場量價形態。
-    回傳有命中任一形態的股票清單，依 score 降序。
-    """
-    con = duckdb.connect(db_path, read_only=True)
+def _load_chips_context(con: duckdb.DuckDBPyConnection, date_str: str) -> dict:
+    """載入 scan_patterns()/scan_and_track() 共用的行情+籌碼原始資料。
 
+    這兩個函式原本各自維護一份幾乎一模一樣的載入邏輯（同樣的 4 條 SQL、同樣的
+    lookup map 建構），改成共用這支函式，避免以後改其中一處的查詢邏輯忘記同步
+    改另一處。不在這裡關閉 `con`——`scan_patterns()` 讀完就關，`scan_and_track()`
+    後面還要用同一個連線寫 `pattern_signals`，關閉時機由呼叫端決定。
+    """
     # Load up to 65 days of price data for all stocks
     price_df = con.execute("""
         SELECT stock_id, date, open, high, low, close, volume, change_pct
@@ -892,12 +893,6 @@ def scan_patterns(date_str: str, db_path: str = _DB_PATH) -> list[dict]:
         WHERE a.rn = 1 AND b.rn = 5
     """, [date_str]).df() if con.execute("SELECT COUNT(*) FROM margin").fetchone()[0] > 0 else pd.DataFrame()
 
-    con.close()
-
-    if price_df.empty:
-        logger.warning("scan_patterns: 無行情資料 (%s)", date_str)
-        return []
-
     # Load name/sector map
     try:
         univ_cols = ["stock_id", "stock_name", "meta_sector"]
@@ -909,10 +904,10 @@ def scan_patterns(date_str: str, db_path: str = _DB_PATH) -> list[dict]:
     except Exception:
         name_map = {}
 
-    # Keep only last 65 rows per stock
-    price_df = price_df.groupby("stock_id").tail(65).reset_index(drop=True)
-    price_df["date"] = pd.to_datetime(price_df["date"])
-    target_date = pd.to_datetime(date_str)
+    if not price_df.empty:
+        # Keep only last 65 rows per stock
+        price_df = price_df.groupby("stock_id").tail(65).reset_index(drop=True)
+        price_df["date"] = pd.to_datetime(price_df["date"])
 
     # Keep only last 10 rows of institutional per stock
     inst_df = inst_df.groupby("stock_id").tail(10).reset_index(drop=True)
@@ -931,9 +926,39 @@ def scan_patterns(date_str: str, db_path: str = _DB_PATH) -> list[dict]:
         for _, r in margin_df.iterrows():
             margin_map[str(r["stock_id"])] = float(r["margin_5d_pct"]) if r["margin_5d_pct"] is not None else 0.0
 
-    results = []
     inst_by_stock = {sid: grp.reset_index(drop=True)
                      for sid, grp in inst_df.groupby("stock_id")}
+
+    return {
+        "price_df": price_df,
+        "name_map": name_map,
+        "inst_by_stock": inst_by_stock,
+        "sh_map": sh_map,
+        "margin_map": margin_map,
+    }
+
+
+def scan_patterns(date_str: str, db_path: str = _DB_PATH) -> list[dict]:
+    """
+    掃描 date_str 當日全市場量價形態。
+    回傳有命中任一形態的股票清單，依 score 降序。
+    """
+    con = duckdb.connect(db_path, read_only=True)
+    ctx = _load_chips_context(con, date_str)
+    con.close()
+
+    price_df = ctx["price_df"]
+    if price_df.empty:
+        logger.warning("scan_patterns: 無行情資料 (%s)", date_str)
+        return []
+
+    name_map = ctx["name_map"]
+    inst_by_stock = ctx["inst_by_stock"]
+    sh_map = ctx["sh_map"]
+    margin_map = ctx["margin_map"]
+    target_date = pd.to_datetime(date_str)
+
+    results = []
 
     for sid, grp in price_df.groupby("stock_id"):
         grp = grp.sort_values("date").reset_index(drop=True)
@@ -1008,6 +1033,14 @@ def scan_patterns(date_str: str, db_path: str = _DB_PATH) -> list[dict]:
         sh_streak = sh_info.get("streak", 0)
         m5d_pct  = margin_map.get(str(sid), 0.0)
 
+        # margin_divergence 這裡固定 False（不是漏接，是目前做不到）：
+        # processors/performance.py::get_margin_divergence() 只能查「margin 表裡最新
+        # N 個日期」，沒有 trade_date 錨點參數，沒辦法拿來算「回測某個歷史日當天」的
+        # 融資背離狀態。scan_patterns() 是給 backtest_patterns() 逐日回放歷史用的，
+        # 如果要支援這裡就要先幫 get_margin_divergence() 加上以指定日期為錨點查詢的
+        # 版本，是獨立的功能擴充，不在這次修復範圍內。真正即時運作的 scan_and_track()
+        # （main.py 每日呼叫、docs/patterns.html 實際顯示的資料）已經改成用 main.py
+        # 當天算好的 margin_divergence_data 判斷真實值，不會有這個限制。
         comp = calc_composite_score(
             foreign_streak=f_streak,
             trust_streak=t_streak,
@@ -1042,13 +1075,22 @@ def scan_patterns(date_str: str, db_path: str = _DB_PATH) -> list[dict]:
     return results
 
 
-def scan_and_track(date_str: str, db_path: str = _DB_PATH) -> list[dict]:
+def scan_and_track(
+    date_str: str,
+    db_path: str = _DB_PATH,
+    margin_divergence_data: dict = None,
+) -> list[dict]:
     """
     新訊號掃描 + 歷史訊號追蹤。
 
     今日觸發的新訊號寫入 pattern_signals；
     歷史 active 訊號依停損/目標/時間更新狀態；
     回傳所有 active 訊號（同 scan_patterns 格式，加上 anchor/stop/target/rr/signal_date/days_held）。
+
+    margin_divergence_data: processors/performance.py::get_margin_divergence() 的回傳值
+        （{"bearish": [...], "bullish": [...], "days_used": int}）。main.py 當天的 run()
+        本來就會為了 chips.html Section 7 算一次，這裡直接重用同一份結果，不重複查詢
+        DB；沒有傳的話（例如舊呼叫端、測試）視同沒有背離資料，composite score 不扣這項分數。
     """
     con = duckdb.connect(db_path)
 
@@ -1069,79 +1111,23 @@ def scan_and_track(date_str: str, db_path: str = _DB_PATH) -> list[dict]:
         )
     """)
 
-    # ── 載入資料（同 scan_patterns）──────────────────────────────────────
-    price_df = con.execute("""
-        SELECT stock_id, date, open, high, low, close, volume, change_pct
-        FROM daily_prices
-        WHERE date <= ?
-          AND date >= CAST(? AS DATE) - INTERVAL '90 days'
-        ORDER BY stock_id, date
-    """, [date_str, date_str]).df()
-
-    inst_df = con.execute("""
-        SELECT stock_id, date, foreign_net, trust_net
-        FROM institutional
-        WHERE date <= ?
-          AND date >= CAST(? AS DATE) - INTERVAL '20 days'
-        ORDER BY stock_id, date
-    """, [date_str, date_str]).df()
-
-    sh_df = con.execute("""
-        WITH latest AS (SELECT MAX(date) AS d FROM shareholder)
-        SELECT s.stock_id, s.lv12_15_pct, s.streak
-        FROM shareholder s, latest l WHERE s.date = l.d
-    """).df() if con.execute("SELECT COUNT(*) FROM shareholder").fetchone()[0] > 0 else pd.DataFrame()
-
-    margin_df = con.execute("""
-        WITH ranked AS (
-            SELECT stock_id, margin_balance,
-                   ROW_NUMBER() OVER (PARTITION BY stock_id ORDER BY date DESC) AS rn
-            FROM margin WHERE date <= ?
-        )
-        SELECT a.stock_id,
-               CASE WHEN b.margin_balance > 0
-                    THEN (a.margin_balance - b.margin_balance) * 100.0 / b.margin_balance
-                    ELSE 0 END AS margin_5d_pct
-        FROM ranked a JOIN ranked b ON a.stock_id = b.stock_id
-        WHERE a.rn = 1 AND b.rn = 5
-    """, [date_str]).df() if con.execute("SELECT COUNT(*) FROM margin").fetchone()[0] > 0 else pd.DataFrame()
+    ctx = _load_chips_context(con, date_str)
+    price_df = ctx["price_df"]
 
     if price_df.empty:
         con.close()
         logger.warning("scan_and_track: 無行情資料 (%s)", date_str)
         return []
 
-    try:
-        univ_cols = ["stock_id", "stock_name", "meta_sector"]
-        all_cols = pd.read_csv(_UNIVERSE_PATH, nrows=0).columns.tolist()
-        if "exchange" in all_cols:
-            univ_cols.append("exchange")
-        universe = pd.read_csv(_UNIVERSE_PATH, dtype=str, usecols=univ_cols)
-        name_map = universe.set_index("stock_id")[univ_cols[1:]].to_dict("index")
-    except Exception:
-        name_map = {}
-
-    price_df = price_df.groupby("stock_id").tail(65).reset_index(drop=True)
-    price_df["date"] = pd.to_datetime(price_df["date"])
+    name_map = ctx["name_map"]
+    inst_by_stock = ctx["inst_by_stock"]
+    sh_map = ctx["sh_map"]
+    margin_map = ctx["margin_map"]
     target_date = pd.to_datetime(date_str)
 
-    inst_df = inst_df.groupby("stock_id").tail(10).reset_index(drop=True)
-
-    sh_map: dict[str, dict] = {}
-    if not sh_df.empty:
-        for _, r in sh_df.iterrows():
-            sh_map[str(r["stock_id"])] = {
-                "lv12_15_pct": float(r["lv12_15_pct"]) if r["lv12_15_pct"] is not None else None,
-                "streak":      int(r["streak"]) if r["streak"] is not None else 0,
-            }
-
-    margin_map: dict[str, float] = {}
-    if not margin_df.empty:
-        for _, r in margin_df.iterrows():
-            margin_map[str(r["stock_id"])] = float(r["margin_5d_pct"]) if r["margin_5d_pct"] is not None else 0.0
-
-    inst_by_stock = {sid: grp.reset_index(drop=True)
-                     for sid, grp in inst_df.groupby("stock_id")}
+    bearish_ids = {
+        str(r["stock_id"]) for r in (margin_divergence_data or {}).get("bearish", [])
+    }
 
     # ── 偵測今日新訊號並寫入 DB ───────────────────────────────────────────
     _ALL_DETECTORS = [
@@ -1300,7 +1286,7 @@ def scan_and_track(date_str: str, db_path: str = _DB_PATH) -> list[dict]:
             lv12_15_pct=lv_pct,
             sh_streak=sh_streak,
             margin_alert_pct=m5d_pct,
-            margin_divergence=False,
+            margin_divergence=sid in bearish_ids,
         )
 
         info = name_map.get(sid, {})

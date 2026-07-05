@@ -534,7 +534,7 @@ def run(trade_date: date = None, realtime: bool = False) -> None:
         try:
             from screener.patterns import scan_and_track
             from export.patterns_generator import generate as generate_patterns_html
-            pattern_results = scan_and_track(trade_date.isoformat())
+            pattern_results = scan_and_track(trade_date.isoformat(), margin_divergence_data=margin_div)
             # Backfill composite_score into inst_results for stocks that appear in patterns
             comp_map = {r["stock_id"]: r.get("composite_score") for r in pattern_results if r.get("composite_score") is not None}
             for row in inst_results:

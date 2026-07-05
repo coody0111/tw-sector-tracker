@@ -1,3 +1,86 @@
+## [2026-07-06] 形態掃描（screener/patterns.py）籌碼邏輯 review：修 margin_divergence 永遠 False + 拆重複載入邏輯
+
+### 改了什麼
+- 異動檔案：`screener/patterns.py`、`main.py`、`tests/test_patterns.py`
+
+**背景**：Cody 問「籌碼面程式邏輯還有哪些」，發現 `screener/patterns.py`（`docs/patterns.html`
+形態掃描複合評分）也有一整套自己的籌碼邏輯，但完全不在 2026-07-05/06 那兩次 review 的範圍內
+（原本明確排除）。Cody 要求嚴格 review 後直接修。
+
+**發現的問題**：
+1. `scan_patterns()`（848行）跟 `scan_and_track()`（1078行）兩個函式呼叫
+   `calc_composite_score()` 時，`margin_divergence` 參數**都寫死 `False`**，從
+   2026-07-01 這個複合評分功能一開始寫的時候就是這樣，從來沒有真的算過。但
+   `calc_composite_score()` 裡這個參數的懲罰是 -15 分（比 `margin_alert_pct>=10` 的
+   -10 分還重），代表這個分支永遠不會被觸發，複合評分公式實際上一直是不完整的版本。
+2. `scan_patterns()` 跟 `scan_and_track()` 有大約 70 行**幾乎一模一樣**的資料載入邏輯
+   （同樣 4 條 SQL：`daily_prices`／`institutional`／`shareholder`／`margin`，同樣的
+   lookup map 建構），複製貼上維護，容易改一處忘記改另一處。
+
+**Cody 提醒**：`scan_patterns()` 主要是給 `backtest_patterns()` 逐日回放歷史用的，
+`scan_and_track()` 才是 `main.py` 每日呼叫、`docs/patterns.html` 實際顯示資料的正式路徑——
+這個提醒是對的，也是這次判斷「兩處要怎麼修」的關鍵：
+
+- **`scan_and_track()`（正式路徑）**：改成接受新的 `margin_divergence_data: dict = None`
+  參數（`processors/performance.py::get_margin_divergence()` 的回傳值），從裡面的
+  `bearish` 清單算出 `bearish_ids` 集合，`margin_divergence=sid in bearish_ids` 取代
+  寫死的 `False`。`main.py` 呼叫端（第 537 行）改傳 `margin_divergence_data=margin_div`——
+  `margin_div` 這個變數 `main.py` 本來就已經在第 439 行為了 `chips.html` Section 7 算過
+  一次，直接重用，不會多一次 DB 查詢。
+- **`scan_patterns()`（backtest 路徑）**：**維持寫死 `False`，但加了說明註解**，不是漏改。
+  `get_margin_divergence()` 只能查「margin 表裡最新 N 個日期」，沒有 `trade_date` 錨點
+  參數，沒辦法拿來算「回測某個歷史日當天」的融資背離狀態——這是獨立的功能擴充（要先
+  幫 `get_margin_divergence()` 加上指定日期錨點查詢的版本），不在這次修復範圍內，
+  故意保留現況、只是把「為什麼」寫清楚，避免下次又被誤會成漏接。
+- **拆重複載入邏輯**：新增 `_load_chips_context(con, date_str)`，回傳
+  `{price_df, name_map, inst_by_stock, sh_map, margin_map}`，兩個函式都改成呼叫這個
+  共用函式。不在裡面關閉 DB 連線（`scan_patterns()` 讀完就關，`scan_and_track()`
+  後面還要用同一個連線寫 `pattern_signals`，關閉時機留給呼叫端決定）。
+
+**驗證方式**：
+- `scan_patterns()` 是唯讀函式，可以直接對本機真實的 `data/screener.db` 跑 —— 用
+  `2026-07-03`（108 檔結果）重構前後各跑一次，輸出逐項比對（`json.dump` 後整個結構
+  比較），**完全相同**，確認拆函式沒有改變行為
+- `scan_and_track()` 會寫入 `pattern_signals` 表，不能拿真實 DB 測（避免污染正式的
+  訊號追蹤歷史），改用 `tmp_path` 建最小 schema + 預先塞一筆 `active` 訊號繞過真的
+  觸發形態偵測器的複雜度，驗證 `margin_divergence_data` 有正確接上：帶 bearish 名單
+  的分數，比不帶的少 15 分，剛好符合 `calc_composite_score()` 的扣分公式
+- 新增 `calc_composite_score()` 本身的單元測試（這個函式原本完全沒有測試）：驗證
+  `margin_divergence=True` 扣 15 分、比 `margin_alert_pct>=10` 的 -10 分更重、且兩者
+  是 `elif` 互斥關係（`margin_divergence=True` 時就算 `margin_alert_pct` 也很高也只
+  扣一次 15 分）
+
+### 資料來源相關（如有異動）
+- 不適用——這是形態掃描複合評分的邏輯修復跟重構，不是資料抓取邏輯，
+  TWSE/TPEx/FinMind 規則沒有變動
+
+### 請 Debugger 驗證
+- [ ] 全專案 96 個測試都過（原 92 + 新增 4 個：`calc_composite_score` 2 個、
+  `scan_and_track` margin_divergence 2 個）
+- [ ] 確認 `scan_patterns()` 拆函式前後對同一天真實資料輸出完全一致（我已經用
+  `2026-07-03`（108 檔）逐項比對驗證過，Debugger 可以用同樣手法換一天再測一次）
+- [ ] **建議找一天實際有融資背離個股**（`processors/performance.py::get_margin_divergence()`
+  的 bearish 清單非空）的日子，用真實 `main.py` 跑一次，確認 `docs/patterns.html`
+  上那些股票的 composite_score 真的比修復前低（可以對照同一天修復前的舊資料，如果
+  有留存的話）
+- [ ] 確認 `scan_patterns()`（backtest 用）維持寫死 `margin_divergence=False` 這個決定
+  合理——如果之後真的想讓 backtest 也採用真實融資背離資料，需要先擴充
+  `get_margin_divergence()` 支援指定日期錨點查詢，是後續獨立任務，這次沒有動它
+
+### 特別注意
+- `screener/patterns.py::_calc_streak()` 跟 `processors/performance.py::calc_meta_chips_
+  signals()` 內部的 `_streak()` closure，兩邊演算法邏輯其實完全等價（都是「從最後一筆
+  往前數，同號累加，變號就停」），但各自維護一份實作，這次沒有動——合併成單一共用函式
+  風險/效益比不划算（`performance.py` 那份是 nested closure，要先拉成 module-level
+  函式才能共用，牽動的呼叫端更廣），先記錄下來，之後如果剛好要改其中一處的邏輯，
+  可以順便考慮要不要合併
+- `screener/signals.py::scan_volume_turnover()` 的 `inst_confirmed`（外資+投信同日皆
+  買超）邏輯也順便看過：資料源是單一表 SELECT（不是 FULL OUTER JOIN），`foreign_net`/
+  `trust_net` 用 `.get()` 配 `is not None` 判斷，沒有 `pd.NA`/nullable-join 那類風險，
+  確認沒問題，不需要修
+
+---
+
 ## [2026-07-06] 籌碼面 code review 剩餘兩項：拆 chips_generator.py::generate() + exchange-aware 防呆
 
 ### 改了什麼

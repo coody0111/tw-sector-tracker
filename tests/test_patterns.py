@@ -422,3 +422,108 @@ def test_scan_patterns_returns_list():
         assert isinstance(r["patterns"], list)
         # Score range sanity check
         assert -20 <= r["score"] <= 20
+
+
+import duckdb
+from screener.patterns import calc_composite_score, scan_and_track
+
+
+def _base_score_kwargs(**overrides):
+    kwargs = dict(
+        foreign_streak=0, trust_streak=0, patterns=[], vol_ratio=1.0,
+        lv12_15_pct=None, sh_streak=0, margin_alert_pct=0.0, margin_divergence=False,
+    )
+    kwargs.update(overrides)
+    return kwargs
+
+
+def test_calc_composite_score_margin_divergence_is_strongest_margin_penalty():
+    """margin_divergence=True 該扣 15 分，比 margin_alert_pct>=10 的 -10 分更重——
+    這是這次修復前 scan_patterns()/scan_and_track() 永遠傳 False、導致這個分支
+    永遠不會被觸發的那個 bug 對應的分數邏輯，直接測 calc_composite_score() 本身
+    確保公式正確，不用依賴會寫入真實 DB 的 scan_and_track() 整合測試。"""
+    with_divergence = calc_composite_score(**_base_score_kwargs(margin_divergence=True))
+    with_high_alert = calc_composite_score(**_base_score_kwargs(margin_alert_pct=10.0))
+    with_low_alert = calc_composite_score(**_base_score_kwargs(margin_alert_pct=5.0))
+    baseline = calc_composite_score(**_base_score_kwargs())
+
+    assert with_divergence == baseline - 15
+    assert with_high_alert == baseline - 10
+    assert with_low_alert == baseline - 5
+    assert with_divergence < with_high_alert < with_low_alert < baseline
+
+
+def test_calc_composite_score_margin_divergence_overrides_alert_pct_branch():
+    """margin_divergence=True 時就算 margin_alert_pct 也很高，也只扣 15 分
+    （elif 分支，不會兩個都扣），跟 calc_composite_score() 的 docstring/實作一致。"""
+    score = calc_composite_score(**_base_score_kwargs(margin_divergence=True, margin_alert_pct=20.0))
+    baseline = calc_composite_score(**_base_score_kwargs())
+    assert score == baseline - 15
+
+
+def _seed_scan_and_track_db(db_path):
+    """建立 scan_and_track() 需要的最小 schema，並預先塞一筆 'active' 的
+    pattern_signals 訊號（繞過真的觸發形態偵測器的複雜度），讓 stock_id
+    直接出現在最終結果裡，藉此驗證 margin_divergence_data 有沒有正確接上。"""
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        CREATE TABLE daily_prices (
+            stock_id VARCHAR, date DATE, open DOUBLE, high DOUBLE, low DOUBLE,
+            close DOUBLE, volume BIGINT, change_pct DOUBLE
+        )
+    """)
+    con.execute("CREATE TABLE institutional (stock_id VARCHAR, date DATE, foreign_net BIGINT, trust_net BIGINT)")
+    con.execute("CREATE TABLE margin (stock_id VARCHAR, date DATE, margin_balance BIGINT, margin_change BIGINT)")
+    con.execute("CREATE TABLE shareholder (stock_id VARCHAR, date DATE, lv12_15_pct DOUBLE, streak INTEGER)")
+    for d in ["2026-06-29", "2026-06-30", "2026-07-01", "2026-07-02", "2026-07-03"]:
+        con.execute(
+            "INSERT INTO daily_prices VALUES ('9999', ?, 100, 101, 99, 100, 1000, 0.0)", [d]
+        )
+    con.execute("""
+        CREATE TABLE pattern_signals (
+            stock_id     VARCHAR NOT NULL, pattern VARCHAR NOT NULL, signal_date DATE NOT NULL,
+            anchor DOUBLE, stop DOUBLE, target DOUBLE, rr DOUBLE,
+            status VARCHAR DEFAULT 'active', last_check DATE,
+            days_held INTEGER DEFAULT 0, consec_below INTEGER DEFAULT 0,
+            PRIMARY KEY (stock_id, pattern, signal_date)
+        )
+    """)
+    con.execute("""
+        INSERT INTO pattern_signals VALUES
+        ('9999', '雙底', '2026-07-01', 95.0, 90.0, 110.0, 3.0, 'active', NULL, 0, 0)
+    """)
+    con.close()
+
+
+def test_scan_and_track_applies_margin_divergence_penalty_for_flagged_stock(tmp_path):
+    """main.py 已經算好的 get_margin_divergence() 結果（bearish 清單）要能讓
+    scan_and_track() 對名單內的股票套用真正的 margin_divergence 扣分，
+    不再是修復前那樣永遠寫死 False。"""
+    db_with = tmp_path / "with.db"
+    _seed_scan_and_track_db(db_with)
+    results_with = scan_and_track(
+        "2026-07-03", db_path=str(db_with),
+        margin_divergence_data={"bearish": [{"stock_id": "9999"}], "bullish": [], "days_used": 5},
+    )
+
+    db_without = tmp_path / "without.db"
+    _seed_scan_and_track_db(db_without)
+    results_without = scan_and_track(
+        "2026-07-03", db_path=str(db_without),
+        margin_divergence_data={"bearish": [], "bullish": [], "days_used": 5},
+    )
+
+    assert len(results_with) == 1
+    assert len(results_without) == 1
+    assert results_with[0]["composite_score"] == results_without[0]["composite_score"] - 15
+
+
+def test_scan_and_track_defaults_to_no_divergence_when_data_not_passed(tmp_path):
+    """沒有傳 margin_divergence_data（例如舊呼叫端）時，視同沒有背離資料，
+    不該報錯，也不該誤扣分。"""
+    db_path = tmp_path / "test.db"
+    _seed_scan_and_track_db(db_path)
+
+    results = scan_and_track("2026-07-03", db_path=str(db_path))
+
+    assert len(results) == 1

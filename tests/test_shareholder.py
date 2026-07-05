@@ -126,6 +126,30 @@ def test_recompute_latest_streak_fixes_week_frozen_before_backfill(tmp_path):
     assert row[1] == 2     # 上一週 streak=1（正）且本週續升 → 累加成 2
 
 
+def test_week_chg_null_roundtrips_as_nan_not_none(tmp_path):
+    """main.py 組 sh_rows 時用 `None if pd.isna(row['week_chg']) else float(...)` 轉換
+    week_chg（DuckDB DOUBLE NULL 經 pandas .df() 轉換後是 float('nan')，不是 None——
+    跟先前修過的 pd.NA 那個 bug是同一類問題，只是這裡是 NaN 版本）。
+    這裡直接驗證 DuckDB NULL DOUBLE 的真實 round-trip 行為，確保修法用的 pd.isna()
+    正確處理，而舊寫法 `value is not None` 會誤判成「有值」、讓 nan 流到下游渲染成 "nan%"。
+    """
+    db_path = tmp_path / "test.db"
+    con = duckdb.connect(str(db_path))
+    con.execute("CREATE TABLE t (week_chg DOUBLE)")
+    con.execute("INSERT INTO t VALUES (NULL)")
+    df = con.execute("SELECT week_chg FROM t").df()
+    con.close()
+
+    raw = df.loc[0, "week_chg"]
+    assert pd.isna(raw)
+
+    fixed = None if pd.isna(raw) else float(raw)
+    assert fixed is None
+
+    buggy = float(raw) if raw is not None else None
+    assert buggy is not None and pd.isna(buggy)  # 證明舊寫法會讓 nan 流過去，不是 None
+
+
 def test_recompute_latest_streak_skips_stock_with_only_one_week(tmp_path):
     """只有一週資料（無前值可比）的股票，recompute 應跳過、不報錯。"""
     db_path = tmp_path / "t.db"

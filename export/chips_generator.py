@@ -3,11 +3,18 @@
 資料來源：meta_chips (calc_meta_chips_signals) + stock_chips (get_stock_chips_ranking)
 """
 from datetime import date
+from html import escape as _html_escape
 from pathlib import Path
 from urllib.parse import quote
 import json
 
 _CUM_THRESHOLD = 15
+
+
+def _esc(value) -> str:
+    """HTML-escape 外部資料（股票名稱/族群名稱等來自 TWSE/TPEx API 回應的字串），
+    避免被竄改的回應內容注入進發布到 GitHub Pages 的 chips.html。"""
+    return _html_escape(str(value)) if value else ""
 
 
 def _make_cum_ranks(cum_data: list) -> dict:
@@ -36,10 +43,22 @@ def _meta_link(name: str) -> str:
     if not name:
         return "─"
     encoded = quote(name, safe="")
+    safe_name = _esc(name)
     return (
         f"<a href='index.html#meta={encoded}' "
         f"style='color:inherit;text-decoration:none;border-bottom:1px dotted #475569' "
-        f"title='前往 {name} 族群'>{name}</a>"
+        f"title='前往 {safe_name} 族群'>{safe_name}</a>"
+    )
+
+
+def _coverage_flag(data: dict) -> str:
+    """族群當天橫跨的交易所有一邊資料缺失（例如 TPEx 抓取失敗）時顯示警示 icon，
+    提醒這一列的 foreign_net_today/streak/margin 數字可能只反映部分成分股。"""
+    if not data.get("partial_coverage"):
+        return ""
+    return (
+        " <span style='color:#fb923c;font-size:.68rem;cursor:help' "
+        "title='今日部分交易所（TWSE/TPEx）資料缺失，此數字可能只反映部分成分股'>⚠</span>"
     )
 
 
@@ -164,7 +183,7 @@ def _stock_rank_table(stocks: list, header: str, net_key: str = "foreign_net") -
         html += (
             f"<tr>"
             f"<td class='ct-rank'>{i}</td>"
-            f"<td><span class='sid'>{s['stock_id']}</span> {s['stock_name']}</td>"
+            f"<td><span class='sid'>{_esc(s['stock_id'])}</span> {_esc(s['stock_name'])}</td>"
             f"<td class='ct-meta'>{_meta_link(s['meta_sector'])}</td>"
             f"{_price_cell(s.get('close'), s.get('change_pct'))}"
             f"<td>{_fmt_net(net)}</td>"
@@ -204,7 +223,7 @@ def _inst_strong_table(rows: list) -> str:
         html += (
             f"<tr>"
             f"<td class='ct-rank'>{i}</td>"
-            f"<td><span class='sid'>{s['stock_id']}</span> {s.get('stock_name','')}</td>"
+            f"<td><span class='sid'>{_esc(s['stock_id'])}</span> {_esc(s.get('stock_name',''))}</td>"
             f"<td class='ct-meta'>{_meta_link(s.get('meta_sector',''))}</td>"
             f"{_price_cell(s.get('close'), s.get('change_pct'))}"
             f"{comp_td}"
@@ -236,7 +255,7 @@ def _inst_streak_table(rows: list, streak_key: str, net_key: str, cum_key: str, 
         html += (
             f"<tr>"
             f"<td class='ct-rank'>{i}</td>"
-            f"<td><span class='sid'>{s['stock_id']}</span> {s.get('stock_name','')}</td>"
+            f"<td><span class='sid'>{_esc(s['stock_id'])}</span> {_esc(s.get('stock_name',''))}</td>"
             f"<td class='ct-meta'>{_meta_link(s.get('meta_sector',''))}</td>"
             f"{_price_cell(s.get('close'), s.get('change_pct'))}"
             f"<td>{badge}</td>"
@@ -258,7 +277,7 @@ def _margin_alert_table(alerts: list) -> str:
         html += (
             f"<tr>"
             f"<td class='ct-rank'>{i}</td>"
-            f"<td><span class='sid'>{s['stock_id']}</span> {s['stock_name']}</td>"
+            f"<td><span class='sid'>{_esc(s['stock_id'])}</span> {_esc(s['stock_name'])}</td>"
             f"<td class='ct-meta'>{_meta_link(s['meta_sector'])}</td>"
             f"{_price_cell(s.get('close'), s.get('change_pct'))}"
             f"<td style='color:#94a3b8'>{s['margin_balance']:,}</td>"
@@ -291,7 +310,7 @@ def _margin_divergence_table(rows: list, divergence_type: str) -> str:
         html += (
             f"<tr>"
             f"<td class='ct-rank'>{i}</td>"
-            f"<td><span class='sid'>{s['stock_id']}</span> {s['stock_name']}</td>"
+            f"<td><span class='sid'>{_esc(s['stock_id'])}</span> {_esc(s['stock_name'])}</td>"
             f"<td class='ct-meta'>{_meta_link(s['meta_sector'])}</td>"
             f"{_price_cell(s.get('close'), s.get('change_pct'))}"
             f"<td>{m_html}</td>"
@@ -320,7 +339,7 @@ def _concentration_table(meta_chips: dict) -> str:
         bar = _ratio_bar(ratio)
         html += (
             f"<tr>"
-            f"<td class='ct-name'>{_meta_link(name)}</td>"
+            f"<td class='ct-name'>{_meta_link(name)}{_coverage_flag(data)}</td>"
             f"<td style='min-width:160px'>{bar} <span style='color:#475569;font-size:.72rem'>{buy_count}/{total}</span></td>"
             f"<td>{_fmt_net(f_net)}</td>"
             f"</tr>"
@@ -363,7 +382,7 @@ def _shareholder_table(rows: list) -> str:
         html += (
             f"<tr>"
             f"<td class='ct-rank'>{i}</td>"
-            f"<td><span class='sid'>{s['stock_id']}</span> {s.get('stock_name','')}</td>"
+            f"<td><span class='sid'>{_esc(s['stock_id'])}</span> {_esc(s.get('stock_name',''))}</td>"
             f"<td class='ct-meta'>{_meta_link(s.get('meta_sector',''))}</td>"
             f"{_price_cell(s.get('close'), s.get('change_pct'))}"
             f"<td style='color:{pct_color};font-weight:700'>{pct:.1f}%</td>"
@@ -428,33 +447,16 @@ switchTab(_tabs.includes(_h)?_h:'tab-signal');
 """
 
 
-def generate(
-    trade_date: date,
-    meta_chips: dict,
-    stock_chips: dict,
-    inst_scan: list = None,
-    margin_divergence: dict = None,
-    cum_data: list = None,
-    meta_signals: dict = None,
-    shareholder_data: list = None,
-    output_path: str = "docs/chips.html",
-) -> None:
-    if not meta_chips and not stock_chips:
-        return
-    inst_scan = inst_scan or []
-    shareholder_data = shareholder_data or []
-    cum_ranks = _make_cum_ranks(cum_data or [])
-    margin_divergence = margin_divergence or {}
-
-    # Build exchange map for JS filter
-    _exch_map: dict = {}
+def _build_exchange_ui() -> tuple[str, str]:
+    """讀 stock_universe.csv 建立股票代號 -> 交易所對照表，回傳 (JS 變數字串, 篩選按鈕 HTML)。"""
+    exch_map: dict = {}
     try:
         import pandas as pd
-        _u = pd.read_csv("data/stock_universe.csv", dtype=str, usecols=["stock_id", "exchange"])
-        _exch_map = _u.set_index("stock_id")["exchange"].to_dict()
+        u = pd.read_csv("data/stock_universe.csv", dtype=str, usecols=["stock_id", "exchange"])
+        exch_map = u.set_index("stock_id")["exchange"].to_dict()
     except Exception:
         pass
-    exch_js_var = f"const EXCH={json.dumps(_exch_map, ensure_ascii=False)};"
+    exch_js_var = f"const EXCH={json.dumps(exch_map, ensure_ascii=False)};"
     exch_filter_btns = (
         "<div style='margin:8px 0 4px;display:flex;gap:6px'>"
         "<button class='exch-btn active' data-exch='' onclick='filterExch(this)'"
@@ -468,12 +470,11 @@ def generate(
         "padding:3px 12px;cursor:pointer;font-size:.72rem'>🏪 上櫃</button>"
         "</div>"
     )
+    return exch_js_var, exch_filter_btns
 
-    date_str = trade_date.strftime("%Y-%m-%d")
-    weekday = ["一", "二", "三", "四", "五", "六", "日"][trade_date.weekday()]
-    chips_date = stock_chips.get("chips_date", date_str)
 
-    # Section 1: META 外資連買/連賣排行
+def _build_section1(meta_chips: dict, cum_ranks: dict) -> str:
+    """Section 1: META 外資連買/連賣排行"""
     buy_streak_rows = [(n, d) for n, d in meta_chips.items() if d.get("foreign_streak", 0) > 0]
     buy_streak_rows.sort(key=lambda x: x[1]["foreign_streak"], reverse=True)
     sell_streak_rows = [(n, d) for n, d in meta_chips.items() if d.get("foreign_streak", 0) < 0]
@@ -485,7 +486,7 @@ def generate(
         tn = data.get("trust_net_today", 0)
         badge = _streak_badge(fs)
         return (
-            f"<tr><td class='ct-name'>{_meta_link(name)}</td>"
+            f"<tr><td class='ct-name'>{_meta_link(name)}{_coverage_flag(data)}</td>"
             f"<td>{_fmt_net(fn)}</td><td>{_fmt_net(tn)}</td>"
             f"{_cum_cell(name, cum_ranks, '3d', 'r3', 'cum3')}"
             f"{_cum_cell(name, cum_ranks, '5d', 'r5', 'cum5')}"
@@ -497,7 +498,7 @@ def generate(
     sell_tbody = "".join(_streak_row(n, d) for n, d in sell_streak_rows) or "<tr><td colspan='7' class='no-data'>無連賣族群</td></tr>"
 
     thead = "<thead><tr><th>族群</th><th>外資今日</th><th>投信今日</th><th style='text-align:center'>3d</th><th style='text-align:center'>5d</th><th style='text-align:center'>7d</th><th>狀態</th></tr></thead>"
-    s1_html = f"""
+    return f"""
 <div class="chips-grid">
   <div class="chips-section-half">
     <div class="cs-title">▲ 外資連買族群</div>
@@ -509,10 +510,12 @@ def generate(
   </div>
 </div>"""
 
-    # Section 2: 外資大買/大賣個股 Top10
+
+def _build_section2(stock_chips: dict) -> str:
+    """Section 2: 外資大買/大賣個股 Top10"""
     buy_stocks = stock_chips.get("foreign_top_buy", [])
     sell_stocks = stock_chips.get("foreign_top_sell", [])
-    s2_html = f"""
+    return f"""
 <div class="chips-grid">
   <div class="chips-section-half">
     <div class="cs-title">▲ 外資大買個股 Top 10</div>
@@ -524,7 +527,9 @@ def generate(
   </div>
 </div>"""
 
-    # Section 3: META 投信加碼彙總
+
+def _build_section3(meta_chips: dict, cum_ranks: dict) -> str:
+    """Section 3: META 投信加碼彙總"""
     trust_rows = [(n, d.get("trust_streak", 0), d) for n, d in meta_chips.items() if d.get("trust_streak", 0) != 0]
     trust_rows.sort(key=lambda x: x[1], reverse=True)
 
@@ -533,7 +538,7 @@ def generate(
         tn = data.get("trust_net_today", 0)
         badge = _trust_streak_badge(streak)
         return (
-            f"<tr><td class='ct-name'>{_meta_link(name)}</td>"
+            f"<tr><td class='ct-name'>{_meta_link(name)}{_coverage_flag(data)}</td>"
             f"<td>{_fmt_net(tn)}</td><td>{_fmt_net(fn)}</td>"
             f"{_cum_cell(name, cum_ranks, '3d', 'r3', 'cum3')}"
             f"{_cum_cell(name, cum_ranks, '5d', 'r5', 'cum5')}"
@@ -542,14 +547,16 @@ def generate(
         )
 
     trust_tbody = "".join(_trust_row(n, s, d) for n, s, d in trust_rows) or "<tr><td colspan='7' class='no-data'>無資料</td></tr>"
-    s3_html = f"""
+    return f"""
 <div class="chips-section">
   <div class="cs-title">投信加碼 META 彙總</div>
   <table class="ct"><thead><tr><th>族群</th><th>投信今日</th><th>外資今日</th><th style='text-align:center'>3d</th><th style='text-align:center'>5d</th><th style='text-align:center'>7d</th><th>狀態</th></tr></thead>
   <tbody>{trust_tbody}</tbody></table>
 </div>"""
 
-    # Section 3.5: 越跌越買 — 族群近期下跌但法人仍持續買進
+
+def _build_section35(meta_chips: dict, cum_ranks: dict) -> str:
+    """Section 3.5: 越跌越買 — 族群近期下跌但法人仍持續買進"""
     def _pct_cell(val, neutral_zero: bool = False) -> str:
         if val is None:
             return "<td style='text-align:center;color:#334155'>─</td>"
@@ -576,7 +583,7 @@ def generate(
         f_badge = _streak_badge(fs) if fs > 0 else ""
         t_badge = _trust_streak_badge(ts) if ts > 0 else ""
         return (
-            f"<tr><td class='ct-name'>{_meta_link(name)}</td>"
+            f"<tr><td class='ct-name'>{_meta_link(name)}{_coverage_flag(data)}</td>"
             + _pct_cell(cum_vals.get("cum1"))
             + _pct_cell(cum_vals.get("cum3"))
             + _pct_cell(cum_vals.get("cum5"))
@@ -585,46 +592,51 @@ def generate(
             + f"<td>{f_badge}</td><td>{t_badge}</td></tr>"
         )
 
-    if dip_buy_rows:
-        dip_tbody = "".join(_dip_buy_row(*r) for r in dip_buy_rows)
-        dip_thead = ("<thead><tr>"
-                     "<th>族群</th>"
-                     "<th style='text-align:center'>今日</th>"
-                     "<th style='text-align:center'>3日</th>"
-                     "<th style='text-align:center'>5日</th>"
-                     "<th style='text-align:center'>7日</th>"
-                     "<th>外資今日</th><th>投信今日</th>"
-                     "<th>外資狀態</th><th>投信狀態</th>"
-                     "</tr></thead>")
-        s35_html = f"""
+    if not dip_buy_rows:
+        return ""
+
+    dip_tbody = "".join(_dip_buy_row(*r) for r in dip_buy_rows)
+    dip_thead = ("<thead><tr>"
+                 "<th>族群</th>"
+                 "<th style='text-align:center'>今日</th>"
+                 "<th style='text-align:center'>3日</th>"
+                 "<th style='text-align:center'>5日</th>"
+                 "<th style='text-align:center'>7日</th>"
+                 "<th>外資今日</th><th>投信今日</th>"
+                 "<th>外資狀態</th><th>投信狀態</th>"
+                 "</tr></thead>")
+    return f"""
 <div class="chips-section">
   <div class="cs-title">📉 越跌越買 — 5日跌逾 1% 但法人仍連買</div>
   <table class="ct">{dip_thead}<tbody>{dip_tbody}</tbody></table>
 </div>"""
-    else:
-        s35_html = ""
 
-    # Section 4: 融資擴張警示
+
+def _build_section4(stock_chips: dict) -> str:
+    """Section 4: 融資擴張警示"""
     margin_alerts = stock_chips.get("margin_alerts", [])
-    s4_html = f"""
+    return f"""
 <div class="chips-section">
   <div class="cs-title">融資擴張警示（增幅 &gt; 5%）</div>
   {_margin_alert_table(margin_alerts)}
 </div>"""
 
-    # Section 5: META 法人籌碼集中度
-    s5_html = f"""
+
+def _build_section5(meta_chips: dict) -> str:
+    """Section 5: META 法人籌碼集中度"""
+    return f"""
 <div class="chips-section">
   <div class="cs-title">META 外資籌碼集中度（買超股數 / 總股數）</div>
   {_concentration_table(meta_chips)}
 </div>"""
 
-    # Section 6: 法人持續買進個股（過濾 ETF/特別股，只留 4 位數純數字代碼）
+
+def _build_section6(inst_scan: list) -> tuple[str, str]:
+    """Section 6a/6b: 法人持續買進個股（過濾 ETF/特別股，只留 4 位數純數字代碼）"""
     import re as _re
     def _is_stock(sid: str) -> bool:
         return bool(_re.match(r'^[1-9]\d{3}$', str(sid)))
 
-    lookback_days = 40
     strong = sorted(
         [x for x in inst_scan if x.get("both_streak", 0) >= 2 and _is_stock(x.get("stock_id", ""))],
         key=lambda x: -x["both_streak"]
@@ -655,38 +667,22 @@ def generate(
     {_inst_streak_table(top_trust, 'trust_streak', 'trust_net', 'cum_trust', '投信')}
   </div>
 </div>"""
+    return s6a_html, s6b_html
 
-    # Section 8: 大戶持倉（集保 ≥400張）
-    sh_increasing = [r for r in shareholder_data if (r.get("streak") or 0) > 0]
-    sh_decreasing = [r for r in shareholder_data if (r.get("streak") or 0) < 0]
-    sh_increasing.sort(key=lambda x: (-(x.get("streak") or 0), -(x.get("lv12_15_pct") or 0)))
-    sh_decreasing.sort(key=lambda x: ((x.get("streak") or 0), -(x.get("lv12_15_pct") or 0)))
 
-    if shareholder_data:
-        s8_html = f"""
-<div class="chips-grid">
-  <div class="chips-section-half">
-    <div class="cs-title">📈 大戶連增倉 Top 30（≥400張，集保）</div>
-    {_shareholder_table(sh_increasing[:30])}
-  </div>
-  <div class="chips-section-half">
-    <div class="cs-title">📉 大戶連減倉 Top 20</div>
-    {_shareholder_table(sh_decreasing[:20])}
-  </div>
-</div>"""
-        sh_date = shareholder_data[0].get("date", "") if shareholder_data else ""
-        s8_note = f"<p style='color:#475569;font-size:.72rem;margin:4px 0 12px'>集保資料日期：{sh_date}｜共 {len(shareholder_data)} 支股票</p>"
-    else:
-        s8_html = "<div class='chips-section'><div class='cs-title'>大戶持倉</div><div class='no-data'>無資料（請執行 python main.py --update-shareholder）</div></div>"
-        s8_note = ""
-
-    # Section 7: 融資背離警示
+def _build_section7(margin_divergence: dict) -> str:
+    """Section 7: 融資背離警示"""
     days_used = margin_divergence.get("days_used", 0)
     bearish = margin_divergence.get("bearish", [])
     bullish = margin_divergence.get("bullish", [])
-    if days_used >= 2:
-        days_label = f"（近 {days_used} 個交易日）"
-        s7_html = f"""
+    if days_used < 2:
+        return """
+<div class="chips-section">
+  <div class="cs-title">融資背離警示</div>
+  <div class="no-data">融資資料不足（需至少 2 個交易日），請先執行 --backfill-marg</div>
+</div>"""
+    days_label = f"（近 {days_used} 個交易日）"
+    return f"""
 <div class="chips-grid">
   <div class="chips-section-half">
     <div class="cs-title">⚠ 看空背離 — 融資增 + 股價跌 {days_label}</div>
@@ -697,12 +693,72 @@ def generate(
     {_margin_divergence_table(bullish, "bullish")}
   </div>
 </div>"""
-    else:
-        s7_html = """
-<div class="chips-section">
-  <div class="cs-title">融資背離警示</div>
-  <div class="no-data">融資資料不足（需至少 2 個交易日），請先執行 --backfill-marg</div>
+
+
+def _build_section8(shareholder_data: list) -> tuple[str, str]:
+    """Section 8: 大戶持倉（集保 ≥400張）"""
+    if not shareholder_data:
+        return (
+            "<div class='chips-section'><div class='cs-title'>大戶持倉</div>"
+            "<div class='no-data'>無資料（請執行 python main.py --update-shareholder）</div></div>",
+            "",
+        )
+    sh_increasing = [r for r in shareholder_data if (r.get("streak") or 0) > 0]
+    sh_decreasing = [r for r in shareholder_data if (r.get("streak") or 0) < 0]
+    sh_increasing.sort(key=lambda x: (-(x.get("streak") or 0), -(x.get("lv12_15_pct") or 0)))
+    sh_decreasing.sort(key=lambda x: ((x.get("streak") or 0), -(x.get("lv12_15_pct") or 0)))
+
+    s8_html = f"""
+<div class="chips-grid">
+  <div class="chips-section-half">
+    <div class="cs-title">📈 大戶連增倉 Top 30（≥400張，集保）</div>
+    {_shareholder_table(sh_increasing[:30])}
+  </div>
+  <div class="chips-section-half">
+    <div class="cs-title">📉 大戶連減倉 Top 20</div>
+    {_shareholder_table(sh_decreasing[:20])}
+  </div>
 </div>"""
+    sh_date = shareholder_data[0].get("date", "")
+    s8_note = f"<p style='color:#475569;font-size:.72rem;margin:4px 0 12px'>集保資料日期：{sh_date}｜共 {len(shareholder_data)} 支股票</p>"
+    return s8_html, s8_note
+
+
+def generate(
+    trade_date: date,
+    meta_chips: dict,
+    stock_chips: dict,
+    inst_scan: list = None,
+    margin_divergence: dict = None,
+    cum_data: list = None,
+    meta_signals: dict = None,
+    shareholder_data: list = None,
+    output_path: str = "docs/chips.html",
+) -> bool:
+    """回傳是否實際寫入了 output_path；meta_chips/stock_chips 兩者皆空時不寫檔、回傳 False，
+    讓呼叫端可以分辨「真的產生成功」跟「靜默跳過」，不要無條件記成功。"""
+    if not meta_chips and not stock_chips:
+        return False
+    inst_scan = inst_scan or []
+    shareholder_data = shareholder_data or []
+    cum_ranks = _make_cum_ranks(cum_data or [])
+    margin_divergence = margin_divergence or {}
+
+    exch_js_var, exch_filter_btns = _build_exchange_ui()
+
+    date_str = trade_date.strftime("%Y-%m-%d")
+    weekday = ["一", "二", "三", "四", "五", "六", "日"][trade_date.weekday()]
+    chips_date = stock_chips.get("chips_date", date_str)
+
+    s1_html = _build_section1(meta_chips, cum_ranks)
+    s2_html = _build_section2(stock_chips)
+    s3_html = _build_section3(meta_chips, cum_ranks)
+    s35_html = _build_section35(meta_chips, cum_ranks)
+    s4_html = _build_section4(stock_chips)
+    s5_html = _build_section5(meta_chips)
+    s6a_html, s6b_html = _build_section6(inst_scan)
+    s7_html = _build_section7(margin_divergence)
+    s8_html, s8_note = _build_section8(shareholder_data)
 
     html = f"""<!DOCTYPE html>
 <html lang="zh-TW">
@@ -786,3 +842,4 @@ def generate(
 
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     Path(output_path).write_text(html, encoding="utf-8")
+    return True

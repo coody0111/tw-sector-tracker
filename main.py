@@ -514,7 +514,7 @@ def run(trade_date: date = None, realtime: bool = False) -> None:
                         "stock_name":  info.get("stock_name", ""),
                         "meta_sector": info.get("meta_sector", ""),
                         "lv12_15_pct": float(row["lv12_15_pct"]) if row["lv12_15_pct"] is not None else None,
-                        "week_chg":    float(row["week_chg"]) if row["week_chg"] is not None else None,
+                        "week_chg":    None if pd.isna(row["week_chg"]) else float(row["week_chg"]),
                         "streak":      int(row["streak"]) if row["streak"] is not None else 0,
                         "date":        str(row["date"]),
                         "close":       float(px["close"]) if px.get("close") is not None else None,
@@ -525,13 +525,16 @@ def run(trade_date: date = None, realtime: bool = False) -> None:
         except Exception as exc:
             logger.warning("大戶持倉資料載入失敗: %s", exc)
             sh_rows = []
-        generate_chips_html(trade_date, meta_chips, stock_chips, inst_scan=inst_results, margin_divergence=margin_div, cum_data=cum_data, meta_signals=meta_signals, shareholder_data=sh_rows)
-        logger.info("HTML generated → docs/chips.html")
+        chips_html_written = generate_chips_html(trade_date, meta_chips, stock_chips, inst_scan=inst_results, margin_divergence=margin_div, cum_data=cum_data, meta_signals=meta_signals, shareholder_data=sh_rows)
+        if chips_html_written:
+            logger.info("HTML generated → docs/chips.html")
+        else:
+            logger.warning("docs/chips.html 沒有更新（meta_chips/stock_chips 皆為空，可能是資料源當天抓取失敗）")
 
         try:
             from screener.patterns import scan_and_track
             from export.patterns_generator import generate as generate_patterns_html
-            pattern_results = scan_and_track(trade_date.isoformat())
+            pattern_results = scan_and_track(trade_date.isoformat(), margin_divergence_data=margin_div)
             # Backfill composite_score into inst_results for stocks that appear in patterns
             comp_map = {r["stock_id"]: r.get("composite_score") for r in pattern_results if r.get("composite_score") is not None}
             for row in inst_results:

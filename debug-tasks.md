@@ -1,3 +1,246 @@
+## [2026-07-06] 形態掃描（screener/patterns.py）籌碼邏輯 review：修 margin_divergence 永遠 False + 拆重複載入邏輯
+
+### 改了什麼
+- 異動檔案：`screener/patterns.py`、`main.py`、`tests/test_patterns.py`
+
+**背景**：Cody 問「籌碼面程式邏輯還有哪些」，發現 `screener/patterns.py`（`docs/patterns.html`
+形態掃描複合評分）也有一整套自己的籌碼邏輯，但完全不在 2026-07-05/06 那兩次 review 的範圍內
+（原本明確排除）。Cody 要求嚴格 review 後直接修。
+
+**發現的問題**：
+1. `scan_patterns()`（848行）跟 `scan_and_track()`（1078行）兩個函式呼叫
+   `calc_composite_score()` 時，`margin_divergence` 參數**都寫死 `False`**，從
+   2026-07-01 這個複合評分功能一開始寫的時候就是這樣，從來沒有真的算過。但
+   `calc_composite_score()` 裡這個參數的懲罰是 -15 分（比 `margin_alert_pct>=10` 的
+   -10 分還重），代表這個分支永遠不會被觸發，複合評分公式實際上一直是不完整的版本。
+2. `scan_patterns()` 跟 `scan_and_track()` 有大約 70 行**幾乎一模一樣**的資料載入邏輯
+   （同樣 4 條 SQL：`daily_prices`／`institutional`／`shareholder`／`margin`，同樣的
+   lookup map 建構），複製貼上維護，容易改一處忘記改另一處。
+
+**Cody 提醒**：`scan_patterns()` 主要是給 `backtest_patterns()` 逐日回放歷史用的，
+`scan_and_track()` 才是 `main.py` 每日呼叫、`docs/patterns.html` 實際顯示資料的正式路徑——
+這個提醒是對的，也是這次判斷「兩處要怎麼修」的關鍵：
+
+- **`scan_and_track()`（正式路徑）**：改成接受新的 `margin_divergence_data: dict = None`
+  參數（`processors/performance.py::get_margin_divergence()` 的回傳值），從裡面的
+  `bearish` 清單算出 `bearish_ids` 集合，`margin_divergence=sid in bearish_ids` 取代
+  寫死的 `False`。`main.py` 呼叫端（第 537 行）改傳 `margin_divergence_data=margin_div`——
+  `margin_div` 這個變數 `main.py` 本來就已經在第 439 行為了 `chips.html` Section 7 算過
+  一次，直接重用，不會多一次 DB 查詢。
+- **`scan_patterns()`（backtest 路徑）**：**維持寫死 `False`，但加了說明註解**，不是漏改。
+  `get_margin_divergence()` 只能查「margin 表裡最新 N 個日期」，沒有 `trade_date` 錨點
+  參數，沒辦法拿來算「回測某個歷史日當天」的融資背離狀態——這是獨立的功能擴充（要先
+  幫 `get_margin_divergence()` 加上指定日期錨點查詢的版本），不在這次修復範圍內，
+  故意保留現況、只是把「為什麼」寫清楚，避免下次又被誤會成漏接。
+- **拆重複載入邏輯**：新增 `_load_chips_context(con, date_str)`，回傳
+  `{price_df, name_map, inst_by_stock, sh_map, margin_map}`，兩個函式都改成呼叫這個
+  共用函式。不在裡面關閉 DB 連線（`scan_patterns()` 讀完就關，`scan_and_track()`
+  後面還要用同一個連線寫 `pattern_signals`，關閉時機留給呼叫端決定）。
+
+**驗證方式**：
+- `scan_patterns()` 是唯讀函式，可以直接對本機真實的 `data/screener.db` 跑 —— 用
+  `2026-07-03`（108 檔結果）重構前後各跑一次，輸出逐項比對（`json.dump` 後整個結構
+  比較），**完全相同**，確認拆函式沒有改變行為
+- `scan_and_track()` 會寫入 `pattern_signals` 表，不能拿真實 DB 測（避免污染正式的
+  訊號追蹤歷史），改用 `tmp_path` 建最小 schema + 預先塞一筆 `active` 訊號繞過真的
+  觸發形態偵測器的複雜度，驗證 `margin_divergence_data` 有正確接上：帶 bearish 名單
+  的分數，比不帶的少 15 分，剛好符合 `calc_composite_score()` 的扣分公式
+- 新增 `calc_composite_score()` 本身的單元測試（這個函式原本完全沒有測試）：驗證
+  `margin_divergence=True` 扣 15 分、比 `margin_alert_pct>=10` 的 -10 分更重、且兩者
+  是 `elif` 互斥關係（`margin_divergence=True` 時就算 `margin_alert_pct` 也很高也只
+  扣一次 15 分）
+
+### 資料來源相關（如有異動）
+- 不適用——這是形態掃描複合評分的邏輯修復跟重構，不是資料抓取邏輯，
+  TWSE/TPEx/FinMind 規則沒有變動
+
+### 請 Debugger 驗證
+- [ ] 全專案 96 個測試都過（原 92 + 新增 4 個：`calc_composite_score` 2 個、
+  `scan_and_track` margin_divergence 2 個）
+- [ ] 確認 `scan_patterns()` 拆函式前後對同一天真實資料輸出完全一致（我已經用
+  `2026-07-03`（108 檔）逐項比對驗證過，Debugger 可以用同樣手法換一天再測一次）
+- [ ] **建議找一天實際有融資背離個股**（`processors/performance.py::get_margin_divergence()`
+  的 bearish 清單非空）的日子，用真實 `main.py` 跑一次，確認 `docs/patterns.html`
+  上那些股票的 composite_score 真的比修復前低（可以對照同一天修復前的舊資料，如果
+  有留存的話）
+- [ ] 確認 `scan_patterns()`（backtest 用）維持寫死 `margin_divergence=False` 這個決定
+  合理——如果之後真的想讓 backtest 也採用真實融資背離資料，需要先擴充
+  `get_margin_divergence()` 支援指定日期錨點查詢，是後續獨立任務，這次沒有動它
+
+### 特別注意
+- `screener/patterns.py::_calc_streak()` 跟 `processors/performance.py::calc_meta_chips_
+  signals()` 內部的 `_streak()` closure，兩邊演算法邏輯其實完全等價（都是「從最後一筆
+  往前數，同號累加，變號就停」），但各自維護一份實作，這次沒有動——合併成單一共用函式
+  風險/效益比不划算（`performance.py` 那份是 nested closure，要先拉成 module-level
+  函式才能共用，牽動的呼叫端更廣），先記錄下來，之後如果剛好要改其中一處的邏輯，
+  可以順便考慮要不要合併
+- `screener/signals.py::scan_volume_turnover()` 的 `inst_confirmed`（外資+投信同日皆
+  買超）邏輯也順便看過：資料源是單一表 SELECT（不是 FULL OUTER JOIN），`foreign_net`/
+  `trust_net` 用 `.get()` 配 `is not None` 判斷，沒有 `pd.NA`/nullable-join 那類風險，
+  確認沒問題，不需要修
+
+---
+
+## [2026-07-06] 籌碼面 code review 剩餘兩項：拆 chips_generator.py::generate() + exchange-aware 防呆
+
+### 改了什麼
+- 異動檔案：`export/chips_generator.py`、`processors/performance.py`、
+  `tests/test_chips_generator.py`、`tests/test_processors.py`
+
+**背景**：接續 2026-07-05 那次籌碼面 review 修復的三項，這次處理剩下範圍較大的兩項。
+
+**1. 拆 `chips_generator.py::generate()`（原本約 360 行的單一函式，整個檔案卡在 800 行上限）**
+把 Section 1/2/3/3.5/4/5/6/7/8 全部拆成獨立的 `_build_section1()`～`_build_section8()`
+（外加 `_build_exchange_ui()` 處理交易所篩選 UI），`generate()` 現在只剩下呼叫這些函式
+組裝最終 HTML，本體約 100 行（含 HTML 樣板字串）。
+- **純重構，沒有改變任何邏輯**：用同一組合成測試資料，分別餵給重構前（git HEAD 版本）
+  跟重構後的 `generate()`，逐 byte 比對輸出 HTML，結果**完全相同**，確認這次只是搬動
+  程式碼、沒有動到行為
+- 拆出來的函式全部維持模組層級（不是巢狀 closure），只有 `_streak_row`／`_trust_row`／
+  `_dip_buy_row`／`_pct_cell`／`_is_stock` 這幾個仍是各自 section 函式內的區域 closure
+  （因為只在該 section 用得到，拆出去反而增加不必要的參數傳遞）
+
+**2. 族群層級籌碼數字的 exchange-aware 防呆（`partial_coverage` 旗標）**
+之前只修過「外資買超比例」的分母（`foreign_buy_ratio`，動態排除當天缺資料的交易所），
+但 `foreign_net_today`／`trust_net_today`／`foreign_streak`／`trust_streak`／
+`margin_change_today`／`margin_balance_today` 這些數字本身沒有比照辦理——TPEx 抓取
+失敗時，這些數字會悄悄變成「只反映 TWSE 那一半」，頁面上完全看不出來。
+- `processors/performance.py::calc_meta_chips_signals()` 新增 `meta_all_exchanges`
+  （每個族群「實際橫跨」的交易所，來自 universe 本身的成分股分布，不是憑空假設全部
+  族群都有 TWSE+TPEx）跟 `margin_covered_by_meta`（today 這天 margin 表實際有資料的
+  交易所），跟 institutional 既有的 `covered_exchanges` 一起比較。任一邊「族群應該有
+  的交易所」缺席，就標記該族群 `partial_coverage: True`
+  - **特別處理單一交易所族群**：如果某族群本來就只有 TWSE 成分股（沒有任何 TPEx
+    個股），`meta_all_exchanges` 只會是 `{"TWSE"}`，今天只有 TWSE 資料是正常狀態，
+    不會被誤判成「涵蓋不足」——這跟「族群明明橫跨兩所、但當天某一所資料源失敗」是
+    兩種不同情況，分開測試驗證過
+- `export/chips_generator.py` 新增 `_coverage_flag(data)` helper，`partial_coverage`
+  為真時在族群名稱旁加一個 ⚠ icon（hover 顯示提示文字），套用到 Section 1（外資連買/
+  連賣）、Section 3（投信加碼彙總）、Section 3.5（越跌越買）、Section 5（籌碼集中度）
+  四個會顯示這些數字的表格
+- 新增測試：`processors/performance.py` 4 個（全涵蓋/TPEx institutional 缺失/TPEx
+  margin 缺失/單一交易所族群不誤判），`chips_generator.py` 3 個（flag 本身邏輯 + 
+  實際 generate() 輸出驗證，含驗證「正常族群不會被誤標」）
+- **注意**：`calc_meta_chips_signals()` 原本完全沒有任何測試（這次順便補上第一批），
+  這次新增的 4 個測試也涵蓋了既有的「分母動態排除」行為，不是只測新功能
+
+### 資料來源相關（如有異動）
+- 不適用——這次是籌碼資料呈現層的防呆修復跟純重構，不是資料抓取邏輯，
+  TWSE/TPEx/FinMind 規則沒有變動
+
+### 請 Debugger 驗證
+- [ ] 全專案 92 個測試都過（原 85 + 新增 7 個：`test_processors.py` 4 個、
+  `test_chips_generator.py` 3 個）
+- [ ] 確認 `chips_generator.py` 拆函式前後輸出完全一致（我已經用逐 byte 比對驗證過，
+  Debugger 可以用同樣手法：checkout 前一版 `export/chips_generator.py` 到另一個檔名，
+  餵同一組測試資料分別呼叫兩邊的 `generate()`，比對輸出字串是否相同）
+- [ ] 確認 `partial_coverage` 的判斷邏輯：族群本來就只有單一交易所成分股時
+  **不會**被誤標（這是我特別加測試驗證的邊界情況，避免把「正常狀態」誤判成
+  「資料缺失警示」，反而製造出新的誤導性警示噪音）
+- [ ] 建議找一天 TPEx 資料真的有缺失/延遲的實際情境，用真實 `data/screener.db`
+  跑一次 `main.py`，確認 `docs/chips.html` 上真的會出現 ⚠ icon（我這邊只能用合成測試
+  資料驗證邏輯，沒辦法在本機重現真實的 TPEx 抓取失敗情境）
+
+### 特別注意
+- `partial_coverage` 目前只是「有沒有缺」的布林值，沒有進一步區分「institutional 缺」
+  還是「margin 缺」（兩者合併成同一個旗標）。如果之後想要更精細的提示文字（例如區分
+  「外資/投信數字可能不完整」vs「融資數字可能不完整」），要拆成
+  `inst_partial_coverage`/`margin_partial_coverage` 兩個獨立欄位，目前的實作已經內部
+  算出這兩個中間值（`inst_partial`/`margin_partial`），只是最後合併輸出，要拆分不難
+- 這次的 `_coverage_flag()` 沒有套用到 Section 6（法人持續買進個股，`inst_scan` 個股
+  層級資料）跟 Section 8（大戶持倉），因為這兩個 section 的資料結構跟來源不同
+  （個股層級 `inst_scan`、集保週資料 `shareholder_data`），沒有現成的 `partial_coverage`
+  欄位可用，這次範圍只涵蓋族群層級（`meta_chips`）的四個 section
+
+---
+
+## [2026-07-05] 籌碼面 code review 三項修復：XSS 跳脫、chips.html 靜默失敗、week_chg NaN
+
+### 改了什麼
+- 異動檔案：`export/chips_generator.py`、`export/html_generator.py`、`main.py`、
+  `tests/test_shareholder.py`；新增 `tests/test_chips_generator.py`、
+  `tests/test_html_generator.py`
+
+**背景**：Cody 要求對籌碼面（三大法人/融資融券/大戶持倉）程式碼做 review，同時跑了
+code-reviewer 跟 security-reviewer 兩個 agent。挑出其中 3 項優先修復：
+
+**1. Stored XSS：`chips.html`／`index.html` 對外部字串完全沒有 HTML escape**
+`export/chips_generator.py` 全檔案原本沒有任何 `html.escape()`，`stock_name`／
+`meta_sector` 等來自 TWSE/TPEx API 回應的字串直接被塞進 f-string HTML。這兩個檔案
+產生的頁面都會發布到 GitHub Pages，如果哪天 API 回應被竄改（中間人攻擊，配合 repo 裡
+既有的 `verify=False` 關閉 TLS 憑證驗證），就能把 `<script>` 注入到公開頁面。
+- 新增 `_esc()` helper（`html.escape()` 包一層，處理 `None`/空字串），套用到：
+  - `chips_generator.py`：`_meta_link()` 的族群名稱、6 個表格函式的 `stock_id`／
+    `stock_name`（`_stock_rank_table`／`_inst_strong_table`／`_inst_streak_table`／
+    `_margin_alert_table`／`_margin_divergence_table`／`_shareholder_table`）
+  - `html_generator.py`：`_stock_card_html()`／`_meta_card()`／`_stock_table()`／
+    `_sector_row()`／`_sector_mini_card()`／`_top10_card()`／`_meta_stock_cards()` 等
+    處的 `stock_name`／`sector_name`／`meta_name` 文字節點跟屬性；原本 3 處手動
+    `.replace('"', "&quot;")`（只擋雙引號，不是完整跳脫）統一改成 `_esc()`
+  - `html_generator.py` 額外發現一個更嚴重的變體：`STOCK_INDEX`／`META_INDEX` 是直接
+    用 `json.dumps()` 內嵌進 `<script>` 標籤（不是走 `innerHTML`），`json.dumps` 預設
+    不會跳脫 `</`，如果股票名稱剛好含 `</script>` 會提前結束該 script 區塊、讓後面
+    內容被當成新 HTML 解析——比純文字節點注入更嚴重（可以直接執行任意 JS）。修法：
+    `json.dumps(...).replace("</", "<\\/")`
+  - **注意**：`verify=False`（TLS 憑證驗證關閉）**沒有動**——這是 2026-07-01 commit
+    `2620c3a` 為了修 Windows 上 TWSE SSL handshake 失敗刻意加的，我沒辦法在這裡驗證
+    拿掉會不會讓 Cody 實際的爬蟲又壞掉（需要真的連線測試），所以只把可測試、能確定
+    安全的「跳脫」這部分修掉，TLS 驗證要不要重新啟用留給 Cody 自己決定/測試
+- 新增 `tests/test_chips_generator.py`、`tests/test_html_generator.py`（這兩個產生器
+  原本完全沒有測試），涵蓋惡意字串注入、`</script>` 提前結束攻擊
+
+**2. `docs/chips.html` 產生失敗會被靜默記成成功**
+`generate_chips_html()` 原本無論「真的寫檔」還是「meta_chips/stock_chips 皆空所以
+不寫檔」都回傳 `None`，`main.py` 呼叫後無條件 log 成功。改成 `generate()` 回傳
+`bool`（`True`=有寫檔，`False`=靜默跳過），`main.py` 依回傳值決定 log 成功還是警告。
+
+**3. `week_chg` 的 `NaN`（不是 `None`）繞過 `main.py:517` 的 `is not None` 檢查**
+跟先前修過的 `pd.NA or 0` 那個 bug 同一類，只是這次是 DuckDB DOUBLE `NULL` 經
+pandas `.df()` 轉換後變成 `float('nan')`，不是 `None`。`week_chg is not None` 誤判
+成「有值」，會讓 `nan` 流到 `chips_generator.py`，可能渲染出字面上的 `"nan%"`。改成
+`None if pd.isna(row["week_chg"]) else float(row["week_chg"])`，跟專案已建立的
+`pd.isna()` 慣例一致。新增測試直接驗證 DuckDB NULL DOUBLE 的真實 round-trip 行為，
+並證明舊寫法真的會讓 `nan` 流過去（不是臆測）。
+
+### 資料來源相關（如有異動）
+- 不適用——這次是 HTML 產生層的安全性/正確性修復，不是資料抓取邏輯，TWSE/TPEx/FinMind
+  規則沒有變動
+
+### 請 Debugger 驗證
+- [x] 全專案 85 個測試都過（原 75 + 新增 10 個：`test_chips_generator.py` 5 個、
+  `test_html_generator.py` 4 個、`test_shareholder.py` 新增 1 個）
+  - ✅ Debugger 2026-07-05：84 過、1 個既有環境限制（`test_scan_patterns_returns_list` 需要
+    本機真的有 `data/screener.db`，debug 資料夾沒有，跟這次修復無關，前幾則任務都碰過同一個）。
+- [x] 確認 `export/chips_generator.py`、`export/html_generator.py` 產生的頁面視覺上
+  沒有變化（`_esc()` 只影響含特殊字元的輸入才會改變輸出，正常股票/族群名稱沒有
+  `<`/`>`/`&`/`"` 字元，輸出應該完全一樣）
+  - ✅ Debugger 2026-07-05：直接呼叫 `_esc()` 實測：正常字串（台積電、2330、半導體設備）原樣
+    輸出不變；`None`/`""` 正確轉空字串；`<script>alert(1)</script>` 正確跳脫成
+    `&lt;script&gt;...`。`json.dumps(...).replace("</", "<\/")` 那個修法也實測過：正常資料
+    JSON 結構不變，惡意 `</script>` 序列正確變成 `<\/script>`，不會提前結束 script 區塊。
+    🟡 小發現：`_esc()` 用 `if value else ""` 判斷，如果哪天被拿去處理整數 `0`／`False`
+    這種合法但 falsy 的值會被誤轉成空字串——目前所有呼叫端都只餵字串（stock_id/stock_name/
+    族群名），不會踩到，純粹提醒以後擴充用途時注意。
+- [x] `main.py::_push_html()` 之後，確認 `docs/chips.html` 正常產生（`chips_html_written`
+  分支邏輯沒有反過來）
+  - ✅ Debugger 2026-07-05：讀過 `main.py:528-532`，`if chips_html_written: log 成功 else: log
+    警告`，方向正確沒有反過來；`chips_generator.py::generate()` 也確認兩空提前 `return False`、
+    正常寫檔 `return True`，跟 docstring 描述一致。
+- **留給 Cody 決定**：`verify=False`（TLS 驗證關閉）這個殘留風險要不要處理——如果
+  要修，需要 Cody 自己在有真實網路環境的機器上測試拿掉 `verify=False` 後
+  TWSE/TPEx/TDCC 的請求還會不會成功（2026-07-01 加上去是為了修 Windows SSL handshake
+  失敗，不確定現在還需不需要）
+
+### 特別注意
+- `chips_generator.py`／`html_generator.py` 這兩個函式裡都已經用 `html` 當本地變數名
+  （組 HTML 字串的累加器），所以不能直接 `import html`，改用
+  `from html import escape as _html_escape` 避免命名衝突，這是刻意的寫法不是筆誤
+- 這是「同一類 nullable 資料」問題第三次出現（`pd.NA or 0`、`get_chips_today` FULL
+  OUTER JOIN、現在這個 DuckDB DOUBLE NULL → NaN）。以後任何從 DuckDB 讀出來、可能是
+  NULL 的欄位，一律用 `pd.isna()` 判斷，不要用 `is not None` 或 `x or default`
+
+---
+
 ## [2026-07-05] 修 TDCC 集保抓取的重試機制形同虛設（`scrapers/shareholder.py`）
 
 ### 改了什麼

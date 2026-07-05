@@ -5,6 +5,10 @@ from datetime import date
 from config import classify_sector, SECTOR_GROUPS
 
 
+def _na(v):
+    return 0 if (v is None or pd.isna(v)) else v
+
+
 def _pct_color(pct: float) -> str:
     """漲跌幅強弱對應不同深淺顏色（台灣：漲紅跌綠）"""
     abs_pct = abs(pct)
@@ -193,7 +197,6 @@ def _stock_card_html(sid: str, stock_name: str, prices_map, chips_map, stock_spa
         chips_html = ""
         if sid in chips_map.index:
             c = chips_map.loc[sid]
-            def _na(v): return 0 if (v is None or pd.isna(v)) else v
             fn = int(_na(c.get("foreign_net")))
             tn = int(_na(c.get("trust_net")))
             mb = int(_na(c.get("margin_balance")))
@@ -327,7 +330,6 @@ def _stock_table(sector_name: str, sectors_df: pd.DataFrame, prices_df: pd.DataF
         chips_data: dict = {}
         if sid in chips_map.index:
             c = chips_map.loc[sid]
-            def _na(v): return 0 if (v is None or pd.isna(v)) else v
             fn = int(_na(c.get("foreign_net")))
             tn = int(_na(c.get("trust_net")))
             mb = int(_na(c.get("margin_balance")))
@@ -510,7 +512,6 @@ def _meta_stock_cards(sub_names: list, sectors_df, prices_df, chips_df=None,
         chips_data: dict = {}
         if sid in chips_map.index:
             c = chips_map.loc[sid]
-            def _na(v): return 0 if (v is None or pd.isna(v)) else v
             fn = int(_na(c.get("foreign_net")))
             tn = int(_na(c.get("trust_net")))
             mb = int(_na(c.get("margin_balance")))

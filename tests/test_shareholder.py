@@ -7,8 +7,13 @@
 """
 import duckdb
 import pandas as pd
+import requests
 
-from scrapers.shareholder import _add_week_change_streak, recompute_latest_streak
+from scrapers.shareholder import (
+    _add_week_change_streak,
+    fetch_shareholder_weekly,
+    recompute_latest_streak,
+)
 
 
 def _make_table(con):
@@ -131,3 +136,51 @@ def test_recompute_latest_streak_skips_stock_with_only_one_week(tmp_path):
 
     updated = recompute_latest_streak(str(db_path))
     assert updated == 0
+
+
+def test_transient_post_failure_is_retried(monkeypatch):
+    """
+    重現真實 bug：`_fetch_one_stock` 原本自己 catch POST 的例外並 return None，
+    導致 `fetch_shareholder_weekly` 外層的重試迴圈永遠看不到例外、`ok=True` 在
+    第一次嘗試就成立，重試機制（_MAX_RETRIES=3）形同虛設——TDCC 偶發的 SSL 斷線
+    /限流不會被重試，跟修這個 bug 之前「零重試」的行為一樣。
+
+    這裡驗證：第一次 POST 拋出 ConnectionError 時，應該被外層重試迴圈接住重打，
+    而不是被內層默默吞掉、直接判定成「無資料」放棄。
+    """
+    call_count = {"n": 0}
+
+    class FakeResp:
+        text = (
+            "<table></table>"
+            "<table>"
+            "<tr><td>1</td><td>1-999</td><td>10</td><td>1000</td><td>1.0</td></tr>"
+            "<tr><td>16</td><td>合計</td><td>20</td><td>100000</td><td>100.0</td></tr>"
+            "</table>"
+        )
+
+        def raise_for_status(self):
+            pass
+
+    class FakeSession:
+        def post(self, *args, **kwargs):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                raise requests.exceptions.ConnectionError("transient TDCC disconnect")
+            return FakeResp()
+
+    def fake_get_session_tokens():
+        return FakeSession(), "tok", "uri", ["20260703"]
+
+    import scrapers.shareholder as shareholder_mod
+    monkeypatch.setattr(shareholder_mod, "_get_session_tokens", fake_get_session_tokens)
+    monkeypatch.setattr(shareholder_mod.time, "sleep", lambda *a, **kw: None)
+
+    results = fetch_shareholder_weekly(["2330"], date_str="20260703", delay=0)
+
+    assert call_count["n"] == 2, (
+        f"POST 應該在第一次 ConnectionError 後被重試迴圈接住重打一次才成功，"
+        f"實際呼叫次數={call_count['n']}（若=1，代表重試機制沒生效，bug 還在）"
+    )
+    assert len(results) == 1
+    assert results[0]["stock_id"] == "2330"

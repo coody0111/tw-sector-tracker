@@ -53,12 +53,12 @@ def _fetch_one_stock(s: requests.Session, tok: str, uri: str, stock_id: str, dat
         "stockNo": stock_id,
         "stockName": "",
     }
-    try:
-        r = s.post(_TDCC_URL, data=data, headers=_HEADERS, timeout=30, verify=False)
-        r.raise_for_status()
-    except Exception as e:
-        logger.debug("TDCC %s %s 失敗: %s", stock_id, date_str, e)
-        return None
+    # 注意：這裡刻意不 catch POST 的例外——讓 SSLError/ConnectionError/Timeout 等
+    # 暫時性網路錯誤往上冒給 fetch_shareholder_weekly() 的重試迴圈接住重打。
+    # 如果在這裡 catch 掉直接 return None，外層的 try/except 永遠看不到例外，
+    # `ok=True` 會在第一次嘗試就成立、重試機制形同虛設（實際發生過的 bug）。
+    r = s.post(_TDCC_URL, data=data, headers=_HEADERS, timeout=30, verify=False)
+    r.raise_for_status()
 
     # 解析 table（第二個 table 是資料表）
     tables = re.findall(r"<table[^>]*>(.*?)</table>", r.text, re.DOTALL)

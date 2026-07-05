@@ -1,3 +1,52 @@
+## [2026-07-05] 修 TDCC 集保抓取的重試機制形同虛設（`scrapers/shareholder.py`）
+
+### 改了什麼
+- 異動檔案：`scrapers/shareholder.py`、`tests/test_shareholder.py`（commit `e52d085`）
+- Cody 反映「大戶持倉那邊資料來源邏輯有 bug」，照 `superpowers:systematic-debugging` 走完整
+  流程（沒有直接猜答案）：
+  1. **Phase 1 根因調查**：仔細讀 `_fetch_one_stock()` 跟 `fetch_shareholder_weekly()` 的
+     控制流程，發現 `_fetch_one_stock()` 內部自己包了一層 `try/except Exception: return
+     None`，把 POST 階段的例外（`ConnectionError`/`SSLError`/`Timeout`/`HTTPError`）整個吞掉。
+  2. **Phase 2 模式比對**：對照同一份檔案註解裡提到的參考模式（`scrapers/backfill.py`
+     `_fetch_yfinance_one_stock`），發現參考實作是「重試迴圈跟實際網路請求在同一層」，
+     中間沒有吞例外的 try/except——`shareholder.py` 沒有正確比照這個模式。
+  3. **Phase 3 假設驗證**：外層 `fetch_shareholder_weekly()` 的 `for attempt in
+     range(_MAX_RETRIES)` 重試迴圈，靠 `except Exception` 接住 `_fetch_one_stock()` 拋出
+     的例外才會觸發重試。但因為內層已經把例外吞掉變成 `return None`，外層的 try 區塊永遠
+     不會拋例外、`ok=True` 在第一次嘗試就成立、`break` 直接跳出——重試機制對 POST 階段的
+     暫時性失敗**完全沒有作用**，等同於當初這個重試機制要修的「零重試，穩定失敗
+     ~2.4%/週」問題原封不動地還在，只是被表面上看起來「有重試」的程式碼掩蓋住了。
+  4. **Phase 4 修復**：拿掉 `_fetch_one_stock()` 內部那層 try/except，讓例外正常往上冒給
+     外層重試迴圈接住重打。解析階段（`<2 tables`／`no rows`／`total_shares==0`）維持回傳
+     `None`（這些是真的沒資料，不是暫時性失敗，不需要重試）。
+- 新增回歸測試 `test_transient_post_failure_is_retried`：模擬第一次 `s.post()` 拋
+  `ConnectionError`、第二次成功回傳合法 HTML，驗證重試迴圈真的會打第二次（`call_count
+  == 2`），不是被內層默默吞掉直接判定「無資料」放棄（修復前這個測試會在 `call_count==1`
+  時就失敗，正確重現原始 bug）。
+
+### 資料來源相關（如有異動）
+- 上櫃／上市：不適用——這是 TDCC 集保資料抓取的網路層重試邏輯，不是資料轉換或口徑問題
+
+### 請 Debugger 驗證
+- [ ] 全專案測試（含新增的 `test_transient_post_failure_is_retried`）都過——我只用邏輯
+  推演＋`ast.parse` 語法檢查驗證過，沒有實際跑 pytest（照分工這是 Debugger 職責）
+- [ ] 確認拿掉內層 try/except 後，「真的沒資料」的情境（`<2 tables`／`no rows`／
+  `total_shares==0`）還是不會被誤判成需要重試——這些分支我沒有動，維持回傳 `None`
+- [ ] 如果方便，實際跑一次 `--update-shareholder` 或 `--backfill-shareholder`，觀察 log
+  裡「重試」相關訊息是否真的在遇到暫時性錯誤時觸發（這個修復理論上應該會讓每週實際失敗率
+  比之前更低，但我這邊沒有真的重現一次 TDCC 端的暫時性失敗來驗證效果）
+
+### 特別注意
+- 這個 bug 很隱蔽：外層重試迴圈的程式碼「看起來」完全正確（`_MAX_RETRIES`、退避重試、
+  註解都寫得很清楚），唯一的問題是內層把例外攔截掉了，讓外層的 except 分支永遠不會被
+  觸發。以後如果又遇到「重試機制寫了但好像沒生效」的情況，第一件事是檢查**呼叫鏈中每一層
+  是不是都有 try/except**，只要中間有任何一層把例外吞掉變成正常回傳值，上層的重試/例外
+  處理邏輯就會失效但不會報錯，非常容易被忽略
+- 這次沒有動 `main.py` 的兩個呼叫端（`_update_shareholder()`／`_backfill_shareholder()`），
+  它們都只是消費 `fetch_shareholder_weekly()` 的回傳 list，介面沒有變
+
+---
+
 ## [2026-07-05] 小重構：`html_generator.py::_na()` 抽成 module-level 共用函式
 
 ### 改了什麼

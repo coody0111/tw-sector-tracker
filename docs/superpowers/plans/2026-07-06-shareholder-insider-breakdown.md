@@ -864,8 +864,8 @@ git commit -m "feat: main.py 串接內部人持股 CLI，Section 8 資料組裝�
 ### Task 5: `export/chips_generator.py::_shareholder_table()` 新增欄位
 
 **Files:**
-- Modify: `export/chips_generator.py`（`_shareholder_table()`，約第 332-372 行）
-- Test: `tests/test_chips_generator.py`（新檔）
+- Modify: `export/chips_generator.py`（`_shareholder_table()`，約第 351-394 行——這個檔案 2026-07-06 剛被拆過函式，`_shareholder_table` 現在是模組層級獨立函式，也已經套用 `_esc()` 做 XSS 跳脫，見下方 Step 3 保留這處理）
+- Modify: `tests/test_chips_generator.py`（**這個檔案已存在**，2026-07-06 code review 那次新增的，這次是新增測試函式進去，不是新建檔案）
 
 **Interfaces:**
 - Consumes：Task 4 產出的 `sh_rows` 新欄位（`lv12_15_shares`, `share_chg`, `company_shares`, `company_chg`, `company_pledge_pct`, `major_holder_shares`, `major_holder_chg`, `major_holder_pledge_pct`）
@@ -873,12 +873,9 @@ git commit -m "feat: main.py 串接內部人持股 CLI，Section 8 資料組裝�
 
 - [ ] **Step 1: 寫失敗測試**
 
-建立 `tests/test_chips_generator.py`：
+在 `tests/test_chips_generator.py` 檔案結尾加入（`from export.chips_generator import _shareholder_table` 如果檔案開頭還沒 import 要補上）：
 
 ```python
-# tests/test_chips_generator.py
-from export.chips_generator import _shareholder_table
-
 _SAMPLE_ROW = {
     "stock_id": "2330", "stock_name": "台積電", "meta_sector": "半導體",
     "close": 950.0, "change_pct": 1.5,
@@ -921,6 +918,8 @@ Run: `.venv/bin/pytest tests/test_chips_generator.py -v`
 Expected: FAIL（目前 `_shareholder_table` 沒有「大戶張數變化」「公司派」「大股東」字樣）
 
 - [ ] **Step 3: 修改 `_shareholder_table()`**
+
+`_esc()`（`html.escape()` 包一層）已經在檔案頂層定義好（第 14 行），直接沿用，不用新增 import。
 
 ```python
 def _shareholder_table(rows: list) -> str:
@@ -973,7 +972,7 @@ def _shareholder_table(rows: list) -> str:
         html += (
             f"<tr>"
             f"<td class='ct-rank'>{i}</td>"
-            f"<td><span class='sid'>{s['stock_id']}</span> {s.get('stock_name','')}</td>"
+            f"<td><span class='sid'>{_esc(s['stock_id'])}</span> {_esc(s.get('stock_name',''))}</td>"
             f"<td class='ct-meta'>{_meta_link(s.get('meta_sector',''))}</td>"
             f"{_price_cell(s.get('close'), s.get('change_pct'))}"
             f"<td style='color:{pct_color};font-weight:700'>{pct:.1f}%</td>"

@@ -1,3 +1,78 @@
+## [2026-07-05] 籌碼面 code review 三項修復：XSS 跳脫、chips.html 靜默失敗、week_chg NaN
+
+### 改了什麼
+- 異動檔案：`export/chips_generator.py`、`export/html_generator.py`、`main.py`、
+  `tests/test_shareholder.py`；新增 `tests/test_chips_generator.py`、
+  `tests/test_html_generator.py`
+
+**背景**：Cody 要求對籌碼面（三大法人/融資融券/大戶持倉）程式碼做 review，同時跑了
+code-reviewer 跟 security-reviewer 兩個 agent。挑出其中 3 項優先修復：
+
+**1. Stored XSS：`chips.html`／`index.html` 對外部字串完全沒有 HTML escape**
+`export/chips_generator.py` 全檔案原本沒有任何 `html.escape()`，`stock_name`／
+`meta_sector` 等來自 TWSE/TPEx API 回應的字串直接被塞進 f-string HTML。這兩個檔案
+產生的頁面都會發布到 GitHub Pages，如果哪天 API 回應被竄改（中間人攻擊，配合 repo 裡
+既有的 `verify=False` 關閉 TLS 憑證驗證），就能把 `<script>` 注入到公開頁面。
+- 新增 `_esc()` helper（`html.escape()` 包一層，處理 `None`/空字串），套用到：
+  - `chips_generator.py`：`_meta_link()` 的族群名稱、6 個表格函式的 `stock_id`／
+    `stock_name`（`_stock_rank_table`／`_inst_strong_table`／`_inst_streak_table`／
+    `_margin_alert_table`／`_margin_divergence_table`／`_shareholder_table`）
+  - `html_generator.py`：`_stock_card_html()`／`_meta_card()`／`_stock_table()`／
+    `_sector_row()`／`_sector_mini_card()`／`_top10_card()`／`_meta_stock_cards()` 等
+    處的 `stock_name`／`sector_name`／`meta_name` 文字節點跟屬性；原本 3 處手動
+    `.replace('"', "&quot;")`（只擋雙引號，不是完整跳脫）統一改成 `_esc()`
+  - `html_generator.py` 額外發現一個更嚴重的變體：`STOCK_INDEX`／`META_INDEX` 是直接
+    用 `json.dumps()` 內嵌進 `<script>` 標籤（不是走 `innerHTML`），`json.dumps` 預設
+    不會跳脫 `</`，如果股票名稱剛好含 `</script>` 會提前結束該 script 區塊、讓後面
+    內容被當成新 HTML 解析——比純文字節點注入更嚴重（可以直接執行任意 JS）。修法：
+    `json.dumps(...).replace("</", "<\\/")`
+  - **注意**：`verify=False`（TLS 憑證驗證關閉）**沒有動**——這是 2026-07-01 commit
+    `2620c3a` 為了修 Windows 上 TWSE SSL handshake 失敗刻意加的，我沒辦法在這裡驗證
+    拿掉會不會讓 Cody 實際的爬蟲又壞掉（需要真的連線測試），所以只把可測試、能確定
+    安全的「跳脫」這部分修掉，TLS 驗證要不要重新啟用留給 Cody 自己決定/測試
+- 新增 `tests/test_chips_generator.py`、`tests/test_html_generator.py`（這兩個產生器
+  原本完全沒有測試），涵蓋惡意字串注入、`</script>` 提前結束攻擊
+
+**2. `docs/chips.html` 產生失敗會被靜默記成成功**
+`generate_chips_html()` 原本無論「真的寫檔」還是「meta_chips/stock_chips 皆空所以
+不寫檔」都回傳 `None`，`main.py` 呼叫後無條件 log 成功。改成 `generate()` 回傳
+`bool`（`True`=有寫檔，`False`=靜默跳過），`main.py` 依回傳值決定 log 成功還是警告。
+
+**3. `week_chg` 的 `NaN`（不是 `None`）繞過 `main.py:517` 的 `is not None` 檢查**
+跟先前修過的 `pd.NA or 0` 那個 bug 同一類，只是這次是 DuckDB DOUBLE `NULL` 經
+pandas `.df()` 轉換後變成 `float('nan')`，不是 `None`。`week_chg is not None` 誤判
+成「有值」，會讓 `nan` 流到 `chips_generator.py`，可能渲染出字面上的 `"nan%"`。改成
+`None if pd.isna(row["week_chg"]) else float(row["week_chg"])`，跟專案已建立的
+`pd.isna()` 慣例一致。新增測試直接驗證 DuckDB NULL DOUBLE 的真實 round-trip 行為，
+並證明舊寫法真的會讓 `nan` 流過去（不是臆測）。
+
+### 資料來源相關（如有異動）
+- 不適用——這次是 HTML 產生層的安全性/正確性修復，不是資料抓取邏輯，TWSE/TPEx/FinMind
+  規則沒有變動
+
+### 請 Debugger 驗證
+- [ ] 全專案 85 個測試都過（原 75 + 新增 10 個：`test_chips_generator.py` 5 個、
+  `test_html_generator.py` 4 個、`test_shareholder.py` 新增 1 個）
+- [ ] 確認 `export/chips_generator.py`、`export/html_generator.py` 產生的頁面視覺上
+  沒有變化（`_esc()` 只影響含特殊字元的輸入才會改變輸出，正常股票/族群名稱沒有
+  `<`/`>`/`&`/`"` 字元，輸出應該完全一樣）
+- [ ] `main.py::_push_html()` 之後，確認 `docs/chips.html` 正常產生（`chips_html_written`
+  分支邏輯沒有反過來）
+- [ ] **留給 Cody 決定**：`verify=False`（TLS 驗證關閉）這個殘留風險要不要處理——如果
+  要修，需要 Cody 自己在有真實網路環境的機器上測試拿掉 `verify=False` 後
+  TWSE/TPEx/TDCC 的請求還會不會成功（2026-07-01 加上去是為了修 Windows SSL handshake
+  失敗，不確定現在還需不需要）
+
+### 特別注意
+- `chips_generator.py`／`html_generator.py` 這兩個函式裡都已經用 `html` 當本地變數名
+  （組 HTML 字串的累加器），所以不能直接 `import html`，改用
+  `from html import escape as _html_escape` 避免命名衝突，這是刻意的寫法不是筆誤
+- 這是「同一類 nullable 資料」問題第三次出現（`pd.NA or 0`、`get_chips_today` FULL
+  OUTER JOIN、現在這個 DuckDB DOUBLE NULL → NaN）。以後任何從 DuckDB 讀出來、可能是
+  NULL 的欄位，一律用 `pd.isna()` 判斷，不要用 `is not None` 或 `x or default`
+
+---
+
 ## [2026-07-05] 首頁改回舊版 html_generator 產生，React 前端整個移到獨立分支（Cody 決定復原）
 
 ### 改了什麼

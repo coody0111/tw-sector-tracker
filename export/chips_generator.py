@@ -3,11 +3,18 @@
 資料來源：meta_chips (calc_meta_chips_signals) + stock_chips (get_stock_chips_ranking)
 """
 from datetime import date
+from html import escape as _html_escape
 from pathlib import Path
 from urllib.parse import quote
 import json
 
 _CUM_THRESHOLD = 15
+
+
+def _esc(value) -> str:
+    """HTML-escape 外部資料（股票名稱/族群名稱等來自 TWSE/TPEx API 回應的字串），
+    避免被竄改的回應內容注入進發布到 GitHub Pages 的 chips.html。"""
+    return _html_escape(str(value)) if value else ""
 
 
 def _make_cum_ranks(cum_data: list) -> dict:
@@ -36,10 +43,11 @@ def _meta_link(name: str) -> str:
     if not name:
         return "─"
     encoded = quote(name, safe="")
+    safe_name = _esc(name)
     return (
         f"<a href='index.html#meta={encoded}' "
         f"style='color:inherit;text-decoration:none;border-bottom:1px dotted #475569' "
-        f"title='前往 {name} 族群'>{name}</a>"
+        f"title='前往 {safe_name} 族群'>{safe_name}</a>"
     )
 
 
@@ -164,7 +172,7 @@ def _stock_rank_table(stocks: list, header: str, net_key: str = "foreign_net") -
         html += (
             f"<tr>"
             f"<td class='ct-rank'>{i}</td>"
-            f"<td><span class='sid'>{s['stock_id']}</span> {s['stock_name']}</td>"
+            f"<td><span class='sid'>{_esc(s['stock_id'])}</span> {_esc(s['stock_name'])}</td>"
             f"<td class='ct-meta'>{_meta_link(s['meta_sector'])}</td>"
             f"{_price_cell(s.get('close'), s.get('change_pct'))}"
             f"<td>{_fmt_net(net)}</td>"
@@ -204,7 +212,7 @@ def _inst_strong_table(rows: list) -> str:
         html += (
             f"<tr>"
             f"<td class='ct-rank'>{i}</td>"
-            f"<td><span class='sid'>{s['stock_id']}</span> {s.get('stock_name','')}</td>"
+            f"<td><span class='sid'>{_esc(s['stock_id'])}</span> {_esc(s.get('stock_name',''))}</td>"
             f"<td class='ct-meta'>{_meta_link(s.get('meta_sector',''))}</td>"
             f"{_price_cell(s.get('close'), s.get('change_pct'))}"
             f"{comp_td}"
@@ -236,7 +244,7 @@ def _inst_streak_table(rows: list, streak_key: str, net_key: str, cum_key: str, 
         html += (
             f"<tr>"
             f"<td class='ct-rank'>{i}</td>"
-            f"<td><span class='sid'>{s['stock_id']}</span> {s.get('stock_name','')}</td>"
+            f"<td><span class='sid'>{_esc(s['stock_id'])}</span> {_esc(s.get('stock_name',''))}</td>"
             f"<td class='ct-meta'>{_meta_link(s.get('meta_sector',''))}</td>"
             f"{_price_cell(s.get('close'), s.get('change_pct'))}"
             f"<td>{badge}</td>"
@@ -258,7 +266,7 @@ def _margin_alert_table(alerts: list) -> str:
         html += (
             f"<tr>"
             f"<td class='ct-rank'>{i}</td>"
-            f"<td><span class='sid'>{s['stock_id']}</span> {s['stock_name']}</td>"
+            f"<td><span class='sid'>{_esc(s['stock_id'])}</span> {_esc(s['stock_name'])}</td>"
             f"<td class='ct-meta'>{_meta_link(s['meta_sector'])}</td>"
             f"{_price_cell(s.get('close'), s.get('change_pct'))}"
             f"<td style='color:#94a3b8'>{s['margin_balance']:,}</td>"
@@ -291,7 +299,7 @@ def _margin_divergence_table(rows: list, divergence_type: str) -> str:
         html += (
             f"<tr>"
             f"<td class='ct-rank'>{i}</td>"
-            f"<td><span class='sid'>{s['stock_id']}</span> {s['stock_name']}</td>"
+            f"<td><span class='sid'>{_esc(s['stock_id'])}</span> {_esc(s['stock_name'])}</td>"
             f"<td class='ct-meta'>{_meta_link(s['meta_sector'])}</td>"
             f"{_price_cell(s.get('close'), s.get('change_pct'))}"
             f"<td>{m_html}</td>"
@@ -363,7 +371,7 @@ def _shareholder_table(rows: list) -> str:
         html += (
             f"<tr>"
             f"<td class='ct-rank'>{i}</td>"
-            f"<td><span class='sid'>{s['stock_id']}</span> {s.get('stock_name','')}</td>"
+            f"<td><span class='sid'>{_esc(s['stock_id'])}</span> {_esc(s.get('stock_name',''))}</td>"
             f"<td class='ct-meta'>{_meta_link(s.get('meta_sector',''))}</td>"
             f"{_price_cell(s.get('close'), s.get('change_pct'))}"
             f"<td style='color:{pct_color};font-weight:700'>{pct:.1f}%</td>"
@@ -438,9 +446,11 @@ def generate(
     meta_signals: dict = None,
     shareholder_data: list = None,
     output_path: str = "docs/chips.html",
-) -> None:
+) -> bool:
+    """回傳是否實際寫入了 output_path；meta_chips/stock_chips 兩者皆空時不寫檔、回傳 False，
+    讓呼叫端可以分辨「真的產生成功」跟「靜默跳過」，不要無條件記成功。"""
     if not meta_chips and not stock_chips:
-        return
+        return False
     inst_scan = inst_scan or []
     shareholder_data = shareholder_data or []
     cum_ranks = _make_cum_ranks(cum_data or [])
@@ -786,3 +796,4 @@ def generate(
 
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     Path(output_path).write_text(html, encoding="utf-8")
+    return True

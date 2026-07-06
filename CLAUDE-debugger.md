@@ -115,6 +115,38 @@ tw-sector-tracker-debug/
 
 ---
 
+## 工作流自檢（每次開工先跑一遍）
+
+這個專案是**雙 worktree 共用同一個 `.git`**（Developer 在 master、你在 `debug` 分支），
+身分檔跟自動 push 踩過不少 git 地雷，開工前先確認環境是對的：
+
+**🟢 開工前自檢**
+1. `git branch --show-current` → 應該是 `debug`；資料夾是 `...-tracker-debug`
+2. 確認角色是 Debugger（讀到的 `CLAUDE.md` 開頭是「角色：Debugger 🔍」，本地檔、被 gitignore、不進 git）
+3. `git status -sb` → 工作區乾淨（除了本地 ignored 的 `CLAUDE.md`）、ahead/behind 數字合理
+4. `git merge master` → 應該乾淨 fast-forward，**不該再撞 `.gitignore`/`CLAUDE.md` 衝突**
+
+**🔍 驗證任務**
+5. 對照 `debug-tasks.md` 最新那則的「請 Debugger 驗證」清單，逐項做
+6. `python -m pytest -q`，記過/失敗數，區分「本次改動造成」vs「既有環境限制」
+   （例如 `test_scan_patterns_returns_list` 需要本機 `data/screener.db`，debug 資料夾常常沒有，屬既有限制）
+7. 回報寫進 `bug-reports.md`（🔴/🟡/✅/結論 格式）
+
+**🚩 看到這些＝workflow 壞了，先停下來修，不要硬做**
+- `git merge master` 又撞 `.gitignore`/`CLAUDE.md` → 身分檔移行沒做乾淨（見下方註）
+- `git ls-files CLAUDE.md` 有輸出 → `CLAUDE.md` 又被追蹤了（它該是本地 ignored 檔）
+- `git status` 有非預期的 staged 變更 → 有被自動 push 掃走的風險
+- ahead/behind 數字很大 → 有人沒先同步就開工
+
+> 註：`CLAUDE.md` 應該是「本地、被 gitignore、內容 = `CLAUDE-debugger.md` 的副本」。若哪天又被
+> 追蹤/衝突，用 `git rm --cached CLAUDE.md`（或 merge 時接受 master 的刪除）+
+> `cp CLAUDE-debugger.md CLAUDE.md` 重建本地副本即可。
+
+**⚠️ 兩個 session 別同時動 git**：Developer 那邊也有一個 Claude session，共用同一個 `.git`。
+同時下 git 指令會壞 index/ref，操作前先確認另一邊沒在動。
+
+---
+
 ## 原則
 
 數據的錯誤比程式 crash 更危險，因為它不會報錯，但會給出錯誤的掃盤結果。

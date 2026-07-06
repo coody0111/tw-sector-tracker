@@ -124,3 +124,29 @@ tw-sector-tracker/
 4. `docs/superpowers/specs/` 底下有沒有還沒對應 `docs/superpowers/plans/` 計畫的 spec（代表有已核准但還沒拆解成實作任務的設計，換平台/換機器接續工作時容易漏掉）
 
 然後告訴 Cody：目前狀態是什麼、有沒有未完成的事。
+
+---
+
+## 工作流自檢（每次開工先跑一遍）
+
+專案是**雙 worktree 共用同一個 `.git`**（你在 master、Debugger 在 `debug` 分支）。
+身分檔跟自動 push 踩過不少 git 地雷，開工前先確認環境是對的：
+
+**🟢 開工前自檢**
+1. `git branch --show-current` → 應該是 `master`；資料夾是 `...-tracker`（不是 `-debug`）
+2. 確認角色是 Developer（讀到的 `CLAUDE.md` 開頭是「角色：Developer 🔨」，本地檔、被 gitignore、不進 git）
+3. `git status -sb` → 工作區乾淨、ahead/behind 數字合理；**若落後 origin 就先 `git pull --rebase` 再開工**
+   （別在落後很多的狀態上做事，之後 push 會分岔撞衝突）
+
+**✅ 完成任務收工**
+4. 本機 commit——**限定這次改的檔，別 `git add .` 掃到不相關的東西**（`main.py` 的自動 push 會把 staged 的一起推走）
+5. **等 Debugger 在 `bug-reports.md` 回報 ✅ 再 push 到 origin**（未驗證的 code 不推 public repo）
+6. 更新 `debug-tasks.md`，讓 Debugger 知道要驗什麼；有 debug worktree 就 `git merge master` 同步過去
+
+**🚩 看到這些＝workflow 壞了，先停下來修**
+- `git status` 有非預期的 staged 變更 → `python main.py` 的自動 commit 會把它一起推走
+- ahead/behind 數字很大 → 沒先同步就開工了，先 `git pull --rebase`
+- 要 push 前才發現分岔 → 先 `git pull --rebase`，別硬 push
+
+**⚠️ 兩個 session 別同時動 git**：Debugger 那邊也有一個 Claude session 共用同一個 `.git`，
+同時下 git 指令會壞 index/ref。

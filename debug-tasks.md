@@ -1,3 +1,19 @@
+## [2026-07-06] 角色文件加「工作流自檢」常駐 checklist（CLAUDE-developer.md / CLAUDE-debugger.md）
+
+### 改了什麼
+- 異動檔案：`CLAUDE-developer.md`、`CLAUDE-debugger.md`
+- 兩份角色文件各加一節「## 工作流自檢（每次開工先跑一遍）」，把「怎麼確認 workflow 是正確的」
+  變成常駐流程，不再靠口頭交代。內容：開工前自檢（分支/資料夾/角色/git status/merge 乾淨）、
+  收工/驗證步驟、🚩 紅旗清單（身分檔又衝突、CLAUDE.md 又被追蹤、非預期 staged、ahead/behind 過大）、
+  兩 session 別同時動 git 的提醒。
+
+### 請 Debugger 驗證 / 採用
+- [ ] 收乾淨身分檔移行後（見下一則），**以後每個 session 開工照 `CLAUDE-debugger.md` 的「工作流
+  自檢」跑一遍**——特別是第 4 步 `git merge master` 應該乾淨、不再撞身分檔衝突（若還撞代表移行沒做完）
+- [ ] 純文件，無程式邏輯改動，不影響測試
+
+---
+
 ## [2026-07-06] 修 main.py::_push_html() 自動 push 的兩個地雷（local↔遠端協作穩定性）
 
 ### 改了什麼

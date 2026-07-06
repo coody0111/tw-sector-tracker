@@ -14,6 +14,37 @@
 
 ---
 
+## [2026-07-06] 修 Task 5 的 🔴 雙重 <td> + 收 Task 4 的 🟡 close/prev_close nan
+
+### 改了什麼
+- 異動檔案：`export/chips_generator.py`、`main.py`、`tests/test_chips_generator.py`
+- 收 Debugger Task 5 報告的 🔴 + Task 4 帶下來的 🟡。
+
+**🔴 修：`_insider_cell` 雙重 `<td>`（Section 8 欄位錯位）**
+- `_insider_cell()` 回傳完整 `<td>...</td>`，但列組裝又外包 `f"<td>{company_html}</td>"` →
+  `<td><td>...</td></td>`，一列 12 td vs 表頭 10 th。
+- 修法：比照 `_price_cell` 的用法，把 `company_html`/`major_html` 改成 `f"{company_html}"`（不外包）。
+- **這是計畫原碼就有的不一致**（`_price_cell` 不外包、`_insider_cell` 被外包），照抄跟著錯，非我新寫錯。
+- 新增結構測試 `test_shareholder_table_row_td_count_matches_header`（資料列 `<td>` 數 == 表頭 `<th>`
+  數）——正是 Debugger 建議的、substring 測試抓不到的那種結構斷言。修正後一列剛好 10 td。
+
+**🟡 收：`close`/`prev_close` 的 nan（latent crash）**
+- `daily_prices.close` 為 NULL → pandas `nan` → 洩漏進 `sh_rows['close']` → `_price_cell` 的
+  `int(close)`（chips_generator.py:72）對 nan 會 `ValueError: cannot convert float NaN to integer`。
+- 修法：main.py 組 sh_rows 時，`close`/`prev_close` 取值後用 `pd.isna()` 洗成 `None`（跟專案
+  「DuckDB nullable 一律 pd.isna」慣例一致）。本機 0 筆 NULL close 未觸發，屬 latent，先修起來。
+
+### 請 Debugger 驗證
+- [ ] 全專案（我這邊：109 passed，含新結構測試）；`main.py` ast.parse OK
+- [ ] **重驗結構**：`_shareholder_table` 一列的 `<td>` 數 == 表頭 `<th>` 數（=10），不再雙重 `<td>`
+  （我加的結構測試已驗，Debugger 可再用 regex 數一次真實 HTML）
+- [ ] `close`/`prev_close` 為 NULL 的股票（若找得到）不再讓 `_price_cell` crash、顯示「─」
+
+### 特別注意
+- 這是 Task 5 的修正（fix-forward），計畫 Task 1-5 本體不變，補上結構正確性 + latent crash 防護。
+
+---
+
 ## [2026-07-06] 大戶張數化+內部人持股計畫 Task 5：Section 8 表格新增張數變化+內部人欄位（計畫完成）
 
 ### 改了什麼

@@ -349,13 +349,17 @@ def _concentration_table(meta_chips: dict) -> str:
 
 
 def _shareholder_table(rows: list) -> str:
-    """大戶持倉排行表。rows: list of dicts with stock_id, stock_name, meta_sector, lv12_15_pct, week_chg, streak"""
+    """大戶持倉排行表。rows: list of dicts with stock_id, stock_name, meta_sector,
+    lv12_15_pct, lv12_15_shares, share_chg, week_chg, streak,
+    company_shares, company_chg, company_pledge_pct,
+    major_holder_shares, major_holder_chg, major_holder_pledge_pct"""
     if not rows:
         return "<div class='no-data'>無大戶持倉資料（尚未執行 --update-shareholder）</div>"
     html = (
         "<table class='ct'><thead><tr>"
-        "<th>#</th><th>股票</th><th>族群</th><th>收盤</th>"
-        "<th>大戶持倉%</th><th>週變化</th><th>連增週</th>"
+        "<th>#</th><th>股票</th><th>族群</th><th>收盤(週漲跌)</th>"
+        "<th>大戶持倉%</th><th>週變化</th><th>大戶張數變化</th><th>連增週</th>"
+        "<th>公司派持股</th><th>大股東持股</th>"
         "</tr></thead><tbody>"
     )
     for i, s in enumerate(rows, 1):
@@ -369,6 +373,14 @@ def _shareholder_table(rows: list) -> str:
             chg_color = "#f87171" if chg > 0 else ("#4ade80" if chg < 0 else "#64748b")
             chg_html = f"<span style='color:{chg_color};font-weight:700'>{sign}{chg:.2f}%</span>"
 
+        share_chg = s.get("share_chg")
+        share_chg_html = "<span style='color:#475569'>─</span>"
+        if share_chg is not None:
+            lots = share_chg / 1000  # 股數 → 張數
+            sign = "+" if lots > 0 else ""
+            color = "#f87171" if lots > 0 else ("#4ade80" if lots < 0 else "#64748b")
+            share_chg_html = f"<span style='color:{color};font-weight:700'>{sign}{lots:,.0f}張</span>"
+
         if streak > 0:
             streak_html = (f"<span style='color:#f87171;background:rgba(127,29,29,.2);border:1px solid rgba(127,29,29,.4);"
                            f"border-radius:4px;padding:1px 7px;font-size:.7rem;font-weight:700'>↑{streak}週</span>")
@@ -379,6 +391,10 @@ def _shareholder_table(rows: list) -> str:
             streak_html = "<span style='color:#475569'>─</span>"
 
         pct_color = "#f87171" if pct >= 70 else ("#fbbf24" if pct >= 50 else "#94a3b8")
+
+        company_html = _insider_cell(s.get("company_shares"), s.get("company_chg"), s.get("company_pledge_pct"))
+        major_html = _insider_cell(s.get("major_holder_shares"), s.get("major_holder_chg"), s.get("major_holder_pledge_pct"))
+
         html += (
             f"<tr>"
             f"<td class='ct-rank'>{i}</td>"
@@ -387,11 +403,30 @@ def _shareholder_table(rows: list) -> str:
             f"{_price_cell(s.get('close'), s.get('change_pct'))}"
             f"<td style='color:{pct_color};font-weight:700'>{pct:.1f}%</td>"
             f"<td>{chg_html}</td>"
+            f"<td>{share_chg_html}</td>"
             f"<td>{streak_html}</td>"
+            f"<td>{company_html}</td>"
+            f"<td>{major_html}</td>"
             f"</tr>"
         )
     html += "</tbody></table>"
     return html
+
+
+def _insider_cell(shares, chg, pledge_pct) -> str:
+    """內部人持股欄位：張數（第一行）＋ 月變化張數／質押% （第二行）。缺值顯示「─」。"""
+    if shares is None:
+        return "<td style='color:#334155'>─</td>"
+    lots = shares / 1000
+    lines = [f"<span style='color:#e2e8f0;font-weight:600'>{lots:,.0f}張</span>"]
+    if chg is not None:
+        chg_lots = chg / 1000
+        sign = "+" if chg_lots > 0 else ""
+        color = "#f87171" if chg_lots > 0 else ("#4ade80" if chg_lots < 0 else "#64748b")
+        lines.append(f"<span style='color:{color};font-size:.68rem'>{sign}{chg_lots:,.0f}張</span>")
+    if pledge_pct is not None:
+        lines.append(f"<span style='color:#64748b;font-size:.64rem'>質押{pledge_pct:.1f}%</span>")
+    return f"<td>{'<br>'.join(lines)}</td>"
 
 
 _CSS = """

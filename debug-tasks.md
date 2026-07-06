@@ -14,6 +14,41 @@
 
 ---
 
+## [2026-07-06] 大戶張數化+內部人持股計畫 Task 5：Section 8 表格新增張數變化+內部人欄位（計畫完成）
+
+### 改了什麼
+- 異動檔案：`export/chips_generator.py`（`_shareholder_table()` + 新增 `_insider_cell()`）、
+  `tests/test_chips_generator.py`（+3 測試、import 補 `_shareholder_table`）
+- 對照計畫 Task 5（TDD）。依賴 Task 4✅。**這是計畫最後一個 Task。**
+
+**做了什麼**：
+- `_shareholder_table()` 表頭/列新增 3 個顯示：
+  - **大戶張數變化**（`share_chg` 股數 ÷1000 → 張，紅漲綠跌，缺值「─」）
+  - **公司派持股**、**大股東持股**（各用新的 `_insider_cell()`：張數 + 月變化張數 + 質押%）
+  - 「收盤」欄標題改成「收盤(週漲跌)」對應 Task 4 把 change_pct 語意改成集保週期週漲跌。
+- `_insider_cell(shares, chg, pledge_pct)`：`shares is None` → 顯示「─」（對應 Task 2/4 報告的
+  🟡：缺值顯示「—」而非 0，避免把「資料缺」誤導成「零變化」）；有值則張數 +（有月變化才顯示）
+  月變化張數 +（有質押才顯示）質押%。
+
+### 資料來源相關（如有異動）
+- 不適用——呈現層，資料源不變。
+
+### 請 Debugger 驗證
+- [ ] `tests/test_chips_generator.py`（我這邊：11 passed，含新增 3 個）；全專案（我這邊：108 passed）
+- [ ] **股→張換算**：`share_chg`/insider 的股數都 ÷1000 顯示成「張」（台股 1 張=1000 股），確認換算對、
+  數字方向（紅漲綠跌）對。
+- [ ] **缺值顯示**：沒有 insider_holdings 資料的股票，公司派/大股東欄顯示「─」不是「0張」（我加測試驗過）。
+- [ ] **建議實跑**：跑過 `--update-insider-holdings` + `python main.py` 後，開 `docs/chips.html`
+  Section 8，確認新三欄有正確渲染、版面沒跑掉（我只用合成資料驗邏輯，沒有真實頁面）。
+
+### 特別注意
+- **整個計畫（Task 1-5）到此完成**：大戶實際張數持久化 → get_shareholder_top 回傳張數變化 →
+  內部人持股 scraper + 表 → main.py 串接 + 資料組裝 → Section 8 表格顯示。
+- `lv12_15_shares`（大戶張數絕對值）有帶進 sh_rows 但表格只顯示「張數變化」（`share_chg`），
+  沒有獨立顯示絕對張數欄——與計畫一致（絕對值目前用不到，先備著）。
+
+---
+
 ## [2026-07-06] 大戶張數化+內部人持股計畫 Task 4：main.py 串接 --update-insider-holdings + sh_rows 組裝（含收 Task 3 的 🟡）
 
 ### 改了什麼

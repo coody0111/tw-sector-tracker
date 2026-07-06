@@ -1,6 +1,6 @@
 from datetime import date
 
-from export.chips_generator import _coverage_flag, _esc, _meta_link, _stock_rank_table, generate
+from export.chips_generator import _coverage_flag, _esc, _meta_link, _shareholder_table, _stock_rank_table, generate
 
 
 def test_esc_escapes_html_special_characters():
@@ -88,3 +88,39 @@ def test_generate_shows_coverage_warning_for_partial_meta_in_section1(tmp_path):
     # Section 5（籌碼集中度表，無條件列出全部 meta_chips）的收錄條件，兩處都該
     # 各自顯示一次警示，所以預期是 2 次，不是 1 次。
     assert html.count("部分交易所") == 2
+
+
+_SAMPLE_SH_ROW = {
+    "stock_id": "2330", "stock_name": "台積電", "meta_sector": "半導體",
+    "close": 950.0, "change_pct": 1.5,
+    "lv12_15_pct": 20.0, "lv12_15_shares": 5_250_000, "share_chg": 250_000,
+    "week_chg": 1.0, "streak": 2,
+    "company_shares": 1_500_000, "company_chg": 100_000, "company_pledge_pct": 13.33,
+    "major_holder_shares": 3_000_000, "major_holder_chg": -50_000, "major_holder_pledge_pct": 0.0,
+}
+
+
+def test_shareholder_table_includes_share_chg_column():
+    html = _shareholder_table([_SAMPLE_SH_ROW])
+    assert "大戶張數變化" in html
+    assert "250" in html  # 250,000 股 = 250 張
+
+
+def test_shareholder_table_includes_insider_columns():
+    html = _shareholder_table([_SAMPLE_SH_ROW])
+    assert "公司派" in html
+    assert "大股東" in html
+    assert "13.3" in html  # 質押比例
+
+
+def test_shareholder_table_handles_missing_insider_data():
+    """沒有 insider_holdings 資料的股票（新股/還沒跑過 --update-insider-holdings）要顯示「─」，不能報錯。"""
+    row = dict(_SAMPLE_SH_ROW)
+    row["company_shares"] = None
+    row["company_chg"] = None
+    row["company_pledge_pct"] = None
+    row["major_holder_shares"] = None
+    row["major_holder_chg"] = None
+    row["major_holder_pledge_pct"] = None
+    html = _shareholder_table([row])
+    assert "─" in html

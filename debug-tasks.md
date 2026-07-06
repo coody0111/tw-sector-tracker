@@ -1,3 +1,57 @@
+## [2026-07-06] 大戶張數化+內部人持股計畫 Task 1：shareholder 表新增 lv12_15_shares（大戶實際張數）
+
+### 改了什麼
+- 異動檔案：`screener/database.py`、`scrapers/shareholder.py`、`tests/test_shareholder.py`
+- 對照計畫 `docs/superpowers/plans/2026-07-06-shareholder-insider-breakdown.md` 的 **Task 1**（全程 TDD：寫失敗測試→跑紅燈→實作→跑綠燈）。
+
+**背景**：`_fetch_one_stock()` 其實早就回傳 `lv12_15_shares`（大戶實際持股股數），但 `save_to_db()`
+一直只存 `lv12_15_pct`/`lv12_15_cnt`/`total_shares` 三欄、把張數丟掉。這個 Task 把張數持久化，
+供後續 Task 2/4/5 算「大戶張數變化」用。
+
+**做了什麼**：
+1. `screener/database.py::init_db()`：`shareholder` 表 CREATE TABLE 新增 `lv12_15_shares BIGINT`
+   （放在 `lv12_15_cnt` 之後），並補一行 `ALTER TABLE shareholder ADD COLUMN IF NOT EXISTS
+   lv12_15_shares BIGINT`（既有的 `data/screener.db` 已建過表，`CREATE TABLE IF NOT EXISTS`
+   對它不生效，要靠 ALTER 補欄）。
+2. `scrapers/shareholder.py::save_to_db()`：`df` 選欄加入 `lv12_15_shares`，INSERT 把它寫進 DB。
+3. `tests/test_shareholder.py`：新增 `test_save_to_db_persists_lv12_15_shares`；同步更新既有
+   `_make_table()`/`_insert()` helper 的 schema（7 欄→8 欄），維持一致。
+
+### ⚠️ 我對計畫做的一個偏離（正確性修正，請 Debugger 特別確認）
+計畫 Step 4 的 `save_to_db` 用**位置式** INSERT（`INSERT INTO shareholder SELECT col1, col2, ...`）。
+我發現這在正式 DB 上會**靜默錯位**：
+- 全新 DB 走 CREATE TABLE，`lv12_15_shares` 是**第 5 欄**（中間）。
+- 既有 DB（如正式 `data/screener.db`）走 ALTER ADD COLUMN，`lv12_15_shares` 被 append 成**最後一欄**（第 8 欄）。
+- 兩者欄位順序不同，位置式 INSERT 會把「張數」寫進 `total_shares`、其餘欄位整排位移。
+  計畫的測試用全新表（中間順序）**會過**，但正式 DB 會被寫壞——正是「不報錯但給錯資料」那類。
+
+修法：INSERT 改成**明列欄位名**（by-name 對應，不受欄位順序影響）：
+`INSERT INTO shareholder (stock_id, date, lv12_15_pct, lv12_15_cnt, lv12_15_shares, total_shares,
+week_chg, streak) SELECT ... FROM df`。
+
+已額外寫一個獨立驗證腳本模擬「ALTER 把欄位加在最後」的正式 DB 情境，確認修法下 `shares=5,000,000`
+正確進 `lv12_15_shares`、`total=25,000,000` 正確進 `total_shares`，沒有互換（若用位置式會錯位）。
+
+### 資料來源相關（如有異動）
+- 不適用——這是 DB schema 擴充＋既有 TDCC 回傳欄位的持久化，沒有改動 TDCC/TWSE/TPEx 抓取或口徑邏輯。
+  `lv12_15_shares` 本來就在 `_fetch_one_stock()` 的回傳裡，只是之前被丟棄。
+
+### 請 Debugger 驗證
+- [ ] `tests/test_shareholder.py` 全過（我這邊：8 passed，7 既有 + 1 新）
+- [ ] 全專案測試不受影響（我只跑了 shareholder 這檔，全專案回歸留給 Debugger）
+- [ ] **重點**：確認上面那個 by-name INSERT 修正——找一份「schema 走過 ALTER」的 DB（或照我
+  的做法建一個：先建舊 7 欄表、再 ALTER 加 lv12_15_shares 到最後），跑一次 `save_to_db`，確認
+  `lv12_15_shares`/`total_shares` 沒有錯位。這是計畫原本會踩到、我主動修掉的坑。
+- [ ] 確認 `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` 對「已經有 lv12_15_shares 欄的 DB」重複執行
+  不會報錯（DuckDB 的 IF NOT EXISTS 應該冪等，但值得實跑一次 init_db 兩遍確認）
+
+### 特別注意
+- 這只是 Task 1（5 個 Task 的第一個）。Task 2（`get_shareholder_top` 回傳張數變化）、Task 3
+  （新增 insider_holdings scraper）、Task 4（main.py 串接）、Task 5（chips 表格新增欄位）都還沒動。
+- 目前**只本機 commit、還沒 push**（等 Debugger 驗證過再 push 到 origin），Cody 的決定。
+
+---
+
 ## [2026-07-06] 形態掃描（screener/patterns.py）籌碼邏輯 review：修 margin_divergence 永遠 False + 拆重複載入邏輯
 
 ### 改了什麼

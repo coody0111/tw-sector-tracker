@@ -13,6 +13,7 @@ from scrapers.shareholder import (
     _add_week_change_streak,
     fetch_shareholder_weekly,
     recompute_latest_streak,
+    save_to_db,
 )
 
 
@@ -20,8 +21,8 @@ def _make_table(con):
     con.execute("""
         CREATE TABLE shareholder (
             stock_id VARCHAR NOT NULL, date DATE NOT NULL,
-            lv12_15_pct DOUBLE, lv12_15_cnt INTEGER, total_shares BIGINT,
-            week_chg DOUBLE, streak INTEGER,
+            lv12_15_pct DOUBLE, lv12_15_cnt INTEGER, lv12_15_shares BIGINT,
+            total_shares BIGINT, week_chg DOUBLE, streak INTEGER,
             PRIMARY KEY (stock_id, date)
         )
     """)
@@ -29,7 +30,7 @@ def _make_table(con):
 
 def _insert(con, sid, d, pct, streak):
     con.execute(
-        "INSERT INTO shareholder VALUES (?, ?, ?, 0, 0, 0.0, ?)",
+        "INSERT INTO shareholder VALUES (?, ?, ?, 0, 0, 0, 0.0, ?)",
         [sid, pd.to_datetime(d).date(), pct, streak],
     )
 
@@ -208,3 +209,37 @@ def test_transient_post_failure_is_retried(monkeypatch):
     )
     assert len(results) == 1
     assert results[0]["stock_id"] == "2330"
+
+
+def test_save_to_db_persists_lv12_15_shares(tmp_path, monkeypatch):
+    """save_to_db 應該把 lv12_15_shares（大戶實際張數）寫進 shareholder 表，
+    不能像現在這樣只存 lv12_15_pct/lv12_15_cnt/total_shares 三個欄位、丟掉張數。"""
+    import scrapers.shareholder as shareholder_mod
+    db_path = str(tmp_path / "t.db")
+    monkeypatch.setattr(shareholder_mod, "_DB_PATH", db_path)
+
+    con = duckdb.connect(db_path)
+    con.execute("""
+        CREATE TABLE shareholder (
+            stock_id VARCHAR NOT NULL, date DATE NOT NULL,
+            lv12_15_pct DOUBLE, lv12_15_cnt INTEGER, lv12_15_shares BIGINT,
+            total_shares BIGINT, week_chg DOUBLE, streak INTEGER,
+            PRIMARY KEY (stock_id, date)
+        )
+    """)
+    con.close()
+
+    rows = [{
+        "stock_id": "2330", "date": "2026-07-03",
+        "lv12_15_pct": 20.0, "lv12_15_cnt": 100,
+        "lv12_15_shares": 5_000_000, "total_shares": 25_000_000,
+    }]
+    n = save_to_db(rows)
+    assert n == 1
+
+    con = duckdb.connect(db_path)
+    row = con.execute(
+        "SELECT lv12_15_shares FROM shareholder WHERE stock_id='2330' AND date='2026-07-03'"
+    ).fetchone()
+    con.close()
+    assert row[0] == 5_000_000

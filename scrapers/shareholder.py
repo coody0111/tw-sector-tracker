@@ -180,14 +180,20 @@ def save_to_db(rows: list[dict]) -> int:
     if not rows:
         return 0
     import pandas as pd
-    df = pd.DataFrame(rows)[["stock_id", "date", "lv12_15_pct", "lv12_15_cnt", "total_shares"]]
+    df = pd.DataFrame(rows)[["stock_id", "date", "lv12_15_pct", "lv12_15_cnt", "lv12_15_shares", "total_shares"]]
     df["date"] = pd.to_datetime(df["date"]).dt.date
 
     con = duckdb.connect(_DB_PATH)
     # 計算 week_change 和 streak
     _add_week_change_streak(con, df)
     con.execute("DELETE FROM shareholder WHERE (stock_id, date) IN (SELECT stock_id, date FROM df)")
-    con.execute("INSERT INTO shareholder SELECT stock_id, date, lv12_15_pct, lv12_15_cnt, total_shares, week_chg, streak FROM df")
+    # 明列欄位名（by-name 對應）：既有 DB 的 lv12_15_shares 是 ALTER 加在最後一欄，
+    # 位置跟全新 CREATE TABLE 的中間位置不同，用位置式 INSERT 會錯位，故明列欄位
+    con.execute(
+        "INSERT INTO shareholder "
+        "(stock_id, date, lv12_15_pct, lv12_15_cnt, lv12_15_shares, total_shares, week_chg, streak) "
+        "SELECT stock_id, date, lv12_15_pct, lv12_15_cnt, lv12_15_shares, total_shares, week_chg, streak FROM df"
+    )
     n = len(df)
     con.close()
     return n

@@ -71,12 +71,14 @@ def init_db() -> None:
             date            DATE NOT NULL,
             lv12_15_pct     DOUBLE,
             lv12_15_cnt     INTEGER,
+            lv12_15_shares  BIGINT,
             total_shares    BIGINT,
             week_chg        DOUBLE,
             streak          INTEGER,
             PRIMARY KEY (stock_id, date)
         )
     """)
+    con.execute("ALTER TABLE shareholder ADD COLUMN IF NOT EXISTS lv12_15_shares BIGINT")
     con.execute("""
         CREATE TABLE IF NOT EXISTS pattern_signals (
             stock_id     VARCHAR NOT NULL,

@@ -14,6 +14,51 @@
 
 ---
 
+## [2026-07-06] 大戶張數化+內部人持股計畫 Task 4：main.py 串接 --update-insider-holdings + sh_rows 組裝（含收 Task 3 的 🟡）
+
+### 改了什麼
+- 異動檔案：`main.py`、`scrapers/insider_holdings.py`（收 🟡）、`tests/test_insider_holdings.py`（+2 測試）
+- 對照計畫 Task 4。依賴 Task 2✅ + Task 3✅。
+
+**1. `main.py` 串接**：
+- 新增 `_update_insider_holdings()`（先 `init_db()` 再抓再 save，確保表存在——對應 Debugger Task 3
+  報告的提醒）。
+- 新增 CLI flag `--update-insider-holdings` + dispatch。
+- **改寫 sh_rows 組裝**：
+  - 股價對齊改成「**對齊集保週期**」——查本週(`date`)/上週(`prev_date`)各自對應日期的收盤價，
+    算 `price_week_chg`（放進既有 `change_pct` key，語意從「最新交易日漲跌」變「集保週期週漲跌」）。
+    **不再**用「最新交易日」單一股價。
+  - join `insider_holdings`（每股最新一筆月資料）→ 新增 company_*/major_holder_* 六個欄位。
+  - 新增 `lv12_15_shares`、`share_chg`。
+
+**2. nullable 處理（對應 Debugger Task 2 報告的 🟡）**：
+- `share_chg`/`lv12_15_shares`/insider 六欄一律用 `pd.notna()` 判斷，缺值帶 `None`（不是 0、不是
+  `<NA>`）。**顯示成「—」是 Task 5 的事**，Task 4 只保證帶乾淨的 None 下去。
+- ⚠️ **保留** `week_chg` 的 `None if pd.isna(...) else float(...)`（2026-07-05 修過的 NaN fix）——
+  計畫 Task 4 的範例碼把它寫回舊的 `is not None`（會漏 NaN），我沒退回。
+
+**3. 收 Task 3 的 🟡（`_to_int` 脆弱性）**：
+- `scrapers/insider_holdings.py::_to_int()` 改成無法解析（`-`／`－`／`N/A`）回 0，不再拋 ValueError
+  讓整支股票靜默消失。新增 2 測試（`_to_int` 直接測 + `_parse_response` 帶 `-` cell 仍能解析）。
+
+### 資料來源相關（如有異動）
+- 不適用——串接與資料組裝，資料源規則不變。
+
+### 請 Debugger 驗證
+- [ ] 全專案（我這邊：105 passed，含新增 2 個 _to_int 測試）；`main.py` ast.parse OK
+- [ ] **我已 smoke-test 過價格對齊**（臨時 DB）：DuckDB `date IN (SELECT UNNEST(?))` 接受
+  numpy.datetime64 綁定、`_price_map` 的 `str(Timestamp)` key 兩邊對得上、週漲跌算對
+  （950/900=+5.56%）。**建議用真實 `data/screener.db` 跑一次確認**（我沒真實多週集保+對應股價資料）。
+- [ ] **建議實跑一次串接**：`python main.py --update-insider-holdings`（會實際打 MOPS ~1040 支、
+  較久）確認寫入 `insider_holdings`；再跑 `python main.py` 確認 sh_rows 有帶新欄位、不 crash。
+- [ ] 確認 `share_chg`/insider chg 缺值時帶的是 `None`（Task 5 會把它顯示成「—」）。
+
+### 特別注意
+- **Section 8 表格還沒顯示新欄位**——Task 5 才改 `_shareholder_table()` 加「大戶張數變化/公司派/
+  大股東」欄。Task 4 只是把資料備妥在 sh_rows 裡，跑 `main.py` 目前 chips.html 外觀不變。
+
+---
+
 ## [2026-07-06] 大戶張數化+內部人持股計畫 Task 3：新增 scrapers/insider_holdings.py（內部人持股月頻）
 
 ### 改了什麼

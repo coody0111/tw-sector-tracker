@@ -31,6 +31,24 @@ def test_parse_response_returns_none_when_no_data():
     assert _parse_response(_NO_DATA_HTML) is None
 
 
+def test_to_int_non_numeric_returns_zero():
+    """非數字 cell（如 '-'／'－'／'N/A'）視為 0、不拋例外（避免整支股票靜默消失）。"""
+    from scrapers.insider_holdings import _to_int
+    assert _to_int("-") == 0
+    assert _to_int("－") == 0
+    assert _to_int("N/A") == 0
+    assert _to_int("") == 0
+    assert _to_int("1,234,567") == 1_234_567
+
+
+def test_parse_response_survives_dash_cell():
+    """某數字 cell 是 '-' 時，該股仍能解析（該值當 0），不會整支回 None。"""
+    html = _SAMPLE_HTML.replace("1,000,000", "-")  # 董事本人目前持股變成 '-'
+    result = _parse_response(html)
+    assert result is not None
+    assert result["company_shares"] == 500_000   # 董事 0 + 獨董 0 + 總經理 500,000
+
+
 def test_save_to_db_computes_month_over_month_change(tmp_path):
     from scrapers.insider_holdings import save_to_db
     import duckdb

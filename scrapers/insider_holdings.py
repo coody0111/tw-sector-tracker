@@ -33,7 +33,14 @@ _COMPANY_KEYWORDS = ("董事", "監察人", "經理", "協理", "主管")
 
 def _to_int(text: str) -> int:
     text = text.strip().replace(",", "")
-    return int(text) if text else 0
+    if not text:
+        return 0
+    try:
+        return int(text)
+    except ValueError:
+        # 非數字（如 '-'／'－'／'N/A'）視為 0，避免單一 cell 解析失敗讓整支股票被當抓取
+        # 失敗而靜默消失（「不報錯但漏資料」）——Debugger 2026-07-06 回報的 🟡
+        return 0
 
 
 def _classify_role(title: str) -> str:

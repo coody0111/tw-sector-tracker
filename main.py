@@ -263,6 +263,17 @@ def _update_shareholder() -> None:
     logger.info("=== 集保更新完成，寫入 %d 筆 ===", n)
 
 
+def _update_insider_holdings() -> None:
+    """抓公開資訊觀測站內部人持股（公司派/大股東），計算月變化並存入 DB。"""
+    from scrapers.insider_holdings import fetch_insider_holdings_monthly, save_to_db as ih_save
+    init_db()
+    stock_ids = pd.read_csv(UNIVERSE_PATH, dtype=str)["stock_id"].tolist()
+    logger.info("=== 內部人持股更新（%d 支股票）===", len(stock_ids))
+    rows = fetch_insider_holdings_monthly(stock_ids)
+    n = ih_save(rows)
+    logger.info("=== 內部人持股更新完成，寫入 %d 筆 ===", n)
+
+
 def _backfill_shareholder(weeks: int = 4) -> None:
     """補齊過去 N 週的集保持股分散表。"""
     from scrapers.shareholder import fetch_shareholder_weekly, save_to_db as sh_save, get_available_dates, recompute_latest_streak
@@ -528,32 +539,65 @@ def run(trade_date: date = None, realtime: bool = False) -> None:
             if not sh_df.empty:
                 universe = pd.read_csv(UNIVERSE_PATH, dtype=str, usecols=["stock_id", "stock_name", "meta_sector"])
                 name_map = universe.set_index("stock_id")[["stock_name", "meta_sector"]].to_dict("index")
-                # 取最近一個交易日的股價
+
+                # 價格對齊集保週期：本週/上週各自查對應日期的收盤價（不是「最新交易日」）
+                _dates = pd.unique(pd.concat([sh_df["date"], sh_df["prev_date"].dropna()]))
                 try:
                     _con = _ddb.connect("data/screener.db", read_only=True)
-                    _pdate = _con.execute("SELECT MAX(date) FROM daily_prices").fetchone()[0]
                     _pdf = _con.execute(
-                        "SELECT stock_id, close, change_pct FROM daily_prices WHERE date = ?", [_pdate]
-                    ).fetchdf() if _pdate else pd.DataFrame()
+                        "SELECT stock_id, date, close FROM daily_prices WHERE date IN (SELECT UNNEST(?))",
+                        [list(_dates)],
+                    ).fetchdf() if len(_dates) else pd.DataFrame()
                     _con.close()
-                    sh_price_map = _pdf.set_index("stock_id")[["close", "change_pct"]].to_dict("index") if not _pdf.empty else {}
+                    _price_map = {(str(r["stock_id"]), str(r["date"])): r["close"] for _, r in _pdf.iterrows()}
                 except Exception:
-                    sh_price_map = {}
+                    _price_map = {}
+
+                # 內部人持股（公司派/大股東）：取每支股票最新一筆月資料
+                try:
+                    _con = _ddb.connect("data/screener.db", read_only=True)
+                    _ihdf = _con.execute("""
+                        SELECT stock_id, company_shares, company_chg, company_pledge_pct,
+                               major_holder_shares, major_holder_chg, major_holder_pledge_pct
+                        FROM insider_holdings
+                        QUALIFY ROW_NUMBER() OVER (PARTITION BY stock_id ORDER BY report_date DESC) = 1
+                    """).fetchdf()
+                    _con.close()
+                    _insider_map = {str(r["stock_id"]): r for _, r in _ihdf.iterrows()}
+                except Exception:
+                    _insider_map = {}
+
                 sh_rows = []
                 for _, row in sh_df.iterrows():
                     sid = str(row["stock_id"])
                     info = name_map.get(sid, {})
-                    px = sh_price_map.get(sid, {})
+                    close = _price_map.get((sid, str(row["date"])))
+                    prev_close = _price_map.get((sid, str(row["prev_date"]))) if pd.notna(row["prev_date"]) else None
+                    price_week_chg = (
+                        round((close - prev_close) / prev_close * 100, 2)
+                        if close is not None and prev_close is not None and prev_close != 0 else None
+                    )
+                    share_chg = row["share_chg"] if pd.notna(row["share_chg"]) else None
+                    insider = _insider_map.get(sid)
+
                     sh_rows.append({
                         "stock_id":    sid,
                         "stock_name":  info.get("stock_name", ""),
                         "meta_sector": info.get("meta_sector", ""),
                         "lv12_15_pct": float(row["lv12_15_pct"]) if row["lv12_15_pct"] is not None else None,
+                        "lv12_15_shares": int(row["lv12_15_shares"]) if pd.notna(row["lv12_15_shares"]) else None,
+                        "share_chg":   int(share_chg) if share_chg is not None else None,
                         "week_chg":    None if pd.isna(row["week_chg"]) else float(row["week_chg"]),
                         "streak":      int(row["streak"]) if row["streak"] is not None else 0,
                         "date":        str(row["date"]),
-                        "close":       float(px["close"]) if px.get("close") is not None else None,
-                        "change_pct":  float(px["change_pct"]) if px.get("change_pct") is not None else None,
+                        "close":       float(close) if close is not None else None,
+                        "change_pct":  price_week_chg,
+                        "company_shares":          int(insider["company_shares"]) if insider is not None and pd.notna(insider["company_shares"]) else None,
+                        "company_chg":             int(insider["company_chg"]) if insider is not None and pd.notna(insider["company_chg"]) else None,
+                        "company_pledge_pct":      float(insider["company_pledge_pct"]) if insider is not None and pd.notna(insider["company_pledge_pct"]) else None,
+                        "major_holder_shares":     int(insider["major_holder_shares"]) if insider is not None and pd.notna(insider["major_holder_shares"]) else None,
+                        "major_holder_chg":        int(insider["major_holder_chg"]) if insider is not None and pd.notna(insider["major_holder_chg"]) else None,
+                        "major_holder_pledge_pct": float(insider["major_holder_pledge_pct"]) if insider is not None and pd.notna(insider["major_holder_pledge_pct"]) else None,
                     })
             else:
                 sh_rows = []
@@ -620,6 +664,8 @@ if __name__ == "__main__":
                         help="抓 TDCC 集保持股分散表（最新週），計算大戶持倉比例與週變化")
     parser.add_argument("--backfill-shareholder", type=int, default=0, metavar="WEEKS",
                         help="補齊集保持股分散表過去 N 週資料（每支股票一次請求，約 17 分鐘/週）")
+    parser.add_argument("--update-insider-holdings", action="store_true",
+                        help="抓公開資訊觀測站內部人持股（公司派/大股東），計算月變化")
     parser.add_argument("--reimport", action="store_true",
                         help="清空 daily_prices 並從所有現有 CSV 重新匯入，用於修復資料庫錯誤")
     parser.add_argument("--full-rebuild", action="store_true",
@@ -651,6 +697,8 @@ if __name__ == "__main__":
         _update_shareholder()
     elif args.backfill_shareholder:
         _backfill_shareholder(weeks=args.backfill_shareholder)
+    elif args.update_insider_holdings:
+        _update_insider_holdings()
     elif args.reimport:
         from screener.database import reimport_db
         init_db()

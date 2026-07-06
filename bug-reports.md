@@ -1,3 +1,61 @@
+## [2026-07-06] 驗證 - Task 3 內部人持股 scraper（scrapers/insider_holdings.py）
+
+### 驗證方式
+- `git merge master`（乾淨）；全專案 `pytest`；**實際連線 MOPS `ajax_stapap1` 抓 2330/2317 真實
+  HTML**（Developer 本機沒法驗的最高風險項）驗 regex；抓真實表頭確認欄位語意；查 schema 欄序對齊；
+  實測 `_to_int` 對非數字 cell 的行為
+
+### ✅ 驗證通過
+
+**全專案測試**：**103 passed, 0 failed**（含 `test_insider_holdings.py` 3 個）。
+
+**【重點】regex 對真實 HTML（實際連線 MOPS 抓 2330 / 2317）**
+- `<TR class='odd'/'even'>` 格式與真實一致：2330 抓到 40 列、2317 抓到 23 列（資料列確實用
+  odd/even class；表頭那個純 `<tr>` 不被誤抓，正確）。
+- 每列 9 欄、`資料年月:11505` → `2026-05-01`（民國轉西元）正確。
+- 分類正確：2330 全歸公司派、2317 抓到大股東（郭台銘 17.4 億股 / 設質 8.6 億）。
+
+**【重點】欄位語意（抓真實表頭確認，非臆測）** — Developer 的欄位對應**完全正確**：
+- cells[3]=目前持股（本人）、cells[4]=設質股數（本人）、cells[6]=**內部人關係人目前持股合計**
+  （配偶/未成年子女/他人名義）、cells[7]=關係人設質。
+- `shares = 本人 + 關係人持股`、`pledge = 本人 + 關係人設質`——這是衡量「內部人實際掌控股數」的
+  標準口徑，**加總語意正確**，真實數字合理（2330 公司派 17.4 億股、2317 大股東 17.4 億股）。
+- `選任時持股`(cells[2]) 正確未使用（要的是目前持股不是選任時）。
+
+**位置式 INSERT（全新表）**：`insider_holdings` schema 欄序
+（stock_id→report_date→company_shares→company_chg→company_pledge_pct→major_holder_shares→
+major_holder_chg→major_holder_pledge_pct）與 INSERT SELECT 欄序**完全一致**；全新表只走
+CREATE TABLE、無 ALTER，欄序固定，位置式安全 ✅——與 Task 1「ALTER-append 情境」不同，判斷正確。
+
+**save_to_db 月變化**：測試驗過跨月 `company_chg=+100,000`/`major_holder_chg=-500,000`、首月無前值
+`chg=NULL`；prev 查詢用 `report_date < write_date` + `QUALIFY ROW_NUMBER` 取最近前一期，重跑同月
+不會拿當月當基準（idempotent）✅。
+
+**重試不吞例外**：`_fetch_one_stock()` 不 catch POST 例外，讓例外冒給外層重試迴圈——正確套用
+2026-07-05 shareholder.py 那次的教訓 ✅。
+
+### 🟡 建議改善（潛在脆弱性，非阻擋——真實 2330/2317 資料未觸發）
+- **`_to_int` 對「非數字非空」cell 會整支靜默丟失**：實測 `_to_int('-')`/`'－'`/`'N/A'` 都拋
+  `ValueError`，且例外會傳播出 `_parse_response()` → 該股被當抓取失敗、重試 3 次（同樣確定性失敗）
+  後靜默跳過（只 log warning）。目前真實資料所有數字欄不是純數字就是空字串（`_to_int('')→0` 沒事），
+  沒踩到；但**若哪天 MOPS 把某個 0/空值 render 成 `-`／`－`，那支股票會整筆消失**——正是「不報錯
+  但漏資料」那類。建議：`_to_int` 對無法解析的值回 0（或 per-row try/except，讓單列壞掉不影響整支）。
+  這是 regex/解析對格式敏感的一體兩面，優先度可等真的遇到再修，但先記錄。
+- 次要（純統計顯示，不影響資料）：重試迴圈把「查無資料（rec=None，合法無內部人資料）」跟「真的
+  抓取失敗」都併進 `failed` 計數，log 的「失敗 N」會略微高估真實失敗數，不影響寫入正確性。
+
+### 特別注意
+- 這個 scraper **還沒接進 main.py**（Task 4 才做 `--update-insider-holdings` CLI），目前跑 main.py
+  不會用到它——與 Developer 說明一致，已確認。
+- `insider_holdings` 表由 `init_db()` 的 `CREATE TABLE IF NOT EXISTS` 建立，既有 `data/screener.db`
+  下次 init_db 會補上此表；Task 4 串接時要確保先 init_db 再 save_to_db（否則表不存在會報錯）。
+
+### 結論
+- [x] 可以繼續下一個任務——Task 3 核心（regex 真實格式、欄位語意、加總口徑、位置式 INSERT、月變化、
+  重試不吞例外）全部 ✅。`_to_int` 脆弱性列 🟡 潛在，不阻擋，建議 Task 4/5 前後順手強化。
+
+---
+
 ## [2026-07-06] 驗證 - Task 2（get_shareholder_top 張數變化）+ _push_html abort 精修（fa5aa9b）
 
 ### 驗證方式

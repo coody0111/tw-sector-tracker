@@ -14,6 +14,27 @@
 
 ---
 
+## [2026-07-06] 收 _push_html 的 🟡：只在真的有 rebase 進行中才 abort（消 log 雜訊）
+
+### 改了什麼
+- 異動檔案：`main.py`（`_push_html()` 的 pull 失敗分支）
+- 背景：Debugger 在上一輪驗證回報的 🟡——`pull --rebase` 若因**非衝突原因**失敗（無 upstream／
+  網路斷），後面無條件的 `git rebase --abort` 會噴「沒有進行中的 rebase」的無害 log 雜訊。
+- 修法：新增 `_rebase_in_progress()`（用 `git rev-parse --git-path rebase-merge/rebase-apply`
+  判斷，worktree-safe），**只有真的有 rebase 卡住才 abort**；非衝突失敗改印另一句「可能無
+  upstream 或網路問題」的警告。兩種情況都一樣：本機 commit 保留、不 push。
+
+### 資料來源相關（如有異動）
+- 不適用——純 git 自動化流程的 log 清理，行為（commit 保留、不 push）不變。
+
+### 請 Debugger 驗證
+- [ ] `ast.parse` 通過（我已跑：main.py 語法 OK）
+- [ ] 模擬「非衝突失敗」（例如把 remote 拔掉／無 upstream）跑 `_push_html`，確認**不再**出現
+  「no rebase in progress」那句雜訊，改印「可能無 upstream 或網路問題」
+- [ ] 模擬「衝突」情境，確認仍會正確 `rebase --abort` 回乾淨（跟上一輪驗過的行為一致）
+
+---
+
 ## [2026-07-06] 修 main.py::_push_html() 自動 push 的兩個地雷（local↔遠端協作穩定性）
 
 ### 改了什麼

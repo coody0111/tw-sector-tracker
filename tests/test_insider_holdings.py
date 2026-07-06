@@ -1,5 +1,24 @@
 # tests/test_insider_holdings.py
-from scrapers.insider_holdings import _parse_response, fetch_insider_holdings_monthly
+from scrapers.insider_holdings import (
+    _check_mops_response,
+    _parse_response,
+    fetch_insider_holdings_monthly,
+    MOPSBlockedError,
+)
+
+
+class _FakeResp:
+    def __init__(self, status_code, text):
+        self.status_code = status_code
+        self.text = text
+
+
+_BLOCK_HTML = """
+<html><body>
+因為安全性考量，您所執行的頁面無法呈現。<BR>
+FOR SECURITY REASONS, THIS PAGE CAN NOT BE ACCESSED.<BR>
+</body></html>
+"""
 
 _SAMPLE_HTML = """
 <table class='noBorder'><tr><td class='reportCont' style='text-align:right !important;'>資料年月:11505</td></tr></table>
@@ -94,3 +113,37 @@ def test_save_to_db_computes_month_over_month_change(tmp_path):
     assert row[0] == 100_000     # 1,100,000 - 1,000,000
     assert row[1] == -500_000    # 2,500,000 - 3,000,000
     assert first_row[0] is None  # 第一個月無前值，chg 應為 NULL
+
+
+def test_check_mops_response_detects_real_block_page():
+    """2026-07-06 實測擋頁：307 + 資安考量文字，不能被誤判成查無資料。"""
+    import pytest
+    with pytest.raises(MOPSBlockedError):
+        _check_mops_response(_FakeResp(307, _BLOCK_HTML))
+
+
+def test_check_mops_response_allows_normal_200():
+    """合法回應（含查無資料在內）都是 200，不該被誤判成擋頁。"""
+    _check_mops_response(_FakeResp(200, _SAMPLE_HTML))       # 有資料
+    _check_mops_response(_FakeResp(200, _NO_DATA_HTML))      # 查無資料，仍是合法回應
+
+
+def test_fetch_insider_holdings_monthly_separates_blocked_from_no_data(monkeypatch):
+    """被 MOPS 擋掉的股票要進 blocked_ids、不能跟『真的查無資料』混在一起算成同一種失敗。"""
+    import scrapers.insider_holdings as ih
+
+    def fake_fetch(stock_id):
+        if stock_id == "1101":
+            return {"report_date": "2026-05-01", "company_shares": 100, "company_pledge_shares": 0,
+                     "major_holder_shares": 200, "major_holder_pledge_shares": 0}
+        if stock_id == "1102":
+            return None  # 真的查無資料（合法回應，只是沒有揭露）
+        raise MOPSBlockedError("被擋")  # 1103：三次重試全部被擋
+
+    monkeypatch.setattr(ih, "_fetch_one_stock", fake_fetch)
+    monkeypatch.setattr(ih.time, "sleep", lambda *a, **k: None)  # 測試不要真的等退避時間
+
+    results, blocked_ids = fetch_insider_holdings_monthly(["1101", "1102", "1103"], delay=0)
+
+    assert [r["stock_id"] for r in results] == ["1101"]
+    assert blocked_ids == ["1103"]

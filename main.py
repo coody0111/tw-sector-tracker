@@ -572,7 +572,11 @@ def run(trade_date: date = None, realtime: bool = False) -> None:
                     sid = str(row["stock_id"])
                     info = name_map.get(sid, {})
                     close = _price_map.get((sid, str(row["date"])))
+                    if close is not None and pd.isna(close):
+                        close = None  # daily_prices.close 可能是 NULL→nan，洗成 None 免得 _price_cell int(nan) crash
                     prev_close = _price_map.get((sid, str(row["prev_date"]))) if pd.notna(row["prev_date"]) else None
+                    if prev_close is not None and pd.isna(prev_close):
+                        prev_close = None
                     price_week_chg = (
                         round((close - prev_close) / prev_close * 100, 2)
                         if close is not None and prev_close is not None and prev_close != 0 else None

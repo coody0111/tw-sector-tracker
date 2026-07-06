@@ -124,3 +124,13 @@ def test_shareholder_table_handles_missing_insider_data():
     row["major_holder_pledge_pct"] = None
     html = _shareholder_table([row])
     assert "─" in html
+
+
+def test_shareholder_table_row_td_count_matches_header():
+    """資料列的 <td> 數必須等於表頭 <th> 欄數——防止 _insider_cell/_price_cell 這類
+    『回傳完整 <td> 卻又被外層 <td> 包一次』的雙重 <td> 結構 bug（substring 測試抓不到）。"""
+    html = _shareholder_table([_SAMPLE_SH_ROW])
+    n_th = html.count("<th>")
+    body = html.split("</thead>")[1]   # 只數 tbody 的資料列
+    n_td = body.count("<td")           # <td 前綴涵蓋 <td> 與 <td ...>
+    assert n_td == n_th, f"資料列 <td> 數 {n_td} != 表頭 <th> 數 {n_th}（可能有雙重 <td>）"

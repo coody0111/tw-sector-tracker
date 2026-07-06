@@ -405,8 +405,8 @@ def _shareholder_table(rows: list) -> str:
             f"<td>{chg_html}</td>"
             f"<td>{share_chg_html}</td>"
             f"<td>{streak_html}</td>"
-            f"<td>{company_html}</td>"
-            f"<td>{major_html}</td>"
+            f"{company_html}"
+            f"{major_html}"
             f"</tr>"
         )
     html += "</tbody></table>"

@@ -1,3 +1,45 @@
+## [2026-07-06] 修 main.py::_push_html() 自動 push 的兩個地雷（local↔遠端協作穩定性）
+
+### 改了什麼
+- 異動檔案：`main.py`（`_push_html()`，148-163 行）
+- 背景：今天早上 `python main.py --realtime` 撞上一連串 git 問題（`docs/data.json` 未合併
+  衝突、筆電落後 origin 53 個 commit、自動 commit 掃到不相關的 staged 變更）。根因不是 gitignore，
+  是 `_push_html()` 的兩個地雷：
+
+**地雷 1：commit 沒限定範圍**
+原本 `git commit -m ...`（無 pathspec）會把「當下所有 staged 的東西」一起 commit，不只那幾個
+產出 HTML。之前（見 bug-reports 2026-07-05 React revert 那則）就發生過：某人 `git rm --cached`
+到一半、`main.py` 剛好被跑，那些 staged 的刪除被一起 commit+push 上去。
+→ 改成 `git commit -m ... -- <files_to_add>`，只 commit 指定的產出檔；`git diff --cached --quiet`
+也加 `-- <files>` 限定範圍，不受其他 staged 變更影響判斷。
+
+**地雷 2：push 前不同步 → 兩台機分岔**
+原本直接 `git push`。兩台機（桌電/筆電）各自 push「update: sector performance」就會分岔，下次
+pull 撞 merge 衝突（今天 data.json 那次就是）。
+→ push 前先 `git pull --rebase --autostash`，把本機這筆接到遠端最新之後再推。**若 rebase 撞
+衝突就 `git rebase --abort`、保持工作區乾淨、本機 commit 保留、log 警告請人工處理**——不讓自動
+流程卡在半完成的 rebase（這是刻意的安全設計，寧可不自動推、也不要留一個壞掉的 rebase 狀態）。
+
+### 資料來源相關（如有異動）
+- 不適用——純 git 自動化流程的穩定性修復，不碰任何資料抓取/轉換邏輯。
+
+### 請 Debugger 驗證
+- [ ] `ast.parse` 語法檢查通過（我已跑：main.py 語法 OK）；全專案測試不受影響（沒有動到被測邏輯）
+- [ ] **重點**：確認 commit 限定範圍有效——製造一個情境：先手動 stage 一個不相關變更
+  （例如 `git add 某個別的檔`），再讓 `_push_html()` 跑，確認那個不相關變更**不會**被一起 commit
+- [ ] 確認 `git pull --rebase` 撞衝突時真的會 `rebase --abort` 回乾淨狀態、不會卡在 rebase 中途
+  （可用兩個 clone 製造分岔＋衝突情境測）
+- [ ] **留給 Cody 決定**：push 前自動 `pull --rebase` 是行為改變。如果 Cody 偏好「push 前一律
+  手動 pull、不要自動 rebase」，這段可以拿掉只保留地雷 1 的 commit 限定範圍。目前的版本是
+  「安全的自動化」：常見情境自動接上，衝突時安全退出不卡住。
+
+### 特別注意
+- **沒有動 `.gitignore`**：因為 Debugger 那邊正在做 debug 分支的 CLAUDE.md/.gitignore 移行
+  （見 bug-reports/口頭交接），避免兩邊同時改同一檔 race。`.gitignore` 追加 build 產物
+  （`docs/data.json`、`docs/assets/`）那項留到 debug 移行收乾淨後再由 Developer 補。
+
+---
+
 ## [2026-07-06] 大戶張數化+內部人持股計畫 Task 1：shareholder 表新增 lv12_15_shares（大戶實際張數）
 
 ### 改了什麼

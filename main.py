@@ -152,13 +152,30 @@ def _push_html(trade_date: date) -> None:
         if os.path.exists("docs/patterns.html"):
             files_to_add.append("docs/patterns.html")
         subprocess.run(["git", "add"] + files_to_add, check=True)
-        result = subprocess.run(["git", "diff", "--cached", "--quiet"])
-        if result.returncode != 0:
-            subprocess.run(["git", "commit", "-m", f"update: sector performance {trade_date.isoformat()}"], check=True)
-            subprocess.run(["git", "push"], check=True)
-            logger.info("Pushed to GitHub Pages.")
-        else:
+        # 只看這幾個產出檔有沒有變動（限定範圍，不受其他 staged 變更影響判斷）
+        result = subprocess.run(["git", "diff", "--cached", "--quiet", "--"] + files_to_add)
+        if result.returncode == 0:
             logger.info("No HTML changes to push.")
+            return
+        # 只 commit 這幾個檔（明確限定範圍）——避免把當下其他 staged 的變更（例如手動
+        # git add/rm 到一半的東西）一起打包 commit+push 上去
+        subprocess.run(
+            ["git", "commit", "-m", f"update: sector performance {trade_date.isoformat()}", "--"] + files_to_add,
+            check=True,
+        )
+        # push 前先跟遠端同步：兩台機各自 push 會分岔，先 pull --rebase 把本機這筆接到
+        # 遠端最新之後再推。--autostash 保護工作區；若 rebase 撞衝突就中止並保持乾淨，
+        # 本機 commit 保留、留給人工處理，不讓自動流程卡在半完成的 rebase
+        pull = subprocess.run(["git", "pull", "--rebase", "--autostash"])
+        if pull.returncode != 0:
+            subprocess.run(["git", "rebase", "--abort"])
+            logger.warning(
+                "git pull --rebase 有衝突，已中止 rebase；本機 commit 已保留，"
+                "請手動 `git pull` 解衝突後再 push。"
+            )
+            return
+        subprocess.run(["git", "push"], check=True)
+        logger.info("Pushed to GitHub Pages.")
     except Exception as exc:
         logger.warning("Git push failed: %s", exc)
 

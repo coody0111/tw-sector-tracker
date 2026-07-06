@@ -1,3 +1,57 @@
+## [2026-07-06] 驗證 - Task 5 Section 8 表格新增張數變化+內部人欄位（計畫最後一個 Task）
+
+### 驗證方式
+- `git merge master`（乾淨）；全專案 `pytest`；實際呼叫 `_shareholder_table()` 產生真實 HTML、
+  用 regex 數 `<td>` 標籤與表頭欄數比對結構
+
+### 🔴 程式問題（需修）
+- **`_insider_cell()` 的輸出被雙重包 `<td>`，產生 malformed HTML、Section 8 表格會欄位錯位**：
+  - `_insider_cell()` **回傳的是完整 `<td>...</td>`**（`chips_generator.py:419`「─」那格、
+    `:427` 有值那格都含 `<td>` 標籤）。
+  - 但列組裝把它**又包一層** `<td>`（`chips_generator.py:408-409`）：
+    ```python
+    f"<td>{company_html}</td>"   # company_html 已是 <td>...</td>
+    f"<td>{major_html}</td>"
+    ```
+    → 實際輸出 `<td><td style='...'>─</td></td>`（雙重 `<td>`）。
+  - **實測**：一列資料產生 **12 個 `<td>`，但表頭只有 10 欄**（`#`/股票/族群/收盤(週漲跌)/大戶持倉%/
+    週變化/大戶張數變化/連增週/公司派持股/大股東持股）；`<td><td` 出現 **2 次**（公司派、大股東各一）。
+    多出來的 2 個 cell 會讓 Section 8 表格欄位錯位／版面跑掉。
+  - **對比**：同一列的 `_price_cell()`（`:403`）也回傳完整 `<td>`，那裡就**沒有**多包 `<td>`
+    （`f"{_price_cell(...)}"`）——寫法正確。`_insider_cell` 應比照，Developer 這裡不一致寫錯了。
+  - 修法（擇一，我不自己動）：把 `:408-409` 改成 `f"{company_html}"`/`f"{major_html}"`（不外包，
+    比照 `_price_cell` 用法）；或把 `_insider_cell` 改成只回傳內層 span、由呼叫端包 `<td>`。
+  - **為什麼 3 個新測試沒抓到**：測試用 substring 檢查（找「張」「─」等字串），雙重 `<td>` 裡一樣
+    含這些字串，所以測試綠燈但 HTML 其實壞的。建議補一個「資料列 `<td>` 數 == 表頭欄數」的結構斷言。
+
+### ✅ 驗證通過
+- **全專案測試**：**108 passed, 0 failed**（含新增 3 個）。
+- **股→張換算（÷1000）正確**：`share_chg`、`_insider_cell` 都 `/1000`；實測 company_shares
+  `1,735,849,436 → 1,735,849張`、`share_chg 250,000 → 250張` ✅。
+- **方向（紅漲綠跌）正確**：正值紅（`#f87171`）、負值綠（`#4ade80`）、0 灰，符合台股慣例 ✅。
+- **缺值顯示「─」正確**：`share_chg is None` / `_insider_cell shares is None` → 顯示「─」不是
+  「0張」，實測 major_holder=None → 「─」✅（對應我 Task 2/4 報告的「缺值別顯示成 0」提醒）。
+- **收盤欄標題改「收盤(週漲跌)」**，對應 Task 4 把 change_pct 語意改成集保週期週漲跌 ✅。
+- **Task 4 的 nullable 清洗讓顯示層安全**：`share_chg`/insider 六欄在 Task 4 已用 `pd.notna()` 洗成
+  乾淨 `None`，所以顯示層的 `is not None` 判斷不會踩到 `nan`（若沒洗，`nan is not None=True` 會渲染
+  出「nan張」）——這兩層剛好接上 ✅。
+
+### 🟡 仍未處理（Task 4 帶下來的，Task 5 沒收）
+- **`close`/`prev_close` 的 `pd.isna` 一致性（我 Task 4 報告的 🟡，仍開著）**：Task 5 只動
+  `_shareholder_table`/`_insider_cell`，沒碰 main.py 的 `close`/`prev_close` 判斷，也沒碰
+  `_price_cell`。所以「`daily_prices.close` 為 NULL → `nan` 洩漏進 `sh_rows['close']` →
+  `_price_cell` 在 `int(nan)` crash」這個 latent 問題**還在**（本機 0 筆 NULL close，未觸發）。
+  既然這次剛好在改 Section 8 顯示，**建議一起把這個一行的一致性修掉**（`close`/`prev_close` 改
+  `pd.isna` 判斷）。
+
+### 結論
+- [ ] **需要修改後再確認**：🔴 雙重 `<td>` 是這次 Task 5 引入的真實顯示 bug，會讓 Section 8 表格
+  欄位錯位，**建議修掉再放行**（修法就是 `:408-409` 拿掉外層 `<td>`，一行的事）。修完我再驗一次
+  「資料列 td 數 == 表頭欄數」。其餘（÷1000、方向、缺值─、標題）都 ✅。
+- 順帶建議一起收 Task 4 帶下來的 `close`/`prev_close` `pd.isna` 🟡（latent crash）。
+
+---
+
 ## [2026-07-06] 驗證 - Task 4 main.py 串接內部人持股 + sh_rows 對齊集保週期/join
 
 ### 驗證方式

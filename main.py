@@ -168,11 +168,29 @@ def _push_html(trade_date: date) -> None:
         # 本機 commit 保留、留給人工處理，不讓自動流程卡在半完成的 rebase
         pull = subprocess.run(["git", "pull", "--rebase", "--autostash"])
         if pull.returncode != 0:
-            subprocess.run(["git", "rebase", "--abort"])
-            logger.warning(
-                "git pull --rebase 有衝突，已中止 rebase；本機 commit 已保留，"
-                "請手動 `git pull` 解衝突後再 push。"
-            )
+            def _rebase_in_progress() -> bool:
+                # worktree-safe：用 git rev-parse --git-path 取正確的 git 目錄
+                for name in ("rebase-merge", "rebase-apply"):
+                    p = subprocess.run(
+                        ["git", "rev-parse", "--git-path", name],
+                        capture_output=True, text=True,
+                    )
+                    if p.returncode == 0 and os.path.isdir(p.stdout.strip()):
+                        return True
+                return False
+            if _rebase_in_progress():
+                # 真的有 rebase 卡住（撞衝突）才 abort，保持工作區乾淨
+                subprocess.run(["git", "rebase", "--abort"])
+                logger.warning(
+                    "git pull --rebase 有衝突，已中止 rebase；本機 commit 已保留，"
+                    "請手動 `git pull` 解衝突後再 push。"
+                )
+            else:
+                # 非衝突原因失敗（無 upstream／網路斷）：沒有 rebase 可 abort
+                logger.warning(
+                    "git pull --rebase 失敗（可能無 upstream 或網路問題）；"
+                    "本機 commit 已保留，未 push。"
+                )
             return
         subprocess.run(["git", "push"], check=True)
         logger.info("Pushed to GitHub Pages.")

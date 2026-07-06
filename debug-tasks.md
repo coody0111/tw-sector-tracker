@@ -14,6 +14,62 @@
 
 ---
 
+## [2026-07-06] 大戶張數化+內部人持股計畫 Task 2：get_shareholder_top() 回傳 prev_date + 張數變化
+
+### 改了什麼
+- 異動檔案：`screener/database.py`（`get_shareholder_top()`）、新增 `tests/test_database.py`
+- 對照計畫 Task 2（TDD：寫失敗測試→紅→實作→綠）。依賴 Task 1 的 `lv12_15_shares`（已完成）。
+
+**做了什麼**：
+- `get_shareholder_top()` 從「MAX(date) 只取最新一筆」改成 `ROW_NUMBER() OVER (PARTITION BY
+  stock_id ORDER BY date DESC)`，取 rn=1（本週）LEFT JOIN rn=2（上週），新增回傳三個欄位：
+  `prev_date`（上週日期）、`lv12_15_shares`（本週大戶張數）、`share_chg`（= 本週 − 上週股數差）。
+- 只有一週資料時，LEFT JOIN 無 rn=2 → `prev_date`/`share_chg` 為 NULL（pandas NaT/NaN），不報錯。
+- 既有回傳欄位（date/lv12_15_pct/lv12_15_cnt/week_chg/streak）都保留，main.py 現有消費端不受影響
+  （Task 4 才會用到新欄位）。
+
+### ⚠️ 我對計畫測試做的一個小修正（請 Debugger 確認）
+計畫 Task 2 的測試斷言 `str(row["date"]) == "2026-07-03"`，實測**過不了**——DuckDB DATE 經
+pandas `.df()` 轉出來是 `datetime64[us]`（Timestamp），`str()` 是 `"2026-07-03 00:00:00"`。
+- 我實測確認：**舊版 `get_shareholder_top`（MAX(date) 那版）也是回傳 Timestamp**，不是我改壞的，
+  是計畫測試對型別的假設有誤。
+- **我沒有在實作裡把日期正規化成乾淨 date 字串**，因為 Task 4 的股價對齊是用 `str(row["date"])`
+  當 key 去比對 `daily_prices`（那邊 `.df()` 也是 Timestamp）。若只把這裡改乾淨、`daily_prices`
+  還是 Timestamp，key 會對不上、股價查不到。**保持兩邊都 Timestamp 才一致。**
+- 修法：把測試斷言改成 `str(row["date"])[:10] == "2026-07-03"`（只比日期部分、型別無關）。
+
+### 資料來源相關（如有異動）
+- 不適用——DB 讀取層查詢改寫，不碰資料抓取。
+
+### 請 Debugger 驗證
+- [ ] `tests/test_database.py` 2 個測試過（我這邊：2 passed）；全專案（我這邊：100 passed）
+- [ ] 確認 `share_chg` 計算正確（本週 − 上週股數差）、單週資料時 `prev_date`/`share_chg` 為 NULL 不報錯
+- [ ] 確認上面那個「保持 date 為 Timestamp」的決定合理——特別是 Task 4 會用 `str(row["date"])`
+  跟 `daily_prices` 的 `str(r["date"])` 做 key 比對，兩邊型別要一致（都 Timestamp）才對得上
+
+---
+
+## [2026-07-06] 收 _push_html 的 🟡：只在真的有 rebase 進行中才 abort（消 log 雜訊）
+
+### 改了什麼
+- 異動檔案：`main.py`（`_push_html()` 的 pull 失敗分支）
+- 背景：Debugger 在上一輪驗證回報的 🟡——`pull --rebase` 若因**非衝突原因**失敗（無 upstream／
+  網路斷），後面無條件的 `git rebase --abort` 會噴「沒有進行中的 rebase」的無害 log 雜訊。
+- 修法：新增 `_rebase_in_progress()`（用 `git rev-parse --git-path rebase-merge/rebase-apply`
+  判斷，worktree-safe），**只有真的有 rebase 卡住才 abort**；非衝突失敗改印另一句「可能無
+  upstream 或網路問題」的警告。兩種情況都一樣：本機 commit 保留、不 push。
+
+### 資料來源相關（如有異動）
+- 不適用——純 git 自動化流程的 log 清理，行為（commit 保留、不 push）不變。
+
+### 請 Debugger 驗證
+- [ ] `ast.parse` 通過（我已跑：main.py 語法 OK）
+- [ ] 模擬「非衝突失敗」（例如把 remote 拔掉／無 upstream）跑 `_push_html`，確認**不再**出現
+  「no rebase in progress」那句雜訊，改印「可能無 upstream 或網路問題」
+- [ ] 模擬「衝突」情境，確認仍會正確 `rebase --abort` 回乾淨（跟上一輪驗過的行為一致）
+
+---
+
 ## [2026-07-06] 修 main.py::_push_html() 自動 push 的兩個地雷（local↔遠端協作穩定性）
 
 ### 改了什麼

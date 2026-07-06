@@ -258,18 +258,21 @@ def get_chips_today(trade_date: str) -> pd.DataFrame:
 
 
 def get_shareholder_top(n: int = 50) -> pd.DataFrame:
-    """取最新週大戶持倉資料，含週變化與連增週數，按 streak desc 排序。"""
+    """取最新週大戶持倉資料，含週變化、連增週數、張數變化與上週日期，按 streak desc 排序。"""
     con = get_conn()
     df = con.execute("""
-        WITH latest AS (
-            SELECT stock_id, MAX(date) AS max_date
-            FROM shareholder GROUP BY stock_id
+        WITH ranked AS (
+            SELECT stock_id, date, lv12_15_pct, lv12_15_cnt, lv12_15_shares, week_chg, streak,
+                   ROW_NUMBER() OVER (PARTITION BY stock_id ORDER BY date DESC) AS rn
+            FROM shareholder
         )
-        SELECT s.stock_id, s.date, s.lv12_15_pct, s.lv12_15_cnt,
-               s.week_chg, s.streak
-        FROM shareholder s
-        JOIN latest l ON s.stock_id = l.stock_id AND s.date = l.max_date
-        ORDER BY s.streak DESC, s.lv12_15_pct DESC
+        SELECT latest.stock_id, latest.date, prev.date AS prev_date,
+               latest.lv12_15_pct, latest.lv12_15_cnt, latest.lv12_15_shares,
+               latest.week_chg, latest.streak,
+               (latest.lv12_15_shares - prev.lv12_15_shares) AS share_chg
+        FROM (SELECT * FROM ranked WHERE rn = 1) latest
+        LEFT JOIN (SELECT * FROM ranked WHERE rn = 2) prev ON latest.stock_id = prev.stock_id
+        ORDER BY latest.streak DESC, latest.lv12_15_pct DESC
     """).df()
     con.close()
     return df

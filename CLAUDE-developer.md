@@ -33,18 +33,19 @@ tw-sector-tracker/
 
 ## ⚠️ 資料來源規則（重要）
 
-**上市股票 → 一律用 TWSE**
-- Taiwan Stock Exchange 官方 API
-- 資料較即時、穩定
+**每日流程**（`main.py` / `--update-sectors` / `--realtime`）：
+- 上市股票 → TWSE 官方 API（`scrapers/twse.py`）
+- 上櫃股票 → TPEx 官方 API（`scrapers/tpex.py`）
+- 兩者皆非 FinMind
 
-**上櫃股票 → 一律用 FinMind**
-- 上櫃（OTC）資料來源
-- 注意 FinMind API 的欄位格式與 TWSE 不同，處理時要分開
+**歷史回補**（`--backfill-twse` / `--backfill-yf`）：
+- 才會用到 FinMind（TPEx 部分）或 yfinance
+- 注意各來源的欄位格式不同，處理時要分開轉換
 
 **開發時每次碰到資料相關的程式碼，先確認：**
-1. 這支股票是上市還是上櫃？
-2. 有沒有混用資料來源？
-3. 兩個來源的欄位名稱如果不同，有沒有統一轉換？
+1. 這支股票是上市還是上櫃？走的是每日流程還是歷史回補？
+2. 有沒有混用資料來源（例如回補指令跟每日流程互相覆蓋同一批資料）？
+3. 不同來源的欄位名稱如果不同，有沒有統一轉換？
 
 ---
 
@@ -72,7 +73,10 @@ tw-sector-tracker/
 
 ### 完成任務後
 1. `git add . && git commit -m "簡短描述"`
-2. 更新 `debug-tasks.md`：
+2. **主動同步到 debug worktree**：去 `../tw-sector-tracker-debug` 資料夾確認乾淨
+   （沒有未 commit 的東西）後執行 `git merge master`，不用等 Cody 提醒。如果那邊
+   有未 commit 的變更，先跟 Cody 確認怎麼處理，不要硬蓋過去。
+3. 更新 `debug-tasks.md`：
 
 ```
 ## [YYYY-MM-DD] 任務名稱
@@ -83,7 +87,7 @@ tw-sector-tracker/
 
 ### 資料來源相關（如有異動）
 - 上市資料（TWSE）：
-- 上櫃資料（FinMind）：
+- 上櫃資料（TPEx / FinMind，視每日流程或歷史回補而定）：
 
 ### 請 Debugger 驗證
 - [ ] 主要功能邏輯正確
@@ -120,3 +124,29 @@ tw-sector-tracker/
 4. `docs/superpowers/specs/` 底下有沒有還沒對應 `docs/superpowers/plans/` 計畫的 spec（代表有已核准但還沒拆解成實作任務的設計，換平台/換機器接續工作時容易漏掉）
 
 然後告訴 Cody：目前狀態是什麼、有沒有未完成的事。
+
+---
+
+## 工作流自檢（每次開工先跑一遍）
+
+專案是**雙 worktree 共用同一個 `.git`**（你在 master、Debugger 在 `debug` 分支）。
+身分檔跟自動 push 踩過不少 git 地雷，開工前先確認環境是對的：
+
+**🟢 開工前自檢**
+1. `git branch --show-current` → 應該是 `master`；資料夾是 `...-tracker`（不是 `-debug`）
+2. 確認角色是 Developer（讀到的 `CLAUDE.md` 開頭是「角色：Developer 🔨」，本地檔、被 gitignore、不進 git）
+3. `git status -sb` → 工作區乾淨、ahead/behind 數字合理；**若落後 origin 就先 `git pull --rebase` 再開工**
+   （別在落後很多的狀態上做事，之後 push 會分岔撞衝突）
+
+**✅ 完成任務收工**
+4. 本機 commit——**限定這次改的檔，別 `git add .` 掃到不相關的東西**（`main.py` 的自動 push 會把 staged 的一起推走）
+5. **等 Debugger 在 `bug-reports.md` 回報 ✅ 再 push 到 origin**（未驗證的 code 不推 public repo）
+6. 更新 `debug-tasks.md`，讓 Debugger 知道要驗什麼；有 debug worktree 就 `git merge master` 同步過去
+
+**🚩 看到這些＝workflow 壞了，先停下來修**
+- `git status` 有非預期的 staged 變更 → `python main.py` 的自動 commit 會把它一起推走
+- ahead/behind 數字很大 → 沒先同步就開工了，先 `git pull --rebase`
+- 要 push 前才發現分岔 → 先 `git pull --rebase`，別硬 push
+
+**⚠️ 兩個 session 別同時動 git**：Debugger 那邊也有一個 Claude session 共用同一個 `.git`，
+同時下 git 指令會壞 index/ref。

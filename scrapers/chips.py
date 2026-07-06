@@ -92,7 +92,7 @@ _HEADERS_TPEX = {
 
 # TPEx 官方欄位 key 本身就有不一致的空白/命名，照抄避免打錯字漏抓
 _TPEX_FOREIGN_EX_DEALER = "Foreign Investors include Mainland Area Investors (Foreign Dealers excluded)-Difference"
-_TPEX_FOREIGN_DEALER = "ForeignDealers-Difference"
+_TPEX_FOREIGN_DEALER = "ForeignDealers-Difference"  # 刻意不併入 dealer_net，對齊 TWSE 的捨棄行為（見 fetch_institutional_tpex docstring）
 _TPEX_TRUST = "SecuritiesInvestmentTrustCompanies-Difference"
 _TPEX_DEALER_SELF = "Dealers-Difference"
 _TPEX_TOTAL = "TotalDifference"
@@ -110,8 +110,14 @@ def fetch_institutional_tpex() -> pd.DataFrame:
     回傳欄位跟 fetch_institutional()（TWSE）一致：
       stock_id, date, foreign_net, trust_net, dealer_net, total_net
 
-    口徑對齊 TWSE T86：foreign_net 不含外資自營商，外資自營商買賣超併入 dealer_net
-    （已用當日全量資料驗證 foreign_net+trust_net+dealer_net == total_net，0 筆誤差）。
+    口徑對齊 TWSE T86：foreign_net／dealer_net 都不含外資自營商（ForeignDealers-Difference），
+    這欄位單獨存在但目前不寫進任何欄位——跟 TWSE 端 fetch_institutional() 一樣，外資自營商
+    （row[7]）也是被捨棄、不併入 foreign_net 或 dealer_net。兩邊欄位定義才是真的一致。
+    代價：foreign_net+trust_net+dealer_net 不保證等於 total_net（差額是外資自營商），這點
+    TWSE 那邊本來就是如此（用 1325 檔驗證 row4+row7+row10+row11==row18，但 row4+row10+row11
+    本身不等於 row18）。實測至今外資自營商恆為 0（近一年抽樣），所以目前這個落差沒有實際影響，
+    但口徑保持一致比「兩邊都能各自兜出 0 誤差、但定義不同」更重要，之後才不會出現「上市/上櫃
+    dealer_net 同名不同義」的問題。
     """
     resp = requests.get(_TPEX_3INSTI_URL, headers=_HEADERS_TPEX, timeout=30, verify=False)
     resp.raise_for_status()
@@ -126,13 +132,12 @@ def fetch_institutional_tpex() -> pd.DataFrame:
         if not date_str:
             continue
         foreign_ex_dealer = _parse_num(row.get(_TPEX_FOREIGN_EX_DEALER))
-        foreign_dealer = _parse_num(row.get(_TPEX_FOREIGN_DEALER))
         rows.append({
             "stock_id":    str(row.get("SecuritiesCompanyCode", "")).strip(),
             "date":        _roc_date_to_iso(date_str),
             "foreign_net": foreign_ex_dealer,
             "trust_net":   _parse_num(row.get(_TPEX_TRUST)),
-            "dealer_net":  foreign_dealer + _parse_num(row.get(_TPEX_DEALER_SELF)),
+            "dealer_net":  _parse_num(row.get(_TPEX_DEALER_SELF)),  # 不含外資自營商，對齊 TWSE row[11]
             "total_net":   _parse_num(row.get(_TPEX_TOTAL)),
         })
 

@@ -1,3 +1,132 @@
+## [2026-07-05] 驗證 - 籌碼面 code review 三項修復（XSS 跳脫、chips.html 靜默失敗、week_chg NaN）
+
+### 驗證方式
+- 跑全專案測試；直接呼叫 `_esc()`／`json.dumps(...).replace("</", "<\/")` 實測正常字串跟惡意
+  payload 的行為；讀 `main.py::_push_html()` 前後的分支邏輯
+
+### ✅ 驗證通過
+- **測試套件**：85 個，84 過、1 個既有環境限制（`test_scan_patterns_returns_list` 需要本機真的
+  有 `data/screener.db`，debug 資料夾沒有，跟這次修復無關，前幾則任務已多次碰到同一個）。
+- **XSS 跳脫（`_esc()`）**：正常字串（`台積電`、`2330`、`半導體設備`）原樣輸出不變，`None`/`""`
+  正確轉空字串，`<script>alert(1)</script>` 正確跳脫成 `&lt;script&gt;...`，視覺輸出對一般資料
+  完全沒有影響，只有含特殊字元的輸入才會不同。
+- **`</script>` 提前結束攻擊修法**：`json.dumps(...).replace("</", "<\/")` 實測過，正常資料 JSON
+  結構不變，惡意 `</script>` 序列正確變成 `<\/script>`，不會提前結束 script 區塊、不會讓後續內容
+  被當成新 HTML 解析。
+- **`chips_html_written` 分支邏輯**：`main.py:528-532` `if chips_html_written: log 成功 else:
+  log 警告`，方向正確；`chips_generator.py::generate()` 兩者皆空提前 `return False`、正常寫檔
+  `return True`，跟 docstring 描述一致，沒有反過來。
+- **`week_chg` NaN 修法**：`main.py:517` 已改成 `None if pd.isna(row["week_chg"]) else
+  float(row["week_chg"])`，跟專案已建立的 `pd.isna()` 慣例一致。
+
+### 🟡 建議改善（不阻擋）
+- `_esc()` 用 `if value else ""` 判斷是否要跳脫，如果哪天被拿去處理整數 `0`／`False` 這種合法但
+  falsy 的值會被誤轉成空字串。目前所有呼叫端（`chips_generator.py`、`html_generator.py`）都只餵
+  字串型別的 `stock_id`／`stock_name`／族群名稱，不會踩到這個問題，純粹提醒以後如果擴充 `_esc()`
+  的使用範圍（例如拿去處理數值欄位）要注意。
+
+### 結論
+- [x] 可以繼續下一個任務——三項自動化可驗證的項目都通過，`verify=False` TLS 風險那項 Developer
+  已明確標註留給 Cody 自己決定，不在 Debugger 驗證範圍內。
+
+---
+
+## [2026-07-05] 驗證 - `--realtime` crash 修復（pd.NA 布林值判斷，commit `e8dd27d`）
+
+### 驗證方式
+- 查 git log 確認目前 code 狀態；跑全專案測試；追 `get_chips_today()` 唯一消費端的實際程式碼
+
+### ✅ 驗證通過（三項checklist）
+- **全專案測試**：75 個測試（不是原本認知的 79 個——少的 4 個是 `tests/test_data_generator.py`，隨整支檔案一起被 revert 掉了），**74 過、1 個既有環境問題**（`test_scan_patterns_returns_list` 需要本機真的有 `data/screener.db`，debug 資料夾沒有這檔案，跟本次修復無關，籌碼頁 review 時就發現過同一個環境限制）。
+- **`--realtime` 不會再 crash**：不需要真的重跑一次去賭，因為原本會炸的程式碼路徑已經不存在——中途發生 commit `71aa41e`「首頁 index.html 改回 html_generator.py 產生，React 前端移到 react-frontend-redesign 分支」，`export/data_generator.py`（這次 crash 修復的檔案）整支被刪除。`--realtime` 跟平常模式共用同一個 `run()` 函式，都是呼叫 `generate_html()`（`export/html_generator.py`），`main.py` 現在完全沒有任何地方 import 或呼叫 `data_generator`，原本的 crash 現場已經從程式碼裡消失，邏輯上不可能再重現同一個 bug。
+- **檢查其他呼叫端有沒有同樣的 `... or 0` 危險寫法**：追了 `get_chips_today()`（FULL OUTER JOIN 那個函式）唯一的消費端 `main.py:430 chips_df = get_chips_today(...) → generate_html()`。`html_generator.py` 本來就用安全的 `_na(v): return 0 if (v is None or pd.isna(v)) else v`（第 196、330、513 行各自重複定義一次，小小的重複但邏輯是對的），沒有沿用 `data_generator.py` 那種危險的 `x.get(...) or 0`。另外也查了 `chips_generator.py:638`、`screener/institutional.py:247` 類似的 `or 0` 寫法，但那邊資料源是單一表查詢（不是 FULL OUTER JOIN），欄位由 `_parse_num()` 保證一定是實際 int、經過 `int(t_net) if t_net is not None else None` 轉換成 plain Python 型別，不會出現 `pd.NA`，風險跟 `get_chips_today()` 的 join 情境不同。
+
+### 🟡 建議改善（不阻擋）
+- `html_generator.py` 的 `_na()` helper 在同一支檔案裡重複定義 3 次（196/330/513 行），完全一樣的一行邏輯，可以抽成 module-level 函式，避免以後改邏輯漏改其中一處。
+
+### 結論
+- [x] 可以繼續下一個任務——三項驗證都通過，這則任務可以標記完成。不是因為原本的 fix 被實際驗證跑過，而是上層決定（revert 前端）連帶把會炸的程式碼整支清掉了，原始 crash 場景已經不可能重現。
+
+---
+
+## [2026-07-04] 報告＋修復 - Section 8「大戶持倉」永遠空白（Cody 授權 Debugger 直接修）
+
+### 🔴 找到的問題
+`docs/chips.html` Section 8（大戶持倉連增/連減排行）一直顯示「無大戶持倉資料（尚未執行
+--update-shareholder）」，但這句話是誤導的——`shareholder` 表其實已經有 7 週資料
+（2026-05-08 ~ 2026-06-26，`--backfill-shareholder 8` 確實成功跑完了）。
+
+**根因**：`--update-shareholder`（抓最新週）跟 `--backfill-shareholder`（補歷史週）是兩條
+分開呼叫的路徑，`_add_week_change_streak()` 只在「寫入當下」處理那一批資料，不會回頭重算
+已經寫入的舊批次。實際發生順序：
+1. `--update-shareholder` 先跑，寫入最新週 `2026-06-26`——當時 DB 是空的，找不到更舊的週可
+   比，`week_chg=NULL, streak=0`（這在當下是正確答案，沒有前一週可比）
+2. `--backfill-shareholder 8` 後來才跑，依序補進 `2026-05-08 ~ 06-12`，這 6 週彼此之間算
+   得都對
+3. 但沒有任何呼叫再回頭重算 `06-26`——即使現在已經有 `06-12` 可以當基準了，它的
+   `week_chg`/`streak` 還是凍結在步驟 1 寫入當下的錯誤初始值
+4. `get_shareholder_top()`（`screener/database.py:258`）只抓「每支股票最新一筆」= 全部都
+   是 `06-26` = 全部 `streak=0`
+5. `chips_generator.py:660-661` 篩選 `streak>0`/`streak<0` 建 Top 30/20 榜單，全部落空
+
+實測驗證：修復前直接查 DB，`2026-06-26` 這天 1037 筆 **100% `streak=0`、100%
+`week_chg=NULL`**，沒有例外，不是少數個股的問題，是整批凍結。
+
+這是**結構性問題**，只要「backfill 補歷史」跟「update 抓最新」分開跑、且沒有「回頭重算最新
+一週」這一步，每次都會重現一樣的空白。
+
+### ✅ 已修（Cody 授權直接改）
+- `scrapers/shareholder.py` 新增 `recompute_latest_streak()`：用 `ROW_NUMBER() OVER
+  (PARTITION BY stock_id ORDER BY date DESC)` 抓每支股票目前資料庫裡最新一筆（rn=1）跟
+  次新一筆（rn=2）比較，重算 `week_chg`/`streak` 並 `UPDATE` 回 DB。不用重打 TDCC，
+  `lv12_15_pct` 已經在 DB 裡，只是重算兩個衍生欄位。用 rn=1/rn=2 逐股比較（而非假設整批
+  同一個 `write_date`），可以正確處理個別股票資料缺一週的情況。
+- 同時把 `_add_week_change_streak()` 裡重複的 streak 方向邏輯抽成 `_streak_step()` 共用
+  helper，兩處呼叫同一份邏輯，避免以後改其中一處漏改另一處。
+- `main.py::_backfill_shareholder()` 收尾時自動呼叫 `recompute_latest_streak()`，往後每次
+  backfill 完成都會自動修正最新週，不用手動介入。
+- 新增 2 個測試（`tests/test_shareholder.py`）：`test_recompute_latest_streak_fixes_week_
+  frozen_before_backfill` 直接重現「先寫最新週、後補歷史週」的真實情境，驗證重算後
+  `week_chg`/`streak` 正確；`test_recompute_latest_streak_skips_stock_with_only_one_week`
+  驗證無前值可比時不會出錯。5 個 shareholder 測試、全專案 78 個測試全過。
+- **已對正式 `data/screener.db` 實跑修復**：修復前 `2026-06-26` 全數 `streak=0`；修復後
+  分佈為 `streak=-1` 485 檔、`streak=0` 93 檔、`streak=1` 459 檔，`week_chg` 全部非空。
+  直接呼叫 `get_shareholder_top()` + `_shareholder_table()` 驗證：連增 462 檔、連減 485
+  檔，渲染結果不再是「無資料」。
+
+### 結論
+- [x] 已修並加測試、已對正式 DB 實跑修復——下次 `python main.py` 重新產生
+  `docs/chips.html` 時 Section 8 就會正常顯示；往後每次 `--backfill-shareholder` 收尾都
+  會自動重算，不會再需要手動修
+
+---
+
+## [2026-07-03] 報告 - TPEx 三大法人／融資融券資料源驗證（commit `3daaee5`）
+
+### 🔴 數據問題（需立刻修）
+- 問題：`processors/performance.py::calc_meta_chips_signals()` 第 626 行 `meta_stock_count = universe.groupby("meta_sector")["stock_id"].count().to_dict()` 把分母改回算「整個族群成分股數（TWSE+TPEx）」，但 `main.py` 第 79-102 行 `fetch_institutional_tpex()` 是包在自己的 `try/except`，抓取失敗時只 `logger.warning(...)` 然後整段跳過，不會 fallback、不會標記、不會阻擋後續流程。
+  重現方式（推論，非本機重現，因為今天 TPEx API 剛好正常）：任何一天 TPEx OpenAPI 逾時／改版／服務中斷時，`institutional` 表當天只會有 TWSE 資料，但 Section 5「外資買超比例」分母仍然照樣算 TWSE+TPEx 全族群成分股數。對 TPEx 佔比高的族群（例如「半導體設備」86 檔裡 57 檔是 TPEx、「軟體/雲端」83 檔裡 57 檔是 TPEx）比例會被系統性低估，且完全沒有警示——這正是 2026-07-02 那次報告修過的同一類 bug（當時用「分母排除上櫃」當安全網），這次把安全網拿掉、改成「賭 TPEx 每天都會成功」，沒有補等效的防呆。
+  相關 log／程式位置：`main.py:101-102`（`logger.warning("TPEx 三大法人寫入失敗: %s", exc)`，只 log 不做其他處理）、`processors/performance.py:626`。
+  影響：`export/chips_generator.py` 同一次改動把原本「⚠️ 三大法人資料目前只有上市來源」的警語整段拿掉（diff 見下方），代表往後真的遇到 TPEx 抓取失敗時，使用者在頁面上完全看不到任何提示，會把偏低的比例誤讀成準確數字。
+  建議修法（擇一）：(a) `calc_meta_chips_signals()` 分母改成用「當天 institutional 表裡實際有資料的股票所屬交易所」動態判斷，而不是固定用 universe 全表；(b) `main.py` 在 TPEx 抓取失敗時寫一個旗標（例如當天 log 或一個 state 檔），`chips_generator.py` 讀到旗標時把警語文字帶回來。
+
+### 🟡 建議改善
+- `scrapers/chips.py::fetch_institutional_tpex()` docstring（第 113 行）寫「TWSE T86 是併在自營商（dealer）類別下」，這句話跟我實際打 TWSE T86 API 驗證到的結構不符：TWSE 的『外資自營商』（row[7]，`外資自營商買賣超股數`）根本沒有被併進 `dealer_net`（row[11] 只對應『自營商買賣超股數』，定義上就是不含外資自營商的自營商自身部位，跟 TPEx 的 `Dealers-Difference` 概念一致），`fetch_institutional()`（scrapers/chips.py 第 75-78 行）現在的寫法是把 row[7] 直接丟掉，三個欄位都沒有它。
+  也就是說 TWSE 的 `foreign_net + trust_net + dealer_net` 理論上不保證等於 `total_net`（差額就是被丟掉的 row[7]），跟 TPEx 那邊刻意做到『恆等式必成立』的設計不是同一個口徑。
+  目前完全沒有實際影響：我直接打了 TWSE（2025-07-01、2026-01-01、2026-05-01、2026-06-01、2026-06-30、2026-07-02，涵蓋近一年抽樣）跟 TPEx（2026-07-02 全量 930 筆）的即時 API，兩邊的『外資自營商』欄位全部是 0，沒有一筆例外，所以現在恆等式剛好都成立，只是巧合，不是程式保證的。
+  建議：把 docstring 改成如實描述現況（TWSE 目前直接捨棄外資自營商欄位、TPEx 折入 dealer_net），並在 `fetch_institutional()` 加一行註解說明『外資自營商』欄位長期觀察下來恆為 0，如果哪天不是 0，`foreign_net`/`dealer_net` 兩邊交易所的口徑就會不一致，屆時要重新評估要不要也把它折進 TWSE 的 dealer_net。
+
+### ✅ 驗證通過
+- Section 5「外資買超比例」實際產出數字合理：直接查今天（2026-07-02 資料）產出的 `docs/chips.html`，「半導體設備」53/86＝62%、「軟體/雲端」49/83＝59%。分子（53、49）明顯超過各自純 TWSE 檔數（半導體設備 TWSE 只有 29 檔、軟體/雲端 TWSE 只有 26 檔），證實 TPEx 股票確實有被正確併入分子與分母，不是只有分母變大、分子沒跟上的半吊子狀態。
+- TPEx OpenAPI 欄位口徑對照：直接打 `tpex_3insti_daily_trading`（930 筆全量）跟 `tpex_mainboard_margin_balance` 即時驗證，複現 Developer 的數學恆等式驗證結果（`foreign_net+trust_net+dealer_net==total_net`，0 筆誤差），且欄位語意（`ForeignDealers-Difference`＝外資自營商、`Dealers-Difference`＝自營商自身、`SecuritiesInvestmentTrustCompanies-Difference`＝投信）跟程式碼裡對應的 key 命名一致，沒有抓錯欄位。
+- TWSE T86 欄位順序對照：直接打即時 API 驗證 19 欄位語意，`row[4]`＝外陸資買賣超(不含外資自營商)、`row[10]`＝投信買賣超、`row[11]`＝自營商買賣超（不含外資自營商）、`row[18]`＝三大法人合計，程式碼裡引用的 index 語意正確（唯一落差是上面 🟡 提到的『外資自營商』被丟棄問題，不影響目前已驗證的欄位）。
+- TPEx／TWSE 回應日期不對齊時的處理邏輯（`main.py:90-91`、`133-134`）沒有 crash 或誤刪風險：`DELETE FROM institutional WHERE date = ? AND stock_id IN (SELECT stock_id FROM inst_tpex_df)` 有限定 `stock_id` 範圍，不會刪到同一天 TWSE 剛寫入的資料；但今天實際兩邊剛好同一天，沒有測到真正錯開的情境，這點跟 debug-tasks.md 原本寫的一樣，維持「邏輯上安全、但未實測過」的結論。
+
+### 結論
+- [x] 需要修改後再確認 —— 🔴 那項（TPEx 抓取失敗時分母不會跟著調整，且警語已被拿掉）建議在下一輪處理，其餘（🟡 docstring 用詞、Section 5 數字、欄位口徑）都可以先繼續其他任務，不阻擋。
+
+---
+
 ## [2026-07-02] 報告 - full-rebuild crash 分析（`python main.py --full-rebuild --months 19 --workers 2`）
 
 ### 🔴 程式問題（需立刻修）

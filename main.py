@@ -10,13 +10,12 @@ from scrapers.moneydj import scrape_industry_sectors
 from scrapers.finmind import fetch_prices_for_stocks
 from scrapers.realtime import fetch_realtime_prices
 from scrapers.chips import fetch_institutional, fetch_institutional_tpex, fetch_margin_all_twse, fetch_margin_all_tpex, TWSEBlockedError
-from scrapers.backfill import backfill_prices, backfill_twse_monthly, backfill_institutional, backfill_margin, backfill_yfinance
+from scrapers.backfill import backfill_twse_monthly, backfill_institutional, backfill_margin, backfill_yfinance
 from processors.changes import detect_changes
-from processors.performance import calc_sector_performance, calc_meta_performance, calc_universe_performance, calc_cumulative_meta, calc_meta_signals, calc_meta_chips_signals, calc_stock_sparklines, get_stock_chips_ranking, get_margin_divergence, calc_weekly_rank
+from processors.performance import calc_sector_performance, calc_meta_performance, calc_universe_performance, calc_cumulative_meta, calc_meta_signals, calc_meta_chips_signals, calc_stock_sparklines, get_stock_chips_ranking, get_margin_divergence
 from storage.csv_writer import CsvWriter
 from export.html_generator import generate as generate_html
 from export.chips_generator import generate as generate_chips_html
-from export.data_generator import generate as generate_data_json
 from screener.database import init_db, import_csv_prices, import_sector_stocks, get_chips_today
 from screener.institutional import scan_institutional
 from screener.signals import scan_volume_turnover
@@ -149,38 +148,36 @@ def _update_chips_db(trade_date: date, stock_ids: list) -> None:
 def _push_html(trade_date: date) -> None:
     try:
         import os
-        files_to_add = ["docs/index.html", "docs/chips.html", "docs/data.json"]
+        files_to_add = ["docs/index.html", "docs/chips.html"]
         if os.path.exists("docs/patterns.html"):
             files_to_add.append("docs/patterns.html")
-        if os.path.exists("docs/assets"):
-            files_to_add.append("docs/assets")
         subprocess.run(["git", "add"] + files_to_add, check=True)
-        result = subprocess.run(["git", "diff", "--cached", "--quiet"])
-        if result.returncode != 0:
-            subprocess.run(["git", "commit", "-m", f"update: sector performance {trade_date.isoformat()}"], check=True)
-            subprocess.run(["git", "push"], check=True)
-            logger.info("Pushed to GitHub Pages.")
-        else:
+        # 只看這幾個產出檔有沒有變動（限定範圍，不受其他 staged 變更影響判斷）
+        result = subprocess.run(["git", "diff", "--cached", "--quiet", "--"] + files_to_add)
+        if result.returncode == 0:
             logger.info("No HTML changes to push.")
+            return
+        # 只 commit 這幾個檔（明確限定範圍）——避免把當下其他 staged 的變更（例如手動
+        # git add/rm 到一半的東西）一起打包 commit+push 上去
+        subprocess.run(
+            ["git", "commit", "-m", f"update: sector performance {trade_date.isoformat()}", "--"] + files_to_add,
+            check=True,
+        )
+        # push 前先跟遠端同步：兩台機各自 push 會分岔，先 pull --rebase 把本機這筆接到
+        # 遠端最新之後再推。--autostash 保護工作區；若 rebase 撞衝突就中止並保持乾淨，
+        # 本機 commit 保留、留給人工處理，不讓自動流程卡在半完成的 rebase
+        pull = subprocess.run(["git", "pull", "--rebase", "--autostash"])
+        if pull.returncode != 0:
+            subprocess.run(["git", "rebase", "--abort"])
+            logger.warning(
+                "git pull --rebase 有衝突，已中止 rebase；本機 commit 已保留，"
+                "請手動 `git pull` 解衝突後再 push。"
+            )
+            return
+        subprocess.run(["git", "push"], check=True)
+        logger.info("Pushed to GitHub Pages.")
     except Exception as exc:
         logger.warning("Git push failed: %s", exc)
-
-
-def backfill(days: int = 180) -> None:
-    """歷史行情補齊 — 用 FinMind 逐股抓，約 15 分鐘（每日 600 次上限）"""
-    if not UNIVERSE_PATH.exists():
-        logger.error("找不到 stock_universe.csv，請先確認資料目錄。")
-        return
-    from scrapers.chips import FINMIND_TOKEN
-    universe_df = pd.read_csv(UNIVERSE_PATH, encoding="utf-8-sig", dtype={"stock_id": str})
-    stock_ids = universe_df["stock_id"].tolist()
-    logger.info("=== 歷史行情補齊（FinMind，往前 %d 日曆天）===", days)
-    n = backfill_prices(stock_ids, token=FINMIND_TOKEN, days=days)
-    if n > 0:
-        init_db()
-        imported = import_csv_prices()
-        logger.info("DuckDB 更新：共 %d 筆", imported)
-    logger.info("=== 補齊完成，共寫入 %d 日 ===", n)
 
 
 def backfill_twse(months: int = 6, workers: int = 3) -> None:
@@ -250,7 +247,7 @@ def _update_shareholder() -> None:
 
 def _backfill_shareholder(weeks: int = 4) -> None:
     """補齊過去 N 週的集保持股分散表。"""
-    from scrapers.shareholder import fetch_shareholder_weekly, save_to_db as sh_save, get_available_dates
+    from scrapers.shareholder import fetch_shareholder_weekly, save_to_db as sh_save, get_available_dates, recompute_latest_streak
     init_db()
     stock_ids = pd.read_csv(UNIVERSE_PATH, dtype=str)["stock_id"].tolist()
     available = get_available_dates()
@@ -264,19 +261,11 @@ def _backfill_shareholder(weeks: int = 4) -> None:
         rows = fetch_shareholder_weekly(stock_ids, date_str=d_str)
         n = sh_save(rows)
         logger.info("  %s 寫入 %d 筆", d_str, n)
-    logger.info("=== 集保補齊完成 ===")
-
-
-def _update_broker() -> None:
-    """抓今日各股券商分點買賣超（需先設定 _TWSE_BROKER_URL）。"""
-    from scrapers.broker_branch import fetch_broker_batch, save_to_db as bb_save
-    init_db()
-    stock_ids = pd.read_csv(UNIVERSE_PATH, dtype=str)["stock_id"].tolist()
-    trade_date = date.today()
-    logger.info("=== 分點買賣超更新 %s（%d 支股票）===", trade_date, len(stock_ids))
-    broker_map = fetch_broker_batch(stock_ids, trade_date)
-    n = bb_save(trade_date, broker_map)
-    logger.info("=== 分點更新完成，寫入 %d 筆 ===", n)
+    # 如果之前已經有更新的一週先寫入（--update-shareholder 抓最新週跟這裡補歷史是
+    # 分開跑的兩條路徑），那一週當初可能找不到更舊的週當基準，week_chg/streak 被
+    # 記成 NULL/0；現在歷史補齊了，回頭重算一次讓它們接上正確的基準。
+    updated = recompute_latest_streak()
+    logger.info("=== 集保補齊完成，回補後重算最新週 streak：%d 檔 ===", updated)
 
 
 def _full_rebuild(months: int = 19, workers: int = 3) -> None:
@@ -479,17 +468,18 @@ def run(trade_date: date = None, realtime: bool = False) -> None:
             logger.warning("巨量換手掃描失敗: %s", exc)
             vol_signals = []
 
-        weekly_rank = calc_weekly_rank(universe_df) if universe_df is not None else {}
-        generate_data_json(trade_date,
-                            meta_perf=meta_perf,
-                            universe_df=universe_df,
-                            prices_df=prices_df if prices_df is not None else pd.DataFrame(),
-                            chips_df=chips_df,
-                            cum_data=cum_data,
-                            meta_signals=meta_signals,
-                            weekly_rank=weekly_rank,
-                            stock_sparklines=stock_sparklines)
-        logger.info("data.json generated → docs/data.json")
+        generate_html(trade_date, pd.DataFrame(perf) if perf else pd.DataFrame(),
+                      sectors_df=sectors_df,
+                      prices_df=prices_df if prices_df is not None else pd.DataFrame(),
+                      chips_df=chips_df,
+                      meta_perf=meta_perf,
+                      universe_df=universe_df,
+                      cum_data=cum_data,
+                      meta_signals=meta_signals,
+                      meta_chips=meta_chips,
+                      stock_sparklines=stock_sparklines,
+                      vol_turnover=vol_signals)
+        logger.info("HTML generated → docs/index.html")
 
         try:
             inst_results = scan_institutional(trade_date.isoformat(), lookback=40)
@@ -541,7 +531,7 @@ def run(trade_date: date = None, realtime: bool = False) -> None:
                         "stock_name":  info.get("stock_name", ""),
                         "meta_sector": info.get("meta_sector", ""),
                         "lv12_15_pct": float(row["lv12_15_pct"]) if row["lv12_15_pct"] is not None else None,
-                        "week_chg":    float(row["week_chg"]) if row["week_chg"] is not None else None,
+                        "week_chg":    None if pd.isna(row["week_chg"]) else float(row["week_chg"]),
                         "streak":      int(row["streak"]) if row["streak"] is not None else 0,
                         "date":        str(row["date"]),
                         "close":       float(px["close"]) if px.get("close") is not None else None,
@@ -552,13 +542,16 @@ def run(trade_date: date = None, realtime: bool = False) -> None:
         except Exception as exc:
             logger.warning("大戶持倉資料載入失敗: %s", exc)
             sh_rows = []
-        generate_chips_html(trade_date, meta_chips, stock_chips, inst_scan=inst_results, margin_divergence=margin_div, cum_data=cum_data, meta_signals=meta_signals, shareholder_data=sh_rows)
-        logger.info("HTML generated → docs/chips.html")
+        chips_html_written = generate_chips_html(trade_date, meta_chips, stock_chips, inst_scan=inst_results, margin_divergence=margin_div, cum_data=cum_data, meta_signals=meta_signals, shareholder_data=sh_rows)
+        if chips_html_written:
+            logger.info("HTML generated → docs/chips.html")
+        else:
+            logger.warning("docs/chips.html 沒有更新（meta_chips/stock_chips 皆為空，可能是資料源當天抓取失敗）")
 
         try:
             from screener.patterns import scan_and_track
             from export.patterns_generator import generate as generate_patterns_html
-            pattern_results = scan_and_track(trade_date.isoformat())
+            pattern_results = scan_and_track(trade_date.isoformat(), margin_divergence_data=margin_div)
             # Backfill composite_score into inst_results for stocks that appear in patterns
             comp_map = {r["stock_id"]: r.get("composite_score") for r in pattern_results if r.get("composite_score") is not None}
             for row in inst_results:
@@ -580,8 +573,6 @@ if __name__ == "__main__":
                         help="Re-scrape MoneyDJ sectors (~15 min). Run weekly.")
     parser.add_argument("--limit", type=int, default=None,
                         help="Limit sectors for testing (use with --update-sectors)")
-    parser.add_argument("--backfill", type=int, default=0, metavar="DAYS",
-                        help="FinMind 補齊過去 N 日曆天歷史行情（每日 600 次上限）")
     parser.add_argument("--backfill-twse", type=int, default=0, metavar="MONTHS",
                         help="TWSE 逐股月別補齊過去 N 個月歷史行情（建議 18，會刪舊 CSV 重抓）")
     parser.add_argument("--backfill-yf", type=int, default=0, metavar="MONTHS",
@@ -611,8 +602,6 @@ if __name__ == "__main__":
                         help="抓 TDCC 集保持股分散表（最新週），計算大戶持倉比例與週變化")
     parser.add_argument("--backfill-shareholder", type=int, default=0, metavar="WEEKS",
                         help="補齊集保持股分散表過去 N 週資料（每支股票一次請求，約 17 分鐘/週）")
-    parser.add_argument("--update-broker", action="store_true",
-                        help="抓今日各股券商分點買賣超（需先設定 broker_branch.py 的 _TWSE_BROKER_URL）")
     parser.add_argument("--reimport", action="store_true",
                         help="清空 daily_prices 並從所有現有 CSV 重新匯入，用於修復資料庫錯誤")
     parser.add_argument("--full-rebuild", action="store_true",
@@ -623,8 +612,6 @@ if __name__ == "__main__":
 
     if args.update_sectors:
         update_sectors(limit=args.limit)
-    elif args.backfill:
-        backfill(days=args.backfill)
     elif args.backfill_twse:
         backfill_twse(months=args.backfill_twse, workers=args.workers)
     elif args.backfill_yf:
@@ -646,8 +633,6 @@ if __name__ == "__main__":
         _update_shareholder()
     elif args.backfill_shareholder:
         _backfill_shareholder(weeks=args.backfill_shareholder)
-    elif args.update_broker:
-        _update_broker()
     elif args.reimport:
         from screener.database import reimport_db
         init_db()

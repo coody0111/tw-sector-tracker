@@ -538,7 +538,7 @@ git commit -m "feat: wire main.py to generate docs/data.json instead of index.ht
 **Files:**
 - Create: `frontend/package.json`, `frontend/vite.config.ts`, `frontend/tsconfig.json`, `frontend/tsconfig.node.json`, `frontend/index.html`, `frontend/src/main.tsx`, `frontend/src/App.tsx`, `frontend/src/App.css`
 
-- [ ] **Step 1: Create `frontend/package.json`**
+- [x] **Step 1: Create `frontend/package.json`**
 
 ```json
 {
@@ -569,12 +569,12 @@ git commit -m "feat: wire main.py to generate docs/data.json instead of index.ht
 }
 ```
 
-- [ ] **Step 2: Install dependencies**
+- [x] **Step 2: Install dependencies**
 
 Run: `cd frontend && npm install`
 Expected: `node_modules/` created, `package-lock.json` generated, exit code 0
 
-- [ ] **Step 3: Create `frontend/tsconfig.json`**
+- [x] **Step 3: Create `frontend/tsconfig.json`**
 
 ```json
 {
@@ -596,7 +596,7 @@ Expected: `node_modules/` created, `package-lock.json` generated, exit code 0
 }
 ```
 
-- [ ] **Step 4: Create `frontend/tsconfig.node.json`**
+- [x] **Step 4: Create `frontend/tsconfig.node.json`**
 
 ```json
 {
@@ -610,7 +610,7 @@ Expected: `node_modules/` created, `package-lock.json` generated, exit code 0
 }
 ```
 
-- [ ] **Step 5: Create `frontend/vite.config.ts`**
+- [x] **Step 5: Create `frontend/vite.config.ts`**
 
 ```ts
 import { defineConfig } from 'vite'
@@ -632,13 +632,13 @@ export default defineConfig({
 })
 ```
 
-- [ ] **Step 6: Create `frontend/src/setupTests.ts`**
+- [x] **Step 6: Create `frontend/src/setupTests.ts`**
 
 ```ts
 import '@testing-library/jest-dom'
 ```
 
-- [ ] **Step 7: Create `frontend/index.html`**（Vite entry，跟輸出的 `docs/index.html` 是不同檔案）
+- [x] **Step 7: Create `frontend/index.html`**（Vite entry，跟輸出的 `docs/index.html` 是不同檔案）
 
 ```html
 <!doctype html>
@@ -655,7 +655,7 @@ import '@testing-library/jest-dom'
 </html>
 ```
 
-- [ ] **Step 8: Create `frontend/src/main.tsx`**
+- [x] **Step 8: Create `frontend/src/main.tsx`**
 
 ```tsx
 import React from 'react'
@@ -670,7 +670,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
 )
 ```
 
-- [ ] **Step 9: Create placeholder `frontend/src/App.tsx` and `frontend/src/App.css`**
+- [x] **Step 9: Create placeholder `frontend/src/App.tsx` and `frontend/src/App.css`**
 
 ```tsx
 export default function App() {
@@ -687,12 +687,12 @@ body {
 }
 ```
 
-- [ ] **Step 10: Verify build works end-to-end**
+- [x] **Step 10: Verify build works end-to-end**
 
 Run: `cd frontend && npm run build`
 Expected: exit code 0, `docs/index.html` overwritten, `docs/assets/*.js`/`*.css` created, `docs/chips.html` and `docs/patterns.html` untouched (verify with `ls ../docs`)
 
-- [ ] **Step 11: Commit**
+- [x] **Step 11: Commit**
 
 ```bash
 git add frontend/ docs/index.html docs/assets
@@ -708,7 +708,7 @@ git commit -m "feat: scaffold Vite + React + TypeScript frontend project"
 - Create: `frontend/src/hooks/useSectorData.ts`
 - Create: `frontend/src/hooks/useSectorData.test.ts`
 
-- [ ] **Step 1: Create `frontend/src/types.ts`**
+- [x] **Step 1: Create `frontend/src/types.ts`**
 
 ```ts
 export interface Stock {
@@ -754,7 +754,7 @@ export interface SectorData {
 }
 ```
 
-- [ ] **Step 2: Write the failing test for the data hook**
+- [x] **Step 2: Write the failing test for the data hook**
 
 Create `frontend/src/hooks/useSectorData.test.ts`:
 
@@ -803,12 +803,12 @@ describe('useSectorData', () => {
 })
 ```
 
-- [ ] **Step 2b: Run test to verify it fails**
+- [x] **Step 2b: Run test to verify it fails**
 
 Run: `cd frontend && npm run test -- useSectorData`
 Expected: FAIL — `Cannot find module './useSectorData'`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Create `frontend/src/hooks/useSectorData.ts`:
 
@@ -849,12 +849,12 @@ export function useSectorData(): UseSectorDataResult {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd frontend && npm run test -- useSectorData`
 Expected: PASS (2 tests)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add frontend/src/types.ts frontend/src/hooks/useSectorData.ts frontend/src/hooks/useSectorData.test.ts
@@ -869,7 +869,7 @@ git commit -m "feat: add SectorData types and useSectorData fetch hook"
 - Create: `frontend/src/lib/sort.ts`
 - Create: `frontend/src/lib/sort.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `frontend/src/lib/sort.test.ts`:
 
@@ -908,12 +908,12 @@ describe('sortMetaSectors', () => {
 })
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd frontend && npm run test -- sort.test`
 Expected: FAIL — `Cannot find module './sort'`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Create `frontend/src/lib/sort.ts`:
 
@@ -936,12 +936,12 @@ export function sortMetaSectors(
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd frontend && npm run test -- sort.test`
 Expected: PASS (3 tests)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add frontend/src/lib/sort.ts frontend/src/lib/sort.test.ts
@@ -958,7 +958,7 @@ git commit -m "feat: add sortMetaSectors pure function"
 - Create: `frontend/src/components/SignalChips.tsx`
 - Create: `frontend/src/components/SignalChips.test.tsx`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `frontend/src/components/SignalChips.test.tsx`:
 
@@ -1025,12 +1025,12 @@ describe('SignalChips', () => {
 })
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd frontend && npm run test -- SignalChips`
 Expected: FAIL — `Cannot find module './SignalChips'`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Create `frontend/src/components/SignalChips.tsx`:
 
@@ -1112,12 +1112,12 @@ export function SignalChips({ meta }: SignalChipsProps) {
 
 `data-intensity` 讓外層（`RankList` 每一列）決定左側色條要粗橘色（`strong`：排名跳動 ≥5 名、連漲連跌 ≥3 日、或量能 ≥2 倍其中之一成立）還是細灰色（`weak`：有訊號但沒那麼強）。沒有任何訊號時整個元件回傳 `null`，外層看不到 `signal-chips` 這個 class，色條也就不會出現（維持乾淨，符合規格書「無變化→無色條」）。
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd frontend && npm run test -- SignalChips`
 Expected: PASS (6 tests)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add frontend/src/components/SignalChips.tsx frontend/src/components/SignalChips.test.tsx
@@ -1132,7 +1132,7 @@ git commit -m "feat: add SignalChips component for daily/weekly rank + streak + 
 - Create: `frontend/src/lib/group.ts`
 - Create: `frontend/src/lib/group.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `frontend/src/lib/group.test.ts`:
 
@@ -1170,12 +1170,12 @@ describe('sortStocksWithinGroups', () => {
 })
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd frontend && npm run test -- group.test`
 Expected: FAIL — `Cannot find module './group'`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Create `frontend/src/lib/group.ts`:
 
@@ -1192,12 +1192,12 @@ export function sortStocksWithinGroups(subGroups: SubGroup[]): SubGroup[] {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd frontend && npm run test -- group.test`
 Expected: PASS (2 tests)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add frontend/src/lib/group.ts frontend/src/lib/group.test.ts
@@ -1212,7 +1212,7 @@ git commit -m "feat: add sortStocksWithinGroups pure function"
 - Create: `frontend/src/components/RankList.tsx`
 - Create: `frontend/src/components/RankList.test.tsx`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `frontend/src/components/RankList.test.tsx`:
 
@@ -1277,12 +1277,12 @@ describe('RankList', () => {
 })
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd frontend && npm run test -- RankList`
 Expected: FAIL — `Cannot find module './RankList'`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Create `frontend/src/components/RankList.tsx`:
 
@@ -1375,12 +1375,12 @@ export function RankList({ metaSectors, selectedName, onSelect }: RankListProps)
 
 `stripIntensityClass` 跟 `SignalChips` 內部的 `data-intensity` 邏輯故意保持一致（daily/weekly rank delta ≥5、連漲連跌 ≥3 日、量能 ≥2 倍任一成立 → `strip-strong`），CSS 會在 Task 14 用 `.strip-strong`/`.strip-weak` 分別畫粗橘色／細灰色左側色條。沒有訊號的列兩個 class 都不會加，維持乾淨（對應規格書「無變化→無色條」）。
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd frontend && npm run test -- RankList`
 Expected: PASS (4 tests)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add frontend/src/components/RankList.tsx frontend/src/components/RankList.test.tsx
@@ -1395,7 +1395,7 @@ git commit -m "feat: add RankList component with per-row SignalChips and color-s
 - Create: `frontend/src/components/SectorDetail.tsx`
 - Create: `frontend/src/components/SectorDetail.test.tsx`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `frontend/src/components/SectorDetail.test.tsx`:
 
@@ -1438,12 +1438,12 @@ describe('SectorDetail', () => {
 })
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd frontend && npm run test -- SectorDetail`
 Expected: FAIL — `Cannot find module './SectorDetail'`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Create `frontend/src/components/SectorDetail.tsx`:
 
@@ -1497,12 +1497,12 @@ export function SectorDetail({ meta }: SectorDetailProps) {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd frontend && npm run test -- SectorDetail`
 Expected: PASS (2 tests)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add frontend/src/components/SectorDetail.tsx frontend/src/components/SectorDetail.test.tsx
@@ -1519,7 +1519,7 @@ git commit -m "feat: add SectorDetail component grouping stocks by sub-sector"
 - Modify: `frontend/src/App.tsx`
 - Create: `frontend/src/App.test.tsx`
 
-- [ ] **Step 1: Write the failing test for the hook**
+- [x] **Step 1: Write the failing test for the hook**
 
 Create `frontend/src/hooks/useMediaQuery.test.ts`:
 
@@ -1552,12 +1552,12 @@ describe('useMediaQuery', () => {
 })
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd frontend && npm run test -- useMediaQuery`
 Expected: FAIL — `Cannot find module './useMediaQuery'`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Create `frontend/src/hooks/useMediaQuery.ts`:
 
@@ -1579,12 +1579,12 @@ export function useMediaQuery(query: string): boolean {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd frontend && npm run test -- useMediaQuery`
 Expected: PASS (2 tests)
 
-- [ ] **Step 5: Write the failing test for `App`**
+- [x] **Step 5: Write the failing test for `App`**
 
 Create `frontend/src/App.test.tsx`:
 
@@ -1635,12 +1635,12 @@ describe('App', () => {
 })
 ```
 
-- [ ] **Step 6: Run test to verify it fails**
+- [x] **Step 6: Run test to verify it fails**
 
 Run: `cd frontend && npm run test -- App.test`
 Expected: FAIL（`App` 目前只回傳 `Loading...`，找不到族群名稱）
 
-- [ ] **Step 7: Write the implementation**
+- [x] **Step 7: Write the implementation**
 
 Replace `frontend/src/App.tsx`:
 
@@ -1685,17 +1685,17 @@ export default function App() {
 }
 ```
 
-- [ ] **Step 8: Run test to verify it passes**
+- [x] **Step 8: Run test to verify it passes**
 
 Run: `cd frontend && npm run test -- App.test`
 Expected: PASS
 
-- [ ] **Step 9: Run the full frontend test suite**
+- [x] **Step 9: Run the full frontend test suite**
 
 Run: `cd frontend && npm run test`
 Expected: all test files PASS
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add frontend/src/hooks/useMediaQuery.ts frontend/src/hooks/useMediaQuery.test.ts frontend/src/App.tsx frontend/src/App.test.tsx
@@ -1711,7 +1711,7 @@ git commit -m "feat: wire up App with responsive layout and rank selection"
 - Create: `frontend/src/components/StockModal.test.tsx`
 - Modify: `frontend/src/components/SectorDetail.tsx`（點個股列開 modal）
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `frontend/src/components/StockModal.test.tsx`:
 
@@ -1751,12 +1751,12 @@ describe('StockModal', () => {
 })
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd frontend && npm run test -- StockModal`
 Expected: FAIL — `Cannot find module './StockModal'`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Create `frontend/src/components/StockModal.tsx`:
 
@@ -1822,12 +1822,12 @@ export function StockModal({ stock, onClose }: StockModalProps) {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd frontend && npm run test -- StockModal`
 Expected: PASS (3 tests)
 
-- [ ] **Step 5: Wire `StockModal` into `SectorDetail`**
+- [x] **Step 5: Wire `StockModal` into `SectorDetail`**
 
 Modify `frontend/src/components/SectorDetail.tsx` — add `useState` for the selected stock and open the modal on row click:
 
@@ -1893,12 +1893,12 @@ export function SectorDetail({ meta }: SectorDetailProps) {
 }
 ```
 
-- [ ] **Step 6: Run the full frontend test suite**
+- [x] **Step 6: Run the full frontend test suite**
 
 Run: `cd frontend && npm run test`
 Expected: all PASS
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add frontend/src/components/StockModal.tsx frontend/src/components/StockModal.test.tsx frontend/src/components/SectorDetail.tsx
@@ -1914,7 +1914,7 @@ git commit -m "feat: add StockModal and wire it into SectorDetail row clicks"
 - Create: `frontend/src/components/SearchBar.test.tsx`
 - Modify: `frontend/src/App.tsx`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `frontend/src/components/SearchBar.test.tsx`:
 
@@ -1935,12 +1935,12 @@ describe('SearchBar', () => {
 })
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd frontend && npm run test -- SearchBar`
 Expected: FAIL — `Cannot find module './SearchBar'`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Create `frontend/src/components/SearchBar.tsx`:
 
@@ -1961,12 +1961,12 @@ export function SearchBar({ onSearch }: SearchBarProps) {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd frontend && npm run test -- SearchBar`
 Expected: PASS
 
-- [ ] **Step 5: Wire `SearchBar` into `App`** — filter `RankList` by meta-sector name or by any stock id/name inside its sub-groups
+- [x] **Step 5: Wire `SearchBar` into `App`** — filter `RankList` by meta-sector name or by any stock id/name inside its sub-groups
 
 Modify `frontend/src/App.tsx`:
 
@@ -2031,12 +2031,12 @@ export default function App() {
 }
 ```
 
-- [ ] **Step 6: Run the full frontend test suite**
+- [x] **Step 6: Run the full frontend test suite**
 
 Run: `cd frontend && npm run test`
 Expected: all PASS（`App.test.tsx` 原本的測試不涉及搜尋，應該還是過；如果失敗，檢查是不是 `matchesQuery` 預設空字串沒有過濾掉任何東西）
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add frontend/src/components/SearchBar.tsx frontend/src/components/SearchBar.test.tsx frontend/src/App.tsx
@@ -2050,7 +2050,7 @@ git commit -m "feat: add SearchBar and wire it into App filtering"
 **Files:**
 - Modify: `frontend/src/App.css`
 
-- [ ] **Step 1: 補齊基本版面 CSS**（沿用 DESIGN.md 既有配色，不重新設計視覺風格）
+- [x] **Step 1: 補齊基本版面 CSS**（沿用 DESIGN.md 既有配色，不重新設計視覺風格）
 
 Append to `frontend/src/App.css`:
 
@@ -2084,17 +2084,17 @@ Append to `frontend/src/App.css`:
 .search-bar { margin-left: auto; background: #0a0e18; border: 1px solid #1e293b; color: #e2e8f0; padding: 4px 8px; border-radius: 6px; }
 ```
 
-- [ ] **Step 2: 完整建置**
+- [x] **Step 2: 完整建置**
 
 Run: `cd frontend && npm run build`
 Expected: exit code 0；確認 `docs/index.html`、`docs/assets/*` 有更新，`docs/chips.html`、`docs/patterns.html`、`docs/data.json` 沒被動到
 
-- [ ] **Step 3: 跑完整前後端測試**
+- [x] **Step 3: 跑完整前後端測試**
 
 Run: `cd frontend && npm run test && cd .. && pytest tests/test_data_generator.py tests/test_processors.py -v`
 Expected: all PASS
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add frontend/src/App.css docs/index.html docs/assets

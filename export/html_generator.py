@@ -1,8 +1,19 @@
 import json
 import pandas as pd
+from html import escape as _html_escape
 from pathlib import Path
 from datetime import date
 from config import classify_sector, SECTOR_GROUPS
+
+
+def _na(v):
+    return 0 if (v is None or pd.isna(v)) else v
+
+
+def _esc(value) -> str:
+    """HTML-escape 外部資料（股票名稱/族群名稱等來自 TWSE/TPEx API 回應的字串），
+    避免被竄改的回應內容注入進發布到 GitHub Pages 的 index.html。"""
+    return _html_escape(str(value)) if value else ""
 
 
 def _pct_color(pct: float) -> str:
@@ -193,7 +204,6 @@ def _stock_card_html(sid: str, stock_name: str, prices_map, chips_map, stock_spa
         chips_html = ""
         if sid in chips_map.index:
             c = chips_map.loc[sid]
-            def _na(v): return 0 if (v is None or pd.isna(v)) else v
             fn = int(_na(c.get("foreign_net")))
             tn = int(_na(c.get("trust_net")))
             mb = int(_na(c.get("margin_balance")))
@@ -223,7 +233,7 @@ def _stock_card_html(sid: str, stock_name: str, prices_map, chips_map, stock_spa
         spark = (stock_sparklines or {}).get(sid, [])
         spark_json = _json.dumps(spark)
         chips_json = _json.dumps(chips_data)
-        name_safe = stock_name.replace('"', "&quot;")
+        name_safe = _esc(stock_name)
 
         return (
             f'<div class="stock-card" data-sid="{sid}"'
@@ -232,7 +242,7 @@ def _stock_card_html(sid: str, stock_name: str, prices_map, chips_map, stock_spa
             f' style="border-color:{color}33;cursor:pointer" onclick="openStockModal(this)">'
             f'<div class="sc-header">'
             f'<span class="sc-id">{sid}</span>'
-            f'<span class="sc-name">{stock_name}</span>'
+            f'<span class="sc-name">{_esc(stock_name)}</span>'
             f'</div>'
             f'<div class="sc-body">'
             f'<span class="sc-price">{_fmt_price(close)}</span>'
@@ -247,7 +257,7 @@ def _stock_card_html(sid: str, stock_name: str, prices_map, chips_map, stock_spa
             f'<div class="stock-card no-data">'
             f'<div class="sc-header">'
             f'<span class="sc-id">{sid}</span>'
-            f'<span class="sc-name">{stock_name}</span>'
+            f'<span class="sc-name">{_esc(stock_name)}</span>'
             f'</div>'
             f'<div class="sc-body"><span class="sc-price" style="color:#334155">無行情</span></div>'
             f'</div>'
@@ -303,7 +313,7 @@ def _stock_table(sector_name: str, sectors_df: pd.DataFrame, prices_df: pd.DataF
             rows_html.append(
                 f'<tr>'
                 f'<td style="color:#475569;font-size:.78rem">{sid}</td>'
-                f'<td style="color:#334155">{stock_name}</td>'
+                f'<td style="color:#334155">{_esc(stock_name)}</td>'
                 f'<td colspan="6" style="color:#334155;font-size:.75rem">無行情</td>'
                 f'</tr>'
             )
@@ -327,7 +337,6 @@ def _stock_table(sector_name: str, sectors_df: pd.DataFrame, prices_df: pd.DataF
         chips_data: dict = {}
         if sid in chips_map.index:
             c = chips_map.loc[sid]
-            def _na(v): return 0 if (v is None or pd.isna(v)) else v
             fn = int(_na(c.get("foreign_net")))
             tn = int(_na(c.get("trust_net")))
             mb = int(_na(c.get("margin_balance")))
@@ -336,7 +345,7 @@ def _stock_table(sector_name: str, sectors_df: pd.DataFrame, prices_df: pd.DataF
 
         spark_json = json.dumps(spark)
         chips_json = json.dumps(chips_data)
-        name_safe = stock_name.replace('"', "&quot;")
+        name_safe = _esc(stock_name)
         margin_html = _fmt_margin(mb, mc) if mb > 0 else "<span style='color:#334155'>─</span>"
 
         rows_html.append(
@@ -347,7 +356,7 @@ def _stock_table(sector_name: str, sectors_df: pd.DataFrame, prices_df: pd.DataF
             f' data-foreign="{fn}" data-trust="{tn}" data-margin="{mb}"'
             f' onclick="openStockModal(this)" style="cursor:pointer">'
             f'<td style="color:#64748b;font-size:.92rem;font-weight:600">{sid}</td>'
-            f'<td style="color:#cbd5e1;font-size:1.1rem;font-weight:600">{stock_name}</td>'
+            f'<td style="color:#cbd5e1;font-size:1.1rem;font-weight:600">{_esc(stock_name)}</td>'
             f'<td style="color:#f1f5f9;font-weight:700;font-size:1.15rem">{_fmt_price(close)}</td>'
             f'<td><span style="color:{color};font-weight:700;font-size:1.1rem">{arrow} {sign}{pct:.2f}%</span></td>'
             f'<td><span style="color:{wcolor};font-weight:700;font-size:1.1rem">{warrow} {wsign}{wpct:.2f}%</span></td>'
@@ -391,7 +400,7 @@ def _sector_row(row, sectors_df=None, prices_df=None, chips_df=None, compact=Fal
 
     return (
         f'<tr{clickable}{onclick}>'
-        f'<td class="name">{row["sector_name"]}{chevron}</td>'
+        f'<td class="name">{_esc(row["sector_name"])}{chevron}</td>'
         f'<td>{_pct_cell(pct)}</td>'
         f'<td><span class="cnt" style="color:#f87171">▲{up}</span> '
         f'<span class="cnt" style="color:#4ade80">▼{down}</span> '
@@ -419,7 +428,7 @@ def _sector_mini_card(row, card_id: str, sectors_df=None, prices_df=None, chips_
         f'<div class="sc-mini-card" data-mini="{card_id}"'
         f' style="border-top:2px solid {color};background:{bg}"{onclick}>'
         f'<div class="sc-mini-pct" style="color:{color}">{arrow}{sign}{pct:.2f}%</div>'
-        f'<div class="sc-mini-name">{row["sector_name"]}</div>'
+        f'<div class="sc-mini-name">{_esc(row["sector_name"])}</div>'
         f'<div class="sc-mini-cnt">'
         f'<span style="color:#f87171">▲{up}</span> '
         f'<span style="color:#4ade80">▼{down}</span>'
@@ -445,7 +454,7 @@ def _top10_card(row, rank: int, sectors_df=None, prices_df=None, chips_df=None, 
     return (
         f'<tr class="top-row clickable-sector"{onclick}>'
         f'<td class="top-rank" style="color:{color}">{rank}</td>'
-        f'<td class="top-name">{row["sector_name"]}{chevron}</td>'
+        f'<td class="top-name">{_esc(row["sector_name"])}{chevron}</td>'
         f'<td class="top-pct">{_pct_cell(pct, large=True)}</td>'
         f'<td class="top-counts">'
         f'<span style="color:#f87171">▲{up}</span> '
@@ -487,7 +496,7 @@ def _meta_stock_cards(sub_names: list, sectors_df, prices_df, chips_df=None,
         if sid not in prices_map.index:
             rows_html.append(
                 f'<tr><td style="color:#475569;font-size:.78rem">{sid}</td>'
-                f'<td style="color:#334155">{stock_name}</td>'
+                f'<td style="color:#334155">{_esc(stock_name)}</td>'
                 f'<td colspan="6" style="color:#334155;font-size:.75rem">無行情</td></tr>'
             )
             continue
@@ -510,7 +519,6 @@ def _meta_stock_cards(sub_names: list, sectors_df, prices_df, chips_df=None,
         chips_data: dict = {}
         if sid in chips_map.index:
             c = chips_map.loc[sid]
-            def _na(v): return 0 if (v is None or pd.isna(v)) else v
             fn = int(_na(c.get("foreign_net")))
             tn = int(_na(c.get("trust_net")))
             mb = int(_na(c.get("margin_balance")))
@@ -519,7 +527,7 @@ def _meta_stock_cards(sub_names: list, sectors_df, prices_df, chips_df=None,
 
         spark_json = json.dumps(spark)
         chips_json = json.dumps(chips_data)
-        name_safe = stock_name.replace('"', "&quot;")
+        name_safe = _esc(stock_name)
         margin_html = _fmt_margin(mb, mc) if mb > 0 else "<span style='color:#334155'>─</span>"
 
         rows_html.append(
@@ -530,7 +538,7 @@ def _meta_stock_cards(sub_names: list, sectors_df, prices_df, chips_df=None,
             f' data-foreign="{fn}" data-trust="{tn}" data-margin="{mb}"'
             f' onclick="openStockModal(this)" style="cursor:pointer">'
             f'<td style="color:#64748b;font-size:.92rem;font-weight:600">{sid}</td>'
-            f'<td style="color:#cbd5e1;font-size:1.1rem;font-weight:600">{stock_name}</td>'
+            f'<td style="color:#cbd5e1;font-size:1.1rem;font-weight:600">{_esc(stock_name)}</td>'
             f'<td style="color:#f1f5f9;font-weight:700;font-size:1.15rem">{_fmt_price(close)}</td>'
             f'<td><span style="color:{color};font-weight:700;font-size:1.1rem">{arrow} {sign}{pct:.2f}%</span></td>'
             f'<td><span style="color:{wcolor};font-weight:700;font-size:1.1rem">{warrow} {wsign}{wpct:.2f}%</span></td>'
@@ -714,12 +722,12 @@ def _meta_card(row: dict, rank: int, card_id: str, sectors_df=None, prices_df=No
     chips_sum = _chips_summary(row["meta_name"], meta_chips)
     panel_content = sparkline + chips_sum + detail_inner if (sparkline or chips_sum or detail_inner) else ""
 
-    meta_name_safe = row["meta_name"].replace('"', "&quot;")
+    meta_name_safe = _esc(row["meta_name"])
     card = (
         f'<div class="mc-card" data-meta="{card_id}" data-meta-name="{meta_name_safe}"'
         f' style="border-top:2px solid {color};background:{bg}"{onclick}>'
         f'<div class="mc-hd">'
-        f'<span class="mc-name">{row["meta_name"]}</span>'
+        f'<span class="mc-name">{meta_name_safe}</span>'
         f'<span class="mc-pct" style="color:{color}">{arrow}{sign}{pct:.2f}%</span>'
         f'</div>'
         f'<div class="mc-cnt">'
@@ -765,9 +773,9 @@ def _vol_turnover_section(signals: list) -> str:
             f"<tr>"
             f"<td style='white-space:nowrap'>"
             f"<span style='color:#475569;font-size:.7rem;font-weight:600'>{sid}</span>"
-            f"<span style='color:#94a3b8;font-size:.78rem;margin-left:5px'>{stock_name}</span>"
+            f"<span style='color:#94a3b8;font-size:.78rem;margin-left:5px'>{_esc(stock_name)}</span>"
             f"</td>"
-            f"<td style='color:#64748b;font-size:.72rem;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'>{meta_sector}</td>"
+            f"<td style='color:#64748b;font-size:.72rem;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'>{_esc(meta_sector)}</td>"
             f"<td style='color:{chg_color};font-weight:700'>{sign}{chg:.2f}%</td>"
             f"<td style='color:#60a5fa;font-weight:700'>{s['vol_multiple']}x</td>"
             f"<td>{f_html}</td>"
@@ -850,10 +858,12 @@ def generate(
             sid = str(r["stock_id"])
             pct = round(float(prices_map.loc[sid]["change_pct"]), 2) if sid in prices_map.index else 0.0
             idx.append({"id": sid, "name": str(r["stock_name"]), "meta": str(r["meta_sector"]), "pct": pct})
-        stock_index_js = json.dumps(idx, ensure_ascii=False)
+        # 用 "</" -> "<\/" 避免股票/族群名稱裡剛好含有 "</script>" 時提前結束這個 &lt;script&gt; 區塊
+        # （這段 JSON 是直接內嵌進 &lt;script&gt; 標籤，不是走 innerHTML，所以只需要防這一種逃逸方式）
+        stock_index_js = json.dumps(idx, ensure_ascii=False).replace("</", "<\\/")
     if meta_perf:
         midx = [{"name": r["meta_name"], "subs": r.get("sub_names", []), "pct": r.get("avg_change_pct", 0.0)} for r in meta_perf]
-        meta_index_js = json.dumps(midx, ensure_ascii=False)
+        meta_index_js = json.dumps(midx, ensure_ascii=False).replace("</", "<\\/")
 
     # 累積排名 lookup（用於卡片上的 badge）
     cum_ranks = _make_cum_ranks(cum_data) if cum_data else {}

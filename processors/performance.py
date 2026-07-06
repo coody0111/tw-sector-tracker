@@ -179,69 +179,6 @@ def calc_meta_performance(
     return sorted(results, key=lambda r: r["avg_change_pct"], reverse=True)
 
 
-def calc_weekly_rank(
-    universe_df: pd.DataFrame,
-    db_path: str = "data/screener.db",
-) -> Dict[str, Dict[str, Optional[int]]]:
-    """
-    比較「上週5日累積報酬排名」vs「本週至今5日累積報酬排名」（滾動比較）。
-    今天往前 5 個交易日算一組累積報酬排名，再往前推 5 個交易日算另一組，
-    兩組排名互相比較。跟 cum5（5日累積報酬%）概念一致，只是拿排名版本。
-    回傳 {meta_name: {"this_week_rank": int|None, "last_week_rank": int|None}}
-    """
-    try:
-        con = duckdb.connect(db_path, read_only=True)
-        dates_df = con.execute(
-            "SELECT DISTINCT date FROM daily_prices ORDER BY date DESC LIMIT 10"
-        ).fetchdf()
-        prices_df = con.execute(
-            "SELECT stock_id, date, change_pct FROM daily_prices"
-        ).fetchdf()
-        con.close()
-    except Exception:
-        return {}
-
-    if prices_df.empty or len(dates_df) < 10:
-        return {}
-
-    all_dates = sorted(dates_df["date"].tolist())
-    universe = universe_df[["stock_id", "meta_sector"]].copy()
-    universe["stock_id"] = universe["stock_id"].astype(str)
-    prices_df["stock_id"] = prices_df["stock_id"].astype(str)
-
-    merged = prices_df.merge(universe, on="stock_id", how="inner")
-    merged = merged.dropna(subset=["change_pct", "meta_sector"])
-
-    pivot = (
-        merged.groupby(["meta_sector", "date"])["change_pct"].mean()
-        .unstack(level="date")
-        .reindex(columns=all_dates)
-        .fillna(0)
-    )
-
-    def _cum_rank(cols) -> Dict[str, int]:
-        cum: Dict[str, float] = {}
-        for meta_name in pivot.index:
-            row = pivot.loc[meta_name]
-            f = 1.0
-            for c in cols:
-                f *= (1 + row[c] / 100)
-            cum[meta_name] = (f - 1) * 100
-        ranked = sorted(cum.items(), key=lambda x: -x[1])
-        return {meta: i + 1 for i, (meta, _) in enumerate(ranked)}
-
-    this_week_rank = _cum_rank(all_dates[-5:])
-    last_week_rank = _cum_rank(all_dates[-10:-5])
-
-    return {
-        meta_name: {
-            "this_week_rank": this_week_rank.get(meta_name),
-            "last_week_rank": last_week_rank.get(meta_name),
-        }
-        for meta_name in pivot.index
-    }
-
-
 def calc_meta_signals(
     universe_df: pd.DataFrame,
     db_path: str = "data/screener.db",
@@ -611,7 +548,7 @@ def calc_meta_chips_signals(
     回傳 {meta_name: {
         foreign_net_today, trust_net_today,  # 今日合計（原始股數）
         foreign_buy_count, total_stocks,
-        foreign_buy_ratio,                    # 外資買超股數 / META 總股數
+        foreign_buy_ratio,                    # 外資買超檔數 / META 總檔數（分母只算 today 當天實際有資料的交易所）
         foreign_streak,                       # 正=連買天數, 負=連賣
         trust_streak,
         margin_change_today, margin_balance_today,
@@ -666,6 +603,7 @@ def calc_meta_chips_signals(
     )
 
     margin_by_meta: Dict[str, Any] = {}
+    margin_covered_by_meta: Dict[str, set] = {}
     if not margin_df.empty:
         margin_df["stock_id"] = margin_df["stock_id"].astype(str)
         margin_merged = margin_df.merge(universe, on="stock_id", how="inner")
@@ -679,14 +617,26 @@ def calc_meta_chips_signals(
                     "margin_balance_today": mb,
                     "margin_alert": mb > 0 and mc / mb > 0.05,
                 }
+                margin_covered_by_meta[meta_name] = set(grp["exchange"].dropna().unique())
 
     # institutional/margin 現在同時有 TWSE（T86/MI_MARGN）跟 TPEx（tpex_3insti_daily_trading/
-    # tpex_mainboard_margin_balance）來源，分母可以算整個族群成分股數。
-    # 注意：TPEx 這兩支官方 API 都不支援查歷史日期，只能抓「當下」，所以剛接上的當下，
-    # institutional/margin 表裡舊日期還是只有 TWSE 資料，要等 --realtime／每日更新實際跑過
-    # 幾天、TPEx 當日資料持續累積後，lookback 窗口內的連買天數（foreign_streak/trust_streak）
-    # 才會涵蓋完整雙市場；當日（today）的買超比例則從第一次成功寫入 TPEx 資料那天就會正確。
-    meta_stock_count = universe.groupby("meta_sector")["stock_id"].count().to_dict()
+    # tpex_mainboard_margin_balance）來源，理想狀況分母可以算整個族群成分股數。
+    # 但 TPEx 這兩支官方 API 只能抓「當下」、沒有日期參數，發布時間可能跟 TWSE 錯開一天；
+    # 若 TPEx 當天抓取失敗（main.py 的 try/except 只會 log warning、不阻擋），或單純兩所發布
+    # 日期不同步，institutional 表當天就可能只有單一交易所的資料。分母若仍固定用「TWSE+TPEx
+    # 全族群成分股數」，分子（buy_count）卻只能來自實際有資料的那個交易所，比例會被系統性低估
+    # ——尤其是上櫃佔比高的族群。改成分母只算「today 這天實際有資料的交易所」涵蓋的成分股數，
+    # 跟分子的交易所範圍保持一致；等兩所資料都到齊，分母會自動回到全族群。
+    meta_stock_count_by_exchange = (
+        universe.groupby(["meta_sector", "exchange"])["stock_id"].count()
+    )
+    # 族群實際橫跨的交易所（例如純上市族群本來就沒有 TPEx 成分股，不能算「涵蓋不足」）。
+    # 用來跟「today 這天實際有資料的交易所」比較，才能分辨「單純資料源當天抓取失敗」
+    # 跟「這個族群本來就沒有那個交易所的成分股」兩種情況。
+    meta_all_exchanges: Dict[str, set] = {
+        name: set(grp.dropna().unique())
+        for name, grp in universe.groupby("meta_sector")["exchange"]
+    }
 
     def _streak(vals: list) -> int:
         if not vals:
@@ -712,11 +662,29 @@ def calc_meta_chips_signals(
         trust_net_today = int(t_row.get(today, 0))
 
         meta_today = today_inst[today_inst["meta_sector"] == meta_name]
-        total_stocks = meta_stock_count.get(meta_name, 1)
+        covered_exchanges = meta_today["exchange"].dropna().unique().tolist()
+        if covered_exchanges and meta_name in meta_stock_count_by_exchange.index.get_level_values(0):
+            total_stocks = int(
+                meta_stock_count_by_exchange.loc[meta_name]
+                .reindex(covered_exchanges).fillna(0).sum()
+            )
+        else:
+            total_stocks = 0
         buy_count = int((meta_today["foreign_net"] > 0).sum())
 
         foreign_streak = _streak([float(f_row.get(d, 0)) for d in all_dates])
         trust_streak = _streak([float(t_row.get(d, 0)) for d in all_dates])
+
+        # 這個族群「應該」橫跨的交易所（該族群實際成分股所在的交易所）跟「today 這天
+        # institutional/margin 實際有資料的交易所」比較，任一邊涵蓋不足就標記
+        # partial_coverage=True。這不是指族群本來就只有單一交易所成分股的情況
+        # （那種 meta_all_exchanges 本身就只有一個交易所，不會觸發），而是指族群明明有
+        # 多交易所成分股、但當天某個交易所的資料源抓取失敗或跟另一所發布時間錯開，
+        # 導致這裡算出來的 foreign_net_today/streak/margin 數字只反映部分成分股。
+        expected_exchanges = meta_all_exchanges.get(meta_name, set())
+        inst_partial = bool(expected_exchanges - set(covered_exchanges))
+        margin_partial = bool(expected_exchanges - margin_covered_by_meta.get(meta_name, set()))
+        partial_coverage = inst_partial or margin_partial
 
         m = margin_by_meta.get(meta_name, {})
         signals[meta_name] = {
@@ -727,6 +695,7 @@ def calc_meta_chips_signals(
             "foreign_buy_ratio": round(buy_count / total_stocks, 2) if total_stocks > 0 else 0,
             "foreign_streak": foreign_streak,
             "trust_streak": trust_streak,
+            "partial_coverage": partial_coverage,
             "margin_change_today": m.get("margin_change_today", 0),
             "margin_balance_today": m.get("margin_balance_today", 0),
             "margin_alert": m.get("margin_alert", False),

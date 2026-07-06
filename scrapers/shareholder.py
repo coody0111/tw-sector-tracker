@@ -53,12 +53,12 @@ def _fetch_one_stock(s: requests.Session, tok: str, uri: str, stock_id: str, dat
         "stockNo": stock_id,
         "stockName": "",
     }
-    try:
-        r = s.post(_TDCC_URL, data=data, headers=_HEADERS, timeout=30, verify=False)
-        r.raise_for_status()
-    except Exception as e:
-        logger.debug("TDCC %s %s 失敗: %s", stock_id, date_str, e)
-        return None
+    # 注意：這裡刻意不 catch POST 的例外——讓 SSLError/ConnectionError/Timeout 等
+    # 暫時性網路錯誤往上冒給 fetch_shareholder_weekly() 的重試迴圈接住重打。
+    # 如果在這裡 catch 掉直接 return None，外層的 try/except 永遠看不到例外，
+    # `ok=True` 會在第一次嘗試就成立、重試機制形同虛設（實際發生過的 bug）。
+    r = s.post(_TDCC_URL, data=data, headers=_HEADERS, timeout=30, verify=False)
+    r.raise_for_status()
 
     # 解析 table（第二個 table 是資料表）
     tables = re.findall(r"<table[^>]*>(.*?)</table>", r.text, re.DOTALL)
@@ -180,17 +180,32 @@ def save_to_db(rows: list[dict]) -> int:
     if not rows:
         return 0
     import pandas as pd
-    df = pd.DataFrame(rows)[["stock_id", "date", "lv12_15_pct", "lv12_15_cnt", "total_shares"]]
+    df = pd.DataFrame(rows)[["stock_id", "date", "lv12_15_pct", "lv12_15_cnt", "lv12_15_shares", "total_shares"]]
     df["date"] = pd.to_datetime(df["date"]).dt.date
 
     con = duckdb.connect(_DB_PATH)
     # 計算 week_change 和 streak
     _add_week_change_streak(con, df)
     con.execute("DELETE FROM shareholder WHERE (stock_id, date) IN (SELECT stock_id, date FROM df)")
-    con.execute("INSERT INTO shareholder SELECT stock_id, date, lv12_15_pct, lv12_15_cnt, total_shares, week_chg, streak FROM df")
+    # 明列欄位名（by-name 對應）：既有 DB 的 lv12_15_shares 是 ALTER 加在最後一欄，
+    # 位置跟全新 CREATE TABLE 的中間位置不同，用位置式 INSERT 會錯位，故明列欄位
+    con.execute(
+        "INSERT INTO shareholder "
+        "(stock_id, date, lv12_15_pct, lv12_15_cnt, lv12_15_shares, total_shares, week_chg, streak) "
+        "SELECT stock_id, date, lv12_15_pct, lv12_15_cnt, lv12_15_shares, total_shares, week_chg, streak FROM df"
+    )
     n = len(df)
     con.close()
     return n
+
+
+def _streak_step(chg: float, prev_streak: int) -> int:
+    """依本週變化方向延續或翻轉 streak（正=連增，負=連減）。"""
+    if chg > 0:
+        return prev_streak + 1 if prev_streak > 0 else 1
+    if chg < 0:
+        return prev_streak - 1 if prev_streak < 0 else -1
+    return 0
 
 
 def _add_week_change_streak(con: duckdb.DuckDBPyConnection, df) -> None:
@@ -219,13 +234,7 @@ def _add_week_change_streak(con: duckdb.DuckDBPyConnection, df) -> None:
         prev = prev_map.get(row["stock_id"])
         if prev is not None:
             chg = round(row["lv12_15_pct"] - prev["lv12_15_pct"], 4)
-            prev_streak = int(prev.get("streak", 0))
-            if chg > 0:
-                s = prev_streak + 1 if prev_streak > 0 else 1
-            elif chg < 0:
-                s = prev_streak - 1 if prev_streak < 0 else -1
-            else:
-                s = 0
+            s = _streak_step(chg, int(prev.get("streak", 0)))
         else:
             chg = None
             s = 0
@@ -234,6 +243,52 @@ def _add_week_change_streak(con: duckdb.DuckDBPyConnection, df) -> None:
 
     df["week_chg"] = week_chg
     df["streak"] = streak
+
+
+def recompute_latest_streak(db_path: str = _DB_PATH) -> int:
+    """
+    重算「每支股票目前資料庫裡最新一筆」的 week_chg/streak，跟該股次新一筆比較。
+
+    背景：--update-shareholder（抓最新週）跟 --backfill-shareholder（補歷史週）是
+    兩條分開呼叫的路徑，_add_week_change_streak 只在「寫入當下」處理那一批資料。
+    如果最新週先寫入（那時 DB 裡還沒有更舊的週可比，week_chg/streak 被記成
+    NULL/0——這在當下是正確答案），之後才 backfill 補進更舊的週，最新週的
+    衍生欄位不會自動更新，因為沒有任何呼叫再去重寫那一批，會一直卡在錯誤的初始值
+    （get_shareholder_top() 只抓每支股票最新一筆，這樣會讓 Section 8 排行永遠空白）。
+    backfill 完成後應呼叫這個函式修正回來。不需要重打 TDCC，lv12_15_pct 已經在
+    DB 裡，只是重算 week_chg/streak 兩個衍生欄位。回傳實際更新的股票數。
+    """
+    con = duckdb.connect(db_path)
+    df = con.execute("""
+        WITH ranked AS (
+            SELECT stock_id, date, lv12_15_pct, streak,
+                   ROW_NUMBER() OVER (PARTITION BY stock_id ORDER BY date DESC) AS rn
+            FROM shareholder
+        )
+        SELECT latest.stock_id, latest.date, latest.lv12_15_pct AS pct,
+               prev.lv12_15_pct AS prev_pct, prev.streak AS prev_streak
+        FROM (SELECT * FROM ranked WHERE rn = 1) latest
+        LEFT JOIN (SELECT * FROM ranked WHERE rn = 2) prev
+          ON latest.stock_id = prev.stock_id
+    """).df()
+
+    import pandas as pd
+    updates = []
+    for _, row in df.iterrows():
+        if pd.isna(row["prev_pct"]):
+            continue  # 沒有更早的週可比，維持原狀（新股或只有一週資料）
+        chg = round(float(row["pct"]) - float(row["prev_pct"]), 4)
+        prev_streak = int(row["prev_streak"]) if not pd.isna(row["prev_streak"]) else 0
+        s = _streak_step(chg, prev_streak)
+        updates.append((chg, s, row["stock_id"], row["date"]))
+
+    if updates:
+        con.executemany(
+            "UPDATE shareholder SET week_chg = ?, streak = ? WHERE stock_id = ? AND date = ?",
+            updates,
+        )
+    con.close()
+    return len(updates)
 
 
 def get_available_dates() -> list[str]:

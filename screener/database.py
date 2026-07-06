@@ -80,6 +80,19 @@ def init_db() -> None:
     """)
     con.execute("ALTER TABLE shareholder ADD COLUMN IF NOT EXISTS lv12_15_shares BIGINT")
     con.execute("""
+        CREATE TABLE IF NOT EXISTS insider_holdings (
+            stock_id                VARCHAR NOT NULL,
+            report_date             DATE NOT NULL,
+            company_shares          BIGINT,
+            company_chg             BIGINT,
+            company_pledge_pct      DOUBLE,
+            major_holder_shares     BIGINT,
+            major_holder_chg        BIGINT,
+            major_holder_pledge_pct DOUBLE,
+            PRIMARY KEY (stock_id, report_date)
+        )
+    """)
+    con.execute("""
         CREATE TABLE IF NOT EXISTS pattern_signals (
             stock_id     VARCHAR NOT NULL,
             pattern      VARCHAR NOT NULL,

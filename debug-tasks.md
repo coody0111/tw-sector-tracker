@@ -14,6 +14,47 @@
 
 ---
 
+## [2026-07-06] 大戶張數化+內部人持股計畫 Task 3：新增 scrapers/insider_holdings.py（內部人持股月頻）
+
+### 改了什麼
+- 異動檔案：新增 `scrapers/insider_holdings.py`、`screener/database.py`（新增 `insider_holdings` 表）、
+  新增 `tests/test_insider_holdings.py`
+- 對照計畫 Task 3（TDD）。這是**獨立新資料源**，不依賴 Task 1/2。
+
+**做了什麼**：
+- `scrapers/insider_holdings.py`：抓公開資訊觀測站 `ajax_stapap1`（POST，不需 session token），
+  逐列解析董事/監察人/經理人（→公司派桶）與大股東/未分類（→大股東桶）的持股與設質股數。
+  - `_parse_response()`：regex 逐列（`<TR class='odd'/'even'>` + 9 個 `<TD>`），`資料年月:11505`
+    → 民國轉西元 `2026-05-01`；「查無」→ None。
+  - `fetch_insider_holdings_monthly()`：retry 迴圈，`_fetch_one_stock()` **不吞例外**（比照
+    shareholder.py 修過的教訓，讓例外冒給外層重試）。
+  - `save_to_db()`：算 `company_pledge_pct`/`major_holder_pledge_pct` 與 `company_chg`/
+    `major_holder_chg`（跟前一個月比），upsert 進 `insider_holdings` 表。
+- `insider_holdings` 表 schema（8 欄，PK: stock_id+report_date）。
+
+### 資料來源相關（如有異動）
+- **新資料源**：公開資訊觀測站（MOPS）`ajax_stapap1`，月頻。跟 TWSE/TPEx、TDCC、FinMind/yfinance
+  都不同來源，各自獨立。
+- 「公司派」= 董事＋監察人＋經理人＋相關（職稱含 董事/監察人/經理/協理/主管）；
+  「大股東」= 職稱含「大股東」或未分類（如「其他」）。
+- `verify=False`：沿用專案既有慣例（Windows SSL），配 `warnings.filterwarnings("ignore")`。
+
+### 請 Debugger 驗證
+- [ ] `tests/test_insider_holdings.py` 3 個測試過（我這邊：3 passed）；全專案（我這邊：103 passed）
+- [ ] **重點（我沒辦法在本機驗的）**：`_parse_response()` 的 regex 是對照計畫作者實際打過的真實
+  HTML 格式寫的，但我只用合成 `_SAMPLE_HTML` 測。**建議實際打一兩支股票的真實回應**（例如 2330），
+  確認 (a) `<TR class='odd'/'even'>` + 9 欄格式沒變、(b) 職稱分類正確、(c) 民國年月解析對。
+  regex 對 HTML 格式敏感，格式一變就會靜默解析不到（回 0 或 None）。
+- [ ] `insider_holdings` 位置式 INSERT：全新表（只走 CREATE TABLE、無 ALTER），欄位順序固定，
+  跟 Task 1 的 ALTER-append 情境不同，位置式安全——請確認這個判斷。
+- [ ] `save_to_db` 月變化：跨月 chg 正確、首月無前值為 NULL。
+
+### 特別注意
+- 這個 scraper 還沒接進 `main.py`（Task 4 才做 `--update-insider-holdings` CLI 跟資料組裝），
+  目前只是獨立模組 + 表，跑 `main.py` 不會用到它。
+
+---
+
 ## [2026-07-06] 大戶張數化+內部人持股計畫 Task 2：get_shareholder_top() 回傳 prev_date + 張數變化
 
 ### 改了什麼

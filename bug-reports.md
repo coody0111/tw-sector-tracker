@@ -1,3 +1,68 @@
+## [2026-07-06] 驗證 - Task 4 main.py 串接內部人持股 + sh_rows 對齊集保週期/join
+
+### 驗證方式
+- `git merge master`（乾淨）；全專案 `pytest`；`main.py` ast.parse；合成但貼合真實型別 round-trip
+  的臨時 DB 驗價格對齊 key 匹配；追 `close=NULL → nan` 洩漏一路到 `_price_cell`；查真實
+  `data/screener.db` 現況；確認 `_to_int` 修法（收上輪 🟡）
+
+### ✅ 驗證通過
+
+**全專案測試**：**105 passed, 0 failed**（含新增 2 個 `_to_int` 測試）；`main.py` ast.parse OK。
+
+**收上兩輪的兩個 🟡**
+- Task 3 的 `_to_int` 脆弱性：已改成無法解析（`-`／`－`／`N/A`）回 0、不再拋 ValueError 讓整支
+  股票靜默消失，實測確認 ✅。
+- Task 2 的 `share_chg` NULL 處理：Task 4 對 `share_chg`/`lv12_15_shares`/insider 六欄一律用
+  `pd.notna()` 判斷、缺值帶乾淨 `None`（不是 0、不是 `<NA>`）✅；`week_chg` 的
+  `None if pd.isna(...) else float(...)`（2026-07-05 的 NaN fix）**沒有被計畫範例碼退回** ✅。
+
+**【核心】價格對齊集保週期的 key 匹配**（整個功能成敗關鍵）
+- `sh_df["date"]`/`prev_date` 是 `datetime64[us]`；`daily_prices` 經 `.fetchdf()` 也是 Timestamp，
+  兩邊 `str()` 都是 `"2026-07-04 00:00:00"` → **key 對得上**，實測週漲跌 (950-900)/900 = 5.56% 正確 ✅。
+- `DuckDB date IN (SELECT UNNEST(?))` 接受 numpy.datetime64 綁定 ✅。
+- Developer 從 Task 2 堅持「date 保持 Timestamp」的決定在這裡兌現，兩邊型別一致才對得上。
+
+**insider join / CLI**
+- `_insider_map.get(sid)` 回 Series，用 `insider is not None`（identity check，避開 Series 真值
+  歧義陷阱）+ 每欄 `pd.notna()`，正確 ✅。
+- `--update-insider-holdings` → `_update_insider_holdings()` **先 `init_db()` 再抓再 save**，
+  對應我 Task 3 報告「表要先存在」的提醒 ✅。
+- 缺價優雅降級：找不到價格 → `close=None` → `_price_cell` 回「─」，實測正確 ✅。
+
+### 🟡 建議改善（latent，目前資料未觸發，但會 crash + 違反專案既定規則）
+- **`close`/`prev_close` 用 `is not None` 而非 `pd.isna()`，NULL close 會洩漏 NaN 並讓
+  `_price_cell` crash**：
+  - `_price_map` 的值直接來自 `daily_prices.close`（DuckDB DOUBLE，**可為 NULL**）。若某集保週期
+    日期對到一列 `close IS NULL`，該值經 pandas 變 `nan`。main.py 的
+    `float(close) if close is not None else None` 對 `nan` 判 `is not None=True` → **`nan` 洩漏進
+    `sh_rows["close"]`**；`price_week_chg` 同理算出 `nan`。
+  - 實測：`_price_cell(nan, nan)` 在 `int(close)` 直接拋 `ValueError: cannot convert float NaN to
+    integer`——**不是渲染成 "nan%"，是產 chips.html 時 crash**。
+  - **目前不會觸發**：這台 `data/screener.db` `daily_prices` 有 **0 筆 NULL close**（髒值是 close=0
+    不是 NULL，close=0 會走另一條路：`prev_close!=0` 有擋除以零，但當週 close=0 會算出 -100% 之類
+    的髒值——那是資料問題不是這裡的 bug）。
+  - **但這正是專案重申 3+ 次那條規則的違反**（DuckDB 出來、可能 NULL 的欄位一律 `pd.isna()`，不要
+    `is not None`）——而且 Task 4 旁邊的 `share_chg`/insider 欄都正確用了 `pd.notna()`，唯獨
+    `close`/`prev_close` 用舊寫法，不一致。建議：`close`/`prev_close` 的判斷改用
+    `close is not None and not pd.isna(close)`（或建 `_price_map` 時就 `if pd.notna(r["close"])`
+    過濾掉 NULL），與相鄰欄位一致，避免哪天 daily_prices 出現 NULL close 就 crash。
+
+### 特別注意（非問題，僅記錄）
+- `change_pct` 語意已從「最新交易日漲跌」改成「集保週期週漲跌」（key 重用、語意變）。`_price_cell`
+  只顯示帶色的 `x.x%`、**沒有「日/週」文字標籤**，所以 Task 4 完成、Task 5 未做的這個過渡狀態
+  **不會顯示錯誤標籤**（只是數字語意變了）；Task 5 加欄位時記得補「週」的說明。跑 `main.py` 目前
+  chips.html Section 8 外觀不變，與 Developer 說明一致。
+- 這台無法跑真實端到端 smoke test：`shareholder` 表為空、`insider_holdings` 表尚未建（Task 3 才加，
+  需 init_db）。價格對齊我用貼合真實型別的合成資料驗過核心機制；**建議 Developer 在有多週集保+對應
+  股價的桌機實跑一次** `python main.py` 確認 sh_rows 帶新欄位、不 crash（尤其確認該機資料無 NULL close）。
+
+### 結論
+- [x] 可以繼續下一個任務——Task 4 核心（價格對齊 key 匹配、nullable pd.notna、insider join、CLI
+  先 init_db、收兩個舊 🟡）全部 ✅。**建議順手修 `close`/`prev_close` 的 `pd.isna` 一致性**（latent
+  crash + 違反既定規則，一行的事），可併進 Task 5 一起處理。
+
+---
+
 ## [2026-07-06] 驗證 - Task 3 內部人持股 scraper（scrapers/insider_holdings.py）
 
 ### 驗證方式

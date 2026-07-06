@@ -1,3 +1,44 @@
+## [2026-07-06] 驗證 - Task 2（get_shareholder_top 張數變化）+ _push_html abort 精修（fa5aa9b）
+
+### 驗證方式
+- `git merge master`（乾淨 fast-forward，身分檔不再撞 ✅ 移行生效）；全專案 `pytest`；
+  獨立臨時 DB 實測 `share_chg` 邊界（含過渡 NULL、三週取最近兩週）；臨時 repo 實測
+  `_rebase_in_progress()` 在「非衝突失敗」vs「衝突」兩情境的行為
+
+### ✅ 驗證通過
+
+**全專案測試**：**100 passed, 0 failed**。
+
+**Task 2（`3b51653`）`get_shareholder_top()` 回傳 prev_date + share_chg**
+- 兩週皆有張數：`share_chg = 本週 − 上週`，方向正確（實測張數下降 → `-1,000,000`）✅
+- 單週資料：`prev_date`/`share_chg` 為 NULL（NaT/NaN），不報錯 ✅
+- 三週資料：`ROW_NUMBER` 正確取**最近兩週**算差（prev_date=前一週、不是最舊那週）✅
+- 「date 保持 Timestamp」的決定合理：與 `daily_prices` 的 `.df()` 型別一致，Task 4 用
+  `str(row["date"])` 當 key 對齊股價才對得上；測試斷言改用 `[:10]` 比日期部分（型別無關）正確。
+
+**`_push_html` abort 精修（`fa5aa9b`）**（收上輪我回報的 🟡）
+- `main.py` `ast.parse` OK ✅
+- **非衝突失敗**（無 upstream／網路斷）：`_rebase_in_progress()`（`git rev-parse --git-path`，
+  worktree-safe）回傳 False → 走「可能無 upstream 或網路問題」分支、**不呼叫 `git rebase --abort`**，
+  消除「no rebase in progress」雜訊 ✅
+- **衝突**：`_rebase_in_progress()` 回傳 True → `git rebase --abort` → 工作區乾淨、本機 commit 保留 ✅
+- 兩情境都不 push、commit 保留，與上一輪驗過的行為一致。
+
+### 🟡 資料正確性提醒（非阻擋，給 Task 4/5）
+- **過渡期 `share_chg` 會是 NULL**：Task 1 之前寫入的舊 shareholder 列，`lv12_15_shares` 是
+  ALTER 補的 NULL。若某股「上週」那筆是舊列，即使有兩週資料、`prev_date` 有值，`share_chg`
+  仍會是 `<NA>`（實測確認：`prev_date` 有值但 `share_chg=<NA>`，不報錯）。這是預期的過渡現象、
+  會隨新資料累積自然痊癒，但 **Task 4/5 消費 `share_chg` 時務必用 `pd.isna()` 判斷**（`share_chg`
+  是 DuckDB `Int64` 的 `<NA>`，用 `is not None` 或 `x or 0` 會誤判/踩到 pandas nullable 那類地雷——
+  這已是專案第 N 次同類問題）。頁面呈現大戶張數變化時，NULL 應顯示「—」而非 0，避免把「資料缺」
+  誤導成「零變化」。
+
+### 結論
+- [x] 可以繼續下一個任務——Task 2 + `fa5aa9b` 全部 ✅，身分檔移行生效（本次 merge 乾淨無衝突）。
+  提醒 Task 4/5 對 `share_chg` 的 NULL 處理（見上）。
+
+---
+
 ## [2026-07-06] 驗證 - Developer 3 個新 commit（Task 1 大戶張數 / _push_html 修復 / 工作流 checklist）+ 身分檔移行
 
 ### 驗證方式

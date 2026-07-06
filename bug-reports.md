@@ -1,3 +1,66 @@
+## [2026-07-06] 報告＋修復 - `insider_holdings.py` 沒有 MOPS 封鎖偵測，限流被誤判成「查無資料」（Cody 授權 Debugger 直接修）
+
+### 背景
+Cody 實跑 `python main.py --update-insider-holdings`（1038 支股票），全程 log 出現異常的
+escalating failure：成功數卡住不動、失敗數一路飆升，最終跑完只有 **341 成功 / 697 失敗**
+（成功率 32.8%）。台灣上市櫃公司董事/監察人/大股東持股是強制月報，67% 的「查無資料」
+在統計上不合理。
+
+### 🔴 找到的問題
+直接側測 `mopsov.twse.com.tw` 的內部人持股 API 端點（`_URL`），確認**現在這個 IP 正在被
+MOPS 的資安防護擋掉**：
+```
+狀態碼: 307
+內容: 因為安全性考量，您所執行的頁面無法呈現。
+      FOR SECURITY REASONS, THIS PAGE CAN NOT BE ACCESSED.
+```
+`scrapers/insider_holdings.py::_fetch_one_stock()` 只有 `r.raise_for_status()`，但 307
+不是 4xx/5xx，不會拋例外；擋頁 HTML 沒有 `"查無"` 字串、也沒有 `資料年月` 格式，
+`_parse_response()` 會回傳 `None`，被 `fetch_insider_holdings_monthly()` 當成「這支股票
+單純沒有揭露資料」而不是「被擋」——**跟 `scrapers/twse.py` 已經修過的 `TWSEBlockedError`
+是同一類錯誤**，只是這支新寫的 scraper 沒有沿用那個教訓，從一開始就沒有封鎖偵測。
+
+拆每 50 支一個區間比對成功/失敗增量，發現這是**滾動時間窗限流**（不是永久封鎖）：
+`251-300` 全擋（+0 成功 +50 失敗），但 `651-700` 幾乎全過（+48 成功 +2 失敗），會鬆會緊，
+過一段時間又自動解除——這點也在事後側測驗證過（隔一段時間後同一支 2330 正常抓到真實資料，
+沒有再被擋）。
+
+### ✅ 已修（Cody 授權直接改）
+- 新增 `MOPSBlockedError` + `_check_mops_response()`（比照 `scrapers/chips.py::
+  TWSEBlockedError` 的模式）：合法回應（含真正查無資料）一律是 status 200；擋頁是 307 +
+  內容含「安全性考量」/「SECURITY REASONS」，這是 2026-07-06 實測擋頁內容，不是臆測。
+- `_fetch_one_stock()` 在 `raise_for_status()` 之後另外呼叫 `_check_mops_response()`
+  （307 不會被 `raise_for_status()` 攔到，要額外查）。
+- `fetch_insider_holdings_monthly()` 回傳型別從 `list[dict]` 改成 `tuple[list[dict],
+  list[str]]`，第二個是 `blocked_ids`（3 次重試都被擋的股票代號），跟「真的查無資料」
+  （`no_data` 計數）分開統計，不再混在同一個「失敗」桶。
+- 偵測到 `MOPSBlockedError` 時用比一般網路錯誤更長的退避（`_BLOCK_BACKOFF = (20.0, 40.0)`
+  秒，一般錯誤是 `(3.0, 7.0)` 秒）——因為是滾動時間窗限流，退避夠久才有機會等窗口重置，
+  沿用一般錯誤的短退避沒有意義。**沒有**做成「偵測到就整批熔斷放棄」（跟
+  `scrapers/backfill.py::_looks_like_twse_block` + `stop_event` 那套不一樣）——因為觀察到
+  限流是間歇性、會自己鬆綁，熔斷會在還有機會恢復時提早棄權，改成單純的加長退避+清楚分類。
+  跑完會 log 一行 `本次有 N 支股票因 MOPS 限流被擋（非真正查無資料），建議稍後單獨重跑這批`。
+  `main.py::_update_insider_holdings()` 呼叫端同步更新回傳值解構，也加了對應的收尾警告 log。
+- 新增 3 個測試：`_check_mops_response` 正確辨識真實擋頁內容（307+資安考量文字）、正常 200
+  回應（含合法的查無資料）不會被誤判、`fetch_insider_holdings_monthly` 用 `monkeypatch`
+  模擬「1 支正常＋1 支真查無＋1 支被擋」，驗證 `blocked_ids` 只包含真正被擋的那支，
+  不會跟查無資料混在一起。8 個 insider_holdings 測試全過，全專案 112 個測試 111 過
+  （1 個既有環境限制，需要本機真的有 `data/screener.db`，跟本次無關）。
+- 已對真實 MOPS 端點實測：修法上線後側測 2330，這次沒被擋、正常回傳真實資料
+  （`company_shares: 1,735,849,436`），確認沒有把正常回應誤判成擋頁。
+
+### 🟡 這次沒動的部分（現有資料的處理，留給 Cody 決定）
+- **這次跑出來的 341 筆資料仍然可用**（真實資料，沒有被污染成假的 0 值），但覆蓋率只有
+  32.8%，不能當作完整的月度快照。剩下 697 支裡有一部分是真被擋、一部分可能是真查無資料，
+  這次事發時還沒有 `blocked_ids` 機制可以回溯分辨，建議挑離峰時段重新跑一次
+  `--update-insider-holdings`（`save_to_db` 是 upsert，不會跟已有 341 筆衝突）。
+
+### 結論
+- [x] 已修並加測試、已對真實 MOPS 端點驗證——下次重跑 `--update-insider-holdings` 時，
+  log 會清楚分辨「查無資料」vs「被限流擋掉」，不會再混在一起誤判。
+
+---
+
 ## [2026-07-06] 驗證 - Task 5 兩修復（999f408）：雙重 <td> + close/prev_close nan crash
 
 ### 驗證方式

@@ -23,9 +23,28 @@ _MAX_RETRIES = 3
 _RETRY_BACKOFF = (3.0, 7.0)
 _JITTER = 0.8
 
+# MOPS 是滾動時間窗限流（一段時間內請求太多會暫時擋，過一陣子自己解除），不是永久封鎖，
+# 偵測到擋頁時用比一般網路錯誤更長的退避，讓時間窗有機會重置（2026-07-06 實測：一般 3-7 秒
+# 退避不夠，擋住的窗口會持續數十支股票）。
+_BLOCK_BACKOFF = (20.0, 40.0)
+
 _ROW_RE = re.compile(r"<TR class=['\"](?:odd|even)['\"]>(.*?)</TR>", re.IGNORECASE | re.DOTALL)
 _CELL_RE = re.compile(r"<TD[^>]*>(.*?)</td>", re.IGNORECASE | re.DOTALL)
 _DATE_RE = re.compile(r"資料年月[:：](\d{5})")
+
+
+class MOPSBlockedError(RuntimeError):
+    """MOPS 回傳資安擋頁（WAF block／時間窗限流），不是合法的『查無資料』回應。"""
+
+
+def _check_mops_response(resp) -> None:
+    """偵測 MOPS 擋頁：合法回應（含『查無資料』在內）一律是 status 200；
+    擋頁是 307 導向，內容含『安全性考量』/『SECURITY REASONS』字樣
+    （2026-07-06 實測擋頁內容，不是臆測）。"""
+    if resp.status_code != 200 or "安全性考量" in resp.text or "SECURITY REASONS" in resp.text:
+        raise MOPSBlockedError(
+            f"MOPS 疑似限流/封鎖此 IP（status={resp.status_code}），並非資料查無"
+        )
 
 # 大股東/未分類職稱一律歸「大股東」桶；董事/監察人/經理人相關頭銜歸「公司派」桶
 _COMPANY_KEYWORDS = ("董事", "監察人", "經理", "協理", "主管")
@@ -109,26 +128,41 @@ def _fetch_one_stock(stock_id: str) -> Optional[dict]:
     # （比照 shareholder.py 修過的教訓，內層吞例外會讓外層重試機制形同虛設）
     r = requests.post(_URL, data=data, headers=_HEADERS, timeout=30, verify=False)
     r.raise_for_status()
+    _check_mops_response(r)  # 擋頁不會被 raise_for_status() 攔到（307 不是 4xx/5xx），要另外查
     return _parse_response(r.text)
 
 
-def fetch_insider_holdings_monthly(stock_ids: list[str], delay: float = 1.0) -> list[dict]:
-    """抓一批股票最新一期的內部人持股資料，回傳 list of dict。"""
+def fetch_insider_holdings_monthly(stock_ids: list[str], delay: float = 1.0) -> tuple[list[dict], list[str]]:
+    """抓一批股票最新一期的內部人持股資料。
+    回傳 (results, blocked_ids)：
+      results     — 成功解析到資料的 list of dict
+      blocked_ids — 3 次重試都被 MOPS 擋掉（不是真的查無資料）的股票代號，
+                    呼叫端可以之後單獨針對這批重跑，不要跟「真的沒有揭露資料」混在一起看。
+    """
     import warnings
     warnings.filterwarnings("ignore")
 
     logger.info("內部人持股更新，共 %d 支股票", len(stock_ids))
     results = []
-    failed = 0
+    blocked_ids: list[str] = []
+    no_data = 0  # 真的解析不到資料（合法回應但查無揭露），跟被擋分開計數
 
     for i, sid in enumerate(stock_ids, 1):
         rec = None
         ok = False
+        blocked = False
         for attempt in range(_MAX_RETRIES):
             try:
                 rec = _fetch_one_stock(sid)
                 ok = True
                 break
+            except MOPSBlockedError as e:
+                blocked = True
+                if attempt < _MAX_RETRIES - 1:
+                    time.sleep(random.uniform(*_BLOCK_BACKOFF))  # 滾動限流，退避久一點等它自己解除
+                else:
+                    logger.warning("  [%d] 被 MOPS 擋掉（重試 %d 次仍被擋）: %s，跳過 %s",
+                                   i, _MAX_RETRIES, e, sid)
             except Exception as e:
                 if attempt < _MAX_RETRIES - 1:
                     time.sleep(random.uniform(*_RETRY_BACKOFF))
@@ -136,7 +170,10 @@ def fetch_insider_holdings_monthly(stock_ids: list[str], delay: float = 1.0) -> 
                     logger.warning("  [%d] 抓取失敗（重試 %d 次）: %s，跳過 %s",
                                    i, _MAX_RETRIES, e, sid)
         if not ok:
-            failed += 1
+            if blocked:
+                blocked_ids.append(sid)
+            else:
+                no_data += 1
             time.sleep(delay + random.uniform(0, _JITTER))
             continue
 
@@ -144,14 +181,22 @@ def fetch_insider_holdings_monthly(stock_ids: list[str], delay: float = 1.0) -> 
             rec["stock_id"] = sid
             results.append(rec)
         else:
-            failed += 1
+            no_data += 1
 
         if i % 50 == 0 or i == len(stock_ids):
-            logger.info("  [%d/%d] 成功 %d，失敗 %d", i, len(stock_ids), len(results), failed)
+            logger.info("  [%d/%d] 成功 %d，查無資料 %d，被擋 %d",
+                        i, len(stock_ids), len(results), no_data, len(blocked_ids))
 
         time.sleep(delay + random.uniform(0, _JITTER))
 
-    return results
+    if blocked_ids:
+        logger.warning(
+            "本次有 %d 支股票因 MOPS 限流被擋（非真正查無資料），建議稍後單獨重跑這批：%s",
+            len(blocked_ids),
+            blocked_ids[:20] + (["..."] if len(blocked_ids) > 20 else []),
+        )
+
+    return results, blocked_ids
 
 
 def save_to_db(rows: list[dict], db_path: str = _DB_PATH) -> int:

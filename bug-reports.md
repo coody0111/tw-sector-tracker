@@ -1,3 +1,27 @@
+## [2026-07-06] 驗證 - Task 5 兩修復（999f408）：雙重 <td> + close/prev_close nan crash
+
+### 驗證方式
+- `git merge master`（乾淨）；全專案 `pytest`；實際呼叫 `_shareholder_table()` 用精確 regex 數
+  `<th>`/`<td>`（排除 `<thead>` 誤匹配）；實測 `close=nan` 洗法 + `_price_cell` 不 crash
+
+### ✅ 驗證通過（我上一輪的 🔴 + 🟡 都修掉了）
+- **🔴 雙重 `<td>` 已修**：`chips_generator.py:408-409` 從 `f"<td>{company_html}</td>"` 改成
+  `f"{company_html}"`（不外包，比照 `_price_cell` 用法）。實測：表頭 `<th>`=10、資料列 `<td>`=10、
+  `<td><td>`=0 → **欄位對齊，malformed HTML 消除** ✅。Developer 也加了結構測試（列 td 數 ==
+  表頭 th 數），以後再犯會被抓到（測試 108→109）。
+- **🟡 `close`/`prev_close` nan latent crash 已修**：`main.py` 新增
+  `if close is not None and pd.isna(close): close = None`（prev_close 同）。實測 `close=nan` →
+  洗成 `None` → `_price_cell` 回「─」、**不再 `int(nan)` crash** ✅。與相鄰欄位的 `pd.notna` 寫法
+  一致了。
+- **全專案測試**：**109 passed, 0 failed**。
+
+### 結論
+- [x] 可以繼續下一個任務——**大戶張數化+內部人持股計畫 Task 1-5 全部驗證通過、收尾完成**。
+  Task 5 的 🔴（Section 8 欄位錯位）與 Task 4 帶下來的 🟡（NULL close crash）都已修並實測確認。
+  Developer 確認後即可 push origin。
+
+---
+
 ## [2026-07-06] 驗證 - Task 5 Section 8 表格新增張數變化+內部人欄位（計畫最後一個 Task）
 
 ### 驗證方式

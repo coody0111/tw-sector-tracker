@@ -1,3 +1,57 @@
+## [2026-07-06] 驗證 - Developer 3 個新 commit（Task 1 大戶張數 / _push_html 修復 / 工作流 checklist）+ 身分檔移行
+
+### 驗證方式
+- 先完成 CLAUDE.md 移出追蹤的移行（stash→drop→merge master→重建本地 gitignored CLAUDE.md）；
+  跑全專案 `pytest`；獨立臨時 DB/repo 實測 by-name INSERT 錯位、限定範圍 commit、rebase 衝突 abort
+
+### ✅ 驗證通過
+
+**身分檔移行（一次性）**
+- 丟 stash 前先 `diff` 確認 stash 裡的 Debugger CLAUDE.md 是 master `CLAUDE-debugger.md` 的**舊版子集**
+  （master 版多了「工作流自檢」章節、四資料源說明等），丟掉不遺失任何內容。
+- merge master 後 `.gitignore`／`CLAUDE.md` **不再撞衝突**；`git check-ignore CLAUDE.md` 確認已被忽略、
+  `git ls-files CLAUDE.md` 空（不再追蹤）；本地重建的 CLAUDE.md 開頭是「角色：Debugger 🔍」。
+- docs 產出檔衝突（chips/patterns.html 取 master、data.json 跟 master 刪除）依既有慣例解掉。
+
+**全專案測試**：**98 passed, 0 failed**（這台 debug 有 `data/screener.db`，連 `test_scan_patterns_returns_list`
+都過，不再是既有環境限制）。
+
+**Task 1（`13b4eee`）大戶張數 `lv12_15_shares`**
+- 【重點】**by-name INSERT 修正經實測確認必要**：建「舊 7 欄表→ALTER 加 `lv12_15_shares` 到最後（第 8 欄）」
+  的 DB，餵 `shares=5,000,000 / total=25,000,000`：
+  - by-name INSERT → `lv12_15_shares=5,000,000`、`total_shares=25,000,000` ✅ 正確
+  - 位置式 INSERT（計畫原寫法）→ `lv12_15_shares=2`（拿到 streak 值）、`total_shares=5,000,000`（拿到張數）
+    🔴 **整排錯位**。證明 Developer 偏離計畫改成 by-name 是對的，否則正式 DB 會被靜默寫壞（不報錯給錯資料）。
+- `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` 對已有該欄的表重複跑兩遍，無報錯（冪等）✅
+- `save_to_db()` 的 df 選欄與 INSERT 欄位一致（`stock_id,date,lv12_15_pct,lv12_15_cnt,lv12_15_shares,
+  total_shares,week_chg,streak`）✅
+
+**`_push_html` 修復（`3e416cf`）**
+- **限定範圍 commit**：臨時 repo 實測——docs 檔更新的同時「手動 `git add` 了不相關的 `unrelated.py`」，
+  `git commit -- <docs 檔>` 後該 commit **只含 docs 檔**，`unrelated.py` 仍 staged、HEAD 內容未變 ✅
+  （正是先前 `_push_html` 誤掃 staged 變更那個地雷的修復）。
+- **pull --rebase 撞衝突**：模擬兩機分岔＋同行衝突，`pull --rebase --autostash` 回傳非 0 →
+  `rebase --abort` → 工作區乾淨、**無半完成 rebase**、**本機 commit 完整保留**、**不會 push**，
+  留 ahead/behind 給人工處理 ✅。
+
+**工作流 checklist（`cc3f1c0`）**：純文件，`CLAUDE-debugger.md:118`／`CLAUDE-developer.md:130`
+確認都有「## 工作流自檢」章節 ✅。
+
+### 🟡 建議改善（不阻擋）
+- `_push_html` 的 `pull --rebase --autostash` 若因**非衝突原因**失敗（無 upstream／網路斷），
+  接著的 `git rebase --abort` 會因「沒有進行中的 rebase」而報無害錯誤（無 `check=True` 不會 crash），
+  本機 commit 一樣保留、一樣不 push，行為安全，只是 log 可能出現一句 rebase 的雜訊，可忽略。
+
+### 留給 Cody 決定
+- `_push_html` 現在「push 前自動 `git pull --rebase`」是**行為改變**（以前直接 push）。行為正確、
+  分岔時安全中止，但是否保留這個自動 pull 由 Cody 決定（若不想自動 pull，可改回手動同步）。
+
+### 結論
+- [x] 可以繼續下一個任務——3 個 commit 全部 ✅，身分檔移行乾淨（下次 `git merge master` 應乾淨不再撞）。
+  Developer 那邊確認後即可 push 到 origin。
+
+---
+
 ## [2026-07-05] 驗證 - 籌碼面 code review 三項修復（XSS 跳脫、chips.html 靜默失敗、week_chg NaN）
 
 ### 驗證方式

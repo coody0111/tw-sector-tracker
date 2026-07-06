@@ -1,3 +1,299 @@
+## [2026-07-06] 驗證 - Task 5 兩修復（999f408）：雙重 <td> + close/prev_close nan crash
+
+### 驗證方式
+- `git merge master`（乾淨）；全專案 `pytest`；實際呼叫 `_shareholder_table()` 用精確 regex 數
+  `<th>`/`<td>`（排除 `<thead>` 誤匹配）；實測 `close=nan` 洗法 + `_price_cell` 不 crash
+
+### ✅ 驗證通過（我上一輪的 🔴 + 🟡 都修掉了）
+- **🔴 雙重 `<td>` 已修**：`chips_generator.py:408-409` 從 `f"<td>{company_html}</td>"` 改成
+  `f"{company_html}"`（不外包，比照 `_price_cell` 用法）。實測：表頭 `<th>`=10、資料列 `<td>`=10、
+  `<td><td>`=0 → **欄位對齊，malformed HTML 消除** ✅。Developer 也加了結構測試（列 td 數 ==
+  表頭 th 數），以後再犯會被抓到（測試 108→109）。
+- **🟡 `close`/`prev_close` nan latent crash 已修**：`main.py` 新增
+  `if close is not None and pd.isna(close): close = None`（prev_close 同）。實測 `close=nan` →
+  洗成 `None` → `_price_cell` 回「─」、**不再 `int(nan)` crash** ✅。與相鄰欄位的 `pd.notna` 寫法
+  一致了。
+- **全專案測試**：**109 passed, 0 failed**。
+
+### 結論
+- [x] 可以繼續下一個任務——**大戶張數化+內部人持股計畫 Task 1-5 全部驗證通過、收尾完成**。
+  Task 5 的 🔴（Section 8 欄位錯位）與 Task 4 帶下來的 🟡（NULL close crash）都已修並實測確認。
+  Developer 確認後即可 push origin。
+
+---
+
+## [2026-07-06] 驗證 - Task 5 Section 8 表格新增張數變化+內部人欄位（計畫最後一個 Task）
+
+### 驗證方式
+- `git merge master`（乾淨）；全專案 `pytest`；實際呼叫 `_shareholder_table()` 產生真實 HTML、
+  用 regex 數 `<td>` 標籤與表頭欄數比對結構
+
+### 🔴 程式問題（需修）
+- **`_insider_cell()` 的輸出被雙重包 `<td>`，產生 malformed HTML、Section 8 表格會欄位錯位**：
+  - `_insider_cell()` **回傳的是完整 `<td>...</td>`**（`chips_generator.py:419`「─」那格、
+    `:427` 有值那格都含 `<td>` 標籤）。
+  - 但列組裝把它**又包一層** `<td>`（`chips_generator.py:408-409`）：
+    ```python
+    f"<td>{company_html}</td>"   # company_html 已是 <td>...</td>
+    f"<td>{major_html}</td>"
+    ```
+    → 實際輸出 `<td><td style='...'>─</td></td>`（雙重 `<td>`）。
+  - **實測**：一列資料產生 **12 個 `<td>`，但表頭只有 10 欄**（`#`/股票/族群/收盤(週漲跌)/大戶持倉%/
+    週變化/大戶張數變化/連增週/公司派持股/大股東持股）；`<td><td` 出現 **2 次**（公司派、大股東各一）。
+    多出來的 2 個 cell 會讓 Section 8 表格欄位錯位／版面跑掉。
+  - **對比**：同一列的 `_price_cell()`（`:403`）也回傳完整 `<td>`，那裡就**沒有**多包 `<td>`
+    （`f"{_price_cell(...)}"`）——寫法正確。`_insider_cell` 應比照，Developer 這裡不一致寫錯了。
+  - 修法（擇一，我不自己動）：把 `:408-409` 改成 `f"{company_html}"`/`f"{major_html}"`（不外包，
+    比照 `_price_cell` 用法）；或把 `_insider_cell` 改成只回傳內層 span、由呼叫端包 `<td>`。
+  - **為什麼 3 個新測試沒抓到**：測試用 substring 檢查（找「張」「─」等字串），雙重 `<td>` 裡一樣
+    含這些字串，所以測試綠燈但 HTML 其實壞的。建議補一個「資料列 `<td>` 數 == 表頭欄數」的結構斷言。
+
+### ✅ 驗證通過
+- **全專案測試**：**108 passed, 0 failed**（含新增 3 個）。
+- **股→張換算（÷1000）正確**：`share_chg`、`_insider_cell` 都 `/1000`；實測 company_shares
+  `1,735,849,436 → 1,735,849張`、`share_chg 250,000 → 250張` ✅。
+- **方向（紅漲綠跌）正確**：正值紅（`#f87171`）、負值綠（`#4ade80`）、0 灰，符合台股慣例 ✅。
+- **缺值顯示「─」正確**：`share_chg is None` / `_insider_cell shares is None` → 顯示「─」不是
+  「0張」，實測 major_holder=None → 「─」✅（對應我 Task 2/4 報告的「缺值別顯示成 0」提醒）。
+- **收盤欄標題改「收盤(週漲跌)」**，對應 Task 4 把 change_pct 語意改成集保週期週漲跌 ✅。
+- **Task 4 的 nullable 清洗讓顯示層安全**：`share_chg`/insider 六欄在 Task 4 已用 `pd.notna()` 洗成
+  乾淨 `None`，所以顯示層的 `is not None` 判斷不會踩到 `nan`（若沒洗，`nan is not None=True` 會渲染
+  出「nan張」）——這兩層剛好接上 ✅。
+
+### 🟡 仍未處理（Task 4 帶下來的，Task 5 沒收）
+- **`close`/`prev_close` 的 `pd.isna` 一致性（我 Task 4 報告的 🟡，仍開著）**：Task 5 只動
+  `_shareholder_table`/`_insider_cell`，沒碰 main.py 的 `close`/`prev_close` 判斷，也沒碰
+  `_price_cell`。所以「`daily_prices.close` 為 NULL → `nan` 洩漏進 `sh_rows['close']` →
+  `_price_cell` 在 `int(nan)` crash」這個 latent 問題**還在**（本機 0 筆 NULL close，未觸發）。
+  既然這次剛好在改 Section 8 顯示，**建議一起把這個一行的一致性修掉**（`close`/`prev_close` 改
+  `pd.isna` 判斷）。
+
+### 結論
+- [ ] **需要修改後再確認**：🔴 雙重 `<td>` 是這次 Task 5 引入的真實顯示 bug，會讓 Section 8 表格
+  欄位錯位，**建議修掉再放行**（修法就是 `:408-409` 拿掉外層 `<td>`，一行的事）。修完我再驗一次
+  「資料列 td 數 == 表頭欄數」。其餘（÷1000、方向、缺值─、標題）都 ✅。
+- 順帶建議一起收 Task 4 帶下來的 `close`/`prev_close` `pd.isna` 🟡（latent crash）。
+
+---
+
+## [2026-07-06] 驗證 - Task 4 main.py 串接內部人持股 + sh_rows 對齊集保週期/join
+
+### 驗證方式
+- `git merge master`（乾淨）；全專案 `pytest`；`main.py` ast.parse；合成但貼合真實型別 round-trip
+  的臨時 DB 驗價格對齊 key 匹配；追 `close=NULL → nan` 洩漏一路到 `_price_cell`；查真實
+  `data/screener.db` 現況；確認 `_to_int` 修法（收上輪 🟡）
+
+### ✅ 驗證通過
+
+**全專案測試**：**105 passed, 0 failed**（含新增 2 個 `_to_int` 測試）；`main.py` ast.parse OK。
+
+**收上兩輪的兩個 🟡**
+- Task 3 的 `_to_int` 脆弱性：已改成無法解析（`-`／`－`／`N/A`）回 0、不再拋 ValueError 讓整支
+  股票靜默消失，實測確認 ✅。
+- Task 2 的 `share_chg` NULL 處理：Task 4 對 `share_chg`/`lv12_15_shares`/insider 六欄一律用
+  `pd.notna()` 判斷、缺值帶乾淨 `None`（不是 0、不是 `<NA>`）✅；`week_chg` 的
+  `None if pd.isna(...) else float(...)`（2026-07-05 的 NaN fix）**沒有被計畫範例碼退回** ✅。
+
+**【核心】價格對齊集保週期的 key 匹配**（整個功能成敗關鍵）
+- `sh_df["date"]`/`prev_date` 是 `datetime64[us]`；`daily_prices` 經 `.fetchdf()` 也是 Timestamp，
+  兩邊 `str()` 都是 `"2026-07-04 00:00:00"` → **key 對得上**，實測週漲跌 (950-900)/900 = 5.56% 正確 ✅。
+- `DuckDB date IN (SELECT UNNEST(?))` 接受 numpy.datetime64 綁定 ✅。
+- Developer 從 Task 2 堅持「date 保持 Timestamp」的決定在這裡兌現，兩邊型別一致才對得上。
+
+**insider join / CLI**
+- `_insider_map.get(sid)` 回 Series，用 `insider is not None`（identity check，避開 Series 真值
+  歧義陷阱）+ 每欄 `pd.notna()`，正確 ✅。
+- `--update-insider-holdings` → `_update_insider_holdings()` **先 `init_db()` 再抓再 save**，
+  對應我 Task 3 報告「表要先存在」的提醒 ✅。
+- 缺價優雅降級：找不到價格 → `close=None` → `_price_cell` 回「─」，實測正確 ✅。
+
+### 🟡 建議改善（latent，目前資料未觸發，但會 crash + 違反專案既定規則）
+- **`close`/`prev_close` 用 `is not None` 而非 `pd.isna()`，NULL close 會洩漏 NaN 並讓
+  `_price_cell` crash**：
+  - `_price_map` 的值直接來自 `daily_prices.close`（DuckDB DOUBLE，**可為 NULL**）。若某集保週期
+    日期對到一列 `close IS NULL`，該值經 pandas 變 `nan`。main.py 的
+    `float(close) if close is not None else None` 對 `nan` 判 `is not None=True` → **`nan` 洩漏進
+    `sh_rows["close"]`**；`price_week_chg` 同理算出 `nan`。
+  - 實測：`_price_cell(nan, nan)` 在 `int(close)` 直接拋 `ValueError: cannot convert float NaN to
+    integer`——**不是渲染成 "nan%"，是產 chips.html 時 crash**。
+  - **目前不會觸發**：這台 `data/screener.db` `daily_prices` 有 **0 筆 NULL close**（髒值是 close=0
+    不是 NULL，close=0 會走另一條路：`prev_close!=0` 有擋除以零，但當週 close=0 會算出 -100% 之類
+    的髒值——那是資料問題不是這裡的 bug）。
+  - **但這正是專案重申 3+ 次那條規則的違反**（DuckDB 出來、可能 NULL 的欄位一律 `pd.isna()`，不要
+    `is not None`）——而且 Task 4 旁邊的 `share_chg`/insider 欄都正確用了 `pd.notna()`，唯獨
+    `close`/`prev_close` 用舊寫法，不一致。建議：`close`/`prev_close` 的判斷改用
+    `close is not None and not pd.isna(close)`（或建 `_price_map` 時就 `if pd.notna(r["close"])`
+    過濾掉 NULL），與相鄰欄位一致，避免哪天 daily_prices 出現 NULL close 就 crash。
+
+### 特別注意（非問題，僅記錄）
+- `change_pct` 語意已從「最新交易日漲跌」改成「集保週期週漲跌」（key 重用、語意變）。`_price_cell`
+  只顯示帶色的 `x.x%`、**沒有「日/週」文字標籤**，所以 Task 4 完成、Task 5 未做的這個過渡狀態
+  **不會顯示錯誤標籤**（只是數字語意變了）；Task 5 加欄位時記得補「週」的說明。跑 `main.py` 目前
+  chips.html Section 8 外觀不變，與 Developer 說明一致。
+- 這台無法跑真實端到端 smoke test：`shareholder` 表為空、`insider_holdings` 表尚未建（Task 3 才加，
+  需 init_db）。價格對齊我用貼合真實型別的合成資料驗過核心機制；**建議 Developer 在有多週集保+對應
+  股價的桌機實跑一次** `python main.py` 確認 sh_rows 帶新欄位、不 crash（尤其確認該機資料無 NULL close）。
+
+### 結論
+- [x] 可以繼續下一個任務——Task 4 核心（價格對齊 key 匹配、nullable pd.notna、insider join、CLI
+  先 init_db、收兩個舊 🟡）全部 ✅。**建議順手修 `close`/`prev_close` 的 `pd.isna` 一致性**（latent
+  crash + 違反既定規則，一行的事），可併進 Task 5 一起處理。
+
+---
+
+## [2026-07-06] 驗證 - Task 3 內部人持股 scraper（scrapers/insider_holdings.py）
+
+### 驗證方式
+- `git merge master`（乾淨）；全專案 `pytest`；**實際連線 MOPS `ajax_stapap1` 抓 2330/2317 真實
+  HTML**（Developer 本機沒法驗的最高風險項）驗 regex；抓真實表頭確認欄位語意；查 schema 欄序對齊；
+  實測 `_to_int` 對非數字 cell 的行為
+
+### ✅ 驗證通過
+
+**全專案測試**：**103 passed, 0 failed**（含 `test_insider_holdings.py` 3 個）。
+
+**【重點】regex 對真實 HTML（實際連線 MOPS 抓 2330 / 2317）**
+- `<TR class='odd'/'even'>` 格式與真實一致：2330 抓到 40 列、2317 抓到 23 列（資料列確實用
+  odd/even class；表頭那個純 `<tr>` 不被誤抓，正確）。
+- 每列 9 欄、`資料年月:11505` → `2026-05-01`（民國轉西元）正確。
+- 分類正確：2330 全歸公司派、2317 抓到大股東（郭台銘 17.4 億股 / 設質 8.6 億）。
+
+**【重點】欄位語意（抓真實表頭確認，非臆測）** — Developer 的欄位對應**完全正確**：
+- cells[3]=目前持股（本人）、cells[4]=設質股數（本人）、cells[6]=**內部人關係人目前持股合計**
+  （配偶/未成年子女/他人名義）、cells[7]=關係人設質。
+- `shares = 本人 + 關係人持股`、`pledge = 本人 + 關係人設質`——這是衡量「內部人實際掌控股數」的
+  標準口徑，**加總語意正確**，真實數字合理（2330 公司派 17.4 億股、2317 大股東 17.4 億股）。
+- `選任時持股`(cells[2]) 正確未使用（要的是目前持股不是選任時）。
+
+**位置式 INSERT（全新表）**：`insider_holdings` schema 欄序
+（stock_id→report_date→company_shares→company_chg→company_pledge_pct→major_holder_shares→
+major_holder_chg→major_holder_pledge_pct）與 INSERT SELECT 欄序**完全一致**；全新表只走
+CREATE TABLE、無 ALTER，欄序固定，位置式安全 ✅——與 Task 1「ALTER-append 情境」不同，判斷正確。
+
+**save_to_db 月變化**：測試驗過跨月 `company_chg=+100,000`/`major_holder_chg=-500,000`、首月無前值
+`chg=NULL`；prev 查詢用 `report_date < write_date` + `QUALIFY ROW_NUMBER` 取最近前一期，重跑同月
+不會拿當月當基準（idempotent）✅。
+
+**重試不吞例外**：`_fetch_one_stock()` 不 catch POST 例外，讓例外冒給外層重試迴圈——正確套用
+2026-07-05 shareholder.py 那次的教訓 ✅。
+
+### 🟡 建議改善（潛在脆弱性，非阻擋——真實 2330/2317 資料未觸發）
+- **`_to_int` 對「非數字非空」cell 會整支靜默丟失**：實測 `_to_int('-')`/`'－'`/`'N/A'` 都拋
+  `ValueError`，且例外會傳播出 `_parse_response()` → 該股被當抓取失敗、重試 3 次（同樣確定性失敗）
+  後靜默跳過（只 log warning）。目前真實資料所有數字欄不是純數字就是空字串（`_to_int('')→0` 沒事），
+  沒踩到；但**若哪天 MOPS 把某個 0/空值 render 成 `-`／`－`，那支股票會整筆消失**——正是「不報錯
+  但漏資料」那類。建議：`_to_int` 對無法解析的值回 0（或 per-row try/except，讓單列壞掉不影響整支）。
+  這是 regex/解析對格式敏感的一體兩面，優先度可等真的遇到再修，但先記錄。
+- 次要（純統計顯示，不影響資料）：重試迴圈把「查無資料（rec=None，合法無內部人資料）」跟「真的
+  抓取失敗」都併進 `failed` 計數，log 的「失敗 N」會略微高估真實失敗數，不影響寫入正確性。
+
+### 特別注意
+- 這個 scraper **還沒接進 main.py**（Task 4 才做 `--update-insider-holdings` CLI），目前跑 main.py
+  不會用到它——與 Developer 說明一致，已確認。
+- `insider_holdings` 表由 `init_db()` 的 `CREATE TABLE IF NOT EXISTS` 建立，既有 `data/screener.db`
+  下次 init_db 會補上此表；Task 4 串接時要確保先 init_db 再 save_to_db（否則表不存在會報錯）。
+
+### 結論
+- [x] 可以繼續下一個任務——Task 3 核心（regex 真實格式、欄位語意、加總口徑、位置式 INSERT、月變化、
+  重試不吞例外）全部 ✅。`_to_int` 脆弱性列 🟡 潛在，不阻擋，建議 Task 4/5 前後順手強化。
+
+---
+
+## [2026-07-06] 驗證 - Task 2（get_shareholder_top 張數變化）+ _push_html abort 精修（fa5aa9b）
+
+### 驗證方式
+- `git merge master`（乾淨 fast-forward，身分檔不再撞 ✅ 移行生效）；全專案 `pytest`；
+  獨立臨時 DB 實測 `share_chg` 邊界（含過渡 NULL、三週取最近兩週）；臨時 repo 實測
+  `_rebase_in_progress()` 在「非衝突失敗」vs「衝突」兩情境的行為
+
+### ✅ 驗證通過
+
+**全專案測試**：**100 passed, 0 failed**。
+
+**Task 2（`3b51653`）`get_shareholder_top()` 回傳 prev_date + share_chg**
+- 兩週皆有張數：`share_chg = 本週 − 上週`，方向正確（實測張數下降 → `-1,000,000`）✅
+- 單週資料：`prev_date`/`share_chg` 為 NULL（NaT/NaN），不報錯 ✅
+- 三週資料：`ROW_NUMBER` 正確取**最近兩週**算差（prev_date=前一週、不是最舊那週）✅
+- 「date 保持 Timestamp」的決定合理：與 `daily_prices` 的 `.df()` 型別一致，Task 4 用
+  `str(row["date"])` 當 key 對齊股價才對得上；測試斷言改用 `[:10]` 比日期部分（型別無關）正確。
+
+**`_push_html` abort 精修（`fa5aa9b`）**（收上輪我回報的 🟡）
+- `main.py` `ast.parse` OK ✅
+- **非衝突失敗**（無 upstream／網路斷）：`_rebase_in_progress()`（`git rev-parse --git-path`，
+  worktree-safe）回傳 False → 走「可能無 upstream 或網路問題」分支、**不呼叫 `git rebase --abort`**，
+  消除「no rebase in progress」雜訊 ✅
+- **衝突**：`_rebase_in_progress()` 回傳 True → `git rebase --abort` → 工作區乾淨、本機 commit 保留 ✅
+- 兩情境都不 push、commit 保留，與上一輪驗過的行為一致。
+
+### 🟡 資料正確性提醒（非阻擋，給 Task 4/5）
+- **過渡期 `share_chg` 會是 NULL**：Task 1 之前寫入的舊 shareholder 列，`lv12_15_shares` 是
+  ALTER 補的 NULL。若某股「上週」那筆是舊列，即使有兩週資料、`prev_date` 有值，`share_chg`
+  仍會是 `<NA>`（實測確認：`prev_date` 有值但 `share_chg=<NA>`，不報錯）。這是預期的過渡現象、
+  會隨新資料累積自然痊癒，但 **Task 4/5 消費 `share_chg` 時務必用 `pd.isna()` 判斷**（`share_chg`
+  是 DuckDB `Int64` 的 `<NA>`，用 `is not None` 或 `x or 0` 會誤判/踩到 pandas nullable 那類地雷——
+  這已是專案第 N 次同類問題）。頁面呈現大戶張數變化時，NULL 應顯示「—」而非 0，避免把「資料缺」
+  誤導成「零變化」。
+
+### 結論
+- [x] 可以繼續下一個任務——Task 2 + `fa5aa9b` 全部 ✅，身分檔移行生效（本次 merge 乾淨無衝突）。
+  提醒 Task 4/5 對 `share_chg` 的 NULL 處理（見上）。
+
+---
+
+## [2026-07-06] 驗證 - Developer 3 個新 commit（Task 1 大戶張數 / _push_html 修復 / 工作流 checklist）+ 身分檔移行
+
+### 驗證方式
+- 先完成 CLAUDE.md 移出追蹤的移行（stash→drop→merge master→重建本地 gitignored CLAUDE.md）；
+  跑全專案 `pytest`；獨立臨時 DB/repo 實測 by-name INSERT 錯位、限定範圍 commit、rebase 衝突 abort
+
+### ✅ 驗證通過
+
+**身分檔移行（一次性）**
+- 丟 stash 前先 `diff` 確認 stash 裡的 Debugger CLAUDE.md 是 master `CLAUDE-debugger.md` 的**舊版子集**
+  （master 版多了「工作流自檢」章節、四資料源說明等），丟掉不遺失任何內容。
+- merge master 後 `.gitignore`／`CLAUDE.md` **不再撞衝突**；`git check-ignore CLAUDE.md` 確認已被忽略、
+  `git ls-files CLAUDE.md` 空（不再追蹤）；本地重建的 CLAUDE.md 開頭是「角色：Debugger 🔍」。
+- docs 產出檔衝突（chips/patterns.html 取 master、data.json 跟 master 刪除）依既有慣例解掉。
+
+**全專案測試**：**98 passed, 0 failed**（這台 debug 有 `data/screener.db`，連 `test_scan_patterns_returns_list`
+都過，不再是既有環境限制）。
+
+**Task 1（`13b4eee`）大戶張數 `lv12_15_shares`**
+- 【重點】**by-name INSERT 修正經實測確認必要**：建「舊 7 欄表→ALTER 加 `lv12_15_shares` 到最後（第 8 欄）」
+  的 DB，餵 `shares=5,000,000 / total=25,000,000`：
+  - by-name INSERT → `lv12_15_shares=5,000,000`、`total_shares=25,000,000` ✅ 正確
+  - 位置式 INSERT（計畫原寫法）→ `lv12_15_shares=2`（拿到 streak 值）、`total_shares=5,000,000`（拿到張數）
+    🔴 **整排錯位**。證明 Developer 偏離計畫改成 by-name 是對的，否則正式 DB 會被靜默寫壞（不報錯給錯資料）。
+- `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` 對已有該欄的表重複跑兩遍，無報錯（冪等）✅
+- `save_to_db()` 的 df 選欄與 INSERT 欄位一致（`stock_id,date,lv12_15_pct,lv12_15_cnt,lv12_15_shares,
+  total_shares,week_chg,streak`）✅
+
+**`_push_html` 修復（`3e416cf`）**
+- **限定範圍 commit**：臨時 repo 實測——docs 檔更新的同時「手動 `git add` 了不相關的 `unrelated.py`」，
+  `git commit -- <docs 檔>` 後該 commit **只含 docs 檔**，`unrelated.py` 仍 staged、HEAD 內容未變 ✅
+  （正是先前 `_push_html` 誤掃 staged 變更那個地雷的修復）。
+- **pull --rebase 撞衝突**：模擬兩機分岔＋同行衝突，`pull --rebase --autostash` 回傳非 0 →
+  `rebase --abort` → 工作區乾淨、**無半完成 rebase**、**本機 commit 完整保留**、**不會 push**，
+  留 ahead/behind 給人工處理 ✅。
+
+**工作流 checklist（`cc3f1c0`）**：純文件，`CLAUDE-debugger.md:118`／`CLAUDE-developer.md:130`
+確認都有「## 工作流自檢」章節 ✅。
+
+### 🟡 建議改善（不阻擋）
+- `_push_html` 的 `pull --rebase --autostash` 若因**非衝突原因**失敗（無 upstream／網路斷），
+  接著的 `git rebase --abort` 會因「沒有進行中的 rebase」而報無害錯誤（無 `check=True` 不會 crash），
+  本機 commit 一樣保留、一樣不 push，行為安全，只是 log 可能出現一句 rebase 的雜訊，可忽略。
+
+### 留給 Cody 決定
+- `_push_html` 現在「push 前自動 `git pull --rebase`」是**行為改變**（以前直接 push）。行為正確、
+  分岔時安全中止，但是否保留這個自動 pull 由 Cody 決定（若不想自動 pull，可改回手動同步）。
+
+### 結論
+- [x] 可以繼續下一個任務——3 個 commit 全部 ✅，身分檔移行乾淨（下次 `git merge master` 應乾淨不再撞）。
+  Developer 那邊確認後即可 push 到 origin。
+
+---
+
 ## [2026-07-05] 驗證 - 籌碼面 code review 三項修復（XSS 跳脫、chips.html 靜默失敗、week_chg NaN）
 
 ### 驗證方式

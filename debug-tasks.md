@@ -1,3 +1,72 @@
+## [2026-07-07] 兩個 UI 小修復：族群欄位顏色太暗 + 外資/投信單位 K→張
+
+### 改了什麼
+- 異動檔案：`export/chips_generator.py`、`export/patterns_generator.py`、`export/html_generator.py`
+
+**1. `chips.html`／`patterns.html` 族群欄位顏色太暗（Cody 反映）**
+- `chips_generator.py` 的 `.ct-meta` class：`#475569` → `#94a3b8`（套用到所有用到族群欄位的表格：
+  Section 3/3.5/4/6/7/8）
+- `patterns_generator.py` 個股列族群欄 inline style：`#64748b` → `#94a3b8`
+- 純顏色值調整，不影響任何邏輯
+
+**2. `index.html` 族群層級外資/投信摘要單位標籤錯誤（Cody 反映「感覺多一個K」）**
+- 根因：`html_generator.py::_fmt_chips_num()`（個股 modal）跟 `_chips_summary()`（族群層級外資/
+  投信摘要）都把原始股數 `// 1000` 換算成張數後，標籤寫成 `K`；但 `chips_generator.py::_fmt_net()`
+  對完全一樣的換算標籤是 `張`/`萬張`（≥10000張時）。數字本身沒有算錯（只除了一次1000），是三個
+  頁面對同一種換算用了不一致的單位標籤，容易誤以為要再乘一次1000。
+- 修法：新增 `html_generator.py::_fmt_lots_text(k, sign)` 共用 helper，比照 `_fmt_net()` 的
+  `張`/`萬張`（≥10000張）邏輯，`_fmt_chips_num()`／`_chips_summary()`（外資/投信兩處）都改用它。
+- 手動驗證換算：`1,234,567`股→`+1,234張`、`123,456,789`股→`+12.3萬張`，數字跟 chips.html 的
+  `_fmt_net()` 輸出一致。
+
+### 請 Debugger 驗證
+- [ ] 全專案測試（我這邊：112 passed，純 UI 調整沒有新增/刪除測試）
+- [ ] 實際跑 `python main.py` 後開 `docs/index.html`，確認族群層級外資/投信摘要顯示「張」/「萬張」
+  不是「K」，且數字跟同一天 `docs/chips.html` 的個股籌碼數字換算一致（同一支股票、同一天，兩頁
+  單位換算後數字量級應該一致）
+- [ ] 確認 `chips.html`/`patterns.html` 族群欄位文字在深色背景下可讀性改善（`#94a3b8` vs 原本
+  `#475569`/`#64748b`）
+
+### 特別注意
+- 這次沒有動 `chips_generator.py::_fmt_net()` 本身（它的 `張`/`萬張` 邏輯本來就是對的，是
+  `html_generator.py` 兩處對齊過去）
+
+---
+
+## [2026-07-06] 去重 `_calc_streak`/`_streak`：新增 `streak_utils.py` 共用函式
+
+### 改了什麼
+- 異動檔案：新增 `streak_utils.py`；`screener/patterns.py`、`processors/performance.py`
+
+**背景**：Cody 之前 review 籌碼邏輯時就記錄過「`screener/patterns.py::_calc_streak()` 跟
+`processors/performance.py` 裡 nested closure `_streak()` 邏輯完全等價但各自維護一份」，這次
+要求直接去重。
+
+**做了什麼**：
+- 新增 `streak_utils.py::calc_streak(values)`：合併兩邊完全等價的「末端連買(正)/連賣(負)天數」
+  邏輯（正負號代表方向），內部 `list(values)` 正規化，同時接受 `pd.Series`（patterns.py 原本
+  的呼叫方式）跟 `list`（performance.py 原本的呼叫方式）。
+- `screener/patterns.py`：刪掉本地 `_calc_streak()` 定義，改成
+  `from streak_utils import calc_streak as _calc_streak`（維持原本呼叫端名稱，`tests/test_patterns.py`
+  的 `from screener.patterns import _calc_streak` 不用改）。
+- `processors/performance.py`：刪掉 nested closure `_streak()` 定義，改成
+  `from streak_utils import calc_streak as _streak`，呼叫端（`foreign_streak = _streak(...)`／
+  `trust_streak = _streak(...)`）不用改。
+- **沒有動** `screener/institutional.py::_calc_streak()`——那支是不同語意（只算連續正值天數、
+  不處理負值方向、對 `None` 容錯），跟前兩支不是真的重複，合併有行為改變風險，故意保留。
+
+### 資料來源相關（如有異動）
+- 不適用——純內部去重，不影響任何資料抓取/來源邏輯。
+
+### 請 Debugger 驗證
+- [ ] 全專案 109 個測試都過（我這邊已確認，數量不變，這次沒新增/刪除測試案例，純重構）
+- [ ] 確認 `screener/patterns.py`、`processors/performance.py` 兩處呼叫端行為跟修改前完全一致
+  （可用 `2026-07-03` 之類的日期跑一次 `scan_patterns()`／`calc_meta_chips_signals()`，逐項比對
+  `streak` 相關欄位輸出跟重構前相同）
+- [ ] 確認 `screener/institutional.py::_calc_streak()` 維持不變的判斷合理（不同語意，不該合併）
+
+---
+
 ## [2026-07-06] 角色文件加「工作流自檢」常駐 checklist（CLAUDE-developer.md / CLAUDE-debugger.md）
 
 ### 改了什麼

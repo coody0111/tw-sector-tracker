@@ -6,6 +6,8 @@ import duckdb
 import pandas as pd
 import numpy as np
 
+from streak_utils import calc_streak as _calc_streak
+
 logger = logging.getLogger(__name__)
 
 _DB_PATH = "data/screener.db"
@@ -30,30 +32,6 @@ _BRK_VOL_CONFIRM = 2.0    # 60日突破量確認（嚴格：需強勁爆量）
 _BOX_RANGE       = 0.08   # 箱型整理最大振幅 8%
 _IHS_PRICE_DIFF  = 0.15   # 頭肩底左右肩差距 < 15%
 _IHS_VOL_CONFIRM = 1.5    # 頭肩底突破頸線量確認
-
-
-def _calc_streak(series: pd.Series) -> int:
-    """計算末端連買(正)或連賣(負)天數。"""
-    if series.empty:
-        return 0
-    values = series.tolist()
-    if values[-1] > 0:
-        streak = 0
-        for v in reversed(values):
-            if v > 0:
-                streak += 1
-            else:
-                break
-        return streak
-    elif values[-1] < 0:
-        streak = 0
-        for v in reversed(values):
-            if v < 0:
-                streak += 1
-            else:
-                break
-        return -streak
-    return 0
 
 
 def _calc_vol_price_score(close: pd.Series, volume: pd.Series) -> int:

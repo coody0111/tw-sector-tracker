@@ -151,8 +151,15 @@ def _weekly_pct(spark: list) -> float:
 _CHIPS_BADGE_MIN = 1_000_000   # 外資/投信股數超過此值才加 badge 框
 _TRUST_BADGE_MIN = 500_000
 
+def _fmt_lots_text(k: int, sign: str) -> str:
+    """k 為原始股數已除以 1000 的張數，>=10000 張時改顯示「萬張」，跟 chips_generator.py::_fmt_net() 一致。"""
+    if abs(k) >= 10000:
+        return f"{sign}{k / 10000:.1f}萬張"
+    return f"{sign}{k:,}張"
+
+
 def _fmt_chips_num(val, badge_threshold: int = 0) -> str:
-    """籌碼數字格式化：1,234,567 → +1,234K；達門檻時加外框 badge"""
+    """籌碼數字格式化：1,234,567 → +1,234張；達門檻時加外框 badge"""
     try:
         n = int(val)
         if n == 0:
@@ -160,7 +167,7 @@ def _fmt_chips_num(val, badge_threshold: int = 0) -> str:
         k = n // 1000
         sign = "+" if n > 0 else ""
         color = "#f87171" if n > 0 else "#4ade80"
-        text = f"{sign}{k:,}K"
+        text = _fmt_lots_text(k, sign)
         if badge_threshold > 0 and abs(n) >= badge_threshold:
             label = "大買" if n > 0 else "大賣"
             return (
@@ -604,7 +611,7 @@ def _chips_summary(meta_name: str, meta_chips: dict) -> str:
         rows.append(
             f'<div class="cs-row">'
             f'<span class="cs-label">外資</span>'
-            f'<span style="color:{color};font-weight:700">{sign}{k:,}K</span>'
+            f'<span style="color:{color};font-weight:700">{_fmt_lots_text(k, sign)}</span>'
             f'{ratio_html}{streak_html}'
             f'</div>'
         )
@@ -623,7 +630,7 @@ def _chips_summary(meta_name: str, meta_chips: dict) -> str:
         rows.append(
             f'<div class="cs-row">'
             f'<span class="cs-label">投信</span>'
-            f'<span style="color:{color};font-weight:700">{sign}{k:,}K</span>'
+            f'<span style="color:{color};font-weight:700">{_fmt_lots_text(k, sign)}</span>'
             f'{streak_html}'
             f'</div>'
         )

@@ -169,7 +169,7 @@ def _stock_row(r: dict) -> str:
         f"<tr data-exchange='{exch}' data-search='{r['stock_id']} {r['stock_name']} {r['meta_sector']}'>"
         f"<td style='color:#e2e8f0;font-weight:700'>{r['stock_id']}{exch_badge}</td>"
         f"<td style='color:#cbd5e1'>{r['stock_name']}</td>"
-        f"<td style='color:#64748b;font-size:.72rem'>{r['meta_sector']}</td>"
+        f"<td style='color:#94a3b8;font-size:.72rem'>{r['meta_sector']}</td>"
         f"<td style='color:#e2e8f0'>{price_str}</td>"
         f"<td>{_pct(r['change_pct'])}</td>"
         f"<td style='color:#94a3b8'>{r['vol_ratio']:.1f}x</td>"

@@ -357,6 +357,38 @@ Top10/Bottom10 改用主族群加權平均排序，卡片顯示主族群名 + �
 
 ---
 
+## 2026-07-07 — 型態掃描邏輯驗證 + 三個小修復 + index.html 重新設計 mockup（待實作）
+
+### 已完成
+- 去重 `screener/patterns.py::_calc_streak()` / `processors/performance.py` nested closure `_streak()`
+  → 新增 `streak_utils.py::calc_streak()` 共用函式
+- `chips.html`／`patterns.html` 族群欄位文字顏色太暗 → `#475569`/`#64748b` 改成 `#94a3b8`
+- `index.html` 族群層級外資/投信摘要單位標籤修正：`K` → `張`/`萬張`，跟 `chips.html::_fmt_net()` 一致
+  （新增 `html_generator.py::_fmt_lots_text()` 共用 helper）
+- 用真實歷史資料驗證型態掃描邏輯（`screener/patterns.py`）：2327 國巨、被動元件全族群 39 檔
+  回放，確認邏輯有效——2026-04-13 單日 15 檔被動元件股同步突破雙底/頭肩底，`composite_score`
+  普遍 87~96 分（滿分100），不是巧合雜訊，是真實產業循環轉折點
+
+### 待辦：index.html（族群總覽頁）重新設計
+- **現況問題**：三層點擊（主族群卡片 → 子族群 mini-card → 個股表格），排行榜跟獨立 Top10 區塊
+  資訊重複，訊號呈現（排名變化/連漲連跌/量能異常）視覺形式分散不統一
+- **設計方向**（已用 ui-ux-pro-max skill 產生設計系統建議，並做成 Artifact mockup 給 Cody 看過
+  外觀，方向已初步認可，細節可能還會調整）：
+  - 扁平化排行清單取代卡片格線；兩層點擊（點族群直接看個股，不用先點子族群）
+  - 桌機：左側固定排行清單 + 右側明細面板（點擊更新，不跳頁不reflow）；手機：單欄 + inline 展開
+  - 訊號統一收進每列左側色bar + 膠囊 chip（外資/投信連買連賣、排名跳動、量能異常）
+  - 拿掉重複的獨立 Top10 區塊，排序方向切換（▲/▼）取代它
+  - 數字改用等寬字體 + tabular-nums 對齊；中文明確加 PingFang TC/微軟正黑體字體堆疊
+  - 配色**沿用**現有深色系（`#0b0f18` 背景等），不引入新顏色，維持三頁（index/chips/patterns）
+    視覺一致
+  - 技術路線：**不用 React**，直接改寫 `export/html_generator.py` 的 HTML/CSS/JS 生成邏輯，
+    維持純靜態站架構（先前 2026-07-02 曾規劃 React+Vite 版本，後來 revert、移到
+    `react-frontend-redesign` 分支未繼續——這次是全新方向，不接續那份舊規劃）
+- **下一步**：Cody 確認 mockup 細節後，實際改寫 `export/html_generator.py`（範圍較大，建議先
+  `superpowers:brainstorming` 或直接列 TDD 任務拆解，不要一次全部重寫）
+
+---
+
 ## 專案背景（新電腦/新 session 速覽）
 
 ### 用途

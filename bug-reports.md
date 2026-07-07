@@ -68,8 +68,9 @@ chg_7d = _pct(roll["c0"], roll["c7"]) if roll is not None else None
   `is not None`。
 
 ### 結論
-- [ ] 待 Developer 在 master 實作；實作後我 merge 過來驗（數字、方向、缺值─、結構 td==th）。
-  唯一需 Cody 先拍板：**近5日/近7日的「日」是交易日還是日曆日、以及 rn 定義**（預設交易日、rn=N+1）。
+- **[Cody 已拍板 2026-07-07]：交易日**，定義 = 最新交易日(rn=1) vs N 個交易日前(rn=N+1)，即
+  近5日→rn6、近7日→rn8。規格已完整、無待決項。
+- [ ] 待 Developer 在 master 實作；實作後 Debugger merge 過來驗（數字、方向、缺值─、結構 td==th）。
 
 ---
 

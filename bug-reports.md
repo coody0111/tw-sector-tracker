@@ -1,3 +1,78 @@
+## [2026-07-07] 建議新功能規格（給 Developer 在 master 實作）：Section 8 加「近5日/近7日累積漲跌幅」
+
+### 背景 / 為什麼
+Cody 反映 Section 8 現在的「收盤(週漲跌)」偏慢——因為它錨在 TDCC 集保週五快照（`shareholder.py`
+每週五更新一次）+ 發布時間差，盤中不反映今天。Cody 決定：**加「近5日」「近7日」累積漲跌幅（從
+daily_prices 直接滾動算、反映到最新交易日），集保週漲跌欄保留在旁邊**。
+
+- 集保週漲跌**保留不動**：它跟「大戶張數變化」是同一個時間窗（週五對週五），蘋果對蘋果，有分析
+  價值，不能拿掉。
+- 新增兩欄是**新鮮**的股價動能，跟集保無關，直接反映最近走勢。
+
+### 為什麼建議 Developer 在 master 做（而不是 Debugger 在 debug）
+1. **git 流向**：現行是 master→debug（Developer 實作、Debugger merge 驗證）。這是動 `main.py` +
+   `chips_generator.py` 的新功能，在 debug 做會變成 debug→master 逆向流、跟 Developer 正在改的檔案
+   容易衝突。
+2. **驗證**：debug 機的 `daily_prices` 只有 1 天（2026-07-02），**沒法驗真實的 5日/7日累積數字**。
+   master 那台有完整多日股價才能驗數字對不對。實作完我這邊負責 review。
+
+### 精確規格（turn-key）
+**1. `main.py` sh_rows 組裝（現約 543-604 行）——新增滾動報酬查詢**
+在現有 `_price_map`／`_insider_map` 之後，加一個**一次查全 universe**（不要逐股）的滾動窗查詢：
+```sql
+WITH ranked AS (
+  SELECT stock_id, close,
+         ROW_NUMBER() OVER (PARTITION BY stock_id ORDER BY date DESC) AS rn
+  FROM daily_prices
+)
+SELECT l.stock_id, l.close AS c0, d5.close AS c5, d7.close AS c7
+FROM (SELECT stock_id, close FROM ranked WHERE rn = 1) l
+LEFT JOIN (SELECT stock_id, close FROM ranked WHERE rn = 6) d5 USING (stock_id)
+LEFT JOIN (SELECT stock_id, close FROM ranked WHERE rn = 8) d7 USING (stock_id)
+```
+- 建 `_roll_map = {str(r["stock_id"]): r for _, r in _rdf.iterrows()}`，包 try/except → `{}`（比照
+  現有 `_insider_map`）。
+- **定義**：最新交易日 = `rn=1`；「N 交易日前」= `rn = N+1`（近5日→rn6、近7日→rn8）。⚠️ 這採「最新
+  vs N 個交易日前的收盤」；若 Cody 要的是別種定義（例如 rn=N，或 5/7 是**日曆日**不是交易日），
+  改 `rn` 常數即可——**這是唯一需要 Cody 拍板的點**。
+
+**2. 每列算 chg_5d / chg_7d（沿用剛修好的 pd.isna 防 NULL 教訓）**
+```python
+roll = _roll_map.get(sid)
+def _pct(a, b):
+    if a is None or b is None or pd.isna(a) or pd.isna(b) or b == 0:
+        return None
+    return round((a - b) / b * 100, 2)
+chg_5d = _pct(roll["c0"], roll["c5"]) if roll is not None else None
+chg_7d = _pct(roll["c0"], roll["c7"]) if roll is not None else None
+```
+加進 sh_rows dict：`"chg_5d": chg_5d, "chg_7d": chg_7d`。
+
+**3. `export/chips_generator.py::_shareholder_table()` 顯示**
+- 表頭在「收盤(週漲跌)」後加 `<th>近5日</th><th>近7日</th>`（位置隨你）。
+- 每列用一個 pct 顯示 helper（紅漲綠跌、`None`→「─」）。
+- ⚠️ **踩過的雷提醒**：Task 5 剛修過雙重 `<td>`——helper 若回**完整 `<td>`** 就別再外包 `<td>`；
+  若回 `<span>` 才外包。挑一種、統一。
+- **更新那個結構測試**（列 `<td>` 數 == 表頭 `<th>` 數）的期望欄數 +2。
+
+**4. 測試（可用合成多日 daily_prices 的 temp DB 驗真實邏輯，不需真 screener.db）**
+- 建 8+ 交易日的 daily_prices，驗 chg_5d/chg_7d 數字對、方向對（紅漲綠跌）。
+- 資料不足（<6/<8 日）→ chg 為 `None`、顯示「─」、不 crash。
+- 顯示層結構測試（td 數 == th 數，+2 欄後仍相等）。
+
+### ⚠️ 資料正確性提醒（實作/驗證時注意）
+- 這兩欄錨在「daily_prices 的最新日期」。**如果當天股價還沒抓進來**（盤中、或 `--update-sectors`
+  還沒跑），「最新交易日」其實是昨天——一樣不是即時到當下。建議標題標「近5日(至最新交易日)」讓
+  語意誠實，別讓使用者以為一定含今天盤中。
+- `close` 可能為 NULL（DuckDB → nan）：`_pct()` 已用 `pd.isna` 擋，沿用 999f408 的修法，別退回
+  `is not None`。
+
+### 結論
+- [ ] 待 Developer 在 master 實作；實作後我 merge 過來驗（數字、方向、缺值─、結構 td==th）。
+  唯一需 Cody 先拍板：**近5日/近7日的「日」是交易日還是日曆日、以及 rn 定義**（預設交易日、rn=N+1）。
+
+---
+
 ## [2026-07-06] 驗證 - Task 5 兩修復（999f408）：雙重 <td> + close/prev_close nan crash
 
 ### 驗證方式

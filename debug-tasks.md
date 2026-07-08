@@ -1,3 +1,35 @@
+## [2026-07-08] 修(續) - get_chips_today 改 per-stock fallback：修好 TPEx 個股融資仍「─」
+
+### 改了什麼
+- 異動檔案：`screener/database.py`（`get_chips_today`）、`tests/test_database.py`（+1 測試）
+
+**背景**：上一則的 fallback（整張表取單一 `MAX(date)`）**只修了一半**。實測發現 TPEx 個股的
+**融資**仍全是「─」（501 支全 0）：
+- margin 的整表最新日 = 07-07，但**07-07 那天 margin 只有 TWSE、沒有 TPEx**（TPEx 融資最新在 07-06）。
+- 用整表單一最新日，就會漏掉「最新日剛好缺席的那個交易所」的個股。
+
+**修法**：改成 **per-stock fallback**——`WHERE date <= ? QUALIFY ROW_NUMBER() OVER
+(PARTITION BY stock_id ORDER BY date DESC)=1`，institutional / margin **各自、逐股**取自己
+<= today 的最新一筆。TWSE 股退到 07-07、TPEx 股退到 07-06，各拿各的。
+
+**驗證**：
+- 新增測試 `test_get_chips_today_per_stock_fallback_not_table_wide`（兩支股票 margin 停不同天，
+  整表 MAX 會漏一支、per-stock 不漏）。全專案 115 passed。
+- 真實 DB `get_chips_today('2026-07-08')`：TPEx 個股融資 **0 → 489 支有值**；外資覆蓋也更完整
+  （TWSE 515、TPEx 516）。
+
+### 請 Debugger 驗證
+- [ ] 全專案 115 passed（原 112 + get_chips_today fallback 系列共 3 個新測試）
+- [ ] per-stock fallback：TWSE/TPEx 個股各退到自己最新一筆、不會因整表最新日缺某所而漏
+- [ ] 邊界：某股完全無 institutional 或無 margin → 該側 NULL、FULL OUTER JOIN 仍回另一側
+
+### 特別注意
+- 這是 fallback 顯示層的完整修復。**根本的「TPEx 融資 07-07 為何沒抓到」仍是獨立的抓取問題**
+  （TPEx 融資融券發布較慢/偶爾失敗，見下方調查）——顯示層現在會優雅退到最近一筆，但若要
+  「當天就有 TPEx 融資」還是得從抓取端解決（retry / 確認 TPEx OpenAPI 發布時間）。
+
+---
+
 ## [2026-07-08] 修 - 族群頁外資/投信/融資顯示「─」：get_chips_today 加 fallback（接續下方調查）
 
 ### 改了什麼

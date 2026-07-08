@@ -358,6 +358,7 @@ def _shareholder_table(rows: list) -> str:
     html = (
         "<table class='ct'><thead><tr>"
         "<th>#</th><th>股票</th><th>族群</th><th>收盤(週漲跌)</th>"
+        "<th>近5日</th><th>近7日</th>"
         "<th>大戶持倉%</th><th>週變化</th><th>大戶張數變化</th><th>連增週</th>"
         "<th>公司派持股</th><th>大股東持股</th>"
         "</tr></thead><tbody>"
@@ -401,6 +402,8 @@ def _shareholder_table(rows: list) -> str:
             f"<td><span class='sid'>{_esc(s['stock_id'])}</span> {_esc(s.get('stock_name',''))}</td>"
             f"<td class='ct-meta'>{_meta_link(s.get('meta_sector',''))}</td>"
             f"{_price_cell(s.get('close'), s.get('change_pct'))}"
+            f"{_chg_cell(s.get('chg_5d'))}"
+            f"{_chg_cell(s.get('chg_7d'))}"
             f"<td style='color:{pct_color};font-weight:700'>{pct:.1f}%</td>"
             f"<td>{chg_html}</td>"
             f"<td>{share_chg_html}</td>"
@@ -427,6 +430,17 @@ def _insider_cell(shares, chg, pledge_pct) -> str:
     if pledge_pct is not None:
         lines.append(f"<span style='color:#64748b;font-size:.64rem'>質押{pledge_pct:.1f}%</span>")
     return f"<td>{'<br>'.join(lines)}</td>"
+
+
+def _chg_cell(pct) -> str:
+    """累積漲跌%欄（近5日／近7日）：紅漲綠跌，缺值「─」。回傳完整 <td>（與 _price_cell 一致，
+    呼叫端不要再外包 <td>）。"""
+    if pct is None:
+        return "<td style='color:#334155'>─</td>"
+    sign = "+" if pct > 0 else ""
+    color = "#f87171" if pct > 0 else ("#4ade80" if pct < 0 else "#64748b")
+    return (f"<td><span style='color:{color};font-weight:600;font-size:.72rem'>"
+            f"{sign}{pct:.2f}%</span></td>")
 
 
 _CSS = """

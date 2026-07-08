@@ -1,3 +1,35 @@
+## [2026-07-08] 實作（Cody 授權「這邊加」）：Section 8 加近5日/近7日累積漲跌幅
+
+### 授權與範圍
+Cody 明確要求「這邊加」（不等桌電）→ 依 Debugger 授權例外，直接在 debug 分支實作 + 測試 + 記錄。
+異動：`main.py`（sh_rows 滾動查詢）、`export/chips_generator.py`（`_shareholder_table` 加兩欄 +
+新 `_chg_cell`）、`tests/test_chips_generator.py`（+2 測試）。**交易日定義、rn=N+1（近5日 rn6、
+近7日 rn8），Cody 2026-07-07 拍板。**
+
+### 做了什麼
+- `main.py`：新增一次查全 universe 的滾動窗 SQL（`ROW_NUMBER() … ORDER BY date DESC`，rn1/rn6/rn8
+  的 close），加 `_roll_pct()`（`pd.isna` 防 NULL/nan/除零一律回 None），每列帶 `chg_5d`/`chg_7d`。
+- `chips_generator._chg_cell(pct)`：回傳**完整 `<td>`**（紅漲綠跌、None→「─」），呼叫端用
+  `f"{_chg_cell(...)}"` **不外包 `<td>`**（避開 Task 5 的雙重 `<td>` 雷）。表頭在「收盤(週漲跌)」後
+  加「近5日/近7日」。
+
+### 驗證
+- 全專案 **111 passed**（109 + 2 新顯示測試：有值紅漲綠跌、缺值「─」）。結構測試 td==th 動態比較，
+  +2 欄後仍相等（12==12）。
+- **滾動 SQL 邏輯（合成 8 天 temp DB 實測）**：A(8天) 近5日+10%/近7日+25%、B(4天) 兩者 None、
+  C(6天) 近5日+10%/近7日 None（不足8日）——rn 對位、除零/不足資料回 None 全部正確。
+- ⚠️ **本機驗不了真實 production 數字**：debug 機 `daily_prices` 只有 1 天（2026-07-02）。合成資料
+  已驗邏輯正確，但「2330 真實近5日對不對」需桌電（有多日股價）跑一次 `python main.py`、開
+  `docs/chips.html` Section 8 目視確認。
+- ⚠️ **未做成 pytest 的部分**：滾動 SQL 是 `main.py` run() 內的 inline query（非可 import 函式），
+  只用合成 temp DB 的 standalone script 驗過，沒有落成 pytest。若要鎖行為，建議把該 query 抽成
+  `screener/database.py::get_rolling_returns()` 再補測試（本次未做，避免過度動 Developer 的檔）。
+
+### 提醒
+- 標題「近5日」是「至最新交易日」，若當天股價還沒抓進 daily_prices，錨點是昨天——非即時到當下盤中。
+
+---
+
 ## [2026-07-07] 建議新功能規格（給 Developer 在 master 實作）：Section 8 加「近5日/近7日累積漲跌幅」
 
 ### 背景 / 為什麼

@@ -126,6 +126,28 @@ def test_shareholder_table_handles_missing_insider_data():
     assert "─" in html
 
 
+def test_shareholder_table_shows_5d_7d_columns():
+    """近5日/近7日累積漲跌幅欄要顯示表頭與數值（紅漲綠跌）。"""
+    row = dict(_SAMPLE_SH_ROW)
+    row["chg_5d"] = 3.21
+    row["chg_7d"] = -1.50
+    html = _shareholder_table([row])
+    assert "近5日" in html and "近7日" in html
+    assert "+3.21%" in html   # 正值
+    assert "-1.50%" in html   # 負值
+
+
+def test_shareholder_table_5d_7d_missing_shows_dash():
+    """近5日/近7日缺值（資料不足/新股）顯示「─」，不是 0%，也不報錯。"""
+    row = dict(_SAMPLE_SH_ROW)
+    row["chg_5d"] = None
+    row["chg_7d"] = None
+    html = _shareholder_table([row])
+    # 表頭有近5日/近7日，但那兩格是「─」而非某個百分比
+    assert "近5日" in html
+    assert "─" in html
+
+
 def test_shareholder_table_row_td_count_matches_header():
     """資料列的 <td> 數必須等於表頭 <th> 欄數——防止 _insider_cell/_price_cell 這類
     『回傳完整 <td> 卻又被外層 <td> 包一次』的雙重 <td> 結構 bug（substring 測試抓不到）。"""

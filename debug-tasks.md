@@ -1,3 +1,21 @@
+## [2026-07-08] ⏳ 待桌電目視 - Section 6 兩所同時顯示（scan_institutional 修復的真實頁面驗證）
+
+Debugger 已用合成 temp DB 驗過 `scan_institutional` anchor 邏輯（同步/差一天/陳舊/單天退化全對，
+121 passed，見 bug-reports.md 對應那則）。但**「兩所發布日不同步時 Section 6 同時有 TWSE+TPEx
+股」的真實頁面渲染，Debugger 這台重現不了**——debug 機的 `data/screener.db` 只有 07-01 單日，
+沒有 07-07/07-08 那種分裂日期的資料（data/ 是 gitignored、不同步）。
+
+**需要在桌電（有真實多日資料）做一次目視確認**：
+- `python main.py`
+- 開 `docs/chips.html` → Section 6（法人持續買進個股）
+- 確認清單**同時有 TWSE 股和 TPEx 股**（對照修復前 Developer 報的「917 全 TPEx、TWSE 0 檔」→
+  修復後 TWSE 應回來，他報 509 檔）
+- 看到兩所股票都在 = 修復在真實頁面生效，這項就能正式收掉。
+
+（這是資料重現的物理限制，不是漏驗；邏輯層已由合成測試涵蓋。）
+
+---
+
 ## [2026-07-08] 修 🔴 - scan_institutional 在 TWSE/TPEx 發布日不同步時漏掉整個交易所
 
 ### 改了什麼

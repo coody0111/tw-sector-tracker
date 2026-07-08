@@ -1,3 +1,48 @@
+## [2026-07-08] 整合 - 筆電 Section 8 近5日/近7日 vs 桌電待辦「族群個股表 5/7/10/14」重疊分析
+
+Cody 指出「桌電要改的內容跟筆電討論的相似」——確認屬實，這是**同類指標、不同頁、不同算法**，
+整合結論如下（merge origin/master 進 debug 完成，code 無衝突、114 passed）。
+
+### 兩邊在做同一類東西，但落點不同
+| | 我（筆電）已做 | 桌電待辦 2 |
+|--|--|--|
+| 頁面/表格 | `chips.html` Section 8 大戶持倉表 | `index.html` 族群個股表 |
+| 欄位 | 近5日、近7日 | 5/7/10/14 天 |
+| 算法 | **收盤價比值**：`(close_rn1 − close_rnN+1)/close_rnN+1`（daily_prices 直接算）| **複利**：`_weekly_pct()` 把最近5個 `change_pct` 連乘（`html_generator.py:140`）|
+- **我的 Section 8 work 不會自動滿足桌電待辦**（不同頁），但兩者是平行的同類需求。
+
+### 🟡 一致性風險：兩種算法數字會微幅對不上
+- `_weekly_pct` 複利的是**已四捨五入的 `change_pct`**（存 2 位小數），連乘 5 天會累積捨入漂移；
+  我的收盤價比值沒有這個漂移。數學上等價、實際會差 0.0x～0.x%（桌電自己驗 8261：複利手算
+  +26.41% vs 頁面 +26.44%）。
+- **若兩頁都要顯示「近N日」，同一支股票會出現兩個略不同的數字**，使用者可能會注意到。
+
+### 建議整合方向（統一算法 + 共用函式）
+1. **統一用「收盤價比值」一種算法**（比複利乾淨、精確，且沒有 `calc_stock_sparklines(lookback=11)`
+   撐不到 14 天的限制——桌電待辦 2 有記到這個卡點）。
+2. **抽成共用函式** `screener/database.py::get_rolling_returns(periods=[5,7,10,14])`，兩頁都用同一個，
+   數字保證一致。我 Section 8 現在的 inline SQL 順勢抽進去（本來 bug-reports 就建議抽出補測試）。
+3. **週期取一組**：我做了 5/7，桌電要 5/7/10/14——建議統一成 5/7/10/14（涵蓋我的）。
+4. index UI 重設計（桌電待辦 1）若要一起做，這 4 欄可等 redesign 再排版；但**算法/共用函式可以先落地**，
+   不受版面決策影響。
+
+### 需 Cody 拍板
+- [ ] 統一算法採「收盤價比值」？（建議 yes）
+- [ ] 週期統一成 **5/7/10/14**？（涵蓋我已做的 5/7）
+- [ ] 是否要我把 Section 8 的 inline SQL 抽成 `get_rolling_returns()` 共用函式（index 之後接同一個）？
+
+### 另兩項桌電待辦（跟累積漲跌無關，只記錄）
+- index UI 重設計：mockup 已認可、尚未動手（`export/html_generator.py`）。
+- institutional/margin 卡 07-07 沒跟上 daily_prices 07-08 → 外資/投信/融資全「─」：資料抓取問題，
+  需要 Cody 提供跑 `main.py` 當下的 log 看有無 TPEx 寫入失敗警告。
+
+### ⚠️ git 狀態提醒
+- 本機 `master` 與 `origin/master` 已分歧（兩台各自產生 `update: sector performance 2026-07-08`
+  的產出檔 commit：本機 `abd4aad` vs origin `4f7dba4`）。這屬雙機/Developer session territory，
+  我沒去動它——建議在**一台**上把 master 收斂（fast-forward 或擇一產出檔）再繼續，避免越差越多。
+
+---
+
 ## [2026-07-08] 實作（Cody 授權「這邊加」）：Section 8 加近5日/近7日累積漲跌幅
 
 ### 授權與範圍

@@ -155,7 +155,12 @@ def scan_institutional(
         return []
 
     inst_df["date"] = pd.to_datetime(inst_df["date"])
-    target = pd.to_datetime(trade_date)
+
+    # 各交易所發布日可能不同步（例：TPEx 已出今天、TWSE 還停在昨天，或反之）。
+    # 用「表裡最近兩個交易日」當可接受的錨點集合：每支股票取自己最新一筆，
+    # 只要它的最新日落在這兩天內就算「今日」——讓 TWSE/TPEx 不同步時兩邊都不漏，
+    # 又不會把停牌/下市（最新資料是好幾天前）的股票用陳舊資料拉進來。
+    anchor_dates = set(sorted(inst_df["date"].unique())[-2:])
 
     price_map: dict = {}
     if not price_df.empty:
@@ -169,11 +174,13 @@ def scan_institutional(
     for sid, grp in inst_df.groupby("stock_id"):
         grp = grp.sort_values("date").reset_index(drop=True)
 
-        today_rows = grp[grp["date"] == target]
-        if today_rows.empty:
+        # 每支股票取自己最新一筆當「今日」；最新日必須落在錨點集合內
+        # （否則是停牌/下市的陳舊資料，跳過）
+        today = grp.iloc[-1]
+        stock_date = today["date"]
+        if stock_date not in anchor_dates:
             continue
 
-        today = today_rows.iloc[0]
         f_net = today["foreign_net"]
         t_net = today["trust_net"]
         d_net = today["dealer_net"]
@@ -187,8 +194,8 @@ def scan_institutional(
         if min_total_net and (tot is None or tot < min_total_net):
             continue
 
-        # ── 連買天數（只用 lookback 窗口內的資料）────────────────
-        window = grp[grp["date"] <= target].tail(lookback)
+        # ── 連買天數（只用 lookback 窗口內的資料，到該股自己的最新日為止）──
+        window = grp.tail(lookback)
 
         f_streak = _calc_streak(window["foreign_net"])
         t_streak = _calc_streak(window["trust_net"])
@@ -226,7 +233,7 @@ def scan_institutional(
             "stock_name":     name_map.get(str(sid), ""),
             "meta_sector":    meta_map.get(str(sid), ""),
             "exchange":       exchange_map.get(str(sid), ""),
-            "date":           trade_date,
+            "date":           str(stock_date)[:10],
             "foreign_net":    int(f_net) if f_net is not None else None,
             "trust_net":      int(t_net) if t_net is not None else None,
             "dealer_net":     int(d_net) if d_net is not None else None,

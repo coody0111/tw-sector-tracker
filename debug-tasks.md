@@ -1,3 +1,51 @@
+## [2026-07-08] 修 🔴 - scan_institutional 在 TWSE/TPEx 發布日不同步時漏掉整個交易所
+
+### 改了什麼
+- 異動檔案：`screener/institutional.py`（`scan_institutional`）、新增 `tests/test_institutional.py`
+
+**Cody 實跑 log 發現**：`法人篩選 2026-07-08：917 檔`（07-06 那次是 2274）。實測 917 檔
+**全是 TPEx、0 檔 TWSE**。
+
+**根因**：今天 TPEx 三大法人比 TWSE 早發布 → institutional 表分裂日期（TWSE 停 07-07、
+TPEx 停 07-08）。`scan_institutional` 原本用整表 `MAX(date)=07-08` 當單一錨點
+（`target`），逐股要求 `grp["date"] == target`；TWSE 股最新只到 07-07 → `today_rows.empty`
+→ 全被 `continue` 跳掉。**這是 get_chips_today 那個 bug 的反向版**（那次 TPEx 落後、
+這次 TPEx 領先），scan_institutional 沒跟著改成 per-stock。
+- 影響：`docs/chips.html` Section 6（法人持續買進個股）在「兩交易所發布日不同步」的日子
+  會靜默只顯示其中一個交易所的股票。平常兩邊同一天就不會觸發。
+
+**修法**：
+- 新增 `anchor_dates = 表裡最近兩個交易日`；逐股取自己最新一筆（`grp.iloc[-1]`），
+  最新日落在 anchor_dates 內才算「今日」。→ TWSE 退 07-07、TPEx 用 07-08，各取各的、
+  兩邊都不漏；又因為限定「最近兩個交易日」，停牌/下市（最新資料好幾天前）的股票不會被
+  陳舊資料拉進來。
+- `window` 從 `grp[grp["date"]<=target]` 改成 `grp.tail(lookback)`（到該股自己最新日為止）。
+- 輸出 `"date"` 從單一 `trade_date` 改成每股自己的 `stock_date`。
+
+**驗證**：
+- TDD 新增 `tests/test_institutional.py` 2 測試（不同步時兩所都入選、陳舊股被排除），
+  修復前第一個紅、修復後綠。全專案 121 passed。
+- 真實 DB `scan_institutional('2026-07-08')`：**917（全 TPEx）→ 2246 檔，TWSE 0→509**。
+
+### 資料來源相關
+- 不適用抓取——讀取/篩選層對「TWSE/TPEx 發布日不同步」的 per-stock fallback，跟
+  get_chips_today 同一類修法、同一個慣例。
+
+### 請 Debugger 驗證
+- [ ] 全專案 121 passed（原 119 + 新 2）
+- [ ] anchor_dates 用「最近兩個交易日」的邊界：兩所同一天發布時行為不變（都入選）；
+  差一天時兩邊都入選；差超過兩個交易日的陳舊股被排除
+- [ ] Section 6 實際渲染：找一天兩所發布不同步（或用今天 07-08 的 DB）跑 main.py，
+  確認 chips.html Section 6 同時有 TWSE + TPEx 股，不再只剩一個交易所
+
+### 特別注意
+- 這是 institutional 版的 per-stock fallback。**margin 的 get_chips_today 已在稍早修過**
+  （commit 9d82a3a），兩者現在對「交易所發布日不同步」的處理一致了。
+- `scan_institutional` 的行情（close/change_pct）仍用 trade_date→latest_inst_date 的
+  daily_prices fallback，沒改（daily_prices 兩所都是當天就有，不受此問題影響）。
+
+---
+
 ## [2026-07-08] ⚠️ 給 Developer：把 debug 統一進 master（一個 fast-forward 就好）
 
 Cody 決定「所有東西統一到 master」，不要 remote debug 分支（Debugger 已把誤推的

@@ -1,3 +1,40 @@
+## [2026-07-08] ⚠️ 給 Developer：把 debug 統一進 master（一個 fast-forward 就好）
+
+Cody 決定「所有東西統一到 master」，不要 remote debug 分支（Debugger 已把誤推的
+`origin/debug` 刪掉，以後不會再有）。Debugger 已在 debug 分支把 master 最新（含你剛做的
+`290df9e` #3 調查）merge 進來，**debug 現在是 master 的完整超集**（`git rev-list --count
+debug..master` = 0），全專案 119 passed。
+
+Debugger 在 debug worktree 沒辦法 checkout master（被你的 worktree 佔用），也不該在你 session
+活著時同時動 master（會撞 index）。所以最後這步請你在 **master worktree（tw-sector-tracker 資料夾）**
+執行：
+
+```bash
+git merge debug          # debug 是超集 → 乾淨 fast-forward，把 Debugger 29 個 commit 帶進 master
+git push origin master   # 更新 origin，GitHub Pages 重新部署
+```
+
+**合進來的內容**（都在 bug-reports.md 有對應驗證紀錄）：
+- 大戶張數化+內部人持股 Task 1-5 驗證、insider MOPS 封鎖偵測
+- chips.html Section 8 近5/7/10/14 日累積漲跌幅
+- **共用函式 `screener/database.py::get_rolling_returns()`**（收盤價比值法）
+- index 族群個股表也改用同一函式（近5/7/10/14，取代舊複利 `_weekly_pct`）→ 兩頁一致
+- get_chips_today per-stock fallback 的 Debugger 驗證紀錄
+
+### ⚠️ 合之前/之後注意兩點（Debugger review 時標的 🟡）
+1. **`html_generator.py` 這批動到你要 redesign 的檔**：index 族群個股表的「數值呈現」已改成
+   近5/7/10/14（Cody 指定「數值先在筆電改、UI 版面回家弄」）。你 redesign 版面時是在這個基礎上改，
+   不是空白重來。`_stock_table` / `_meta_stock_cards` 現在各 11 欄。
+2. **`_weekly_pct()` 合進 master 後變成死碼**：debug 這邊已無 caller，你 master 端原本的 2 個 caller
+   （338/520 行）也被這批新版取代。**合完就可以安全刪 `_weekly_pct`**（現在刪之前會 crash，合完才行）。
+
+### 資料傳遞小改動（redesign 時可留意）
+- `get_rolling_returns` 的結果經 `generate()` 塞進 module 級 `_ROLLING_RETURNS`，供 `_stock_table` /
+  `_meta_stock_cards` 直接讀（避免穿 8 層渲染呼叫鏈的參數）。是刻意的取捨，redesign 若重整這條鏈
+  可改回正規傳參。
+
+---
+
 ## [2026-07-08] 調查結論 - TPEx 融資 07-07 缺席：官方發布延遲，抓取端無 bug（不用再追）
 
 ### 調查方式

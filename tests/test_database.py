@@ -2,7 +2,80 @@
 import duckdb
 import pandas as pd
 
-from screener.database import get_shareholder_top
+from screener.database import get_chips_today, get_shareholder_top
+
+
+def _make_chips_tables(con):
+    con.execute("""CREATE TABLE institutional (
+        stock_id VARCHAR, date DATE, foreign_net BIGINT, trust_net BIGINT,
+        dealer_net BIGINT, total_net BIGINT)""")
+    con.execute("""CREATE TABLE margin (
+        stock_id VARCHAR, date DATE, margin_balance BIGINT, margin_change BIGINT,
+        short_balance BIGINT, short_change BIGINT)""")
+
+
+def test_get_chips_today_falls_back_to_latest_available_date(tmp_path, monkeypatch):
+    """institutional/margin 沒有『今天』資料時（盤後才發布、正常延遲一天），get_chips_today
+    應 fallback 到最新可用日期，而不是回空（會讓族群頁外資/投信/融資全顯示「─」）。"""
+    import screener.database as db_mod
+    db_path = str(tmp_path / "t.db")
+    monkeypatch.setattr(db_mod, "DB_PATH", db_path)
+
+    con = duckdb.connect(db_path)
+    _make_chips_tables(con)
+    # 只有 07-07 有資料；請求的 today=07-08 沒有
+    con.execute("INSERT INTO institutional VALUES ('2330','2026-07-07',1000,200,50,1250)")
+    con.execute("INSERT INTO margin VALUES ('2330','2026-07-07',5000,-100,300,20)")
+    con.close()
+
+    df = get_chips_today("2026-07-08")
+    assert len(df) == 1, "應 fallback 到 07-07 而不是回空"
+    row = df.iloc[0]
+    assert row["stock_id"] == "2330"
+    assert row["foreign_net"] == 1000
+    assert row["margin_balance"] == 5000
+
+
+def test_get_chips_today_inst_and_margin_fall_back_independently(tmp_path, monkeypatch):
+    """institutional 跟 margin 若各自停在不同日期（例如 margin 又更慢一天），
+    兩張表應各自 fallback 到自己的最新日期，不會因為對不到同一天而漏。"""
+    import screener.database as db_mod
+    db_path = str(tmp_path / "t.db")
+    monkeypatch.setattr(db_mod, "DB_PATH", db_path)
+
+    con = duckdb.connect(db_path)
+    _make_chips_tables(con)
+    con.execute("INSERT INTO institutional VALUES ('2330','2026-07-07',1000,200,50,1250)")
+    con.execute("INSERT INTO margin VALUES ('2330','2026-07-06',5000,-100,300,20)")  # margin 更舊一天
+    con.close()
+
+    df = get_chips_today("2026-07-08")
+    assert len(df) == 1
+    row = df.iloc[0]
+    assert row["foreign_net"] == 1000      # institutional fallback 07-07
+    assert row["margin_balance"] == 5000   # margin fallback 07-06
+
+
+def test_get_chips_today_per_stock_fallback_not_table_wide(tmp_path, monkeypatch):
+    """真實情境：某天(07-07) margin 只有 TWSE 股(2330)、TPEx 股(6488)最新只到 07-06。
+    若用『整張表最新日 07-07』會漏掉 TPEx 股的融資（顯示─）；per-stock fallback 應讓
+    每支股票各退到自己的最新一筆。"""
+    import screener.database as db_mod
+    db_path = str(tmp_path / "t.db")
+    monkeypatch.setattr(db_mod, "DB_PATH", db_path)
+
+    con = duckdb.connect(db_path)
+    _make_chips_tables(con)
+    # 兩支都有 institutional 07-07
+    con.execute("INSERT INTO institutional VALUES ('2330','2026-07-07',1000,200,50,1250),('6488','2026-07-07',300,10,5,315)")
+    # margin：TWSE 股 2330 有 07-07；TPEx 股 6488 最新只到 07-06（07-07 那天 TPEx margin 沒抓到）
+    con.execute("INSERT INTO margin VALUES ('2330','2026-07-07',5000,-100,300,20),('6488','2026-07-06',800,30,10,2)")
+    con.close()
+
+    df = get_chips_today("2026-07-08").set_index("stock_id")
+    assert df.loc["2330", "margin_balance"] == 5000
+    # 關鍵：TPEx 股不能因為 07-07 沒有它的 margin 就變 NULL，要退到自己的 07-06
+    assert df.loc["6488", "margin_balance"] == 800, "TPEx 股融資應 per-stock fallback 到 07-06，不是被整表 MAX(07-07) 漏掉"
 
 
 def _seed_shareholder(con):

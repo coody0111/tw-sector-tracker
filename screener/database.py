@@ -247,24 +247,35 @@ def get_chips_today(trade_date: str) -> pd.DataFrame:
     """
     取今日籌碼資料（三大法人 + 融資融券），以 stock_id 為 key 回傳。
     trade_date: 'YYYY-MM-DD'
+
+    三大法人/融資融券是盤後才發布，比盤中就有的股價晚一天。且 TWSE / TPEx 兩個
+    來源可能停在不同日期（例如某天只有 TWSE margin、TPEx margin 更慢一天）。
+
+    因此對 institutional / margin 各自做 **per-stock** fallback：每支股票取自己
+    <= trade_date 的最新一筆，而不是整張表取單一最新日期——否則若表的最新日剛好
+    缺某個交易所（例：07-07 margin 只有 TWSE），那個交易所的個股就會被漏掉、
+    頁面仍顯示「─」。兩張表獨立 fallback。
     """
     con = get_conn()
     df = con.execute("""
+        WITH latest_inst AS (
+            SELECT stock_id, foreign_net, trust_net, dealer_net, total_net
+            FROM institutional
+            WHERE date <= ?
+            QUALIFY ROW_NUMBER() OVER (PARTITION BY stock_id ORDER BY date DESC) = 1
+        ),
+        latest_margin AS (
+            SELECT stock_id, margin_balance, margin_change, short_balance, short_change
+            FROM margin
+            WHERE date <= ?
+            QUALIFY ROW_NUMBER() OVER (PARTITION BY stock_id ORDER BY date DESC) = 1
+        )
         SELECT
             COALESCE(i.stock_id, m.stock_id) AS stock_id,
-            i.foreign_net,
-            i.trust_net,
-            i.dealer_net,
-            i.total_net,
-            m.margin_balance,
-            m.margin_change,
-            m.short_balance,
-            m.short_change
-        FROM
-            (SELECT * FROM institutional WHERE date = ?) i
-            FULL OUTER JOIN
-            (SELECT * FROM margin WHERE date = ?) m
-            ON i.stock_id = m.stock_id
+            i.foreign_net, i.trust_net, i.dealer_net, i.total_net,
+            m.margin_balance, m.margin_change, m.short_balance, m.short_change
+        FROM latest_inst i
+        FULL OUTER JOIN latest_margin m ON i.stock_id = m.stock_id
     """, [trade_date, trade_date]).df()
     con.close()
     return df

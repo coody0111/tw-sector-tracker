@@ -1,3 +1,50 @@
+## [2026-07-08] 調查 - 桌電待辦#3「institutional/margin 落後、外資/投信/融資全 ─」（程式碼側，data/log 待桌電）
+
+### 調查方式
+- 本機 DB 重現不了（institutional/margin/daily_prices 都停在 07-01/07-02）。改做程式碼＋設定分析：
+  讀顯示層的日期錨定邏輯、查 `config.is_trading_day`。
+
+### 🔴 推翻桌電診斷的兩個前提
+1. **顯示層不是「用今天日期去對」**：桌電假設「族群頁用今天去對 institutional/margin，對不到
+   07-08 就 ─」。但實際：
+   - `performance.py:594` `calc_meta_chips_signals`：`today = all_dates[-1]` = **institutional 自己
+     的最新日期**
+   - `performance.py:441` `get_stock_chips_ranking`：`latest_date = MAX(date) FROM institutional`
+   兩者都錨 institutional 自己的 MAX date（不是日曆今天/daily_prices 日期），且 stock 版對 price
+   還有「institutional 日期查無 price → fallback 到 daily_prices MAX date」的保護。**所以「對不到
+   07-08 就 ─」跟程式碼不符**——institutional 只要有 07-07 資料，就會用 07-07、不該顯示 ─。
+2. **07-07 是交易日，不是「非交易日」**：`config.is_trading_day('2026-07-07')` = **True**（週二、
+   非假日）。桌電「07-07 全市場 0 檔 daily_prices → 非交易日」是誤判——真相是 **daily_prices 缺
+   07-07 這個交易日（gap）**，institutional/margin 卻有。最可能：**07-07 那天沒跑 main.py**
+   （daily_prices 只抓「今天」，沒跑就沒有），07-08 跑時 `fetch_institutional(07-08)` 遇「尚未發布」
+   → fallback 抓前一交易日 07-07（`main.py:66`）→ institutional 因此有 07-07。**這組合是正常行為，
+   不一定是 bug。**
+
+### 因此「外資/投信/融資全 ─」的真正成因，程式碼側無法定論
+若 institutional 的 MAX date（07-07）真有非空資料，上述兩個函式應該會顯示數字、不是 ─。所以 ─
+更可能來自：(a) institutional/margin 該日資料其實空/全 NULL（被 `dropna` 清成空 → `return {}`），
+或 (b) fetch 當天實際失敗、DB 沒有可用近期資料。**這需要桌電的真實 DB 才能分辨。**
+
+### 🟡 連帶影響我的 get_rolling_returns（已補記 caveat）
+`rn` 數的是「DB 裡實際存在的日期」。若 daily_prices 缺某個交易日（像這次 07-07 gap），「N 個交易日
+前(rn N+1)」會實際跨到 N+1 個真實交易日 → **近N日多算一天**。屬資料完整性依賴，非 code bug，但
+使用者若知道有 gap 要留意。
+
+### 建議桌電查的三件事（確認診斷）
+- [ ] `SELECT date, COUNT(*), COUNT(foreign_net) FROM institutional GROUP BY date ORDER BY date DESC LIMIT 5`
+  （margin 同）——看 07-07/07-08 那幾天的列數與**非空**值，判斷是「有資料但顯示 bug」還是「資料真的空」。
+- [ ] 為什麼 daily_prices 缺 07-07：那天有沒有跑 main.py？（若沒跑就是 gap 來源，補
+  `--backfill`/該日重跑即可；若有跑卻沒寫入，才是 daily_prices 抓取 bug）。
+- [ ] 跑 07-08 那次的 `logs/run.log`：找「三大法人寫入 N 筆（日期）」「TPEx 三大法人寫入」「融資融券
+  寫入」幾行，確認實際寫入的日期與筆數，對照上面 SQL。
+
+### 結論
+- [x] 程式碼側分析完成：**顯示錨定是穩健的（用 institutional 自己的 MAX date）**，桌電「用今天對不到
+  就 ─」與「07-07 非交易日」兩個前提都不成立。真正成因（資料空 vs 顯示）需桌電 DB/log 才能定論。
+- [ ] 待桌電跑上面三個檢查回填，再定位是「資料真的空（抓取問題）」還是別的顯示路徑。
+
+---
+
 ## [2026-07-08] 實作+嚴審 - 抽 get_rolling_returns() 共用函式 + Section 8 擴成近5/7/10/14日
 
 ### 做了什麼（Cody 授權，收盤價比值法、週期 5/7/10/14、抽共用函式）

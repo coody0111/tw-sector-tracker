@@ -1,0 +1,143 @@
+<title>族群總覽頁 — 米色質感版 Mockup</title>
+<style>
+:root{
+  /* 米色/羊皮紙質感 — 財經報表的「紙本帳冊」調性，不是泛用文青米色 */
+  --bg:#F3EDE1; --panel:#FBF7EE; --panel-2:#EDE4D0; --border:#DDD0B8; --border-2:#C9B896;
+  --ink:#211C13; --ink-2:#6B5D45; --ink-3:#9C8F73;
+  --up:#A8321F; --down:#2F6B3F;           /* 台股慣例：紅漲綠跌，磚紅/森綠，印刷感而非螢光色 */
+  --accent:#1F3A5F;                        /* 帳冊墨藍：結構性強調色（連結/focus/邊框強調），不是漲跌 */
+  --burst:#B8721E; --trend:#6B3F6B;        /* 異動訊號兩種語意色：赭黃=爆量、酒紫=連續噴出 */
+  --serif: Georgia,"Iowan Old Style","Source Serif 4","Noto Serif TC",serif;
+  --sans: "Public Sans",-apple-system,"PingFang TC","Microsoft JhengHei","Segoe UI",sans-serif;
+  --mono: ui-monospace,"IBM Plex Mono","Cascadia Code","Roboto Mono",monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#1A140D; --panel:#241C12; --panel-2:#2E2418; --border:#3D3122; --border-2:#4D3F2C;
+    --ink:#F2E9D8; --ink-2:#C4B392; --ink-3:#8C7E63;
+    --up:#E17055; --down:#6FBF7A;
+    --accent:#7DA9D8;
+    --burst:#E0A040; --trend:#C494C4;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#1A140D; --panel:#241C12; --panel-2:#2E2418; --border:#3D3122; --border-2:#4D3F2C;
+  --ink:#F2E9D8; --ink-2:#C4B392; --ink-3:#8C7E63;
+  --up:#E17055; --down:#6FBF7A;
+  --accent:#7DA9D8;
+  --burst:#E0A040; --trend:#C494C4;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.55;padding:0 0 48px}
+.tabular{font-family:var(--mono);font-variant-numeric:tabular-nums}
+
+.topbar{display:flex;align-items:baseline;gap:16px;padding:20px 24px 16px;border-bottom:2px solid var(--ink)}
+.topbar h1{font-family:var(--serif);font-size:1.3rem;font-weight:600;color:var(--ink);letter-spacing:.01em;margin:0}
+.topbar .kicker{font-size:.66rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+.topbar .updated{font-size:.72rem;color:var(--ink-3);margin-left:auto;font-family:var(--mono)}
+
+.section-head{display:flex;align-items:baseline;gap:10px;padding:26px 24px 8px}
+.section-head h2{font-family:var(--serif);font-size:1.02rem;font-weight:600;color:var(--ink);margin:0}
+.section-head .count{font-family:var(--mono);font-size:.7rem;color:var(--ink-3)}
+.section-rule{height:1px;background:linear-gradient(to right,var(--ink) 0%,var(--border) 40%);margin:0 24px 4px}
+.section-sub{padding:0 24px 14px;font-size:.76rem;color:var(--ink-2);max-width:640px}
+
+.legend{display:flex;gap:20px;padding:0 24px 16px;font-size:.72rem;color:var(--ink-2)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend .dot{width:7px;height:7px;border-radius:50%}
+.legend .dot.burst{background:var(--burst)}
+.legend .dot.trend{background:var(--trend)}
+
+.anomaly-strip{display:flex;gap:12px;padding:0 24px;overflow-x:auto}
+.anomaly-card{flex:0 0 236px;background:var(--panel);border:1px solid var(--border);border-radius:3px;padding:14px 16px;position:relative;cursor:pointer;transition:box-shadow .2s,border-color .2s;box-shadow:0 1px 2px rgba(33,28,19,.04)}
+.anomaly-card:hover{border-color:var(--border-2);box-shadow:0 4px 14px rgba(33,28,19,.10)}
+.anomaly-card::before{content:"";position:absolute;left:0;top:14px;bottom:14px;width:2px}
+.anomaly-card.burst::before{background:var(--burst)}
+.anomaly-card.trend::before{background:var(--trend)}
+
+.anomaly-kind{display:inline-block;font-size:.62rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin-bottom:9px}
+.anomaly-kind.burst{color:var(--burst)}
+.anomaly-kind.trend{color:var(--trend)}
+
+.anomaly-name{font-family:var(--serif);font-weight:600;font-size:1rem;margin-bottom:3px;color:var(--ink)}
+.anomaly-pct{font-family:var(--mono);font-weight:600;font-size:1.05rem}
+.anomaly-pct.up{color:var(--up)} .anomaly-pct.down{color:var(--down)}
+.anomaly-reason{margin-top:10px;font-size:.72rem;color:var(--ink-2);line-height:1.6;padding-top:9px;border-top:1px solid var(--border)}
+.anomaly-reason b{color:var(--ink);font-family:var(--mono);font-weight:600}
+.anomaly-rank-shift{margin-top:7px;font-size:.7rem;color:var(--ink-3)}
+.rank-arrow{color:var(--accent);font-weight:700}
+
+.ranklist{padding:0 24px}
+.row{display:flex;align-items:center;gap:14px;padding:10px 4px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .15s}
+.row:hover{background:var(--panel)}
+.rank{font-family:var(--mono);font-size:.76rem;color:var(--ink-3);width:24px;flex-shrink:0}
+.name{font-family:var(--serif);font-weight:600;font-size:.92rem;flex:1;color:var(--ink)}
+.chg{font-family:var(--mono);font-variant-numeric:tabular-nums;font-weight:600;font-size:.86rem;width:72px;text-align:right}
+.chg.up{color:var(--up)} .chg.down{color:var(--down)}
+.mini-badges{width:150px;text-align:right;font-size:.66rem;color:var(--ink-3);font-family:var(--mono)}
+.up-n{color:var(--up)} .dn-n{color:var(--down)}
+</style>
+
+<div class="topbar">
+  <div>
+    <div class="kicker">台股電子半導體族群追蹤</div>
+    <h1>族群總覽</h1>
+  </div>
+  <div class="updated">2026-07-08 更新</div>
+</div>
+
+<div class="section-head"><h2>⚡ 異動族群</h2><span class="count">2 種訊號・5 檔符合</span></div>
+<div class="section-rule"></div>
+<div class="section-sub">同時符合「爆量+排名暴衝」或「連續穩步噴出」規則的族群，跟下方例行排名分開陳列。</div>
+<div class="legend">
+  <span><span class="dot burst"></span>爆量暴衝：量比≥1.5x 且排名跳動≥10名</span>
+  <span><span class="dot trend"></span>連續噴出：連漲≥5日 且 7d&gt;5d&gt;3d 累積加速</span>
+</div>
+
+<div class="anomaly-strip">
+  <div class="anomaly-card burst" tabindex="0">
+    <div class="anomaly-kind burst">爆量暴衝</div>
+    <div class="anomaly-name">網通設備</div>
+    <div class="anomaly-pct up">▲ +1.89%</div>
+    <div class="anomaly-rank-shift">昨日 #21 <span class="rank-arrow">→</span> 今日 #1</div>
+    <div class="anomaly-reason">量比 <b>1.1x</b>　排名跳動 <b>+20</b></div>
+  </div>
+  <div class="anomaly-card burst" tabindex="0">
+    <div class="anomaly-kind burst">爆量暴衝</div>
+    <div class="anomaly-name">電池</div>
+    <div class="anomaly-pct up">▲ +1.42%</div>
+    <div class="anomaly-rank-shift">今日排名 <b class="tabular">#2</b></div>
+    <div class="anomaly-reason">量比 <b>2.2x</b>　連跌轉折首日</div>
+  </div>
+  <div class="anomaly-card trend" tabindex="0">
+    <div class="anomaly-kind trend">連續噴出</div>
+    <div class="anomaly-name">功率半導體</div>
+    <div class="anomaly-pct up">▲ +1.86%</div>
+    <div class="anomaly-reason">連漲 <b>6日</b>　7d <b>+21.8%</b> &gt; 5d +17.8% &gt; 3d +8.3%</div>
+  </div>
+  <div class="anomaly-card trend" tabindex="0">
+    <div class="anomaly-kind trend">連續噴出</div>
+    <div class="anomaly-name">機器人/自動化</div>
+    <div class="anomaly-pct up">▲ +0.94%</div>
+    <div class="anomaly-reason">連漲 <b>7日</b>　7d <b>+17.1%</b> &gt; 5d +12.4% &gt; 3d +3.7%</div>
+  </div>
+  <div class="anomaly-card trend" tabindex="0">
+    <div class="anomaly-kind trend">連續噴出</div>
+    <div class="anomaly-name">半導體材料</div>
+    <div class="anomaly-pct up">▲ +1.07%</div>
+    <div class="anomaly-reason">連漲 <b>7日</b>　7d <b>+16.2%</b> &gt; 5d +10.2% &gt; 3d +5.5%</div>
+  </div>
+</div>
+
+<div class="section-head" style="margin-top:6px"><h2>族群排行</h2><span class="count">今日漲跌% 排序・41 個族群</span></div>
+<div class="section-rule"></div>
+<div class="ranklist">
+  <div class="row"><span class="rank tabular">1</span><span class="name">網通設備</span><span class="chg up tabular">▲+1.89%</span><span class="mini-badges"><span class="up-n">▲31</span> <span class="dn-n">▼14</span></span></div>
+  <div class="row"><span class="rank tabular">2</span><span class="name">電池</span><span class="chg up tabular">▲+1.42%</span><span class="mini-badges"><span class="up-n">▲9</span> <span class="dn-n">▼4</span></span></div>
+  <div class="row"><span class="rank tabular">3</span><span class="name">通訊IC</span><span class="chg up tabular">▲+1.73%</span><span class="mini-badges"><span class="up-n">▲12</span> <span class="dn-n">▼5</span></span></div>
+  <div class="row"><span class="rank tabular">4</span><span class="name">AI晶片</span><span class="chg up tabular">▲+1.57%</span><span class="mini-badges"><span class="up-n">▲4</span> <span class="dn-n">▼3</span></span></div>
+  <div class="row"><span class="rank tabular">5</span><span class="name">機器人/自動化</span><span class="chg up tabular">▲+0.94%</span><span class="mini-badges"><span class="up-n">▲9</span> <span class="dn-n">▼8</span></span></div>
+  <div class="row"><span class="rank tabular">6</span><span class="name">光通訊</span><span class="chg up tabular">▲+1.26%</span><span class="mini-badges"><span class="up-n">▲9</span> <span class="dn-n">▼8</span></span></div>
+  <div class="row"><span class="rank tabular">7</span><span class="name">功率半導體</span><span class="chg up tabular">▲+1.86%</span><span class="mini-badges"><span class="up-n">▲8</span> <span class="dn-n">▼8</span></span></div>
+  <div class="row"><span class="rank tabular">8</span><span class="name">半導體材料</span><span class="chg up tabular">▲+1.07%</span><span class="mini-badges"><span class="up-n">▲9</span> <span class="dn-n">▼8</span></span></div>
+</div>

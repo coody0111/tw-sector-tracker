@@ -15,6 +15,11 @@
      `## 2026-07-07` 那則entry）
    - 還沒實際動手改 `export/html_generator.py`
    - 技術路線：不用 React，直接改 HTML/CSS/JS 生成邏輯，維持純靜態站架構
+   - **新增優化項（2026-07-08，Cody 看 `data/photo_for_test/族群.png` 反映）**：族群卡片上的
+     `↑20`／`↑36` 排名跳動 badge（`html_generator.py::_signal_badges()`，`delta = yesterday_rank
+     - today_rank` 的裸數字）**Cody 看不懂、覺得沒有用途**，redesign 時這個訊號要嘛拿掉、要嘛
+     換一種更好懂的呈現方式（例如明確寫「昨日#21→今日#1」而不是單獨一個數字），不要延用現在
+     這種容易被誤認成百分比的裸數字格式
 
 2. **族群個股表格新增 5/7/10/14 天累積漲跌幅欄位**
    - Cody 要求，現況只有「週漲跌%」（複利最近5日）一個欄位

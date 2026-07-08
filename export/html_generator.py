@@ -148,6 +148,24 @@ def _weekly_pct(spark: list) -> float:
     return round((result - 1) * 100, 2)
 
 
+# 近5/7/10/14日累積漲跌幅（收盤價比值法）：{stock_id: {5:pct, 7:.., 10:.., 14:..}}。
+# 由 generate() 於頁面產生前一次性塞入（來自 screener.database.get_rolling_returns()），
+# _stock_table / _meta_stock_cards 直接讀，避免把此 map 穿過整條 8 層渲染呼叫鏈的參數。
+# 跟 chips.html Section 8 用同一個算法（get_rolling_returns），確保兩頁「近N日」一致。
+_ROLLING_RETURNS: dict = {}
+
+
+def _chg_pct_cell(pct) -> str:
+    """近N日累積漲跌 <td>：紅漲綠跌、缺值（資料不足/None）顯示「─」。"""
+    if pct is None:
+        return '<td><span style="color:#334155">─</span></td>'
+    color = _pct_color(pct)
+    sign = "+" if pct >= 0 else ""
+    arrow = "▲" if pct > 0 else ("▼" if pct < 0 else "─")
+    return (f'<td><span style="color:{color};font-weight:700;font-size:1.05rem">'
+            f'{arrow} {sign}{pct:.2f}%</span></td>')
+
+
 _CHIPS_BADGE_MIN = 1_000_000   # 外資/投信股數超過此值才加 badge 框
 _TRUST_BADGE_MIN = 500_000
 
@@ -321,7 +339,7 @@ def _stock_table(sector_name: str, sectors_df: pd.DataFrame, prices_df: pd.DataF
                 f'<tr>'
                 f'<td style="color:#475569;font-size:.78rem">{sid}</td>'
                 f'<td style="color:#334155">{_esc(stock_name)}</td>'
-                f'<td colspan="6" style="color:#334155;font-size:.75rem">無行情</td>'
+                f'<td colspan="9" style="color:#334155;font-size:.75rem">無行情</td>'
                 f'</tr>'
             )
             continue
@@ -335,10 +353,12 @@ def _stock_table(sector_name: str, sectors_df: pd.DataFrame, prices_df: pd.DataF
         arrow = "▲" if pct > 0 else ("▼" if pct < 0 else "─")
 
         spark = (stock_sparklines or {}).get(sid, [])
-        wpct = _weekly_pct(spark)
-        wcolor = _pct_color(wpct)
-        wsign = "+" if wpct >= 0 else ""
-        warrow = "▲" if wpct > 0 else ("▼" if wpct < 0 else "─")
+        _rr = _ROLLING_RETURNS.get(sid, {})
+        c5, c7, c10, c14 = _rr.get(5), _rr.get(7), _rr.get(10), _rr.get(14)
+        _a5 = "" if c5 is None else c5
+        _a7 = "" if c7 is None else c7
+        _a10 = "" if c10 is None else c10
+        _a14 = "" if c14 is None else c14
 
         fn = tn = mb = mc = 0
         chips_data: dict = {}
@@ -359,14 +379,14 @@ def _stock_table(sector_name: str, sectors_df: pd.DataFrame, prices_df: pd.DataF
             f'<tr class="st-row" data-sid="{sid}" data-name="{name_safe}"'
             f' data-close="{close}" data-pct="{pct}" data-vol="{vol}"'
             f' data-sparkline=\'{spark_json}\' data-chips=\'{chips_json}\''
-            f' data-code="{sid}" data-wpct="{wpct}"'
+            f' data-code="{sid}" data-wpct="{_a5}" data-chg7="{_a7}" data-chg10="{_a10}" data-chg14="{_a14}"'
             f' data-foreign="{fn}" data-trust="{tn}" data-margin="{mb}"'
             f' onclick="openStockModal(this)" style="cursor:pointer">'
             f'<td style="color:#64748b;font-size:.92rem;font-weight:600">{sid}</td>'
             f'<td style="color:#cbd5e1;font-size:1.1rem;font-weight:600">{_esc(stock_name)}</td>'
             f'<td style="color:#f1f5f9;font-weight:700;font-size:1.15rem">{_fmt_price(close)}</td>'
             f'<td><span style="color:{color};font-weight:700;font-size:1.1rem">{arrow} {sign}{pct:.2f}%</span></td>'
-            f'<td><span style="color:{wcolor};font-weight:700;font-size:1.1rem">{warrow} {wsign}{wpct:.2f}%</span></td>'
+            f'{_chg_pct_cell(c5)}{_chg_pct_cell(c7)}{_chg_pct_cell(c10)}{_chg_pct_cell(c14)}'
             f'<td>{_fmt_chips_num(fn, _CHIPS_BADGE_MIN)}</td>'
             f'<td>{_fmt_chips_num(tn, _TRUST_BADGE_MIN)}</td>'
             f'<td style="font-size:.95rem">{margin_html}</td>'
@@ -382,7 +402,10 @@ def _stock_table(sector_name: str, sectors_df: pd.DataFrame, prices_df: pd.DataF
         f'<th onclick="sortStockTable(this)" data-key="name">股名</th>'
         f'<th onclick="sortStockTable(this)" data-key="close">收盤</th>'
         f'<th onclick="sortStockTable(this)" data-key="pct">今日%</th>'
-        f'<th onclick="sortStockTable(this)" data-key="wpct">週漲跌%</th>'
+        f'<th onclick="sortStockTable(this)" data-key="wpct">近5日</th>'
+        f'<th onclick="sortStockTable(this)" data-key="chg7">近7日</th>'
+        f'<th onclick="sortStockTable(this)" data-key="chg10">近10日</th>'
+        f'<th onclick="sortStockTable(this)" data-key="chg14">近14日</th>'
         f'<th onclick="sortStockTable(this)" data-key="foreign">外資</th>'
         f'<th onclick="sortStockTable(this)" data-key="trust">投信</th>'
         f'<th onclick="sortStockTable(this)" data-key="margin">融資</th>'
@@ -517,10 +540,12 @@ def _meta_stock_cards(sub_names: list, sectors_df, prices_df, chips_df=None,
         arrow = "▲" if pct > 0 else ("▼" if pct < 0 else "─")
 
         spark = (stock_sparklines or {}).get(sid, [])
-        wpct = _weekly_pct(spark)
-        wcolor = _pct_color(wpct)
-        wsign = "+" if wpct >= 0 else ""
-        warrow = "▲" if wpct > 0 else ("▼" if wpct < 0 else "─")
+        _rr = _ROLLING_RETURNS.get(sid, {})
+        c5, c7, c10, c14 = _rr.get(5), _rr.get(7), _rr.get(10), _rr.get(14)
+        _a5 = "" if c5 is None else c5
+        _a7 = "" if c7 is None else c7
+        _a10 = "" if c10 is None else c10
+        _a14 = "" if c14 is None else c14
 
         fn = tn = mb = mc = 0
         chips_data: dict = {}
@@ -541,14 +566,14 @@ def _meta_stock_cards(sub_names: list, sectors_df, prices_df, chips_df=None,
             f'<tr class="st-row" data-sid="{sid}" data-name="{name_safe}"'
             f' data-close="{close}" data-pct="{pct}" data-vol="{vol}"'
             f' data-sparkline=\'{spark_json}\' data-chips=\'{chips_json}\''
-            f' data-code="{sid}" data-wpct="{wpct}"'
+            f' data-code="{sid}" data-wpct="{_a5}" data-chg7="{_a7}" data-chg10="{_a10}" data-chg14="{_a14}"'
             f' data-foreign="{fn}" data-trust="{tn}" data-margin="{mb}"'
             f' onclick="openStockModal(this)" style="cursor:pointer">'
             f'<td style="color:#64748b;font-size:.92rem;font-weight:600">{sid}</td>'
             f'<td style="color:#cbd5e1;font-size:1.1rem;font-weight:600">{_esc(stock_name)}</td>'
             f'<td style="color:#f1f5f9;font-weight:700;font-size:1.15rem">{_fmt_price(close)}</td>'
             f'<td><span style="color:{color};font-weight:700;font-size:1.1rem">{arrow} {sign}{pct:.2f}%</span></td>'
-            f'<td><span style="color:{wcolor};font-weight:700;font-size:1.1rem">{warrow} {wsign}{wpct:.2f}%</span></td>'
+            f'{_chg_pct_cell(c5)}{_chg_pct_cell(c7)}{_chg_pct_cell(c10)}{_chg_pct_cell(c14)}'
             f'<td>{_fmt_chips_num(fn, _CHIPS_BADGE_MIN)}</td>'
             f'<td>{_fmt_chips_num(tn, _TRUST_BADGE_MIN)}</td>'
             f'<td style="font-size:.95rem">{margin_html}</td>'
@@ -564,7 +589,10 @@ def _meta_stock_cards(sub_names: list, sectors_df, prices_df, chips_df=None,
         f'<th onclick="sortStockTable(this)" data-key="name">股名</th>'
         f'<th onclick="sortStockTable(this)" data-key="close">收盤</th>'
         f'<th onclick="sortStockTable(this)" data-key="pct">今日%</th>'
-        f'<th onclick="sortStockTable(this)" data-key="wpct">週漲跌%</th>'
+        f'<th onclick="sortStockTable(this)" data-key="wpct">近5日</th>'
+        f'<th onclick="sortStockTable(this)" data-key="chg7">近7日</th>'
+        f'<th onclick="sortStockTable(this)" data-key="chg10">近10日</th>'
+        f'<th onclick="sortStockTable(this)" data-key="chg14">近14日</th>'
         f'<th onclick="sortStockTable(this)" data-key="foreign">外資</th>'
         f'<th onclick="sortStockTable(this)" data-key="trust">投信</th>'
         f'<th onclick="sortStockTable(this)" data-key="margin">融資</th>'
@@ -821,10 +849,16 @@ def generate(
     meta_chips: dict = None,
     stock_sparklines: dict = None,
     vol_turnover: list = None,
+    rolling_returns: dict = None,
     output_path: str = "docs/index.html",
 ) -> None:
     if perf_df.empty and not meta_perf:
         return
+
+    # 近5/7/10/14日累積漲跌幅（get_rolling_returns）一次性塞入 module 級 map，供 _stock_table /
+    # _meta_stock_cards 直接讀，避免穿整條渲染呼叫鏈的參數。
+    global _ROLLING_RETURNS
+    _ROLLING_RETURNS = rolling_returns or {}
 
     if sectors_df is not None and not sectors_df.empty:
         sectors_df = sectors_df.copy()
@@ -1413,7 +1447,7 @@ def generate(
       const tbody = table.querySelector('tbody');
       const ths = Array.from(th.parentElement.children);
       const key = th.dataset.key;
-      const labels = {{'code':'代號','name':'股名','close':'收盤','pct':'今日%','wpct':'週漲跌%','foreign':'外資','trust':'投信','margin':'融資'}};
+      const labels = {{'code':'代號','name':'股名','close':'收盤','pct':'今日%','wpct':'近5日','chg7':'近7日','chg10':'近10日','chg14':'近14日','foreign':'外資','trust':'投信','margin':'融資'}};
       const asc = th.dataset.sort !== 'asc';
       ths.forEach(t => {{ t.dataset.sort = ''; t.textContent = labels[t.dataset.key] || ''; }});
       th.dataset.sort = asc ? 'asc' : 'desc';

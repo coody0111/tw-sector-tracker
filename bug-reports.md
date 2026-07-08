@@ -1,3 +1,46 @@
+## [2026-07-08] 實作+嚴審 - index 族群個股表改用 get_rolling_returns（近5/7/10/14日，取代複利週漲跌）
+
+### 做了什麼（Cody 授權「數值呈現在筆電改」，UI 版面回家弄）
+- `export/html_generator.py`：`_stock_table`＋`_meta_stock_cards`（兩者渲染同一種可排序表格）把單一
+  「週漲跌%」（複利 `_weekly_pct`）欄改成 **近5/7/10/14日** 四欄，資料來自
+  `get_rolling_returns()`（收盤價比值法），**跟 chips.html Section 8 同一個算法/函式 → 兩頁一致**。
+- 資料傳遞：generate() 新增 `rolling_returns` 參數，於頁面產生前塞進 module 級 `_ROLLING_RETURNS`，
+  兩個渲染函式直接讀，**避免把 map 穿過整條 8 層渲染呼叫鏈**（那條 `stock_sparklines` 穿了 8 個
+  簽名，硬加參數在 redesign 前風險高）。
+- 排序 JS：`sortStockTable` 的 **寫死 `labels` map 同步更新**（`wpct`→近5日，新增 `chg7/chg10/chg14`），
+  否則點排序後新欄表頭會變空白（這是隱藏地雷，靜態看不出來）。`data-wpct` 重用成近5日的值
+  （modal 不讀它、只有排序讀）。
+- `main.py`：算 `get_rolling_returns((5,7,10,14))` 傳進 `generate_html`。
+- 測試：`test_html_generator.py` 新增近5/7/10/14 欄位驗證（含 td==th 結構、缺值─）。全專案 **116 passed**。
+
+### 🔍 嚴格自審（我審自己這份實作）
+**✅ 通過**
+- `_stock_table`／`_meta_stock_cards` **兩處都渲染正確**：11 欄、`<th >` 精確計數 11 == 資料列 11 td、
+  無雙重 td；近5/7/10/14 紅漲綠跌、近14缺值→「─」；「無行情」列 colspan 6→9（1代號+1股名+9=11）。
+- 「週漲跌%」顯示已完全移除，殘留檢查只剩 sort key 名 `data-key="wpct"`（顯示是「近5日」）與死碼
+  docstring。
+- **兩頁一致達成**：index 與 chips 都走 `get_rolling_returns`，已更新該函式 docstring（原本寫「index
+  尚未接」→ 改為「已接」）。
+
+**🟡 誠實回報**
+1. **module 級 `_ROLLING_RETURNS` 是共享可變狀態**：為了不穿 8 層參數而採用，generate() 每次產頁前
+   重設。若有人直接呼叫 `_stock_table` 而沒經 generate()，會讀到上次的值或預設 `{}`（→全「─」，安全）。
+   屬 code smell，但對「一次性批次產頁」可接受，已加註解說明。redesign 若重整這條鏈可順手改成正規傳參。
+2. **`_weekly_pct()` 變成死碼**（已無 caller）。**我沒刪**——怕跟桌電未 commit 的 redesign 進度衝突，
+   留給 Developer redesign 時清。
+3. **這是動到 redesign 目標檔的可排序表格＋JS**，回家 redesign 版面時很可能重工——Cody 已知分工、
+   明確要求先在筆電把數值呈現改掉。
+4. **真實數字本機驗不了**（debug DB 只有 1 天 → 全 None）。邏輯用合成資料 + `get_rolling_returns`
+   既有單元測試驗過；**建議桌電跑一次開 index.html 目視確認近5/7/10/14 數字合理、11 欄版面沒跑掉、
+   點欄位排序正常（尤其新欄表頭排序後不會變空白）**。
+
+### 結論
+- [x] 實作 + 自審完成（116 passed）。index 族群個股表近5/7/10/14 上線，與 chips 同算法一致。
+- [ ] 桌電目視驗證真實數字 + 排序互動；redesign 時順手清 `_weekly_pct` 死碼、考慮把 `_ROLLING_RETURNS`
+  改正規傳參。
+
+---
+
 ## [2026-07-08] 調查 - 桌電待辦#3「institutional/margin 落後、外資/投信/融資全 ─」（程式碼側，data/log 待桌電）
 
 ### 調查方式

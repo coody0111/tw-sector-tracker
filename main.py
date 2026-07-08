@@ -489,6 +489,12 @@ def run(trade_date: date = None, realtime: bool = False) -> None:
         stock_sparklines = calc_stock_sparklines(universe_df) if universe_df is not None else {}
         stock_chips = get_stock_chips_ranking(universe_df) if universe_df is not None else {}
         margin_div = get_margin_divergence(universe_df) if universe_df is not None else {}
+        # 近5/7/10/14日累積漲跌幅（收盤價比值法），index 族群個股表用；跟 chips.html Section 8 同一算法
+        try:
+            from screener.database import get_rolling_returns
+            rolling_returns = get_rolling_returns((5, 7, 10, 14))
+        except Exception:
+            rolling_returns = {}
 
         try:
             vol_signals = scan_volume_turnover(trade_date.isoformat())
@@ -513,7 +519,8 @@ def run(trade_date: date = None, realtime: bool = False) -> None:
                       meta_signals=meta_signals,
                       meta_chips=meta_chips,
                       stock_sparklines=stock_sparklines,
-                      vol_turnover=vol_signals)
+                      vol_turnover=vol_signals,
+                      rolling_returns=rolling_returns)
         logger.info("HTML generated → docs/index.html")
 
         try:

@@ -1,7 +1,28 @@
 from datetime import date
 
 import pandas as pd
-from export.html_generator import _esc, _stock_card_html, _meta_card, generate
+import export.html_generator as hg
+from export.html_generator import _esc, _stock_card_html, _meta_card, generate, _stock_table
+
+
+def test_stock_table_shows_5d_7d_10d_14d_columns():
+    """index 族群個股表用 get_rolling_returns 的近5/7/10/14日欄（收盤價比值），
+    取代舊的單一複利週漲跌；缺值顯示「─」；資料列 td 數 == 表頭 th 數。"""
+    hg._ROLLING_RETURNS = {"2330": {5: 3.21, 7: -1.50, 10: 8.00, 14: None}}
+    try:
+        sectors = pd.DataFrame([{"sector_name": "半導體", "stock_id": "2330", "stock_name": "台積電"}])
+        prices = pd.DataFrame([{"stock_id": "2330", "close": 950.0, "change_pct": 1.5, "volume": 10000}])
+        html = _stock_table("半導體", sectors, prices, as_row=False)
+        assert "近5日" in html and "近7日" in html and "近10日" in html and "近14日" in html
+        assert "週漲跌%" not in html            # 舊複利欄已被取代
+        assert "+3.21%" in html and "-1.50%" in html and "+8.00%" in html
+        assert "─" in html                      # 近14日缺值
+        import re
+        n_th = len(re.findall(r"<th ", html))
+        row = re.search(r'<tr class="st-row".*?</tr>', html, re.DOTALL).group(0)
+        assert n_th == row.count("<td"), "表頭 th 數應等於資料列 td 數"
+    finally:
+        hg._ROLLING_RETURNS = {}
 
 
 def test_esc_escapes_html_special_characters():

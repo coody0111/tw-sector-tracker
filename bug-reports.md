@@ -1,3 +1,39 @@
+## [2026-07-08] 驗證 - get_chips_today per-stock fallback（族群頁「─」修復，7acfa7b + 9d82a3a）
+
+### 驗證方式
+- `git merge master`（乾淨）；讀 `get_chips_today` 實作；全專案 `pytest`；合成 temp DB 測邊界
+  （單側股 + 兩表不同天）；本機真實 DB 測 fallback 不回空。
+
+### ✅ 驗證通過（對照 debug-tasks 兩則的驗證清單）
+- **全專案測試**：**119 passed, 0 failed**（Developer master 端記 115；我 debug 分支多了近5/7/10/14
+  那批 4 個測試，故 119。get_chips_today fallback 系列 3 個新測試都在、都過）。
+- **per-stock fallback 邏輯正確**：`WHERE date <= ? QUALIFY ROW_NUMBER() OVER (PARTITION BY
+  stock_id ORDER BY date DESC)=1`，institutional / margin **各自逐股**取 <= today 的最新一筆。
+  合成測試實證：C 股 institutional 退 07-07、margin 退 07-05，**兩表各退各的、不因整表最新日
+  對不上而漏**。這正是「整表單一 MAX(date) 會漏掉最新日缺席交易所個股」的修復。
+- **邊界（FULL OUTER JOIN 不 crash）**：實測 A 股只有 institutional → margin_balance 回 NULL、
+  foreign_net=111 保留；B 股只有 margin → foreign_net NULL、margin_balance=222 保留；
+  `COALESCE(i.stock_id, m.stock_id)` 讓兩側 key 都不丟。三股都正確回、無例外。
+- **真實 DB 不回空**：本機 `get_chips_today('2026-07-09')`（inst/margin 只到 07-01）退到最新可用、
+  回 1342 筆（外資 1315、融資 1279），修復前的「嚴格 date=today → 回 0 → 全『─』」不再發生。
+
+### ⚠️ 本機驗證限制
+- 本機 DB 只有單日（07-01），**重現不了「TPEx margin 停在跟 TWSE 不同天」的多所真實情境**，
+  也驗不了 Developer 報的「TPEx 融資 0→489 支」那個 production 數字。但那個 scenario 已由合成
+  測試 `test_get_chips_today_per_stock_fallback_not_table_wide`（2330 退 07-07、6488 退 07-06）
+  精確涵蓋，邏輯正確。真實數字目視留給桌電。
+
+### 🟡 提醒（跟 Developer 記的一致，非阻擋）
+- 這是**顯示/讀取層**的優雅 fallback，已完整。**根本的「TPEx 融資 07-07 當天為何沒抓到」是獨立的
+  抓取端問題**（Developer 說正在做 #3 抓取端）——fallback 讓頁面退到最近一筆，但「當天就有 TPEx
+  融資」仍要從抓取端解決。等 Developer #3 做完會再驗。
+
+### 結論
+- [x] 可以繼續——per-stock fallback 兩版（7acfa7b 整表→9d82a3a per-stock）驗證通過：邏輯、邊界、
+  真實不回空都對。#3 抓取端待 Developer 做完再驗。
+
+---
+
 ## [2026-07-08] 實作+嚴審 - index 族群個股表改用 get_rolling_returns（近5/7/10/14日，取代複利週漲跌）
 
 ### 做了什麼（Cody 授權「數值呈現在筆電改」，UI 版面回家弄）

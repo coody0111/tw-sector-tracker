@@ -573,32 +573,13 @@ def run(trade_date: date = None, realtime: bool = False) -> None:
                 except Exception:
                     _insider_map = {}
 
-                # 近5日/近7日累積漲跌幅：從 daily_prices 直接滾動算（錨最新交易日，不錨集保週期），
-                # 反映最近走勢、不受集保發布延遲影響。定義：最新交易日=rn1，N 交易日前=rn(N+1)，
-                # 近5日→rn6、近7日→rn8。一次查全 universe（不逐股）。
+                # 近5/7/10/14日累積漲跌幅：共用 get_rolling_returns()（收盤價比值法，錨最新交易日，
+                # 不錨集保週期），跟 index 族群個股表用同一個算法確保兩頁「近N日」一致。
                 try:
-                    _con = _ddb.connect("data/screener.db", read_only=True)
-                    _rdf = _con.execute("""
-                        WITH ranked AS (
-                            SELECT stock_id, close,
-                                   ROW_NUMBER() OVER (PARTITION BY stock_id ORDER BY date DESC) AS rn
-                            FROM daily_prices
-                        )
-                        SELECT l.stock_id, l.close AS c0, d5.close AS c5, d7.close AS c7
-                        FROM (SELECT stock_id, close FROM ranked WHERE rn = 1) l
-                        LEFT JOIN (SELECT stock_id, close FROM ranked WHERE rn = 6) d5 USING (stock_id)
-                        LEFT JOIN (SELECT stock_id, close FROM ranked WHERE rn = 8) d7 USING (stock_id)
-                    """).fetchdf()
-                    _con.close()
-                    _roll_map = {str(r["stock_id"]): r for _, r in _rdf.iterrows()}
+                    from screener.database import get_rolling_returns
+                    _roll_map = get_rolling_returns((5, 7, 10, 14))
                 except Exception:
                     _roll_map = {}
-
-                def _roll_pct(a, b):
-                    # 缺值/NULL(→nan)/除零一律回 None（沿用 pd.isna 防呆，不用 is not None）
-                    if a is None or b is None or pd.isna(a) or pd.isna(b) or b == 0:
-                        return None
-                    return round((a - b) / b * 100, 2)
 
                 sh_rows = []
                 for _, row in sh_df.iterrows():
@@ -616,9 +597,7 @@ def run(trade_date: date = None, realtime: bool = False) -> None:
                     )
                     share_chg = row["share_chg"] if pd.notna(row["share_chg"]) else None
                     insider = _insider_map.get(sid)
-                    roll = _roll_map.get(sid)
-                    chg_5d = _roll_pct(roll["c0"], roll["c5"]) if roll is not None else None
-                    chg_7d = _roll_pct(roll["c0"], roll["c7"]) if roll is not None else None
+                    roll = _roll_map.get(sid, {})
 
                     sh_rows.append({
                         "stock_id":    sid,
@@ -632,8 +611,10 @@ def run(trade_date: date = None, realtime: bool = False) -> None:
                         "date":        str(row["date"]),
                         "close":       float(close) if close is not None else None,
                         "change_pct":  price_week_chg,
-                        "chg_5d":      chg_5d,
-                        "chg_7d":      chg_7d,
+                        "chg_5d":      roll.get(5),
+                        "chg_7d":      roll.get(7),
+                        "chg_10d":     roll.get(10),
+                        "chg_14d":     roll.get(14),
                         "company_shares":          int(insider["company_shares"]) if insider is not None and pd.notna(insider["company_shares"]) else None,
                         "company_chg":             int(insider["company_chg"]) if insider is not None and pd.notna(insider["company_chg"]) else None,
                         "company_pledge_pct":      float(insider["company_pledge_pct"]) if insider is not None and pd.notna(insider["company_pledge_pct"]) else None,

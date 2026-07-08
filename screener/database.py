@@ -291,6 +291,41 @@ def get_shareholder_top(n: int = 50) -> pd.DataFrame:
     return df
 
 
+def get_rolling_returns(periods=(5, 7, 10, 14)) -> dict:
+    """各股「近 N 交易日累積漲跌幅」，用**收盤價比值法**（非複利 change_pct，避免逐日四捨五入
+    連乘的捨入漂移）：`近N日% = (最新交易日收盤 / N 個交易日前收盤 − 1) × 100`。
+    定義：最新交易日 = rn1，N 交易日前 = rn(N+1)。資料不足／NULL(→nan)／除零一律回 None。
+    回傳 `{stock_id: {5: pct 或 None, 7: ..., 10: ..., 14: ...}}`。
+
+    設計為兩個頁面共用的單一算法來源，讓同一支股票的「近N日」在兩頁一致。
+    ⚠️ 現況：chips.html Section 8 大戶持倉表**已接**此函式；index.html 族群個股表**尚未接**
+    （仍用 `html_generator._weekly_pct()` 複利 change_pct），待 index redesign 時改用本函式，
+    屆時兩頁才真正一致。在那之前，同一支股票的「近5日」在兩頁會有微小差異（複利捨入漂移）。"""
+    periods = tuple(periods)
+    max_rn = max({1} | {p + 1 for p in periods})
+    con = get_conn()
+    df = con.execute(f"""
+        SELECT stock_id, close, rn FROM (
+            SELECT stock_id, close,
+                   ROW_NUMBER() OVER (PARTITION BY stock_id ORDER BY date DESC) AS rn
+            FROM daily_prices
+        ) WHERE rn <= {max_rn}
+    """).df()
+    con.close()
+
+    def _ret(c0, cn):
+        if c0 is None or cn is None or pd.isna(c0) or pd.isna(cn) or cn == 0:
+            return None
+        return round((c0 - cn) / cn * 100, 2)
+
+    out = {}
+    for sid, g in df.groupby("stock_id"):
+        rn_close = dict(zip(g["rn"].astype(int), g["close"]))
+        c0 = rn_close.get(1)
+        out[str(sid)] = {p: _ret(c0, rn_close.get(p + 1)) for p in periods}
+    return out
+
+
 def get_all_stocks_latest(min_days: int = 10) -> pd.DataFrame:
     """取所有至少有 min_days 天資料的股票清單。"""
     con = get_conn()

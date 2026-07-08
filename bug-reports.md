@@ -1,3 +1,53 @@
+## [2026-07-08] 實作+嚴審 - 抽 get_rolling_returns() 共用函式 + Section 8 擴成近5/7/10/14日
+
+### 做了什麼（Cody 授權，收盤價比值法、週期 5/7/10/14、抽共用函式）
+- **新增 `screener/database.py::get_rolling_returns(periods=(5,7,10,14))`**：收盤價比值法
+  `(最新交易日收盤 / N交易日前收盤 − 1)×100`，rn1 vs rn(N+1)，缺值/NULL/除零回 None，
+  回傳 `{stock_id: {5:pct, 7:.., 10:.., 14:..}}`。
+- **`main.py`**：移除原本 Section 8 的 inline 滾動 SQL + `_roll_pct`，改呼叫共用函式，sh_rows 帶
+  `chg_5d/7d/10d/14d`。
+- **`export/chips_generator.py`**：`_shareholder_table` 表頭+列擴成近5/7/10/14日（`_chg_cell` 沿用、
+  回完整 `<td>` 不外包）。
+- **測試**：`test_database.py` 新增 `get_rolling_returns`（8天算對、資料不足回 None）；
+  `test_chips_generator.py` 顯示測試擴成 4 欄。全專案 **115 passed**。
+
+### 🔍 嚴格自審（Cody 要求「做完嚴格 review」——我審自己這份實作）
+
+**✅ 驗證通過**
+- **rn 對位安全**：`daily_prices` 有 `PRIMARY KEY (stock_id, date)`，不可能有重複日期把 rn 打亂
+  （真實 DB 實查 0 筆重複）——這是滾動計算正確性的關鍵前提，成立。
+- **邏輯（合成 8 天 temp DB）**：近5日+10%、近7日+25%、近10/14日 None（不足）；4天股全 None；
+  除零/NULL 由 `_ret` 的 `pd.isna` 擋。
+- **真實 1 天 DB**：1038 檔全回 None（資料不足，正確）、不 crash。
+- **顯示結構**：14 欄 th == 14 td、無雙重 `<td>`（沒重蹈 Task 5 覆轍）、缺值→「─」。
+- **main.py 無殘留**：舊 `_roll_pct`/`c0/c5/c7` 引用已清乾淨。
+
+**🟡 審出來的問題（誠實回報，含我自己修正的 overclaim）**
+1. **【已修正 docstring】「兩頁一致」目前尚未達成**：這次只把 chips.html Section 8 接上共用函式，
+   **index.html 族群個股表還是用複利 `_weekly_pct()`**，我沒改它（綁 index redesign，桌電待辦 1）。
+   所以「同一支股票近5日兩頁一致」這個目標**還沒實現**——在 index 改接 `get_rolling_returns` 之前，
+   兩頁的近5日仍會有複利捨入的微小差異。原本 docstring 寫「兩頁共用」是 overclaim，已改成誠實描述
+   現況（chips 已接 / index 待接）。**這是本次最重要的 caveat。**
+2. **連線用 read-write `get_conn()`**（沿用 `get_shareholder_top` 房規）而非原 inline 版的
+   `read_only=True`。有 PK、呼叫是循序的，不是 bug，但純讀用 read_only 更保險——屬風格一致 vs
+   安全的取捨，暫沿用房規。
+3. **下市/停牌股**：rn1 是該股「最後一個有資料的交易日」，可能不是今天；欄位標「近5日」但實際
+   終點是它最後成交日。Section 8 只顯示有集保資料的股票，影響很小，記錄備查。
+
+**⚠️ 本機驗證限制（同前幾則）**
+- debug 機 `daily_prices` 只有 1 天（2026-07-02），**驗不了真實 production 數字**（如 2330 近5日）。
+  邏輯已用合成 8 天資料驗過。**建議桌電（有多日股價）跑一次 `python main.py`、開 chips.html
+  Section 8 目視確認近5/7/10/14 數字合理、版面 14 欄沒跑掉。**
+- 改進：舊的 inline 滾動 SQL 原本沒 pytest，這次抽成 `get_rolling_returns()` 後**有單元測試鎖行為**了。
+
+### 結論
+- [x] 實作完成、自審通過（115 passed）。核心邏輯、防呆、結構都對。
+- [ ] **待 Cody/桌電決定**：index.html 何時改接 `get_rolling_returns`（達成真正兩頁一致）——建議跟
+  index redesign 一起做。在那之前兩頁近5日有微小差異（已在 docstring 標明）。
+- [ ] 真實數字目視驗證留給桌電（本機資料不足）。
+
+---
+
 ## [2026-07-08] 整合 - 筆電 Section 8 近5日/近7日 vs 桌電待辦「族群個股表 5/7/10/14」重疊分析
 
 Cody 指出「桌電要改的內容跟筆電討論的相似」——確認屬實，這是**同類指標、不同頁、不同算法**，

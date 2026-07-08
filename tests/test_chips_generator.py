@@ -126,15 +126,19 @@ def test_shareholder_table_handles_missing_insider_data():
     assert "─" in html
 
 
-def test_shareholder_table_shows_5d_7d_columns():
-    """近5日/近7日累積漲跌幅欄要顯示表頭與數值（紅漲綠跌）。"""
+def test_shareholder_table_shows_5d_7d_10d_14d_columns():
+    """近5/7/10/14日累積漲跌幅欄要顯示表頭與數值（紅漲綠跌）。"""
     row = dict(_SAMPLE_SH_ROW)
     row["chg_5d"] = 3.21
     row["chg_7d"] = -1.50
+    row["chg_10d"] = 8.00
+    row["chg_14d"] = -12.34
     html = _shareholder_table([row])
-    assert "近5日" in html and "近7日" in html
-    assert "+3.21%" in html   # 正值
-    assert "-1.50%" in html   # 負值
+    assert "近5日" in html and "近7日" in html and "近10日" in html and "近14日" in html
+    assert "+3.21%" in html    # 正值紅
+    assert "-1.50%" in html    # 負值綠
+    assert "+8.00%" in html
+    assert "-12.34%" in html
 
 
 def test_shareholder_table_5d_7d_missing_shows_dash():

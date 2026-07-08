@@ -358,7 +358,7 @@ def _shareholder_table(rows: list) -> str:
     html = (
         "<table class='ct'><thead><tr>"
         "<th>#</th><th>股票</th><th>族群</th><th>收盤(週漲跌)</th>"
-        "<th>近5日</th><th>近7日</th>"
+        "<th>近5日</th><th>近7日</th><th>近10日</th><th>近14日</th>"
         "<th>大戶持倉%</th><th>週變化</th><th>大戶張數變化</th><th>連增週</th>"
         "<th>公司派持股</th><th>大股東持股</th>"
         "</tr></thead><tbody>"
@@ -404,6 +404,8 @@ def _shareholder_table(rows: list) -> str:
             f"{_price_cell(s.get('close'), s.get('change_pct'))}"
             f"{_chg_cell(s.get('chg_5d'))}"
             f"{_chg_cell(s.get('chg_7d'))}"
+            f"{_chg_cell(s.get('chg_10d'))}"
+            f"{_chg_cell(s.get('chg_14d'))}"
             f"<td style='color:{pct_color};font-weight:700'>{pct:.1f}%</td>"
             f"<td>{chg_html}</td>"
             f"<td>{share_chg_html}</td>"

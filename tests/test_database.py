@@ -65,3 +65,31 @@ def test_get_shareholder_top_prev_date_null_for_single_week(tmp_path, monkeypatc
     assert len(df) == 1
     assert pd.isna(df.iloc[0]["prev_date"])
     assert pd.isna(df.iloc[0]["share_chg"])
+
+
+def test_get_rolling_returns_price_ratio(tmp_path, monkeypatch):
+    """近N日累積漲跌 = 收盤價比值（最新交易日 rn1 / N交易日前 rn(N+1) − 1）×100；
+    資料不足回 None。用收盤價比值、不是複利 change_pct（避免捨入漂移，兩頁一致）。"""
+    import screener.database as db_mod
+    db_path = str(tmp_path / "t.db")
+    monkeypatch.setattr(db_mod, "DB_PATH", db_path)
+
+    con = duckdb.connect(db_path)
+    con.execute("CREATE TABLE daily_prices (stock_id VARCHAR, date DATE, close DOUBLE)")
+    # A: 8 交易日。rn1=110、rn6(5日前)=100→近5日+10%、rn8(7日前)=88→近7日+25%
+    A = [('2026-06-26', 88), ('2026-06-27', 90), ('2026-06-30', 100), ('2026-07-01', 101),
+         ('2026-07-02', 102), ('2026-07-03', 103), ('2026-07-04', 105), ('2026-07-07', 110)]
+    for d, c in A:
+        con.execute("INSERT INTO daily_prices VALUES ('AAAA', ?, ?)", [d, c])
+    # B: 只有 4 天 → 近5/7/10/14 全部不足、回 None
+    for d, c in [('2026-07-02', 50), ('2026-07-03', 51), ('2026-07-04', 52), ('2026-07-07', 55)]:
+        con.execute("INSERT INTO daily_prices VALUES ('BBBB', ?, ?)", [d, c])
+    con.close()
+
+    r = db_mod.get_rolling_returns((5, 7, 10, 14))
+    assert r["AAAA"][5] == 10.0    # (110-100)/100
+    assert r["AAAA"][7] == 25.0    # (110-88)/88
+    assert r["AAAA"][10] is None   # 只有8天，不足10日前(rn11)
+    assert r["AAAA"][14] is None
+    assert r["BBBB"][5] is None    # 4天不足5日前(rn6)
+    assert r["BBBB"][7] is None

@@ -1,3 +1,41 @@
+## [2026-07-08] 驗證 - scan_institutional 兩所發布日不同步修復（anchor 最近兩交易日，1b8bfc3）
+
+### 驗證方式
+- `git merge master`（乾淨 FF）；讀 `scan_institutional` 的 anchor_dates 邏輯；全專案 `pytest`；
+  合成 temp DB 測 anchor 邊界（同步/差一天/陳舊/單天退化）；真實本機 DB 不 crash。
+
+### ✅ 驗證通過（對照 debug-tasks 最上面那則）
+- **全專案測試**：**121 passed, 0 failed**（原 119 + `test_institutional.py` 新 2）。
+- **anchor「最近兩交易日」邊界**（合成 temp DB，`anchor_dates = 表裡最近兩個 distinct date`）：
+  - 差一天（TWSE 落後）：TW 股最新 07-07 → 落在 anchor{07-07,07-08} 內 → **入選、退到 07-07** ✅
+  - 領先（TPEx）：TP 股最新 07-08 → **入選、用 07-08** ✅ → 兩所不同步時**兩邊都不漏**
+  - 同步：SYNC 股 07-08 → 入選 ✅（兩所同一天時行為不變）
+  - 陳舊/停牌：OLD 股最新 07-03（差 > 2 個交易日、不在 anchor 內）→ **正確排除**，不被陳舊資料
+    拉進來 ✅
+- **嚴審邊界（我加驗的）——表裡只有一個交易日**：`sorted(unique)[-2:]` 退化成 1 個 anchor，
+  **不 crash**、該股正常入選 ✅（新上線第一天/回補第一天不會爆）。
+- **真實本機 DB**：`scan_institutional('2026-07-08')`（本機只有 07-01 單日）回 1315 檔、不 crash。
+
+### ⚠️ 本機驗證限制
+- 本機 DB 只有單日（07-01），**Section 6 頁面「兩所不同步時同時有 TWSE+TPEx 股」的真實渲染
+  重現不了**，也驗不了 Developer 報的「917 全 TPEx → 2246 檔、TWSE 0→509」production 數字。
+  但那個 scenario 的**核心資料源邏輯已由上面的合成 anchor 測試精確涵蓋**（TW 退 07-07 + TP 用
+  07-08 同時入選）。真實頁面目視留給桌電：跑 main.py 開 chips.html Section 6 確認同時有兩所股票。
+
+### 🟡 觀察（非阻擋，記錄）
+- `anchor_dates` 用「表裡最近兩個 distinct date」而非「日曆最近兩交易日」。正常情境（兩所最多差
+  一個發布日）完全正確。極端情境：若某天**兩所都沒發布**、資料整體卡在更早（例如最新兩筆是
+  07-03/07-04），anchor 會自動跟著那兩天走——這是合理的（就用當時最新的兩天），只是要知道
+  anchor 是「資料驅動」不是「日曆驅動」，跟需求一致。
+- 這是 institutional 版的 per-stock fallback，跟稍早 `get_chips_today`（margin/9d82a3a）現在對
+  「交易所發布日不同步」的處理**一致**了（一個 TPEx 落後、一個 TPEx 領先，兩個方向都修了）。
+
+### 結論
+- [x] 可以繼續——anchor 邊界（同步/差一天/陳舊/單天退化）全對、121 passed、真實 DB 不 crash。
+  Section 6 兩所同時顯示的真實渲染留給桌電目視（本機單日資料重現不了，邏輯已由合成測試涵蓋）。
+
+---
+
 ## [2026-07-08] 驗證 - get_chips_today per-stock fallback（族群頁「─」修復，7acfa7b + 9d82a3a）
 
 ### 驗證方式

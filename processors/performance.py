@@ -3,6 +3,7 @@ import duckdb
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from config import META_SECTORS, get_meta_sector, META_PRIORITY_LIST
+from streak_utils import calc_streak as _streak
 
 
 def calc_sector_performance(
@@ -637,21 +638,6 @@ def calc_meta_chips_signals(
         name: set(grp.dropna().unique())
         for name, grp in universe.groupby("meta_sector")["exchange"]
     }
-
-    def _streak(vals: list) -> int:
-        if not vals:
-            return 0
-        today_dir = 1 if vals[-1] > 0 else (-1 if vals[-1] < 0 else 0)
-        if today_dir == 0:
-            return 0
-        count = 1
-        for v in reversed(vals[:-1]):
-            d = 1 if v > 0 else (-1 if v < 0 else 0)
-            if d == today_dir:
-                count += 1
-            else:
-                break
-        return count * today_dir
 
     signals: Dict[str, Dict[str, Any]] = {}
     for meta_name in foreign_pivot.index:

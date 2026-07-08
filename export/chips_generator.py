@@ -471,7 +471,7 @@ _CSS = """
   .ct tr:last-child td{border-bottom:none}
   .ct tr:hover td{background:#141c2e}
   .ct-name{font-weight:600;color:#e2e8f0;min-width:90px}
-  .ct-meta{color:#475569;font-size:.72rem}
+  .ct-meta{color:#94a3b8;font-size:.72rem}
   .ct-rank{color:#334155;font-size:.72rem;font-weight:700;text-align:center;width:24px}
   .sid{color:#475569;font-size:.72rem;font-weight:600}
   .no-data{color:#334155;font-size:.8rem;padding:12px 0;text-align:center}

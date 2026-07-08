@@ -269,9 +269,15 @@ def _update_insider_holdings() -> None:
     init_db()
     stock_ids = pd.read_csv(UNIVERSE_PATH, dtype=str)["stock_id"].tolist()
     logger.info("=== 內部人持股更新（%d 支股票）===", len(stock_ids))
-    rows = fetch_insider_holdings_monthly(stock_ids)
+    rows, blocked_ids = fetch_insider_holdings_monthly(stock_ids)
     n = ih_save(rows)
     logger.info("=== 內部人持股更新完成，寫入 %d 筆 ===", n)
+    if blocked_ids:
+        logger.warning(
+            "=== %d 支股票被 MOPS 限流擋掉（非真正查無資料），建議稍後重跑補齊，"
+            "不要當成這批股票沒有內部人持股 ===",
+            len(blocked_ids),
+        )
 
 
 def _backfill_shareholder(weeks: int = 4) -> None:

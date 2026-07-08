@@ -1,3 +1,29 @@
+## [2026-07-08] 調查結論 - TPEx 融資 07-07 缺席：官方發布延遲，抓取端無 bug（不用再追）
+
+### 調查方式
+- 讀 `main.py:125-145`（TPEx 融資寫入）+ `scrapers/chips.py::fetch_margin_all_tpex()`；
+  對照 Cody 07-08 實跑的 log
+
+### 結論：抓取端沒有可修的 bug，是 TPEx 官方資料源的發布延遲
+- `fetch_margin_all_tpex()` 用 TPEx OpenAPI `tpex_mainboard_margin_balance`，docstring 明載
+  **「只回傳當天，無法查歷史日期」**——它只給 TPEx 官方當下發布的最新一天，沒有日期參數。
+- Cody 07-08 的 log 實證：`TPEx 融資融券目前是 2026-07-03（跟 TWSE 端不同天，可能尚未更新）`
+  → 抓取當下 TPEx 最新只發到 07-03，程式**誠實寫進 07-03**（不是 crash、不是寫錯日期）。
+  TWSE 融資盤後當天就發、TPEx 融資明顯更慢，這是兩個來源的天性差異。
+- 為什麼「不能靠 retry 讓它當天就有」：資料還沒被 TPEx 發布，重試也生不出來；API 也不收
+  指定日期。唯一補歷史 TPEx 融資的路是別的來源（FinMind），那屬 `--backfill` 範疇、
+  不是每日流程該做的。
+
+### 正解 = 顯示層 fallback（已於上兩則 commit 完成）
+- `get_chips_today` 的 per-stock fallback（commit 9d82a3a）讓 TPEx 個股退到自己最新一筆
+  （07-06/07-03），族群頁不再「─」。這就是面對「外部源延遲」的正確處理，抓取端不需改動。
+
+### 請 Debugger
+- [ ] 認同此結論即可，**不需要再追 TPEx 融資抓取端**（除非哪天發現 TPEx OpenAPI 其實有
+  歷史日期參數、或 log 出現真正的抓取例外而非「尚未更新」提示）。
+
+---
+
 ## [2026-07-08] 修(續) - get_chips_today 改 per-stock fallback：修好 TPEx 個股融資仍「─」
 
 ### 改了什麼

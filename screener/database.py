@@ -247,6 +247,11 @@ def get_chips_today(trade_date: str) -> pd.DataFrame:
     """
     取今日籌碼資料（三大法人 + 融資融券），以 stock_id 為 key 回傳。
     trade_date: 'YYYY-MM-DD'
+
+    三大法人/融資融券是盤後才發布，比盤中就有的股價晚一天。若請求日尚無資料，
+    institutional / margin **各自** fallback 到 <= trade_date 的最新可用日期
+    （比照 screener/institutional.py 的做法），避免族群頁外資/投信/融資全顯示「─」。
+    兩張表獨立 fallback：某天可能只有其中一邊發布。
     """
     con = get_conn()
     df = con.execute("""
@@ -261,9 +266,11 @@ def get_chips_today(trade_date: str) -> pd.DataFrame:
             m.short_balance,
             m.short_change
         FROM
-            (SELECT * FROM institutional WHERE date = ?) i
+            (SELECT * FROM institutional
+             WHERE date = (SELECT MAX(date) FROM institutional WHERE date <= ?)) i
             FULL OUTER JOIN
-            (SELECT * FROM margin WHERE date = ?) m
+            (SELECT * FROM margin
+             WHERE date = (SELECT MAX(date) FROM margin WHERE date <= ?)) m
             ON i.stock_id = m.stock_id
     """, [trade_date, trade_date]).df()
     con.close()

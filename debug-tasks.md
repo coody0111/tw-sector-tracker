@@ -1,3 +1,43 @@
+## [2026-07-08] 修 - 族群頁外資/投信/融資顯示「─」：get_chips_today 加 fallback（接續下方調查）
+
+### 改了什麼
+- 異動檔案：`screener/database.py`（`get_chips_today`）、`tests/test_database.py`（+2 測試）
+
+**根因（比下方調查更精確）**：下方調查說「族群頁用今天日期對不到就顯示─」方向對，但真正的
+兇手定位到 `get_chips_today()`（database.py:246）——它對 institutional **和** margin 都用
+`WHERE date = ?`（嚴格 trade_date=今天），**沒有 fallback**。institutional/margin 盤後才發布、
+正常停在前一交易日，就查不到 → index.html（族群頁）全顯示「─」。
+- **對照**：chips.html 走的 `calc_meta_chips_signals()` 用 `today = all_dates[-1]`（institutional
+  表裡最新存在的日期）**本來就會 fallback**——我實跑驗過本機 41/41 族群都有值。所以是**兩條路徑
+  行為不一致**：chips.html 會退、index.html 不會退。
+
+**修法**：`get_chips_today` 的兩個子查詢改成
+`WHERE date = (SELECT MAX(date) FROM <表> WHERE date <= ?)`，institutional / margin **各自**
+fallback 到 <= 今天的最新可用日期（比照 `screener/institutional.py:118` 的做法）。兩張表獨立退，
+因為某天可能只有一邊發布。
+
+**驗證**：
+- TDD：新增 2 測試（單純 fallback、institutional/margin 各停不同天各自退），全專案 114 passed。
+- 本機真實 DB 實測：`get_chips_today('2026-07-08')`（institutional/margin 只到 07-07）修復前回
+  **0 筆**、修復後回 **2268 筆**（2245 有外資、1279 有融資），族群頁不再全「─」。
+
+### 資料來源相關
+- 不適用抓取邏輯——這是「讀取層對正常資料延遲的 fallback」，跟下方調查結論一致：
+  **institutional/margin 晚一天是正常的（盤後發布），不是抓取失敗**。
+
+### 請 Debugger 驗證
+- [ ] 全專案 114 passed（原 112 + 新 2）
+- [ ] fallback 邏輯：institutional/margin 各自 `MAX(date) WHERE date <= today` 正確、兩表獨立
+- [ ] 邊界：某表完全無資料時 `MAX(date)` 為 NULL → 該側空、FULL OUTER JOIN 仍回另一側（不 crash）
+
+### 仍未處理（獨立問題，非這次範圍）
+- **margin 07-07 只有 1279 筆（約半，缺 TPEx）**：那天 TPEx 融資融券疑似抓取失敗只寫了 TWSE。
+  fallback 正確顯示「現有的」，但根本的「TPEx 那天為何沒抓到」要另外查（對照下方調查提的
+  「main.py 對 TPEx 抓取失敗只 log warning 不擋流程」）。
+- 族群個股表格 5/7/10/14 天累積漲跌幅欄位（log.md 待辦#2）、index.html UI 重設計（待辦#1）未動。
+
+---
+
 ## [2026-07-08] 調查 - 族群頁「累積漲跌幅」疑似錯誤 + 外資/投信/融資全部無資料
 
 ### 調查方式

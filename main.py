@@ -7,7 +7,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from scrapers.moneydj import scrape_industry_sectors
-from scrapers.finmind import fetch_prices_for_stocks
+from scrapers.daily_prices import fetch_prices_for_stocks
 from scrapers.realtime import fetch_realtime_prices
 from scrapers.chips import fetch_institutional, fetch_institutional_tpex, fetch_margin_all_twse, fetch_margin_all_tpex, TWSEBlockedError
 from scrapers.backfill import backfill_twse_monthly, backfill_institutional, backfill_margin, backfill_yfinance

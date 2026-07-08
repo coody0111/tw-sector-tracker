@@ -1,3 +1,9 @@
+"""
+每日行情抓取（盤後）——上市走官方 TWSE API、上櫃走官方 TPEx API，**不使用 FinMind**。
+
+（本檔原名 scrapers/finmind.py，會誤導成「每日流程用 FinMind」，2026-07-08 改名。
+FinMind 只用於歷史回補的 TPEx 部分，見 scrapers/backfill.py。）
+"""
 import logging
 from pathlib import Path
 import pandas as pd

@@ -150,3 +150,24 @@ tw-sector-tracker/
 
 **⚠️ 兩個 session 別同時動 git**：Debugger 那邊也有一個 Claude session 共用同一個 `.git`，
 同時下 git 指令會壞 index/ref。
+
+---
+
+## 🔒 防分岔鐵律（2026-07-09 踩過合併地獄後定）
+
+master 與 debug 曾各自長出獨立 commit → 分岔成 Y 形，要手動解衝突 merge，很痛。避免方式：
+
+- **master 是唯一整合點**：所有 code 改動走 master（Developer）。Debugger 原則上**只 review／回報，
+  不自己 commit code**（見 Debugger 職責）。
+- **開工前先同步**：`git status -sb` 看到落後 origin 就先 `git pull --rebase`，別在落後狀態上做事。
+- **debug 只 FF、不自己長 commit**：Debugger 端 `git merge master` 應該永遠是乾淨 fast-forward。
+  若 Debugger 被授權直接修了 code（例外），要**當場 merge 回 master**，別讓 debug 累積獨立 commit。
+- **真的分岔了**：先確認另一個 session 停手，再在**一台**上 `git merge`，衝突大多在 append 型檔
+  （`bug-reports.md`／`debug-tasks.md`）→ **兩段都留**即可，不要取捨內容。
+
+## 🔄 CLAUDE 檔跨機同步（筆電 ⇄ 桌電）
+
+- **`CLAUDE.md` 是本地檔、被 gitignore、不會同步**（每台各自一份，給 Claude 讀）。
+- **要同步工作流規則到另一台，改的是 `CLAUDE-developer.md` / `CLAUDE-debugger.md`**（這兩個才 tracked）
+  → commit + push → 另一台 `git pull` → 該台 `cp CLAUDE-developer.md CLAUDE.md` 重建本地副本。
+- ⚠️ **別直接改 `CLAUDE.md`**——那樣改的東西 gitignored、不會同步到桌電（這是踩過的雷）。

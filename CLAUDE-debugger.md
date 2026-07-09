@@ -147,6 +147,27 @@ tw-sector-tracker-debug/
 
 ---
 
+## 🔒 防分岔鐵律（2026-07-09 踩過合併地獄後定）
+
+master 與 debug 曾各自長出獨立 commit → 分岔成 Y 形，要手動解衝突 merge，很痛。避免方式：
+
+- **master 是唯一整合點**：所有 code 改動走 master（Developer）。你**原則上只 review／回報，不自己
+  commit code**（見開頭職責）。
+- **debug 只 FF、不自己長 commit**：你的 `git merge master` 應該永遠是乾淨 fast-forward。
+- **例外（Cody 授權你直接修 code）**：修完要**當場把 commit 同步回 master**（別只留在 debug），
+  否則 master 一旦又有新 commit 就分岔。回報照樣寫 `bug-reports.md`。
+- **真的分岔了**：先確認 Developer session 停手，再在**一台**上 `git merge`，衝突大多在 append 型檔
+  （`bug-reports.md`／`debug-tasks.md`）→ **兩段都留**即可，不要取捨內容。
+
+## 🔄 CLAUDE 檔跨機同步（筆電 ⇄ 桌電）
+
+- **`CLAUDE.md` 是本地檔、被 gitignore、不會同步**（每台各自一份，給 Claude 讀）。
+- **要同步工作流規則到另一台，改的是 `CLAUDE-developer.md` / `CLAUDE-debugger.md`**（這兩個才 tracked）
+  → commit + push → 另一台 `git pull` → 該台 `cp CLAUDE-debugger.md CLAUDE.md` 重建本地副本。
+- ⚠️ **別直接改 `CLAUDE.md`**——那樣改的東西 gitignored、不會同步（這是踩過的雷）。
+
+---
+
 ## 原則
 
 數據的錯誤比程式 crash 更危險，因為它不會報錯，但會給出錯誤的掃盤結果。

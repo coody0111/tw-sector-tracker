@@ -1,3 +1,50 @@
+## [2026-07-09] 驗證 - 大盤分級儀表板 Phase 1（TAIEX + 廣度 + 集中度 + 五級，74e0694/91278de）
+
+### 驗證方式
+- `git merge master`（乾淨）；全專案 `pytest`；讀四個核心函式實作；實測 classify 五級邊界；
+  **實打真實 TWSE FMTQIK API** 驗 TAIEX 解析（含漲跌點數正負號）、擋頁偵測。
+
+### ✅ 驗證通過
+- **全專案測試**：**148 passed**（含 taiex/processors/html_generator 儀表板全部新測試；1 個
+  pandas FutureWarning，非錯誤——`test_processors.py:252` 用 `df.loc[len]=[...含NaN]` 觸發，
+  不影響結果，Developer 之後可改成先建 df 再 concat 消警告）。
+- **我 pre-review 的兩個 🔴 都被正確處理**：
+  - **#1 集中度兩籃互斥**：`calc_capital_concentration` 用 `broad_pct = df[~is_hw]`（`~is_hw`
+    排除權值股），權值股不會同時進兩籃、落差不被稀釋 ✅。
+  - **#4 change_pct NaN 污染**：廣度與集中度都用 `pd.to_numeric(...,errors="coerce").dropna()`
+    過濾 NaN；`total` 只算有效股；缺邊回 None、divergence 回 None ✅（且有專門測試
+    `test_calc_market_breadth_ignores_nan_change_pct`）。
+- **classify_market_regime 五級（實測邊界）**：大漲/小漲/持平/小跌/大跌正常＋含=下上邊界全對；
+  **矛盾降級**（指數+2% 但廣度40% → 持平、由集中度診斷說明背離）正確；大跌先於小跌判、方向不會
+  互吃；集中度方向（div>0 權值股撐盤 / div<0 中小型輪動 / |div|<2 不標）全對。
+- **TAIEX 解析（實打真實 FMTQIK）**：
+  - 欄位用**名稱索引**（`fields.index("發行量加權股價指數")` 等），格式改欄序也不會錯位 ✅。
+  - **漲跌點數帶正負號**（真實回應實測：`-224.23`、`-1,077.28`、`255.30`），`_to_float` 正確處理
+    逗號+負號 → **change_pct 正負不會顛倒**（我特別查這點：若無號會讓五級方向全反）。真實 07-08
+    解出 +0.56%、驗算吻合 ✅。
+  - **擋頁偵測**：content-type 非 json、stat≠OK、缺欄位 → 一律 `TWSEBlockedError`（實測 HTML 擋頁
+    + stat="很抱歉" 都正確擋）✅，不會把擋頁誤當「當月無資料」。
+- **上市/上櫃無混用**：只讀 TAIEX 大盤指數 + prices_df.change_pct，不碰個股上市櫃來源 ✅。
+
+### 🟡 建議 / 待處理（非阻擋）
+- **門檻未回測**（Developer 已標）：五級切點、集中度 2pt 都是草案。建議桌電 Task 6 跑真實 main.py
+  開 index.html，對當天財經新聞的大盤漲跌是否合理；例如 07-07 TAIEX -2.31%（大跌等級），可對一下
+  當天廣度是否也弱、分類是否落「大跌」。
+- **realtime 語意**（Developer 已標，非 bug）：`--realtime` 盤中廣度來自即時股價、但 TAIEX 走
+  FMTQIK 只有盤後 → 盤中會配到昨天的指數。盤後 batch 無此問題。留給 Cody 決定要不要接盤中指數。
+- **中信金/金融股是否移出權值籃**：Developer 已標的待討論項，跟資料正確性無關（是策略選擇），
+  這次照 0050 前 10。
+
+### 本機驗證限制
+- 廣度/集中度我用**函式單元 + 真實 TAIEX API** 驗過邏輯；**真實整頁渲染**（`_market_regime_section`
+  配當天完整 prices_df）需桌電有多股資料跑 main.py 目視——這台 daily_prices 只有 07-02 單日。
+
+### 結論
+- [x] 可以放行——四個核心函式（TAIEX 解析/廣度/集中度/五級分類）邏輯、邊界、防呆、擋頁全部正確；
+  我 pre-review 的兩個 🔴 都收了；148 passed。門檻回測與整頁目視留桌電 Task 6。
+
+---
+
 ## [2026-07-08] 驗證 - scan_institutional 兩所發布日不同步修復（anchor 最近兩交易日，1b8bfc3）
 
 ### 驗證方式

@@ -39,11 +39,22 @@ def _check_twse_response(resp) -> None:
 
 
 def _parse_num(val: str) -> int:
-    """把 '1,234,567' 或 '-1,234,567' 轉成整數。"""
+    """把 '1,234,567' 或 '-1,234,567' 轉成整數。解析失敗回 0（用於買賣超等『0 是合法值』的欄位）。"""
     try:
         return int(str(val).replace(",", "").strip())
     except (ValueError, AttributeError):
         return 0
+
+
+def _parse_num_opt(val: str):
+    """嚴格版：把數字字串轉 int，無法解析回 None（不是 0）。
+    用於融資/融券『餘額』欄位——若某格格式跳掉（'--'、footnote、全形數字）而回 0，
+    會讓 margin_change = 0 - prev_margin 變成假的巨額『融資大減』訊號。餘額解析失敗
+    應該跳過整列，不要用 0 去相減。"""
+    try:
+        return int(str(val).replace(",", "").strip())
+    except (ValueError, AttributeError):
+        return None
 
 
 def fetch_institutional(trade_date: date) -> pd.DataFrame:
@@ -180,11 +191,14 @@ def fetch_margin_all_twse(trade_date: date) -> pd.DataFrame:
         if not sid:
             continue
         try:
-            margin_bal  = _parse_num(row[6])
-            prev_margin = _parse_num(row[5])
-            short_bal   = _parse_num(row[12])
-            prev_short  = _parse_num(row[11])
-        except (IndexError, ValueError):
+            margin_bal  = _parse_num_opt(row[6])
+            prev_margin = _parse_num_opt(row[5])
+            short_bal   = _parse_num_opt(row[12])
+            prev_short  = _parse_num_opt(row[11])
+        except IndexError:
+            continue
+        # 餘額欄任一解析失敗（None）就跳過整列，不要用 0 相減製造假的 margin_change。
+        if None in (margin_bal, prev_margin, short_bal, prev_short):
             continue
         rows.append({
             "stock_id":       sid,
@@ -220,10 +234,13 @@ def fetch_margin_all_tpex() -> pd.DataFrame:
         sid = str(row.get("SecuritiesCompanyCode", "")).strip()
         if not date_str or not sid:
             continue
-        margin_bal  = _parse_num(row.get("MarginPurchaseBalance"))
-        prev_margin = _parse_num(row.get("MarginPurchaseBalancePreviousDay"))
-        short_bal   = _parse_num(row.get("ShortSaleBalance"))
-        prev_short  = _parse_num(row.get("ShortSaleBalancePreviousDay"))
+        margin_bal  = _parse_num_opt(row.get("MarginPurchaseBalance"))
+        prev_margin = _parse_num_opt(row.get("MarginPurchaseBalancePreviousDay"))
+        short_bal   = _parse_num_opt(row.get("ShortSaleBalance"))
+        prev_short  = _parse_num_opt(row.get("ShortSaleBalancePreviousDay"))
+        # 餘額欄任一解析失敗就跳列，不用 0 相減造假訊號（同 TWSE 端）
+        if None in (margin_bal, prev_margin, short_bal, prev_short):
+            continue
         rows.append({
             "stock_id":       sid,
             "date":           _roc_date_to_iso(date_str),

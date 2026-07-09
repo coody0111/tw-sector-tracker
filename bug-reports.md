@@ -1,3 +1,42 @@
+## [2026-07-09] 修復 - 籌碼面 review 的 5 個 🔴（Cody 授權「你改吧」，Developer 忙別的）
+
+### 改了什麼（對應下方 review 的 🔴 #1-#5）
+- **#1 `screener/institutional.py:128-135`**：全域 `LIMIT lookback*2000` → 改 per-stock
+  `QUALIFY ROW_NUMBER() OVER (PARTITION BY stock_id ORDER BY date DESC) <= lookback`。
+  高號股不再被低號股吃光配額截掉。
+- **#2 `scrapers/chips.py`**：新增 `_parse_num_opt()`（解析失敗回 None，非 0）；TWSE/TPEx 兩個
+  margin fetch 的餘額欄改用它，任一 None 就 `continue` 跳列——不再用 0 相減造假的「融資大減」。
+  `_parse_num`（買賣超等 0 合法欄位）維持回 0。順帶：原本那個永遠不觸發的 `except ...ValueError`
+  死 except 改成靠 None 判斷（真的有作用了）。
+- **#3+#4 `processors/performance.py::get_stock_chips_ranking`**：institutional/margin/price 三個
+  查詢都改 per-stock `QUALIFY ROW_NUMBER()=1`（不再綁單一 `MAX(institutional)`）→ margin 落後/
+  交易所不同步時不再漏；price_map 建構加 `astype(object).where(notna, None)` 洗 NaN。
+- **#4（防禦）`export/chips_generator.py::_price_cell`**：`if close is None` → 加 `or (isinstance
+  float and close != close)` 一起擋 NaN（涵蓋所有 caller）。
+- **#5 `processors/performance.py::calc_meta_chips_signals:610`**：margin 的 today 從綁 institutional
+  的 `today` 改成 margin 自己的 `margin_merged["date"].max()` → 跨表落後時 margin 數字不再歸零。
+
+### 驗證（新增 7 個回歸測試，全專案 155 passed）
+- `tests/test_institutional.py`：`does_not_drop_high_number_stocks`（3000 檔 × 3 天，lookback=1，
+  舊版只會有 ~667 檔、最高號 3999 消失；修正後 3000 檔全入選）。
+- `tests/test_chips.py`（新檔）：`_parse_num` 回 0 / `_parse_num_opt` 回 None / 餘額失敗跳列不造
+  假訊號（反面證明舊寫法會寫出 -1,000,000 假融資大減）。
+- `tests/test_processors.py`：margin 落後一天 meta 不歸零（#5）；ranking margin 警示撐過 margin
+  lag（#3）；ranking NULL close 洗成 None 不 NaN（#4）。
+- **過程中測試幫我抓到 #4 第一版修法無效**：`float 欄位.where(notna, None)` 不會真的換成 None
+  （NaN 留著），要先 `astype(object)`——已修正並實測 `_price_cell(nan)` 不 crash、回「─」。
+- 行為實測：#1 高號股全入選、#4 NaN→None + `_price_cell(None/nan)` 都回「─」不 crash。
+
+### 資料來源相關
+- 不適用抓取口徑變動——#2 是「餘額解析失敗別造假訊號」的防呆，TWSE/TPEx margin 欄位對應沒變。
+
+### 沒動的部分（🟡 #6-#10 留著）
+- #6 insider 位置式 INSERT、#7 shareholder 首呼叫未包 try、#8 格式跳掉回全 0、#9 `_fmt_net` floor
+  不對稱、#10 skew 四處各修+死碼/重複——都是潛在風險/顯示/整潔，非立即會給錯數字，這輪先不動。
+  其中 #10 的「抽共用 per-stock fallback helper」是根治方向，但那是較大重構，另開。
+
+---
+
 ## [2026-07-09] Code Review（high effort）- 籌碼面 code 全面 review
 
 範圍：`scrapers/chips.py`、`shareholder.py`、`insider_holdings.py`、`screener/institutional.py`、

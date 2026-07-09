@@ -443,25 +443,21 @@ def get_stock_chips_ranking(
             con.close()
             return {}
         latest_date = date_row[0]
-        inst_df = con.execute(
-            "SELECT stock_id, foreign_net, trust_net FROM institutional WHERE date = ?",
-            [latest_date],
-        ).fetchdf()
-        margin_df = con.execute(
-            "SELECT stock_id, margin_balance, margin_change FROM margin WHERE date = ?",
-            [latest_date],
-        ).fetchdf()
-        price_df = con.execute(
-            "SELECT stock_id, close, change_pct FROM daily_prices WHERE date = ?",
-            [latest_date],
-        ).fetchdf()
-        if price_df.empty:
-            latest_price_date = con.execute("SELECT MAX(date) FROM daily_prices").fetchone()[0]
-            if latest_price_date:
-                price_df = con.execute(
-                    "SELECT stock_id, close, change_pct FROM daily_prices WHERE date = ?",
-                    [latest_price_date],
-                ).fetchdf()
+        # institutional / margin 各自 per-stock 取自己最新一筆（不綁單一 MAX 日期）：
+        # TWSE/TPEx 發布日不同步、或 margin 比 institutional 晚一天時，單一 MAX(date) 會漏掉
+        # 落後那一邊、或整批 margin 歸零。比照 get_chips_today 的 per-stock fallback。
+        inst_df = con.execute("""
+            SELECT stock_id, foreign_net, trust_net FROM institutional
+            QUALIFY ROW_NUMBER() OVER (PARTITION BY stock_id ORDER BY date DESC) = 1
+        """).fetchdf()
+        margin_df = con.execute("""
+            SELECT stock_id, margin_balance, margin_change FROM margin
+            QUALIFY ROW_NUMBER() OVER (PARTITION BY stock_id ORDER BY date DESC) = 1
+        """).fetchdf()
+        price_df = con.execute("""
+            SELECT stock_id, close, change_pct FROM daily_prices
+            QUALIFY ROW_NUMBER() OVER (PARTITION BY stock_id ORDER BY date DESC) = 1
+        """).fetchdf()
         con.close()
     except Exception:
         return {}
@@ -471,7 +467,11 @@ def get_stock_chips_ranking(
 
     if not price_df.empty:
         price_df["stock_id"] = price_df["stock_id"].astype(str)
-        price_map: Dict[str, dict] = price_df.set_index("stock_id")[["close", "change_pct"]].to_dict("index")
+        # 洗掉 NaN（daily_prices.close 可能是 NULL→NaN，例：停牌/全額交割）→ 換成 None，
+        # 否則 chips_generator._price_cell 的 int(nan) 會 ValueError、讓整個 chips.html 停更。
+        # 注意：float 欄位的 .where(notna, None) 不會真的換成 None（NaN 留著），要先轉 object。
+        _pc = price_df.set_index("stock_id")[["close", "change_pct"]].astype(object)
+        price_map: Dict[str, dict] = _pc.where(_pc.notna(), None).to_dict("index")
     else:
         price_map = {}
 
@@ -608,7 +608,10 @@ def calc_meta_chips_signals(
     if not margin_df.empty:
         margin_df["stock_id"] = margin_df["stock_id"].astype(str)
         margin_merged = margin_df.merge(universe, on="stock_id", how="inner")
-        today_margin = margin_merged[margin_merged["date"] == today]
+        # margin 用 margin 自己的最新日期，不要綁 institutional 的 today——兩表發布日可能不同步，
+        # 用 institutional 的 today 過濾 margin 會在 margin 落後一天時把整批 margin 數字歸零。
+        margin_today = margin_merged["date"].max() if not margin_merged.empty else None
+        today_margin = margin_merged[margin_merged["date"] == margin_today]
         if not today_margin.empty:
             for meta_name, grp in today_margin.groupby("meta_sector"):
                 mc = int(grp["margin_change"].sum())

@@ -125,13 +125,14 @@ def scan_institutional(
     if latest_inst_date != trade_date:
         logger.info("法人資料尚未發布，使用最新日期 %s（請求 %s）", latest_inst_date, trade_date)
 
-    # 取 lookback 天的法人資料
+    # 取每支股票最近 lookback 筆法人資料。
+    # 用 per-stock QUALIFY ROW_NUMBER，不要用全域 LIMIT——全域 LIMIT + ORDER BY stock_id
+    # 會讓低號股吃滿配額、把高號股（大量 TPEx）整批截掉，隨歷史累積漸進式漏股。
     inst_df = con.execute(f"""
         SELECT stock_id, date, foreign_net, trust_net, dealer_net, total_net
         FROM institutional
         WHERE date <= '{latest_inst_date}'
-        ORDER BY stock_id, date DESC
-        LIMIT {lookback * 2000}
+        QUALIFY ROW_NUMBER() OVER (PARTITION BY stock_id ORDER BY date DESC) <= {lookback}
     """).df()
 
     # 行情：優先用目標日，fallback 到最新法人日

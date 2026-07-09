@@ -212,6 +212,85 @@ def test_calc_meta_chips_signals_single_exchange_group_is_never_partial(tmp_path
     assert result["純上市族群"]["partial_coverage"] is False
 
 
+def test_calc_meta_chips_signals_margin_not_zeroed_when_margin_lags_inst(tmp_path):
+    """回歸（#5）：margin 整表比 institutional 晚一天時，舊版用 institutional 的 today
+    去過濾 margin → margin_change_today/balance 全被歸零。修正後 margin 用自己的最新日期，
+    數字不該歸零。"""
+    db_path = tmp_path / "test.db"
+    universe = _make_universe([
+        ("1101", "測試族群", "TWSE"),
+        ("1102", "測試族群", "TWSE"),
+    ])
+    # institutional 最新到 07-07；margin 最新只到 07-06（晚一天）
+    _seed_chips_db(db_path, [
+        ("1101", "2026-07-06", 1000, 100),
+        ("1101", "2026-07-07", 1000, 100),
+        ("1102", "2026-07-06", 500, 50),
+        ("1102", "2026-07-07", 500, 50),
+    ], margin_rows=[
+        ("1101", "2026-07-06", 10000, 800),
+        ("1102", "2026-07-06", 5000, 300),
+    ])
+
+    result = calc_meta_chips_signals(universe, db_path=str(db_path), lookback=5)
+    # margin 應退到自己的 07-06、加總 800+300=1100，不該因對不到 institutional 的 07-07 而歸零
+    assert result["測試族群"]["margin_change_today"] == 1100, "margin 落後一天時不該被歸零"
+    assert result["測試族群"]["margin_balance_today"] == 15000
+
+
+# ── get_stock_chips_ranking（#3 margin skew / #4 NaN close）──────────────
+from processors.performance import get_stock_chips_ranking
+
+
+def _seed_ranking_db(db_path, inst_rows, margin_rows, price_rows):
+    """inst:(sid,date,fn,tn) margin:(sid,date,bal,chg) price:(sid,date,close,change_pct)"""
+    con = duckdb.connect(str(db_path))
+    con.execute("CREATE TABLE institutional (stock_id VARCHAR, date DATE, foreign_net BIGINT, trust_net BIGINT)")
+    con.executemany("INSERT INTO institutional VALUES (?, ?, ?, ?)", inst_rows)
+    con.execute("CREATE TABLE margin (stock_id VARCHAR, date DATE, margin_balance BIGINT, margin_change BIGINT)")
+    con.executemany("INSERT INTO margin VALUES (?, ?, ?, ?)", margin_rows)
+    con.execute("CREATE TABLE daily_prices (stock_id VARCHAR, date DATE, close DOUBLE, change_pct DOUBLE)")
+    con.executemany("INSERT INTO daily_prices VALUES (?, ?, ?, ?)", price_rows)
+    con.close()
+
+
+def test_get_stock_chips_ranking_margin_alert_survives_margin_lag(tmp_path):
+    """回歸（#3）：margin 比 institutional 晚一天時，舊版用 MAX(institutional) 去查 margin
+    → 融資警示整批消失。修正後 margin 用自己最新日期，警示仍在。"""
+    db_path = tmp_path / "test.db"
+    universe = pd.DataFrame([("2330", "台積電", "半導體")], columns=["stock_id", "stock_name", "meta_sector"])
+    _seed_ranking_db(
+        db_path,
+        inst_rows=[("2330", "2026-07-07", 1000, 100)],       # institutional 最新 07-07
+        margin_rows=[("2330", "2026-07-06", 100000, 8000)],  # margin 只到 07-06、融資 +8%
+        price_rows=[("2330", "2026-07-07", 950.0, 1.5)],
+    )
+    result = get_stock_chips_ranking(universe, db_path=str(db_path))
+    assert len(result["margin_alerts"]) == 1, "margin 落後一天時融資警示不該消失（#3）"
+    assert result["margin_alerts"][0]["stock_id"] == "2330"
+
+
+def test_get_stock_chips_ranking_handles_null_close_without_crash(tmp_path):
+    """回歸（#4）：某檔 close 為 NULL（停牌/全額交割）→ DuckDB→pandas 變 NaN。
+    舊版 price_map 沒洗 NaN，chips_generator._price_cell 的 int(nan) 會 crash、整頁停更。
+    這裡驗 get_stock_chips_ranking 回傳的 close 是 None（已洗），不是 NaN。"""
+    import math
+    db_path = tmp_path / "test.db"
+    universe = pd.DataFrame([("2330", "台積電", "半導體")], columns=["stock_id", "stock_name", "meta_sector"])
+    _seed_ranking_db(
+        db_path,
+        inst_rows=[("2330", "2026-07-07", 5000, 100)],       # 外資大買 → 進 top_buy
+        margin_rows=[("2330", "2026-07-07", 100000, 200)],
+        price_rows=[("2330", "2026-07-07", None, None)],      # close = NULL
+    )
+    result = get_stock_chips_ranking(universe, db_path=str(db_path))
+    buys = result["foreign_top_buy"]
+    assert len(buys) == 1
+    close = buys[0]["close"]
+    assert close is None or not (isinstance(close, float) and math.isnan(close)), \
+        "NULL close 應洗成 None、不是 NaN（避免 _price_cell int(nan) crash）"
+
+
 # ── 大盤分級儀表板（Market Regime Dashboard）───────────────────────────
 from processors.performance import (
     calc_market_breadth,

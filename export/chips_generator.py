@@ -67,7 +67,8 @@ def _net_color(n: int) -> str:
 
 
 def _price_cell(close, change_pct) -> str:
-    if close is None:
+    # close 可能是 NULL→NaN（停牌/全額交割），NaN 不是 None → 要一起擋，否則 int(nan) crash
+    if close is None or (isinstance(close, float) and close != close):
         return "<td style='color:#334155'>─</td>"
     price_str = f"{close:.2f}" if close < 10 else (f"{close:.1f}" if close < 100 else f"{int(close)}")
     if change_pct is not None:

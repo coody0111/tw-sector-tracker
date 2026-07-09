@@ -10,7 +10,3 @@ notes/
 .superpowers/
 .claude/
 .cursor/
-
-# 每個 worktree 各自本地維護（Developer/Debugger 角色不同），不進 git 追蹤，
-# 避免 merge 時互相覆蓋。共用規則請改 CLAUDE-developer.md / CLAUDE-debugger.md
-CLAUDE.md

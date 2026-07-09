@@ -1,6 +1,6 @@
 from datetime import date
 
-from export.chips_generator import _coverage_flag, _esc, _inst_streak_table, _meta_link, _shareholder_table, _stock_rank_table, generate
+from export.chips_generator import _build_section6, _coverage_flag, _esc, _inst_streak_table, _meta_link, _shareholder_table, _stock_rank_table, generate
 
 
 def test_esc_escapes_html_special_characters():
@@ -190,3 +190,21 @@ def test_inst_streak_table_row_td_count_matches_header():
     body = html.split("</thead>")[1]
     n_td = body.count("<td")
     assert n_td == n_th, f"資料列 <td> 數 {n_td} != 表頭 <th> 數 {n_th}（可能有雙重 <td>）"
+
+
+def test_build_section6_trust_table_filters_by_price_cum_pct_too():
+    """投信榜比照外資榜（2026-07-09 Cody 要求一致）：trust_streak>=5 且 price_cum_pct>=5%
+    才入選，股價沒反應的投信買超（可能只是被動式資金流入）要濾掉。"""
+    inst_scan = [
+        {"stock_id": "2483", "stock_name": "百容", "meta_sector": "載板", "exchange": "TWSE",
+         "close": 80.0, "change_pct": 6.58, "trust_streak": 5, "foreign_streak": 0,
+         "both_streak": 0, "trust_net": 1000, "cum_trust": 5000, "price_cum_pct": 20.0},
+        {"stock_id": "9999", "stock_name": "無反應股", "meta_sector": "測試", "exchange": "TWSE",
+         "close": 50.0, "change_pct": 0.1, "trust_streak": 5, "foreign_streak": 0,
+         "both_streak": 0, "trust_net": 1000, "cum_trust": 999999, "price_cum_pct": 0.5},
+    ]
+    _, s6b_html = _build_section6(inst_scan)
+
+    assert "百容" in s6b_html
+    assert "無反應股" not in s6b_html, "投信買超但股價沒反應（0.5% < 5% 門檻）應被濾掉"
+    assert "投信持續買進" in s6b_html and "10日漲幅" in s6b_html

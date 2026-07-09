@@ -711,9 +711,12 @@ def _build_section6(inst_scan: list) -> tuple[str, str]:
          and (x.get("price_cum_pct") or 0) >= 5],
         key=lambda x: -(x.get("price_cum_pct") or 0)
     )[:15]
+    # 投信榜比照外資榜（2026-07-09 Cody 要求一致）：同樣加 price_cum_pct>=5% 篩選、
+    # 排序改用漲幅而非今日金額。
     top_trust = sorted(
-        [x for x in inst_scan if x.get("trust_streak", 0) >= 5 and _is_stock(x.get("stock_id", ""))],
-        key=lambda x: -(x.get("trust_net") or 0)
+        [x for x in inst_scan if x.get("trust_streak", 0) >= 5 and _is_stock(x.get("stock_id", ""))
+         and (x.get("price_cum_pct") or 0) >= 5],
+        key=lambda x: -(x.get("price_cum_pct") or 0)
     )[:15]
 
     s6a_html = f"""
@@ -729,7 +732,7 @@ def _build_section6(inst_scan: list) -> tuple[str, str]:
     {_inst_streak_table(top_foreign, 'foreign_streak', 'foreign_net', 'cum_foreign', '外資')}
   </div>
   <div class="chips-section-half">
-    <div class="cs-title">投信持續買進 Top 15（連買 &ge;5 日，排今日金額）</div>
+    <div class="cs-title">投信持續買進 Top 15（連買 &ge;5 日 + 10日漲幅 &ge;5%，排漲幅）</div>
     {_inst_streak_table(top_trust, 'trust_streak', 'trust_net', 'cum_trust', '投信')}
   </div>
 </div>"""

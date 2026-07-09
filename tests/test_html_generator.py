@@ -141,3 +141,35 @@ def test_market_regime_section_handles_none_gracefully():
     """TAIEX 抓取失敗 → regime=None → 整塊不顯示，不讓整頁 crash。"""
     assert _market_regime_section(None) == ""
     assert _market_regime_section({}) == ""
+
+
+def test_search_select_stock_selector_matches_st_row(tmp_path):
+    """回歸：搜尋下拉點選個股（selectSearchStock）用的 selector 必須對應實際渲染的
+    個股列 class。個股呈現改成 .st-row 表格列後，handler 若還找舊的 .stock-card
+    會找不到元素 → 點選無反應 → 連不到個股資訊（modal）。"""
+    import re
+    output_path = tmp_path / "index.html"
+    universe_df = pd.DataFrame([
+        {"stock_id": "2330", "stock_name": "台積電", "meta_sector": "晶圓代工"},
+    ])
+    meta_perf = [{
+        "meta_name": "晶圓代工", "sub_names": ["晶圓代工"],
+        "avg_change_pct": 1.0, "up_count": 1, "down_count": 0, "flat_count": 0,
+        "stock_ids": ["2330"],
+    }]
+    generate(
+        trade_date=date(2026, 7, 9),
+        perf_df=pd.DataFrame(),
+        meta_perf=meta_perf,
+        universe_df=universe_df,
+        output_path=str(output_path),
+    )
+    html = output_path.read_text(encoding="utf-8")
+
+    body = re.search(r"function selectSearchStock\(sid\).*?\n    \}", html, re.DOTALL)
+    assert body, "找不到 selectSearchStock 函式"
+    assert ".st-row" in body.group(0), \
+        "selectSearchStock 必須用能命中表格列(.st-row)的 selector，否則點搜尋結果無反應"
+    # 且要真的把個股資訊帶出來（呼叫 openStockModal）
+    assert "openStockModal" in body.group(0), \
+        "selectSearchStock 應呼叫 openStockModal 顯示個股資訊"

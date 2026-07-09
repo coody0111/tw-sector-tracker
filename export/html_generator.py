@@ -1380,32 +1380,29 @@ def generate(
       document.getElementById('stock-search').value='';
     }}
     function selectSearchStock(sid) {{
-      const card = document.querySelector('.stock-card[data-sid="'+sid+'"]');
-      if (card) {{
-        const mcPanel = card.closest('.mc-panel');
-        if (mcPanel) {{
-          document.querySelectorAll('.mc-panel').forEach(p=>p.style.display='none');
-          document.querySelectorAll('.mc-card.active').forEach(c=>c.classList.remove('active'));
-          mcPanel.style.display='';
-          const mc = document.querySelector('[data-meta="'+mcPanel.id+'"]');
-          if (mc) mc.classList.add('active');
-        }}
-        const miniPanel = card.closest('.sc-mini-panel');
-        if (miniPanel) {{
-          miniPanel.style.display='';
-          const det = miniPanel.closest('details');
-          if (det) det.open=true;
-        }}
-        const detRow = card.closest('.detail-row');
-        if (detRow) detRow.style.display='';
-        setTimeout(()=>{{
-          card.scrollIntoView({{behavior:'smooth',block:'center'}});
-          card.classList.add('search-highlight');
-          setTimeout(()=>card.classList.remove('search-highlight'),2000);
-        }},80);
-      }}
       document.getElementById('search-dropdown').style.display='none';
       document.getElementById('stock-search').value='';
+      // 個股現在以表格列 .st-row 呈現（舊版是卡片 .stock-card），兩者都相容；
+      // 兩種都帶完整 data-* 屬性且 onclick=openStockModal，找到就直接開個股資訊 modal。
+      const el = document.querySelector('.st-row[data-sid="'+sid+'"], .stock-card[data-sid="'+sid+'"]');
+      if (!el) return;
+      // 先展開個股所在的折疊區塊，讓關掉 modal 後也定位得到
+      const mcPanel = el.closest('.mc-panel');
+      if (mcPanel) {{
+        document.querySelectorAll('.mc-panel').forEach(p=>p.style.display='none');
+        document.querySelectorAll('.mc-card.active').forEach(c=>c.classList.remove('active'));
+        mcPanel.style.display='';
+        const mc = document.querySelector('[data-meta="'+mcPanel.id+'"]');
+        if (mc) mc.classList.add('active');
+      }}
+      const miniPanel = el.closest('.sc-mini-panel');
+      if (miniPanel) miniPanel.style.display='';
+      const detRow = el.closest('.detail-row');
+      if (detRow) detRow.style.display='';
+      const det = el.closest('details');
+      if (det) det.open = true;
+      // 直接顯示個股資訊
+      openStockModal(el);
     }}
 
     function selectMeta(id) {{

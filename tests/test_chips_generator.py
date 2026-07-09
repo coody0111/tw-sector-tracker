@@ -1,6 +1,6 @@
 from datetime import date
 
-from export.chips_generator import _coverage_flag, _esc, _meta_link, _shareholder_table, _stock_rank_table, generate
+from export.chips_generator import _coverage_flag, _esc, _inst_streak_table, _meta_link, _shareholder_table, _stock_rank_table, generate
 
 
 def test_esc_escapes_html_special_characters():
@@ -159,4 +159,34 @@ def test_shareholder_table_row_td_count_matches_header():
     n_th = html.count("<th>")
     body = html.split("</thead>")[1]   # 只數 tbody 的資料列
     n_td = body.count("<td")           # <td 前綴涵蓋 <td> 與 <td ...>
+    assert n_td == n_th, f"資料列 <td> 數 {n_td} != 表頭 <th> 數 {n_th}（可能有雙重 <td>）"
+
+
+def test_inst_streak_table_shows_price_cum_pct():
+    """外資/投信持續買進表格新增『10日漲幅』欄（回應 Cody：外資連買要搭配股價連續漲勢
+    才有意義，2026-07-09 百容 2483 案例）。正值紅、負值綠，None（缺行情）顯示「─」。"""
+    rows = [
+        {"stock_id": "2483", "stock_name": "百容", "meta_sector": "載板",
+         "close": 80.0, "change_pct": 6.58, "foreign_streak": 3,
+         "foreign_net": 76200, "cum_foreign": 230950, "price_cum_pct": 57.39},
+        {"stock_id": "9999", "stock_name": "無行情股", "meta_sector": "測試",
+         "close": None, "change_pct": None, "foreign_streak": 3,
+         "foreign_net": 100, "cum_foreign": 300, "price_cum_pct": None},
+    ]
+    html = _inst_streak_table(rows, "foreign_streak", "foreign_net", "cum_foreign", "外資")
+
+    assert "10日漲幅" in html
+    assert "+57.4%" in html
+    assert "─" in html   # price_cum_pct=None 那列
+
+
+def test_inst_streak_table_row_td_count_matches_header():
+    """比照 shareholder_table 的雙重 <td> 回歸測試，這次新增的 10日漲幅欄也要照這個規則檢查。"""
+    rows = [{"stock_id": "2483", "stock_name": "百容", "meta_sector": "載板",
+             "close": 80.0, "change_pct": 6.58, "foreign_streak": 3,
+             "foreign_net": 76200, "cum_foreign": 230950, "price_cum_pct": 57.39}]
+    html = _inst_streak_table(rows, "foreign_streak", "foreign_net", "cum_foreign", "外資")
+    n_th = html.count("<th>")
+    body = html.split("</thead>")[1]
+    n_td = body.count("<td")
     assert n_td == n_th, f"資料列 <td> 數 {n_td} != 表頭 <th> 數 {n_th}（可能有雙重 <td>）"

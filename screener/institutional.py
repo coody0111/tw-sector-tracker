@@ -69,6 +69,15 @@ def _calc_streak(series: pd.Series) -> int:
     return streak
 
 
+def _calc_cum_pct(change_pcts: list) -> float:
+    """複利計算一段期間的累積漲跌幅（%）。用複利而非單純加總，避免長區間誤差。"""
+    f = 1.0
+    for pct in change_pcts:
+        if pct is not None:
+            f *= (1 + pct / 100)
+    return round((f - 1) * 100, 2)
+
+
 def scan_institutional(
     trade_date: str,
     lookback: int = 20,
@@ -80,6 +89,8 @@ def scan_institutional(
     min_total_net: int = 0,
     cum_foreign_net: int = 0,
     cum_trust_net: int = 0,
+    min_price_cum_pct: float = 0.0,
+    price_window: int = 10,
     sort_by: str = "total_net",
     db_path: str = _DB_PATH,
 ) -> List[Dict[str, Any]]:
@@ -88,19 +99,24 @@ def scan_institutional(
 
     Parameters
     ----------
-    trade_date      : 目標日期 'YYYY-MM-DD'
-    lookback        : 往回抓幾個交易日的法人資料（用於計算連買天數與累計）
-    foreign_streak  : 外資連買 ≥ N 日（0 = 不限）
-    trust_streak    : 投信連買 ≥ N 日（0 = 不限）
-    both_streak     : 外資+投信同時連買 ≥ N 日（0 = 不限）
-    min_foreign_net : 今日外資買超門檻（股，0 = 不限）
-    min_trust_net   : 今日投信買超門檻（股，0 = 不限）
-    min_total_net   : 今日三大合計門檻（股，0 = 不限）
-    cum_foreign_net : lookback 天累計外資門檻（股，0 = 不限）
-    cum_trust_net   : lookback 天累計投信門檻（股，0 = 不限）
-    sort_by         : 排序欄位，可選 total_net / foreign_net / trust_net /
-                      foreign_streak / trust_streak / both_streak /
-                      cum_foreign / cum_trust
+    trade_date        : 目標日期 'YYYY-MM-DD'
+    lookback          : 往回抓幾個交易日的法人資料（用於計算連買天數與累計）
+    foreign_streak    : 外資連買 ≥ N 日（0 = 不限）
+    trust_streak      : 投信連買 ≥ N 日（0 = 不限）
+    both_streak       : 外資+投信同時連買 ≥ N 日（0 = 不限）
+    min_foreign_net   : 今日外資買超門檻（股，0 = 不限）
+    min_trust_net     : 今日投信買超門檻（股，0 = 不限）
+    min_total_net     : 今日三大合計門檻（股，0 = 不限）
+    cum_foreign_net   : lookback 天累計外資門檻（股，0 = 不限）
+    cum_trust_net     : lookback 天累計投信門檻（股，0 = 不限）
+    min_price_cum_pct : price_window 天股價累積漲幅門檻（%，0 = 不限）——用複利累積漲幅，
+                        不是連續上漲天數，這樣像「兩週漲快一倍但中間偶有拉回」的個股不會被
+                        嚴格的連漲天數篩掉。純外資連買、股價卻沒有實際反應的雜訊會被濾掉
+                        （例如被動式資金流入但個股股本大、買超不影響股價的大型股）。
+    price_window      : 股價累積漲幅要看幾天（預設 10，約兩週）
+    sort_by           : 排序欄位，可選 total_net / foreign_net / trust_net /
+                        foreign_streak / trust_streak / both_streak /
+                        cum_foreign / cum_trust / price_cum_pct
 
     Returns
     -------
@@ -109,7 +125,8 @@ def scan_institutional(
         foreign_net, trust_net, dealer_net, total_net,  ← 今日
         foreign_streak, trust_streak, both_streak,
         cum_foreign, cum_trust,                          ← lookback 天累計
-        close, change_pct                                ← 今日行情（若有）
+        close, change_pct,                                ← 今日行情（若有）
+        price_cum_pct                                     ← price_window 天股價累積漲幅（若有行情資料）
     """
     con = duckdb.connect(db_path, read_only=True)
 
@@ -148,6 +165,15 @@ def scan_institutional(
             WHERE date = '{latest_inst_date}'
         """).df()
 
+    # 股價 price_window 天累積漲幅：每支股票各自最近 N 個交易日的 change_pct，
+    # 用來算複利累積漲幅（不是連續上漲天數，見函式 docstring）。
+    price_window_df = con.execute(f"""
+        SELECT stock_id, date, change_pct
+        FROM daily_prices
+        WHERE date <= '{latest_inst_date}'
+        QUALIFY ROW_NUMBER() OVER (PARTITION BY stock_id ORDER BY date DESC) <= {price_window}
+    """).df()
+
     con.close()
     trade_date = latest_inst_date  # 掃描基準改為有資料的最新日
 
@@ -166,6 +192,12 @@ def scan_institutional(
     price_map: dict = {}
     if not price_df.empty:
         price_map = price_df.set_index("stock_id")[["close", "change_pct"]].to_dict("index")
+
+    price_cum_map: dict = {}
+    if not price_window_df.empty:
+        for psid, pgrp in price_window_df.groupby("stock_id"):
+            pgrp = pgrp.sort_values("date")
+            price_cum_map[str(psid)] = _calc_cum_pct(pgrp["change_pct"].tolist())
 
     name_map = _load_name_map()
     meta_map = _load_meta_map()
@@ -226,6 +258,12 @@ def scan_institutional(
         if cum_trust_net and cum_t < cum_trust_net:
             continue
 
+        # ── 股價累積漲幅 ─────────────────────────────────────────
+        price_cum_pct = price_cum_map.get(str(sid))
+
+        if min_price_cum_pct and (price_cum_pct is None or price_cum_pct < min_price_cum_pct):
+            continue
+
         # ── 整合行情 ─────────────────────────────────────────────
         px = price_map.get(str(sid), {})
 
@@ -246,6 +284,7 @@ def scan_institutional(
             "cum_trust":      cum_t,
             "close":          px.get("close"),
             "change_pct":     px.get("change_pct"),
+            "price_cum_pct":  price_cum_pct,
         })
 
     # 排序
@@ -258,6 +297,7 @@ def scan_institutional(
         "both_streak":    lambda x: -x["both_streak"],
         "cum_foreign":    lambda x: -x["cum_foreign"],
         "cum_trust":      lambda x: -x["cum_trust"],
+        "price_cum_pct":  lambda x: -(x["price_cum_pct"] or 0),
     }
     key_fn = _sort_key.get(sort_by, _sort_key["total_net"])
     results.sort(key=key_fn)

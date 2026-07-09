@@ -1,3 +1,56 @@
+## [2026-07-09] 功能 - 「外資連買」榜改用股價累積漲幅排序/篩選（Cody 實跑發現百容漏掉）
+
+### 改了什麼
+- 異動檔案：`screener/institutional.py`、`export/chips_generator.py`
+- 新增測試：`tests/test_institutional.py`（3 個）、`tests/test_chips_generator.py`（2 個）
+
+### 為什麼（Cody 實跑回報）
+百容（2483）10 日內大漲、外資連買 3 天，但 `docs/chips.html`「外資連買」榜完全沒看到它。
+查證：`scan_institutional()` 有正確算出 `foreign_streak=3`，但榜單只顯示前 15 名、排序依據是
+**累積買超股數（絕對值）**——符合條件的股票共 222 檔，百容排第 37 名，被小型股天生的低股數
+擠出榜外（第 1 名累積 2.1 億股，百容只有 23 萬股，差 900 多倍）。這是排序方法論的系統性缺陷，
+不是抓取/掃描漏掉。
+
+Cody 提議：搭配股價連續漲勢一起篩選，呼應 `notes/動能派學習筆記.md`「股價先說話」的核心邏輯——
+外資買超如果沒有推動股價，可能只是被動式資金流入（ETF 調倉之類），訊號意義不大；外資買超
++ 股價確實走強，才是真正有效的訊號，這樣篩出來的名單也會自然把小型股的顯著訊號撈出來。
+
+### 邏輯說明
+- `screener/institutional.py`：新增 `_calc_cum_pct()`（複利計算累積漲幅，不是連續上漲天數——
+  百容案例是「兩週漲快一倍但中間有拉回」，用嚴格連漲天數會漏掉）。`scan_institutional()` 新增
+  `price_window`（預設 10 個交易日）、`min_price_cum_pct` 參數與 `price_cum_pct` 回傳欄位、
+  排序選項。
+- `export/chips_generator.py`：「外資連買」榜（Section 6b）改成 `foreign_streak>=3 且
+  price_cum_pct>=5%`，排序依據從 `cum_foreign`（絕對股數）改成 `price_cum_pct`（漲幅）。
+  `_inst_streak_table()` 新增「10日漲幅」欄位顯示（正紅負綠，缺行情顯示「─」）。投信榜
+  （Section 6b 右側）這次沒動，維持原本排序，因為問題是 Cody 針對外資連買提出的，投信要不要
+  比照辦理留給 Cody 決定。
+
+### 資料來源相關（如有異動）
+- 不適用——這次是既有 `daily_prices`/`institutional` 資料的呈現/排序邏輯調整，沒有新增資料源，
+  TWSE/TPEx/FinMind 規則沒有變動
+
+### 請 Debugger 驗證
+- [ ] 全專案測試都過（新增 5 個：`_calc_cum_pct` 複利計算、price_cum_pct 反映真實區間、
+  min_price_cum_pct 濾掉外資買超但股價沒動的雜訊、`_inst_streak_table` 新欄位渲染、
+  雙重 `<td>` 回歸檢查）
+- [ ] 用真實 DB 驗證：百容（2483）現在應該出現在「外資連買」榜前段（我實測是第 4 名，
+  price_cum_pct=57.39%），而不是被擠到 37 名之後
+- [ ] 確認 `min_price_cum_pct=5` 這個門檻合不合理——這是隨手訂的草案數字，沒有回測過，
+  如果榜單看起來太空或太滿，可能要調整
+
+### 特別注意 🚩
+- **投信榜沒有比照修改**：只改了外資連買榜，投信持續買進榜（Section 6b 右側）還是用原本
+  `trust_net`（今日金額）排序，沒有套用股價累積漲幅篩選。如果 Cody 也想要投信榜比照辦理，
+  需要另外討論（用法邏輯應該一樣，但 Cody 這次只針對外資連買提出）
+- `price_window=10`、`min_price_cum_pct=5%` 都是這次順手訂的草案數字，跟大盤分級儀表板那次
+  一樣沒有回測，Debugger／Cody 實際看過榜單效果後可能需要調整
+- 這是 Debugger 角色（本 session）在 Cody 明確要求下切換 Developer 身分直接動手做的，過程
+  完整走過 brainstorming（先跟 Cody 確認方向：cumulative 漲幅 vs 連續上漲天數、要不要濾掉
+  股價沒反應的雜訊）才動手，不是跳過討論直接寫 code
+
+---
+
 ## [2026-07-09] ⏳ 待桌電端到端驗證 - 籌碼面 5 個 🔴 修復（真實資料）
 
 Debugger 已修好籌碼面 review 的 5 個 🔴（commit 已進 master，見 bug-reports.md 同日「修復」那則），

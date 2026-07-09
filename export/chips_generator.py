@@ -245,14 +245,21 @@ def _inst_streak_table(rows: list, streak_key: str, net_key: str, cum_key: str, 
     html = (
         f"<table class='ct'><thead><tr>"
         f"<th>#</th><th>股票</th><th>族群</th><th>收盤</th><th>連買</th>"
-        f"<th>{label}今日</th><th>{label}累計</th>"
+        f"<th>{label}今日</th><th>{label}累計</th><th>10日漲幅</th>"
         f"</tr></thead><tbody>"
     )
     for i, s in enumerate(rows, 1):
         streak = s.get(streak_key, 0)
         net = s.get(net_key) or 0
         cum = s.get(cum_key) or 0
+        price_cum = s.get("price_cum_pct")
         badge = _streak_badge(streak, '外資') if streak_key == 'foreign_streak' else _trust_streak_badge(streak)
+        if price_cum is None:
+            price_cum_html = "<span style='color:#475569'>─</span>"
+        else:
+            p_color = "#f87171" if price_cum >= 0 else "#4ade80"
+            p_sign = "+" if price_cum >= 0 else ""
+            price_cum_html = f"<span style='color:{p_color};font-weight:700'>{p_sign}{price_cum:.1f}%</span>"
         html += (
             f"<tr>"
             f"<td class='ct-rank'>{i}</td>"
@@ -262,6 +269,7 @@ def _inst_streak_table(rows: list, streak_key: str, net_key: str, cum_key: str, 
             f"<td>{badge}</td>"
             f"<td>{_fmt_net(net)}</td>"
             f"<td>{_fmt_net(cum)}</td>"
+            f"<td>{price_cum_html}</td>"
             f"</tr>"
         )
     html += "</tbody></table>"
@@ -693,9 +701,15 @@ def _build_section6(inst_scan: list) -> tuple[str, str]:
         [x for x in inst_scan if x.get("both_streak", 0) >= 2 and _is_stock(x.get("stock_id", ""))],
         key=lambda x: -x["both_streak"]
     )
+    # 排序改用股價累積漲幅（不是累積買超股數）：純用絕對股數排名會被大型股/高股本股
+    # 主宰前段班，把「外資買超雖然股數不多、但確實推動股價」的中小型股擠出榜單
+    # （2026-07-09 實測案例：百容 2483 外資連買 3 天、10 日內大漲，但用絕對股數排到
+    # 第 37 名，被擠出前 15）。改成看股價有沒有實際反應，同時用 min_price_cum_pct
+    # 濾掉外資買超但股價沒動的雜訊（可能是被動式資金流入，不是有效訊號）。
     top_foreign = sorted(
-        [x for x in inst_scan if x.get("foreign_streak", 0) >= 3 and _is_stock(x.get("stock_id", ""))],
-        key=lambda x: -(x.get("cum_foreign") or 0)
+        [x for x in inst_scan if x.get("foreign_streak", 0) >= 3 and _is_stock(x.get("stock_id", ""))
+         and (x.get("price_cum_pct") or 0) >= 5],
+        key=lambda x: -(x.get("price_cum_pct") or 0)
     )[:15]
     top_trust = sorted(
         [x for x in inst_scan if x.get("trust_streak", 0) >= 5 and _is_stock(x.get("stock_id", ""))],
@@ -711,7 +725,7 @@ def _build_section6(inst_scan: list) -> tuple[str, str]:
     s6b_html = f"""
 <div class="chips-grid">
   <div class="chips-section-half">
-    <div class="cs-title">外資持續買進 Top 15（連買 &ge;3 日，排累計）</div>
+    <div class="cs-title">外資持續買進 Top 15（連買 &ge;3 日 + 10日漲幅 &ge;5%，排漲幅）</div>
     {_inst_streak_table(top_foreign, 'foreign_streak', 'foreign_net', 'cum_foreign', '外資')}
   </div>
   <div class="chips-section-half">

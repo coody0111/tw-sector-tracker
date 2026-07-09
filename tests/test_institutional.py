@@ -1,7 +1,7 @@
 # tests/test_institutional.py
 import duckdb
 
-from screener.institutional import scan_institutional
+from screener.institutional import scan_institutional, _calc_cum_pct
 
 
 def _make_inst_table(con):
@@ -78,3 +78,57 @@ def test_scan_institutional_does_not_drop_high_number_stocks(tmp_path):
     # 最高號那檔（3999）必須在——舊版 LIMIT 2000 會把它截掉
     assert "3999" in ids, "最高號股票不該因全域 LIMIT 被截掉（#1 漏股回歸）"
     assert len(ids) == 3000, f"3000 檔應全部入選，實際 {len(ids)}（舊版只會有約 667 檔）"
+
+
+def test_calc_cum_pct_compounds_not_sums():
+    """複利累積漲幅，不是單純加總（長區間會有明顯差異）。"""
+    # +10% 三天：1.1^3 - 1 = 33.1%，不是 30%
+    assert _calc_cum_pct([10.0, 10.0, 10.0]) == 33.1
+    assert _calc_cum_pct([]) == 0.0
+    assert _calc_cum_pct([None, 5.0, None]) == 5.0  # None 值跳過，不當 0 相乘
+
+
+def test_scan_institutional_price_cum_pct_reflects_window(tmp_path):
+    """price_cum_pct 應該是該股 price_window 天內的複利累積漲幅，即使中間有下跌日
+    （百容案例：兩週大漲但中間有拉回，不能用『連續上漲天數』抓，要用累積漲幅）。"""
+    db_path = str(tmp_path / "t.db")
+    con = duckdb.connect(db_path)
+    _make_inst_table(con)
+    _seed_days(con, "2483", [("2026-07-06", 1000), ("2026-07-07", 1000), ("2026-07-09", 1000)])
+    # 股價：+8%, -2%, +6% → 複利 1.08*0.98*1.06 - 1 = 12.1904% ≈ 12.19（中間有一天下跌，不是連漲）
+    con.execute("""INSERT INTO daily_prices VALUES
+        ('2483', '2026-07-06', 70.0, 8.0),
+        ('2483', '2026-07-07', 68.6, -2.0),
+        ('2483', '2026-07-09', 72.7, 6.0)""")
+    con.close()
+
+    res = scan_institutional("2026-07-09", db_path=db_path, lookback=40, price_window=3)
+    row = next(r for r in res if r["stock_id"] == "2483")
+    assert row["price_cum_pct"] == 12.19
+
+
+def test_scan_institutional_min_price_cum_pct_filters_flat_stocks(tmp_path):
+    """外資連買但股價沒反應的股票（可能是被動式資金流入雜訊），min_price_cum_pct 應該濾掉；
+    連買且股價確實走強的應該保留——這是回應 Cody『外資連買要搭配股價連續漲勢』的需求。"""
+    db_path = str(tmp_path / "t.db")
+    con = duckdb.connect(db_path)
+    _make_inst_table(con)
+    # 兩檔都符合 foreign_streak >= 3
+    _seed_days(con, "1111", [("2026-07-06", 1000), ("2026-07-07", 1000), ("2026-07-09", 1000)])
+    _seed_days(con, "2483", [("2026-07-06", 1000), ("2026-07-07", 1000), ("2026-07-09", 1000)])
+    con.execute("""INSERT INTO daily_prices VALUES
+        ('1111', '2026-07-06', 100.0, 0.1),
+        ('1111', '2026-07-07', 100.1, 0.1),
+        ('1111', '2026-07-09', 100.2, 0.1),
+        ('2483', '2026-07-06', 70.0, 8.0),
+        ('2483', '2026-07-07', 75.0, 7.0),
+        ('2483', '2026-07-09', 80.0, 6.7)""")
+    con.close()
+
+    res = scan_institutional(
+        "2026-07-09", db_path=db_path, lookback=40, price_window=3,
+        foreign_streak=3, min_price_cum_pct=5.0,
+    )
+    ids = {r["stock_id"] for r in res}
+    assert "2483" in ids, "外資連買 + 股價實際走強，應保留"
+    assert "1111" not in ids, "外資連買但股價幾乎沒動，應被濾掉（疑似被動式資金流入雜訊）"

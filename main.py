@@ -403,6 +403,19 @@ def run(trade_date: date = None, realtime: bool = False) -> None:
             logger.error("Price fetch failed: %s. Continuing without prices.", exc)
             prices_df = None
 
+    # 完整性保險絲：batch 模式下，探測股 2330（最大權值股，一定在）不在本次結果，
+    # 代表 TWSE 抓取失敗/不完整（例如只剩 TPEx 的 518 支）。此時絕不可用殘缺資料覆蓋
+    # 原本完整的檔案 + DuckDB + 推上 GitHub Pages——直接中止本次流程，保留既有完整資料，
+    # 等 TWSE 恢復後重跑即可。（realtime 走另一條即時來源，不套用這個 batch 保險絲。）
+    if not realtime and prices_df is not None and not prices_df.empty \
+            and "2330" not in prices_df["stock_id"].values:
+        logger.error(
+            "🛑 完整性檢查失敗：探測股 2330 不在本次行情（TWSE 抓取失敗/不完整，只有 %d 支）。"
+            "中止本次流程——不覆蓋完整檔案、不寫 DuckDB、不 push。請待 TWSE 恢復後重跑 python main.py。",
+            len(prices_df),
+        )
+        return
+
     # 3. 寫入行情（盤前/非交易日不寫入重複資料）
     # 這道防呆是為了偵測「TWSE 官方收盤資料還沒公布」（批次模式），只適用於盤後批次抓取。
     # --realtime 抓的是當下即時快照，即使探測股價格剛好與前一天收盤相同（例如尚未成交、

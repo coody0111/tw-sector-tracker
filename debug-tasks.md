@@ -1,3 +1,75 @@
+## [2026-07-09] 功能 - batch 股價改用 realtime 同源（與 --realtime 一致，杜絕看到昨日數據）
+
+### 改了什麼
+- 異動檔案：`main.py`（`run()` 的 batch `else` 分支股價抓取）、新增 spec
+  `docs/superpowers/specs/2026-07-09-batch-realtime-price-source.md`
+- 邏輯：batch（`python main.py`）股價改為 **realtime 同源（`fetch_realtime_prices`）為主、
+  官方 `fetch_prices_for_stocks` 為退路**（realtime 回空/失敗才退，涵蓋盤前/假日）。
+
+### 為什麼（Cody 一整天實跑的痛點）
+- 官方 TPEx endpoint 盤後有定案延遲 → 太早跑抓到昨日殘留值（其陽 3564 顯示昨日 +10%
+  漲停、實際今天 −3.57%）；盤中跑 batch 又會被「市場尚未更新」防呆切回昨天。
+- realtime（mis.twse.com.tw）盤後回收盤集合競價價（實測 17:55 仍撈得到、time=13:30、
+  其陽正確 54.1），無定案延遲。改用它 → 股價/族群與 --realtime 一致、永不看到昨天。
+
+### 資料來源相關（重點）
+- **只改股價**。籌碼（法人/融資/TAIEX）**完全沒動**，仍走官方（`_update_chips_db` 無條件
+  執行，realtime 與 batch 都會抓、來源相同 → 兩指令籌碼一致，但受官方盤後發布時間限制）。
+- realtime 來源本來就沒有籌碼資料，籌碼不可能改成 realtime，此為資料源本質。
+
+### 請 Debugger 驗證
+- [ ] batch 主走 realtime：mock `fetch_realtime_prices` 回正常 df → 用它、不呼叫官方
+- [ ] realtime 回空/丟例外 → 退回 `fetch_prices_for_stocks`（官方）
+- [ ] 完整性保險絲仍有效：realtime df 缺 2330 → 中止（跟前一則保險絲互動）
+- [ ] 全專案 pytest 沒被弄壞
+
+### 特別注意 🚩
+- 這讓 `python main.py` 與 `--realtime` 幾乎等價（差別只剩 batch 多保險絲+防呆）。
+- daily_prices 歷史檔：盤中跑會寫即時價（與現行 --realtime 相同行為，非新風險），盤後那次
+  跑覆蓋成收盤價，近5/7/10/14日/回測以盤後為準。
+
+---
+
+## [2026-07-09] 修 🔴 - batch 完整性保險絲 + 搜尋點選個股連不到 modal + HTML no-cache
+
+### 改了什麼（3 個獨立小修，都是 Cody 實跑遇到的問題）
+1. **batch 完整性保險絲**（`main.py`，commit 59baf3b）
+   - 根因：一次盤後跑 TWSE 連線 timeout，只抓到 TPEx 518 支（所有上市股缺失），
+     舊流程照樣**覆蓋完整檔案 + 寫 DuckDB + push GitHub Pages** → 族群個股大量消失、
+     巨量換手掃不出、線上壞版。
+   - 修法：batch 模式寫入前檢查探測股 2330（最大權值股必在）在不在結果，不在即
+     `return` 中止，保留既有完整資料。realtime 走即時來源、不套用。
+2. **搜尋點選個股連不到個股資訊**（`export/html_generator.py`，commit 6a07285）
+   - 根因：個股呈現早改成 `.st-row` 表格列，但 `selectSearchStock` 還找舊的 `.stock-card`
+     → querySelector 回 null → 點搜尋結果無反應。改成相容兩者、找到即 openStockModal。
+   - 加迴歸測試 `test_search_select_stock_selector_matches_st_row`。
+3. **HTML no-cache meta**（index/chips/patterns 三個 generator，commit 96a17f0）
+   - 大檔被瀏覽器啟發式快取，普通 F5 看到舊資料、要 Ctrl+F5。三頁 head 加
+     Cache-Control/Pragma/Expires no-cache。
+
+### 資料來源相關（重要，Cody 這輪踩到的坑）
+- **TPEx `tpex_mainboard_quotes` 有盤後定案延遲**：盤後太早跑（如 15:33），TPEx 這個
+  endpoint 還沒把今日收盤定案，會回**前一交易日的殘留價量**（其陽 3564 一度顯示昨天的
+  漲停 +10%，實際今天是跌的）。傍晚（~17:00 後）定案。**這不是 bug、非停牌**——是資料源
+  時間差。我一度誤診成「停牌」寫了偵測碼，查 TPEx openapi 真實值後**已回退**（沒進 commit）。
+- realtime（mis.twse.com.tw）是獨立來源、不受 TPEx 定案延遲影響，所以 Cody 觀察到
+  「realtime OK、batch 舊」完全合理。
+
+### 請 Debugger 驗證
+- [ ] 保險絲：mock「prices_df 缺 2330」→ `run()` 中止、不寫檔不 push；有 2330 → 正常跑
+- [ ] 搜尋 modal：`test_search_select_stock_selector_matches_st_row` 過；產出 HTML 的
+      selectSearchStock 用 `.st-row` selector 且呼叫 openStockModal
+- [ ] no-cache：三頁 head 都有 3 個 no-cache meta
+- [ ] 全專案 pytest 沒被弄壞
+
+### 特別注意 🚩
+- **保險絲的 2330 探測**跟既有「市場尚未更新」防呆是**兩個不同檢查**（那個是價格=昨天才切日期；
+  這個是 2330 根本不在就中止）。兩者可共存，確認沒打架。
+- TPEx 定案延遲的根本解（TPEx 定案偵測，比照 2330 探測做一個 TPEx 探測股）**還沒做**——
+  要在「TPEx 未定案的時間窗」才重現得了，留待之後（Cody 已知）。
+
+---
+
 ## [2026-07-09] 新功能 - 大盤分級儀表板 Phase 1（依桌電 spec/plan 實作，TDD）
 
 ### 改了什麼

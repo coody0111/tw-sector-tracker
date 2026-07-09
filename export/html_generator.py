@@ -997,33 +997,27 @@ def generate(
     # 累積排名 lookup（用於卡片上的 badge）
     cum_ranks = _make_cum_ranks(cum_data) if cum_data else {}
 
-    # Top10 / Bottom10
+    # 全部族群，依漲跌幅排序（不是只有 Top10/Bottom10）。
+    # 2026-07-09 Cody 回報：從 chips.html 點「外資連買/連賣族群」連結會直接跳回空白
+    # index.html，查出根因是這裡原本只 render meta_sorted[:10]（漲幅前10）+ 後10名，
+    # 中間表現平平的 21 個族群（41 - 20）完全沒有 .mc-card/.mc-panel，data-meta-name
+    # 屬性根本不存在於 DOM，導致任何指向這些族群的連結（chips.html 的連買/連賣族群、
+    # 搜尋框）全部靜默失敗（openMetaByName 找不到卡片就直接 return，畫面上什麼反應
+    # 都沒有，只是停留在空白 index.html——不是連結本身壞掉，是卡片從沒被產生過）。
+    # 改成 render 全部 41 個族群，不再只留 Top10/Bottom10。
     if meta_perf:
         meta_sorted = sorted(meta_perf, key=lambda r: r["avg_change_pct"], reverse=True)
-        top_source = meta_sorted[:10]
-        bot_source = list(reversed(meta_sorted))[:10]
 
-        top_cards, top_panels = [], []
-        for i, r in enumerate(top_source):
+        all_cards, all_panels = [], []
+        for i, r in enumerate(meta_sorted):
             c, p = _meta_card(r, i+1, f"t{i}", sectors_df, prices_df, chips_df, universe_df, cum_ranks, meta_signals, meta_chips, stock_sparklines=stock_sparklines)
-            top_cards.append(c); top_panels.append(p)
+            all_cards.append(c); all_panels.append(p)
 
-        bot_cards, bot_panels = [], []
-        for i, r in enumerate(bot_source):
-            c, p = _meta_card(r, i+1, f"b{i}", sectors_df, prices_df, chips_df, universe_df, cum_ranks, meta_signals, meta_chips, stock_sparklines=stock_sparklines)
-            bot_cards.append(c); bot_panels.append(p)
-
-        top10_block = (
-            f'<div class="mc-label up-label">▲ 漲幅 Top 10</div>'
-            f'<div class="mc-grid">{"".join(top_cards)}</div>'
-            f'{"".join(top_panels)}'
+        top_section_inner = (
+            f'<div class="mc-label up-label">族群排行（漲幅由高到低）</div>'
+            f'<div class="mc-grid">{"".join(all_cards)}</div>'
+            f'{"".join(all_panels)}'
         )
-        bot10_block = (
-            f'<div class="mc-label dn-label">▼ 跌幅 Top 10</div>'
-            f'<div class="mc-grid">{"".join(bot_cards)}</div>'
-            f'{"".join(bot_panels)}'
-        )
-        top_section_inner = f'{top10_block}<div style="margin-top:10px">{bot10_block}</div>'
     else:
         top10_html = "".join(_top10_card(r, i+1, sectors_df, prices_df, chips_df, stock_sparklines=stock_sparklines) for i, (_, r) in enumerate(df.head(10).iterrows()))
         bot10_html = "".join(_top10_card(r, i+1, sectors_df, prices_df, chips_df, stock_sparklines=stock_sparklines) for i, (_, r) in enumerate(df.tail(10).iloc[::-1].iterrows()))
@@ -1118,7 +1112,7 @@ def generate(
     /* Top10 小卡片 */
     .top-section{{margin-bottom:24px}}
     .mc-label{{font-size:.9rem;font-weight:700;letter-spacing:.04em;margin-bottom:6px}}
-    .up-label{{color:#f87171}} .dn-label{{color:#4ade80}}
+    .up-label{{color:#f87171}}
     .mc-grid{{display:grid;grid-template-columns:repeat(10,1fr);gap:5px}}
     @media(max-width:1000px){{.mc-grid{{grid-template-columns:repeat(5,1fr)}}}}
     @media(max-width:540px){{.mc-grid{{grid-template-columns:repeat(3,1fr)}}}}

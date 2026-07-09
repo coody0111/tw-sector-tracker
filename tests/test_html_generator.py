@@ -173,3 +173,36 @@ def test_search_select_stock_selector_matches_st_row(tmp_path):
     # 且要真的把個股資訊帶出來（呼叫 openStockModal）
     assert "openStockModal" in body.group(0), \
         "selectSearchStock 應呼叫 openStockModal 顯示個股資訊"
+
+
+def test_generate_renders_card_for_every_meta_sector_not_just_top_bottom_10(tmp_path):
+    """回歸（2026-07-09 Cody 回報）：舊版只 render meta_sorted[:10] + 後10名，中間表現
+    平平的族群完全沒有 .mc-card/data-meta-name，導致 chips.html 的「外資連買/連賣族群」
+    連結、搜尋框指向這些族群時 openMetaByName 找不到卡片、靜默失敗（畫面停在空白
+    index.html，看起來像「點了沒反應」）。25 個族群（> 10+10）應該全部有卡片。"""
+    output_path = tmp_path / "index.html"
+    universe_df = pd.DataFrame([
+        {"stock_id": "1000", "stock_name": "測試股", "meta_sector": f"族群{i}", "sub_sector": f"族群{i}"}
+        for i in range(25)
+    ])
+    meta_perf = [{
+        "meta_name": f"族群{i}", "sub_names": [f"族群{i}"],
+        "avg_change_pct": float(i) - 12,  # 有正有負，混合分布，不是全部擠在極端值
+        "up_count": 1, "down_count": 0, "flat_count": 0,
+        "stock_ids": ["1000"],
+    } for i in range(25)]
+
+    generate(
+        trade_date=date(2026, 7, 9),
+        perf_df=pd.DataFrame(),
+        meta_perf=meta_perf,
+        universe_df=universe_df,
+        output_path=str(output_path),
+    )
+    html = output_path.read_text(encoding="utf-8")
+
+    import re
+    names_present = set(re.findall(r'data-meta-name="(族群\d+)"', html))
+    expected = {f"族群{i}" for i in range(25)}
+    missing = expected - names_present
+    assert not missing, f"這些族群完全沒有卡片、連結會靜默失敗：{sorted(missing)}"

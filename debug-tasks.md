@@ -1,3 +1,62 @@
+## [2026-07-09] 修 🔴 - index.html 只 render 21/41 個族群卡片，21 個族群完全點不進去
+
+### 改了什麼
+- 異動檔案：`export/html_generator.py`
+- 新增測試：`tests/test_html_generator.py`（1 個回歸測試）
+
+### 為什麼（Cody 實跑回報）
+從 `chips.html` 點「▲ 外資連買族群」「▼ 外資連賣族群」裡的族群連結，畫面直接跳回空白
+`index.html`，什麼反應都沒有。
+
+**查證過程**：一開始懷疑是 XSS 跳脫（`_esc()`）造成 `data-meta-name` 屬性值跟連結解碼後的
+名稱不一致，實測用 headless Chrome（`chromium.exe --headless --dump-dom`）驗證 `AI伺服器`
+這類無特殊字元的族群連結完全正常，排除跳脫比對問題。改用 chips.html 裡一個真實連結
+（`機器人/自動化`，含 `/` 字元）實測，headless Chrome 顯示對應卡片**完全不存在於 DOM**。
+比對 `docs/index.html` 全部 `data-meta-name` 屬性，只有 **21 個**（`stock_universe.csv`
+實際有 **41 個** meta_sector）。
+
+**根因**：`export/html_generator.py::generate()` 的 `meta_perf` 分支只
+`render meta_sorted[:10]`（今日漲幅前10名）+ `reversed(meta_sorted)[:10]`（跌幅前10名，
+即後10名），中間表現平平、非當日極端漲跌的 **21 個族群完全沒有 `.mc-card`/`.mc-panel`**，
+`data-meta-name` 屬性根本不存在於 DOM。任何指向這些族群的連結（`chips.html` 的外資
+連買/連賣族群、頁面內建搜尋框）打開 `openMetaByName()` 都會 `querySelector` 找不到、
+直接 `return`，畫面完全無反應——不是連結壞掉，是卡片從頭到尾沒被產生過。
+
+這是舊版（前端 React 重構被 revert 回這支 legacy generator 之後）沿用的 Top10/Bottom10
+限制，之前的 React 重構 spec 裡其實已經明確判斷過這個設計是問題（`2026-07-02-
+index-frontend-redesign-design.md`：「原本首頁最上方有獨立的 Top10 區塊，內容跟主列表前段
+重複...拿掉這個獨立區塊，排行榜清單本身＋排序方向切換就取代了它的功能」），只是 revert 回
+legacy generator 後這個舊限制又跟著回來，沒有人注意到「拿掉 Top10 限制」這個決定也該一併
+帶回 legacy 版本。
+
+### 邏輯說明
+`top_source`/`bot_source`（各自 `[:10]`）+ 兩組獨立 render 迴圈，改成單一 `meta_sorted`
+（全部 41 個，不 slice）+ 單一 render 迴圈，卡片 `id` 統一用 `t{i}` 前綴（原本 top 用
+`t{i}`、bottom 用 `b{i}`，現在只有一組列表不需要再分兩種前綴）。標籤從「▲ 漲幅 Top 10」
++「▼ 跌幅 Top 10」兩個區塊合併成「族群排行（漲幅由高到低）」一個區塊——全部族群已經照
+漲跌幅排序，最上面自然是今日漲幅最大、最下面自然是跌幅最大，不需要再切成兩個獨立區塊。
+
+### 資料來源相關（如有異動）
+- 不適用——純呈現層 bug 修復，`calc_universe_performance()` 本來就正確算出全部 41 個
+  META groups（log 可查證），問題是渲染層漏 render，不是資料計算錯誤
+
+### 請 Debugger 驗證
+- [ ] 全專案測試都過（新增 1 個：25 個族群〔刻意 > 10+10〕情境下驗證全部都有卡片）
+- [ ] 用真實 DB 驗證：`docs/index.html` 應該有 41 個（不是 21 個）`data-meta-name`
+- [ ] 用 headless Chrome 或手動瀏覽器測試：從 `chips.html` 點幾個非當日極端漲跌的族群
+  連結（例如中段表現的族群），確認能正確跳轉並展開對應卡片，不再是空白畫面
+- [ ] 確認 `.dn-label` CSS 已經跟著刪掉（`up-label` 還在用、`dn-label` 因為 bottom10 區塊
+  移除已經是死 CSS，順手一起清了，Debugger 可以順便確認沒有其他地方引用到 `dn-label`）
+
+### 特別注意 🚩
+- 這是 Debugger 角色本 session 在 Cody 明確要求下切換 Developer 身分直接查出並修復的——
+  過程中用了 headless Chrome 實際載入頁面驗證（不是只看程式碼推測），排除了一開始懷疑的
+  XSS 跳脫比對問題後才找到真正根因（Top10/Bottom10 截斷），避免誤修錯地方
+- 如果之後又想把「Top10/Bottom10 快速瀏覽」這個功能加回來，可以做成**額外**的摘要區塊
+  （不是取代全族群列表），兩者不衝突，但這次沒有做，純粹修復「族群點不進去」這個回歸
+
+---
+
 ## [2026-07-09] 功能 - 「外資連買」榜改用股價累積漲幅排序/篩選（Cody 實跑發現百容漏掉）
 
 ### 改了什麼

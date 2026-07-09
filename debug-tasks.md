@@ -1,3 +1,35 @@
+## [2026-07-09] 功能 - batch 股價改用 realtime 同源（與 --realtime 一致，杜絕看到昨日數據）
+
+### 改了什麼
+- 異動檔案：`main.py`（`run()` 的 batch `else` 分支股價抓取）、新增 spec
+  `docs/superpowers/specs/2026-07-09-batch-realtime-price-source.md`
+- 邏輯：batch（`python main.py`）股價改為 **realtime 同源（`fetch_realtime_prices`）為主、
+  官方 `fetch_prices_for_stocks` 為退路**（realtime 回空/失敗才退，涵蓋盤前/假日）。
+
+### 為什麼（Cody 一整天實跑的痛點）
+- 官方 TPEx endpoint 盤後有定案延遲 → 太早跑抓到昨日殘留值（其陽 3564 顯示昨日 +10%
+  漲停、實際今天 −3.57%）；盤中跑 batch 又會被「市場尚未更新」防呆切回昨天。
+- realtime（mis.twse.com.tw）盤後回收盤集合競價價（實測 17:55 仍撈得到、time=13:30、
+  其陽正確 54.1），無定案延遲。改用它 → 股價/族群與 --realtime 一致、永不看到昨天。
+
+### 資料來源相關（重點）
+- **只改股價**。籌碼（法人/融資/TAIEX）**完全沒動**，仍走官方（`_update_chips_db` 無條件
+  執行，realtime 與 batch 都會抓、來源相同 → 兩指令籌碼一致，但受官方盤後發布時間限制）。
+- realtime 來源本來就沒有籌碼資料，籌碼不可能改成 realtime，此為資料源本質。
+
+### 請 Debugger 驗證
+- [ ] batch 主走 realtime：mock `fetch_realtime_prices` 回正常 df → 用它、不呼叫官方
+- [ ] realtime 回空/丟例外 → 退回 `fetch_prices_for_stocks`（官方）
+- [ ] 完整性保險絲仍有效：realtime df 缺 2330 → 中止（跟前一則保險絲互動）
+- [ ] 全專案 pytest 沒被弄壞
+
+### 特別注意 🚩
+- 這讓 `python main.py` 與 `--realtime` 幾乎等價（差別只剩 batch 多保險絲+防呆）。
+- daily_prices 歷史檔：盤中跑會寫即時價（與現行 --realtime 相同行為，非新風險），盤後那次
+  跑覆蓋成收盤價，近5/7/10/14日/回測以盤後為準。
+
+---
+
 ## [2026-07-09] 修 🔴 - batch 完整性保險絲 + 搜尋點選個股連不到 modal + HTML no-cache
 
 ### 改了什麼（3 個獨立小修，都是 Cody 實跑遇到的問題）

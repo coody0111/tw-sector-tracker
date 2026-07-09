@@ -394,14 +394,28 @@ def run(trade_date: date = None, realtime: bool = False) -> None:
             logger.error("Real-time fetch failed: %s", exc)
             prices_df = None
     else:
-        logger.info("Fetching prices (TWSE + TPEx)...")
+        # 盤後 batch 的股價改用 realtime 同源（mis.twse.com.tw），與 --realtime 一致：
+        # 收盤後 realtime 回的是收盤集合競價價（time=13:30），等同官方定案收盤，但沒有官方
+        # TPEx endpoint 的「盤後定案延遲」問題（不會抓到昨日殘留值），盤中也不會退回昨天。
+        # realtime 撈不到（盤前/假日/服務未提供）時，退回官方 TWSE+TPEx 收盤 API。
+        logger.info("Fetching prices (realtime 同源 mis.twse.com.tw)...")
+        prices_df = None
         try:
-            prices_df = fetch_prices_for_stocks(unique_ids, trade_date)
+            prices_df = fetch_realtime_prices(unique_ids)
             prices_df["stock_id"] = prices_df["stock_id"].astype(str)
-            logger.info("  TWSE+TPEx total: %d stocks", len(prices_df))
+            logger.info("  即時同源：%d 支", len(prices_df))
         except Exception as exc:
-            logger.error("Price fetch failed: %s. Continuing without prices.", exc)
+            logger.warning("realtime 同源抓取失敗，改用官方收盤 API：%s", exc)
             prices_df = None
+        if prices_df is None or prices_df.empty:
+            logger.info("  realtime 無資料，改用官方 TWSE+TPEx 收盤...")
+            try:
+                prices_df = fetch_prices_for_stocks(unique_ids, trade_date)
+                prices_df["stock_id"] = prices_df["stock_id"].astype(str)
+                logger.info("  TWSE+TPEx total: %d stocks", len(prices_df))
+            except Exception as exc:
+                logger.error("Price fetch failed: %s. Continuing without prices.", exc)
+                prices_df = None
 
     # 完整性保險絲：batch 模式下，探測股 2330（最大權值股，一定在）不在本次結果，
     # 代表 TWSE 抓取失敗/不完整（例如只剩 TPEx 的 518 支）。此時絕不可用殘缺資料覆蓋

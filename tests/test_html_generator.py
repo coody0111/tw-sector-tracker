@@ -90,3 +90,54 @@ def test_generate_escapes_script_breakout_in_embedded_json_index(tmp_path):
     html = output_path.read_text(encoding="utf-8")
     assert '</script><script>alert(1)</script>' not in html
     assert '<\\/script><script>alert(1)<\\/script>' in html
+
+
+# ── 大盤分級儀表板 _market_regime_section ──────────────────────────
+from export.html_generator import _market_regime_section
+
+
+def test_market_regime_section_renders_tier_and_concentration():
+    html = _market_regime_section({
+        "tier": "小漲", "taiex_change_pct": 0.6,
+        "breadth_ratio": 0.48, "up_count": 480, "total": 1000,
+        "is_concentrated": True,
+        "concentration_direction": "權值股撐盤",
+        "heavyweight_avg_pct": 2.1, "broad_avg_pct": -0.8,
+        "divergence": 2.9, "heavyweight_count": 20,
+    })
+    assert "小漲" in html
+    assert "權值股撐盤" in html
+    assert "+0.60%" in html          # 加權指數漲跌
+    assert "+2.10%" in html          # 權值股平均
+    assert "-0.80%" in html          # 非權值股平均
+    assert "廣度 48%" in html
+    # 對應筆記操作提示（小漲 → 續抱強勢股）
+    assert "續抱強勢股" in html
+
+
+def test_market_regime_section_shows_tip_per_tier():
+    """五級各自帶對應的筆記操作提示文字。"""
+    tips = {
+        "大漲": "漲時加碼", "小漲": "續抱強勢股", "持平": "不提前佈局",
+        "小跌": "持股健檢", "大跌": "不接弱勢",
+    }
+    for tier, expect in tips.items():
+        html = _market_regime_section({"tier": tier, "taiex_change_pct": 0.0})
+        assert tier in html
+        assert expect in html
+
+
+def test_market_regime_section_hides_concentration_when_side_missing():
+    """權值股或非權值股其中一邊缺資料時，不顯示資金集中度診斷（但方向標籤仍在）。"""
+    html = _market_regime_section({
+        "tier": "持平", "taiex_change_pct": 0.1,
+        "heavyweight_avg_pct": None, "broad_avg_pct": None,
+    })
+    assert "持平" in html
+    assert "權值股（前" not in html
+
+
+def test_market_regime_section_handles_none_gracefully():
+    """TAIEX 抓取失敗 → regime=None → 整塊不顯示，不讓整頁 crash。"""
+    assert _market_regime_section(None) == ""
+    assert _market_regime_section({}) == ""

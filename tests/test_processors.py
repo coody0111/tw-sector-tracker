@@ -210,3 +210,123 @@ def test_calc_meta_chips_signals_single_exchange_group_is_never_partial(tmp_path
     result = calc_meta_chips_signals(universe, db_path=str(db_path), lookback=1)
 
     assert result["純上市族群"]["partial_coverage"] is False
+
+
+# ── 大盤分級儀表板（Market Regime Dashboard）───────────────────────────
+from processors.performance import (
+    calc_market_breadth,
+    calc_capital_concentration,
+    classify_market_regime,
+)
+
+
+def _breadth_prices(pcts):
+    """pcts: list of change_pct → prices_df（stock_id 自動編號）"""
+    rows = [[f"{1000+i}", f"股{i}", 100.0, 0.0, p, 1000] for i, p in enumerate(pcts)]
+    return _make_price_df(rows)
+
+
+def test_calc_market_breadth_basic_ratio():
+    prices = _breadth_prices([1.0, 2.0, -1.0, 0.0])  # 2 漲 1 跌 1 平
+    b = calc_market_breadth(prices)
+    assert b["up_count"] == 2
+    assert b["down_count"] == 1
+    assert b["flat_count"] == 1
+    assert b["total"] == 4
+    assert abs(b["breadth_ratio"] - 0.5) < 1e-9
+
+
+def test_calc_market_breadth_all_up():
+    b = calc_market_breadth(_breadth_prices([1.0, 3.0, 0.5]))
+    assert b["breadth_ratio"] == 1.0
+
+
+def test_calc_market_breadth_empty_is_safe():
+    b = calc_market_breadth(pd.DataFrame())
+    assert b["total"] == 0
+    assert b["breadth_ratio"] == 0.0
+
+
+def test_calc_market_breadth_ignores_nan_change_pct():
+    prices = _breadth_prices([1.0, -1.0])
+    prices.loc[len(prices)] = ["9999", "無行情", None, None, float("nan"), 0]
+    b = calc_market_breadth(prices)
+    assert b["total"] == 2  # NaN 不計入分母
+
+
+def test_calc_capital_concentration_heavyweight_leading():
+    # 權值股(2330,2454) 大漲，非權值股(1111,2222) 收黑 → divergence 明顯為正
+    prices = _make_price_df([
+        ["2330", "台積電", 900, 20, 2.5, 1000],
+        ["2454", "聯發科", 800, 10, 1.5, 1000],
+        ["1111", "小型A", 50, -1, -1.0, 1000],
+        ["2222", "小型B", 60, -1, -1.0, 1000],
+    ])
+    c = calc_capital_concentration(prices, ["2330", "2454"])
+    assert c["heavyweight_avg_pct"] == 2.0
+    assert c["broad_avg_pct"] == -1.0
+    assert c["divergence"] == 3.0  # 2.0 - (-1.0)
+
+
+def test_calc_capital_concentration_broad_leading():
+    # 非權值股領漲、權值股收黑 → divergence 為負（中小型輪動）
+    prices = _make_price_df([
+        ["2330", "台積電", 900, -9, -1.0, 1000],
+        ["1111", "小型A", 50, 1, 2.0, 1000],
+        ["2222", "小型B", 60, 1, 2.0, 1000],
+    ])
+    c = calc_capital_concentration(prices, ["2330"])
+    assert c["heavyweight_avg_pct"] == -1.0
+    assert c["broad_avg_pct"] == 2.0
+    assert c["divergence"] == -3.0
+
+
+def test_calc_capital_concentration_missing_side_returns_none():
+    # 沒有任何權值股在盤面 → heavyweight_avg 與 divergence 皆 None（無法比較）
+    prices = _make_price_df([
+        ["1111", "小型A", 50, 1, 2.0, 1000],
+    ])
+    c = calc_capital_concentration(prices, ["2330"])
+    assert c["heavyweight_avg_pct"] is None
+    assert c["divergence"] is None
+
+
+def test_classify_regime_five_tiers_at_boundaries():
+    # 大漲：指數 ≥ +1.5% 且廣度 ≥ 65%
+    assert classify_market_regime(1.5, 0.65, None)["tier"] == "大漲"
+    # 小漲：指數 ≥ +0.3% 且廣度 ≥ 50%
+    assert classify_market_regime(0.3, 0.50, None)["tier"] == "小漲"
+    # 持平：-0.3% ~ +0.3%
+    assert classify_market_regime(0.0, 0.50, None)["tier"] == "持平"
+    # 小跌：指數 ≤ -0.3% 且廣度 ≤ 50%
+    assert classify_market_regime(-0.3, 0.40, None)["tier"] == "小跌"
+    # 大跌：指數 ≤ -1.5% 且廣度 ≤ 35%
+    assert classify_market_regime(-1.5, 0.30, None)["tier"] == "大跌"
+
+
+def test_classify_regime_index_up_but_weak_breadth_falls_to_flat():
+    """指數落在『小漲』區間（+0.6%）但廣度不到 50% → 保守退回『持平』。"""
+    assert classify_market_regime(0.6, 0.45, None)["tier"] == "持平"
+
+
+def test_classify_regime_strong_index_medium_breadth_degrades_to_small_up():
+    """指數 +2%（大漲區）但廣度只有 55%（<65%）→ 降級到『小漲』，不是大漲也不是持平。"""
+    assert classify_market_regime(2.0, 0.55, None)["tier"] == "小漲"
+
+
+def test_classify_regime_concentration_directions():
+    # 落差 ≥ 門檻且為正 → 權值股撐盤
+    r1 = classify_market_regime(0.5, 0.45, divergence=2.9)
+    assert r1["is_concentrated"] is True
+    assert r1["concentration_direction"] == "權值股撐盤"
+    # 落差 ≥ 門檻且為負 → 中小型輪動
+    r2 = classify_market_regime(0.1, 0.55, divergence=-2.5)
+    assert r2["is_concentrated"] is True
+    assert r2["concentration_direction"] == "中小型輪動"
+    # 落差在門檻內 → 不標記集中
+    r3 = classify_market_regime(0.1, 0.50, divergence=1.0)
+    assert r3["is_concentrated"] is False
+    assert r3["concentration_direction"] is None
+    # divergence 為 None（無法比較）→ 不標記集中，不 crash
+    r4 = classify_market_regime(0.1, 0.50, divergence=None)
+    assert r4["is_concentrated"] is False

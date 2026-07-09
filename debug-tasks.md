@@ -1,3 +1,50 @@
+## [2026-07-09] 新功能 - 大盤分級儀表板 Phase 1（依桌電 spec/plan 實作，TDD）
+
+### 改了什麼
+- 異動檔案：
+  - 新增 `scrapers/taiex.py`（+ `tests/test_taiex.py`）
+  - `config.py`：新增 `TAIEX_HEAVYWEIGHTS`（權值股清單常數）
+  - `processors/performance.py`：新增 `calc_market_breadth` / `calc_capital_concentration` /
+    `classify_market_regime`（+ `tests/test_processors.py` 追加測試）
+  - `export/html_generator.py`：新增 `_market_regime_section()` + `generate()` 多一個
+    `market_regime` 參數，區塊插在族群排行之上（+ `tests/test_html_generator.py` 追加測試）
+  - `main.py`：`run()` 串接 `fetch_taiex_index` + 三個計算函式，組 `market_regime` 傳給 `generate_html`
+- 邏輯說明：兩條獨立軸線——(1) 五級大盤方向（TAIEX 漲跌 + 個股廣度綜合判斷，門檻見設計文件
+  §軸線一）(2) 資金集中度（權值股 vs 非權值股平均漲跌落差 ≥ 2pt 標記集中）。每一級對應逆轟筆記
+  操作提示（hard-code 在 `_REGIME_TIERS`，因為來源 `notes/` 是 gitignored、不會發布到產出頁那台）。
+- 設計/計畫依據：`docs/superpowers/specs|plans/2026-07-09-market-regime-dashboard*`
+
+### 資料來源相關
+- TAIEX 指數：**TWSE 官方 FMTQIK**（`www.twse.com.tw/rwd/zh/afterTrading/FMTQIK`，2026-07 實測格式）。
+  發行量加權股價指數=收盤、漲跌點數=change、change_pct 用 prev_close=close-change 反推。
+  民國日期 `115/07/01` → +1911 轉西元。封鎖偵測沿用 `scrapers/chips.py::TWSEBlockedError`
+  （content-type 非 json / stat!=OK / 缺欄位一律當擋頁）。fetch 取「<= trade_date 的最新一筆」，
+  當天未發布自動退前一交易日。
+- 廣度/集中度：對**個股** `prices_df.change_pct` 算（不是族群平均），batch 與 realtime 兩條路的
+  prices_df 都有 change_pct 欄，確認過。
+
+### 請 Debugger 驗證（我只寫測試沒跑，全部 pytest 交給你）
+- [ ] `tests/test_taiex.py`：FMTQIK 解析（close/change/change_pct/民國日期）、擋頁→TWSEBlockedError、
+      fetch 日期挑選 + fallback、缺欄位當擋頁
+- [ ] `tests/test_processors.py` 新增：廣度 ratio/邊界、集中度兩方向+缺邊回 None、五級邊界值、
+      「小漲區間但廣度<50%→持平」、集中度方向判斷
+- [ ] `tests/test_html_generator.py` 新增：區塊渲染 tier/集中度/提示、五級各自提示、缺邊隱藏集中度、
+      `market_regime=None`→回空字串（整頁不 crash）
+- [ ] 全專案 pytest 沒有被我這次改動弄壞（generate() 新參數 default None，既有 caller 不受影響）
+- [ ] 上市/上櫃資料來源沒有混用（這功能只讀 TAIEX 大盤指數 + prices_df，不碰個股上市櫃來源）
+
+### 特別注意 🚩
+- **權值股清單待你核對**：`config.TAIEX_HEAVYWEIGHTS` 前 10 檔是 2026-07 對 0050 持股頁實測，
+  第 11-20 檔是常見大型股、**尚未一一對過 0050 權重表**（已在 config 註解標明）。門檻數字（五級切點、
+  集中度 2pt）也都是**設計階段草案、未回測**。Task 6 端到端建議桌電跑真實 `main.py` 開 index.html
+  對一下當天財經新聞的大盤漲跌是否合理，明顯不對就回頭校門檻。
+- **realtime 語意提醒**（非 bug）：`--realtime` 盤中跑時，廣度來自即時股價、但 TAIEX 走 FMTQIK
+  只有盤後收盤 → 盤中會退到昨天的指數 change，與今天即時廣度不同步。每日 batch 流程（盤後）
+  兩者一致、無此問題。要不要為 realtime 另接盤中即時指數，留給 Cody 決定（Phase 1 不做）。
+- Phase 2（個股五級強弱分類，筆記§三十）不在本次範圍。
+
+---
+
 ## [2026-07-08] ⏳ 待桌電目視 - Section 6 兩所同時顯示（scan_institutional 修復的真實頁面驗證）
 
 Debugger 已用合成 temp DB 驗過 `scan_institutional` anchor 邏輯（同步/差一天/陳舊/單天退化全對，

@@ -688,3 +688,118 @@ def calc_meta_chips_signals(
         }
 
     return signals
+
+
+# ═══════════════════════════════════════════════════════════════════
+# 大盤分級儀表板（Market Regime Dashboard）— Phase 1
+# 兩條獨立軸線：(1) 五級大盤方向 (2) 資金集中度診斷。
+# 設計文件：docs/superpowers/specs/2026-07-09-market-regime-dashboard-design.md
+# ═══════════════════════════════════════════════════════════════════
+
+def calc_market_breadth(prices_df: pd.DataFrame) -> Dict[str, Any]:
+    """個股上漲家數廣度。回傳 {up_count, down_count, flat_count, total, breadth_ratio}。
+
+    對『個股』的 change_pct 計算（不是族群平均），breadth_ratio = up_count / total。
+    total 只算有 change_pct（非 NaN）的個股；無資料時 total=0、breadth_ratio=0。
+    """
+    if prices_df is None or prices_df.empty or "change_pct" not in prices_df.columns:
+        return {"up_count": 0, "down_count": 0, "flat_count": 0, "total": 0, "breadth_ratio": 0.0}
+
+    pct = pd.to_numeric(prices_df["change_pct"], errors="coerce").dropna()
+    total = int(len(pct))
+    up = int((pct > 0).sum())
+    down = int((pct < 0).sum())
+    flat = total - up - down
+    return {
+        "up_count": up,
+        "down_count": down,
+        "flat_count": flat,
+        "total": total,
+        "breadth_ratio": round(up / total, 4) if total > 0 else 0.0,
+    }
+
+
+def calc_capital_concentration(
+    prices_df: pd.DataFrame,
+    heavyweight_ids: List[str],
+) -> Dict[str, Any]:
+    """權值股 vs 非權值股平均漲跌的落差（資金集中度）。
+
+    回傳 {heavyweight_avg_pct, broad_avg_pct, divergence}，
+    divergence = heavyweight_avg_pct - broad_avg_pct（可正可負：正=權值股相對強）。
+    某一邊沒有資料時該邊的 avg 回 None，divergence 也回 None（無法比較）。
+    """
+    empty = {"heavyweight_avg_pct": None, "broad_avg_pct": None, "divergence": None}
+    if prices_df is None or prices_df.empty or "change_pct" not in prices_df.columns:
+        return empty
+
+    df = prices_df.copy()
+    df["stock_id"] = df["stock_id"].astype(str)
+    df["change_pct"] = pd.to_numeric(df["change_pct"], errors="coerce")
+    df = df.dropna(subset=["change_pct"])
+    if df.empty:
+        return empty
+
+    hw_set = set(str(s) for s in (heavyweight_ids or []))
+    is_hw = df["stock_id"].isin(hw_set)
+    hw_pct = df[is_hw]["change_pct"]
+    broad_pct = df[~is_hw]["change_pct"]
+
+    hw_avg = round(float(hw_pct.mean()), 2) if not hw_pct.empty else None
+    broad_avg = round(float(broad_pct.mean()), 2) if not broad_pct.empty else None
+    divergence = round(hw_avg - broad_avg, 2) if (hw_avg is not None and broad_avg is not None) else None
+    return {
+        "heavyweight_avg_pct": hw_avg,
+        "broad_avg_pct": broad_avg,
+        "divergence": divergence,
+    }
+
+
+def classify_market_regime(
+    taiex_change_pct: float,
+    breadth_ratio: float,
+    divergence: Optional[float],
+    concentration_threshold: float = 2.0,
+) -> Dict[str, Any]:
+    """綜合『指數漲跌幅 + 個股廣度』判斷五級大盤方向，並附資金集中度診斷。
+
+    回傳 {tier, is_concentrated, concentration_direction}。
+    tier ∈ {大漲, 小漲, 持平, 小跌, 大跌}。
+    concentration_direction ∈ {None, 權值股撐盤, 中小型輪動}。
+
+    分級規則（設計文件門檻，兩個條件都要符合；指數有方向但廣度不 confirm 時
+    往下降級、最終落到「持平」，並由資金集中度診斷說明背離原因）：
+      大漲: 指數 ≥ +1.5% 且 廣度 ≥ 65%
+      小漲: 指數 ≥ +0.3% 且 廣度 ≥ 50%
+      持平: -0.3% ~ +0.3%（或指數有方向但廣度不足）
+      小跌: 指數 ≤ -0.3% 且 廣度 ≤ 50%
+      大跌: 指數 ≤ -1.5% 且 廣度 ≤ 35%
+    ⚠️ 門檻為設計階段草案、未回測，Task 6 端到端驗證時若明顯不合理應回頭校正。
+    """
+    pct = taiex_change_pct if taiex_change_pct is not None else 0.0
+    b = breadth_ratio if breadth_ratio is not None else 0.0
+
+    if pct >= 1.5 and b >= 0.65:
+        tier = "大漲"
+    elif pct >= 0.3 and b >= 0.50:
+        tier = "小漲"
+    elif pct <= -1.5 and b <= 0.35:
+        tier = "大跌"
+    elif pct <= -0.3 and b <= 0.50:
+        tier = "小跌"
+    else:
+        # -0.3~+0.3，或指數有方向但廣度不 confirm（背離）→ 保守落「持平」
+        tier = "持平"
+
+    if divergence is not None and abs(divergence) >= concentration_threshold:
+        is_concentrated = True
+        concentration_direction = "權值股撐盤" if divergence > 0 else "中小型輪動"
+    else:
+        is_concentrated = False
+        concentration_direction = None
+
+    return {
+        "tier": tier,
+        "is_concentrated": is_concentrated,
+        "concentration_direction": concentration_direction,
+    }

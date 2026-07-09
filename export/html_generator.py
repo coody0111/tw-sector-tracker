@@ -836,6 +836,93 @@ def _vol_turnover_section(signals: list) -> str:
 </div>"""
 
 
+# 五級大盤方向 → 顯示樣式 + 對應筆記操作提示（逆轟動能派學習筆記章節）。
+# 提示文字 hard-code 在此（跟著 git 走），因為來源 notes/ 是 gitignored、不會發布到
+# 產出頁那台。設計文件：docs/superpowers/specs/2026-07-09-market-regime-dashboard-design.md
+_REGIME_TIERS = {
+    "大漲": {"emoji": "🚀", "color": "#ff2d2d",
+             "tip": "漲時加碼，找主流族群最強一檔追（可追漲停）。", "ref": "筆記 §二、§七"},
+    "小漲": {"emoji": "🔴", "color": "#d97070",
+             "tip": "正常操作，續抱強勢股、汰弱留強。", "ref": "筆記 全篇通用"},
+    "持平": {"emoji": "⚪", "color": "#94a3b8",
+             "tip": "均線上才買、觸發出場三原則就賣，反覆操作，不提前佈局盤整股。", "ref": "筆記 §七 盤整盤8步驟"},
+    "小跌": {"emoji": "🟢", "color": "#009933",
+             "tip": "持股健檢：均線空頭排列／下彎／跌破頸線任一成立就先出。", "ref": "筆記 §二十二 持股健檢三要素"},
+    "大跌": {"emoji": "⛔", "color": "#00c255",
+             "tip": "只找最後撐住的 5–10 檔換股，不接弱勢、不攤平、不抄底。", "ref": "筆記 §十四、§二十三"},
+}
+
+
+def _market_regime_section(regime: dict) -> str:
+    """大盤分級儀表板：五級方向 + 資金集中度診斷 + 對應筆記操作提示。
+
+    regime 為 None（TAIEX 抓取失敗）時回空字串——這個區塊整塊不顯示，不讓整頁掛掉。
+    """
+    if not regime:
+        return ""
+
+    tier = regime.get("tier", "持平")
+    style = _REGIME_TIERS.get(tier, _REGIME_TIERS["持平"])
+    pct = regime.get("taiex_change_pct")
+    pct_txt = f"{'+' if (pct or 0) >= 0 else ''}{pct:.2f}%" if pct is not None else "—"
+
+    # 廣度：上漲家數 / 總家數
+    up = regime.get("up_count")
+    total = regime.get("total")
+    breadth = regime.get("breadth_ratio")
+    breadth_txt = ""
+    if breadth is not None and total:
+        breadth_txt = (
+            f"<span style='color:#64748b;font-size:.8rem;margin-left:12px'>"
+            f"上漲 <b style='color:#d97070'>{up}</b> / 共 {total} 檔"
+            f"（廣度 {breadth*100:.0f}%）</span>"
+        )
+
+    # 資金集中度診斷（兩邊都有資料才顯示）
+    hw = regime.get("heavyweight_avg_pct")
+    broad = regime.get("broad_avg_pct")
+    conc_html = ""
+    if hw is not None and broad is not None:
+        direction = regime.get("concentration_direction")
+        is_conc = regime.get("is_concentrated")
+        divergence = regime.get("divergence")
+        if is_conc and direction:
+            head_color = "#fbbf24" if direction == "權值股撐盤" else "#60a5fa"
+            head = (f"<span style='color:{head_color};font-weight:700'>資金集中 ⚠️ — "
+                    f"{_esc(direction)}</span>")
+        else:
+            head = "<span style='color:#64748b;font-weight:600'>資金分布均衡</span>"
+        div_txt = f"{'+' if (divergence or 0) >= 0 else ''}{divergence:.2f}" if divergence is not None else "—"
+        conc_html = f"""
+    <div style='margin-top:10px;padding-top:10px;border-top:1px solid #1a2436;font-size:.82rem'>
+      {head}
+      <div style='display:flex;gap:18px;margin-top:6px;color:#94a3b8'>
+        <span>權值股（前{regime.get('heavyweight_count', 20)}大）：
+          <b style='color:{_pct_color(hw)}'>{'+' if hw >= 0 else ''}{hw:.2f}%</b></span>
+        <span>非權值股：
+          <b style='color:{_pct_color(broad)}'>{'+' if broad >= 0 else ''}{broad:.2f}%</b></span>
+        <span>落差：<b style='color:#e2e8f0'>{div_txt} 個百分點</b></span>
+      </div>
+    </div>"""
+
+    return f"""
+<div style='background:#080c14;border:1px solid #1a2436;border-left:3px solid {style['color']};border-radius:10px;padding:16px 18px;margin-bottom:16px'>
+  <div style='font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#475569;margin-bottom:8px'>
+    大盤現況
+  </div>
+  <div style='display:flex;align-items:baseline;flex-wrap:wrap'>
+    <span style='font-size:1.6rem;font-weight:800;color:{style['color']}'>{style['emoji']} {_esc(tier)}</span>
+    <span style='font-size:1.1rem;font-weight:700;color:{style['color']};margin-left:12px'>加權指數 {pct_txt}</span>
+    {breadth_txt}
+  </div>
+  <div style='margin-top:8px;font-size:.86rem;color:#cbd5e1'>
+    💡 {_esc(style['tip'])}
+    <span style='color:#475569;font-size:.72rem;margin-left:6px'>（{_esc(style['ref'])}）</span>
+  </div>
+  {conc_html}
+</div>"""
+
+
 def generate(
     trade_date: date,
     perf_df: pd.DataFrame,
@@ -850,6 +937,7 @@ def generate(
     stock_sparklines: dict = None,
     vol_turnover: list = None,
     rolling_returns: dict = None,
+    market_regime: dict = None,
     output_path: str = "docs/index.html",
 ) -> None:
     if perf_df.empty and not meta_perf:
@@ -1221,6 +1309,8 @@ def generate(
       <a class="nav-link" href="patterns.html">形態掃描</a>
     </div>
   </div>
+
+  {_market_regime_section(market_regime)}
 
   {_vol_turnover_section(vol_turnover or [])}
 

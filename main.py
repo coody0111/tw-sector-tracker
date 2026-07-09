@@ -10,9 +10,10 @@ from scrapers.moneydj import scrape_industry_sectors
 from scrapers.daily_prices import fetch_prices_for_stocks
 from scrapers.realtime import fetch_realtime_prices
 from scrapers.chips import fetch_institutional, fetch_institutional_tpex, fetch_margin_all_twse, fetch_margin_all_tpex, TWSEBlockedError
+from scrapers.taiex import fetch_taiex_index
 from scrapers.backfill import backfill_twse_monthly, backfill_institutional, backfill_margin, backfill_yfinance
 from processors.changes import detect_changes
-from processors.performance import calc_sector_performance, calc_meta_performance, calc_universe_performance, calc_cumulative_meta, calc_meta_signals, calc_meta_chips_signals, calc_stock_sparklines, get_stock_chips_ranking, get_margin_divergence
+from processors.performance import calc_sector_performance, calc_meta_performance, calc_universe_performance, calc_cumulative_meta, calc_meta_signals, calc_meta_chips_signals, calc_stock_sparklines, get_stock_chips_ranking, get_margin_divergence, calc_market_breadth, calc_capital_concentration, classify_market_regime
 from storage.csv_writer import CsvWriter
 from export.html_generator import generate as generate_html
 from export.chips_generator import generate as generate_chips_html
@@ -483,6 +484,33 @@ def run(trade_date: date = None, realtime: bool = False) -> None:
         except Exception:
             chips_df = pd.DataFrame()
 
+        # 大盤分級儀表板：五級方向 + 資金集中度診斷（TAIEX 抓取失敗時整塊不顯示，不擋每日流程）
+        market_regime = None
+        try:
+            from config import TAIEX_HEAVYWEIGHTS
+            taiex = fetch_taiex_index(trade_date)
+            breadth = calc_market_breadth(prices_df) if prices_df is not None else {}
+            conc = calc_capital_concentration(prices_df, TAIEX_HEAVYWEIGHTS) if prices_df is not None else {}
+            regime = classify_market_regime(
+                taiex.get("change_pct"), breadth.get("breadth_ratio", 0.0), conc.get("divergence")
+            )
+            market_regime = {
+                **regime,
+                "taiex_close": taiex.get("close"),
+                "taiex_change_pct": taiex.get("change_pct"),
+                "taiex_date": taiex.get("date").isoformat() if taiex.get("date") else None,
+                **breadth,
+                **conc,
+                "heavyweight_count": len(TAIEX_HEAVYWEIGHTS),
+            }
+            logger.info("大盤分級：%s（加權指數 %s，漲跌 %s%%，廣度 %.0f%%）",
+                        regime["tier"], taiex.get("close"), taiex.get("change_pct"),
+                        breadth.get("breadth_ratio", 0) * 100)
+        except TWSEBlockedError as exc:
+            logger.warning("TAIEX 指數抓取被擋，大盤分級儀表板本次不顯示：%s", exc)
+        except Exception as exc:
+            logger.warning("大盤分級計算失敗，本次不顯示：%s", exc)
+
         cum_data = calc_cumulative_meta(universe_df) if universe_df is not None else []
         meta_signals = calc_meta_signals(universe_df) if universe_df is not None else {}
         meta_chips = calc_meta_chips_signals(universe_df) if universe_df is not None else {}
@@ -520,7 +548,8 @@ def run(trade_date: date = None, realtime: bool = False) -> None:
                       meta_chips=meta_chips,
                       stock_sparklines=stock_sparklines,
                       vol_turnover=vol_signals,
-                      rolling_returns=rolling_returns)
+                      rolling_returns=rolling_returns,
+                      market_regime=market_regime)
         logger.info("HTML generated → docs/index.html")
 
         try:

@@ -1,3 +1,27 @@
+## [2026-07-09] ⏳ 待桌電端到端驗證 - 籌碼面 5 個 🔴 修復（真實資料）
+
+Debugger 已修好籌碼面 review 的 5 個 🔴（commit 已進 master，見 bug-reports.md 同日「修復」那則），
+**邏輯層已驗**（155/156 pytest + 7 個回歸測試 + 行為實測），但**真實 production 數字的端到端驗證
+Debugger 這台做不了**——debug 機的 `data/screener.db` 只有單日資料，重現不了「歷史累積漏股」
+「跨表/交易所日期不同步」這些情境。
+
+**需要在桌電（有完整多日/多交易所 data/screener.db）做一次**：
+- `python main.py`（或 `--realtime`），開 `docs/chips.html` + 看 log
+- 逐項對照：
+  1. **#1 漏股**：法人篩選/Section 6 的檔數，是否比修復前多（尤其高號 TPEx 4xxx-8xxx 股有回來）。
+     修復前隨歷史累積會漸進漏掉高號股，修復後應完整。
+  2. **#3/#5 跨表 skew**：找一天 margin 比 institutional 晚一天（或 TWSE/TPEx 不同步）的情境，
+     確認「融資擴張警示」「族群 margin 數字」沒有整批消失/歸零。
+  3. **#4 NaN close**：若當天有停牌/全額交割股（close 為 NULL），確認 chips.html 正常產出、
+     沒有因 int(nan) crash 停更。
+  4. **#2 假融資訊號**：留意 log 有無「融資大減」異常大的離群值（修復後餘額解析失敗會跳列，
+     不再用 0 相減造假；正常情況看不出差異，但若曾出現過離群值應消失）。
+- 數字明顯不對或有 crash → 回報，Debugger 再查。
+
+（這是資料重現的物理限制，不是漏驗；邏輯層已由回歸測試涵蓋。）
+
+---
+
 ## [2026-07-09] 功能 - batch 股價改用 realtime 同源（與 --realtime 一致，杜絕看到昨日數據）
 
 ### 改了什麼

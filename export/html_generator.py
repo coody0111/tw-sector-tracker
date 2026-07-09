@@ -1069,6 +1069,11 @@ def generate(
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- 禁止瀏覽器快取：頁面每天重產、檔名固定 index.html，這個大檔不加會被啟發式快取，
+       普通 F5 看到舊族群/股價、要 Ctrl+F5 才更新。加了之後普通 F5 就會抓最新。 -->
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
   <title>台股電子族群 {date_str}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>

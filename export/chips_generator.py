@@ -816,6 +816,10 @@ def generate(
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
+  <!-- 禁止瀏覽器快取：同 index.html，每天重產、檔名固定，避免普通 F5 看到舊資料。 -->
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
   <title>台股籌碼面板 {date_str}</title>
   <style>{_CSS}</style>
 </head>

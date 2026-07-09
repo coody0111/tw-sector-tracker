@@ -1,3 +1,111 @@
+## [2026-07-09] Code Review（high effort）- 籌碼面 code 全面 review
+
+範圍：`scrapers/chips.py`、`shareholder.py`、`insider_holdings.py`、`screener/institutional.py`、
+`screener/database.py`、`processors/performance.py`、`export/chips_generator.py`、`screener/patterns.py`。
+方法：8 角度 finder agents 平行掃 + 逐項讀真實 code 驗證（非臆測）。**只回報不修**（照 Debugger 角色，
+除非 Cody 授權）。以下每項都已讀原始碼確認。
+
+### 🔴 數據問題（需修，會給錯數字/漏資料/頁面停更）
+
+**1. `scan_institutional` 隨歷史累積會漸進式「漏掉高號股票」**
+- 位置：`screener/institutional.py:129-135`（`ORDER BY stock_id, date DESC LIMIT {lookback*2000}`）
+- 說明：這個 LIMIT 是**全域列數上限**、不是 per-stock；`ORDER BY stock_id` 讓低號股先吃滿配額，
+  高號股（大量 TPEx 4xxx–8xxx、高號 TWSE）整批被截掉，`inst_df` 根本沒有它們 → 從法人篩選 /
+  Section 6 / composite_score 全部消失。
+- 重現：institutional ≈1800 股 × 60 天 ≈108k 列，main.py 用 `lookback=40`→LIMIT 80000，
+  低號 ~1333 檔就吃光配額，其餘全漏。**隨每日累積、歷史越長漏越多**，今天快速看不一定發現。
+  違反 CLAUDE.md 資料完整性「有沒有股票被遺漏」。
+- 修法：改 `WHERE date >= <lookback 天前>` 或 `QUALIFY ROW_NUMBER() OVER (PARTITION BY stock_id
+  ORDER BY date DESC) <= lookback`（per-stock 窗，跟 get_chips_today 同慣例）。
+
+**2. `_parse_num` 解析失敗吞成 0 → 製造假的「融資大減」訊號**
+- 位置：`scrapers/chips.py:41`（`_parse_num` 任何 ValueError 回 0）配 `fetch_margin_all_twse:183-184`
+  的 `margin_change = margin_bal − prev_margin`。
+- 說明：若某天 `margin_bal` 那格格式跳掉（`'--'`、footnote 標記、全形數字），`_parse_num` 回 0、
+  `prev_margin` 正常解析 → `margin_change = −prev_margin` = **假的巨額融資大減**，且**無任何 log**。
+  正是「不報錯但給錯數字」最危險那類。
+- 修法：`_parse_num` 無法解析時回 `None`（或拋例外讓上層判斷），不要靜默回 0 讓它流進相減。
+
+**3. `get_stock_chips_ranking` — margin/inst 綁單一 MAX(institutional date)，落後的交易所/margin 靜默消失**
+- 位置：`processors/performance.py:441-453`（`latest_date=MAX institutional`，margin/inst 都
+  `WHERE date=latest_date`；注意 price 有 fallback、**margin 沒有**）。
+- 說明：兩個問題疊在同一處——(a) margin 比 institutional 晚一天時 `margin WHERE date=inst_latest`
+  回空 → 「融資擴張警示」顯示「無」即使前一日有完整 margin；(b) `WHERE date=MAX` 這種單一錨點，
+  TPEx/TWSE 發布日不同步時只留最新那所、漏掉落後交易所的個股。**這正是 `get_chips_today`
+  (database.py:246 per-stock fallback)、`scan_institutional`(institutional.py:163 兩日 anchor)
+  已經修過的同類 skew，這裡是唯一還用單一 MAX 的漏網。**
+- 修法：比照 get_chips_today 的 per-stock `date<=` fallback。
+
+**4. `_price_cell` 遇 NaN close → `int(nan)` crash → 整個 chips.html 停更**
+- 位置：`export/chips_generator.py:72`（`f"{int(close)}"`，只擋 `close is None` 不擋 NaN），
+  資料來自 `get_stock_chips_ranking` 的 `price_map`（`performance.py:474` 直接吃 `daily_prices.close`，
+  **沒洗 NaN**）。
+- 說明：某檔在該日 `close` 為 NULL（停牌/全額交割）→ DuckDB→pandas 變 `nan`（不是 None）→
+  `close is None` 判 False → `int(nan)` 拋 ValueError → **整個 generate_chips_html crash、
+  docs/chips.html 不再產出（全頁 stale）**。main.py 的 shareholder 路徑有洗 NaN（625-626），
+  但這條路徑沒有。
+- 修法：建 price_map 時 `pd.isna` 過濾，或 `_price_cell` 改 `if close is None or pd.isna(close)`。
+
+**5. `calc_meta_chips_signals` — META margin 數字綁 institutional 的 today，跨表落後時全歸零**
+- 位置：`processors/performance.py:594`（`today=all_dates[-1]` 只來自 institutional）+ `:611`
+  （`today_margin = margin[date==today]`）。
+- 說明：整張 margin 表比 institutional 晚一天時 `today_margin` 為空 → 每個 META 的
+  `margin_change_today=0`、`margin_balance_today=0`、`margin_alert=False` 全被靜默歸零。
+  現有 `partial_coverage` 旗標只管**交易所**覆蓋、管不到**跨表日期**落後，不會示警。
+- 修法：margin 的 today 用 margin 自己的 MAX date（跟 institutional 分開），或比照 per-stock fallback。
+
+### 🟡 建議改善（潛在風險 / 顯示 / 整潔）
+
+**6. `insider_holdings.save_to_db` 位置式 INSERT（未明列欄位）— 同 shareholder 修過的錯位風險**
+- 位置：`scrapers/insider_holdings.py:247`（`INSERT INTO insider_holdings SELECT col1,col2,...`）。
+- 說明：依賴實體欄序。`shareholder.py::save_to_db`（192 行）當初就是因 `lv12_15_shares` 被 ALTER 加
+  在最後、位置式會錯位，才改成明列欄位名。這裡是同 bug class 沒比照。目前 schema 對得上不會錯，
+  但**日後對 insider_holdings 做任何 ALTER 就會靜默寫錯欄**。建議先明列欄位名防患。
+
+**7. `shareholder.py` 第一次取 available_dates 未包 try、且無擋頁偵測**
+- 位置：`scrapers/shareholder.py:125`（`_get_session_tokens()` 在 retry 迴圈**外**）+ `:38`
+  （`re.search(...).group(1)`）。
+- 說明：第一次 GET 若遇 TDCC 擋頁/改版，`re.search` 回 None → `.group(1)` `AttributeError`，
+  **整個 fetch_shareholder_weekly 直接 crash**（迴圈內的呼叫有包 try，這個沒有）。且 shareholder.py
+  不像 chips/insider 有 block 偵測，擋頁跟暫時性錯誤混為一談。建議首呼叫也包 try + 加擋頁偵測。
+
+**8. `insider_holdings._parse_response` 格式跳掉時回全 0 record，被當有效資料**
+- 位置：`scrapers/insider_holdings.py:93`（`if len(cells)!=9: continue`）+ `:111`（仍回
+  `company_shares=0,...`）。
+- 說明：MOPS 若把表格改成 10 欄，每列都 `continue`，但因 date 還在，回傳的是「全 0」dict 被當合法
+  資料存入 → 靜默清掉全批真實持股，log 還顯示「成功」、`blocked_ids` 空。建議「有 date 但 0 有效列」
+  時回 None（視為解析失敗），不要當 0 值資料。
+
+**9. `_fmt_net` floor division 讓買賣超張數不對稱（顯示）**
+- 位置：`export/chips_generator.py:85`（`zhang = n // 1000`）。
+- 說明：`//` 對負數往 −∞ 取整：`−1500 股→−2 張`（真實 −1.5）、`+1500 股→+1 張`；`±800 股` 分別
+  顯示 `−1張 / +0張`。同量買賣張數不一致、易誤讀。純顯示層，改 `int(n/1000)` 或四捨五入對稱即可。
+
+**10. 交易所/跨表 skew 被四處各修一套（altitude）+ streak/顏色/選股正則多份重複（reuse）**
+- altitude：同一個「來源發布日不同步、別顯示 stale/partial」的機制，`get_chips_today`（per-stock）、
+  `scan_institutional`（兩日 anchor）、`get_stock_chips_ranking`（單一 MAX，見#3）、
+  `calc_meta_chips_signals`（單一 today+partial_coverage，見#5）**四種不同實作**，#1/#3/#5 都是這個
+  scatter 的症狀。抽一個共用「per-stock latest ≤ date」helper 套到所有消費端，可一次消掉這一類 bug。
+- reuse（不阻擋）：`institutional._calc_streak` 又造一份 streak（已有 `streak_utils.calc_streak`）；
+  紅漲綠跌 `_net_color` 已存在卻在 `_price_cell/_cum_cell/chg_html/_insider_cell/_chg_cell/_pct_cell`
+  等 ~7 處重寫（且中性色 `#64748b`/`#334155` 已不一致）；`^[1-9]\d{3}$` 選股正則在
+  `chips_generator._is_stock` 與 `performance.py:486,512` 三處各寫一份。`chips_generator.py` 還有
+  `_meta_streak_table`/`_trust_meta_table` 兩個**死碼**（無 caller，section 1/3 改走 inline）。
+
+### 特別注意（已查、不是 bug）
+- `_shareholder_table`/`_insider_cell` 的 NaN：main.py（625-659）在進 generator 前已把 NaN 洗成 None，
+  這條路徑安全（跟 #4 `get_stock_chips_ranking` 路徑沒洗，不同）。
+- 股 vs 張單位：`_fmt_net`/`_insider_cell`/`_shareholder_table` 都正確 ÷1000，margin 全程 張，一致。
+- `get_margin_divergence` 有 `close>0`/`margin_balance>0` 過濾，不會踩 #4 的 NaN crash。
+
+### 結論
+- [ ] **需要 Developer 修**：🔴 #1（漏股，隨時間惡化）、#2（假融資訊號）、#3/#5（跨表/交易所 skew
+  歸零）、#4（NaN crash 停更）五項是真的會給錯數字或漏資料，建議優先。#1 和 #4 最急（一個漸進漏股、
+  一個直接頁面停更）。🟡 #6-#10 是潛在風險/顯示/整潔，可排後。
+- 我只回報未修（照 Debugger 角色）。要我改哪幾項再跟我說。
+
+---
+
 ## [2026-07-09] 驗證 - 大盤分級儀表板 Phase 1（TAIEX + 廣度 + 集中度 + 五級，74e0694/91278de）
 
 ### 驗證方式

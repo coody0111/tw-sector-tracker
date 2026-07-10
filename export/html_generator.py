@@ -841,15 +841,15 @@ def _vol_turnover_section(signals: list) -> str:
 # 產出頁那台。設計文件：docs/superpowers/specs/2026-07-09-market-regime-dashboard-design.md
 _REGIME_TIERS = {
     "大漲": {"emoji": "🚀", "color": "#ff2d2d",
-             "tip": "漲時加碼，找主流族群最強一檔追（可追漲停）。", "ref": "筆記 §二、§七"},
+             "tip": "漲時加碼，找主流族群最強一檔追（可追漲停）。"},
     "小漲": {"emoji": "🔴", "color": "#d97070",
-             "tip": "正常操作，續抱強勢股、汰弱留強。", "ref": "筆記 全篇通用"},
+             "tip": "正常操作，續抱強勢股、汰弱留強。"},
     "持平": {"emoji": "⚪", "color": "#94a3b8",
-             "tip": "均線上才買、觸發出場三原則就賣，反覆操作，不提前佈局盤整股。", "ref": "筆記 §七 盤整盤8步驟"},
+             "tip": "均線上才買、觸發出場三原則就賣，反覆操作，不提前佈局盤整股。"},
     "小跌": {"emoji": "🟢", "color": "#009933",
-             "tip": "持股健檢：均線空頭排列／下彎／跌破頸線任一成立就先出。", "ref": "筆記 §二十二 持股健檢三要素"},
+             "tip": "持股健檢：均線空頭排列／下彎／跌破頸線任一成立就先出。"},
     "大跌": {"emoji": "⛔", "color": "#00c255",
-             "tip": "只找最後撐住的 5–10 檔換股，不接弱勢、不攤平、不抄底。", "ref": "筆記 §十四、§二十三"},
+             "tip": "只找最後撐住的 5–10 檔換股，不接弱勢、不攤平、不抄底。"},
 }
 
 
@@ -917,7 +917,6 @@ def _market_regime_section(regime: dict) -> str:
   </div>
   <div style='margin-top:8px;font-size:.86rem;color:#cbd5e1'>
     💡 {_esc(style['tip'])}
-    <span style='color:#475569;font-size:.72rem;margin-left:6px'>（{_esc(style['ref'])}）</span>
   </div>
   {conc_html}
 </div>"""
@@ -1014,7 +1013,7 @@ def generate(
             all_cards.append(c); all_panels.append(p)
 
         top_section_inner = (
-            f'<div class="mc-label up-label">族群排行（漲幅由高到低）</div>'
+            f'<div class="mc-label up-label">族群</div>'
             f'<div class="mc-grid">{"".join(all_cards)}</div>'
             f'{"".join(all_panels)}'
         )

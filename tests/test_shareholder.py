@@ -11,6 +11,7 @@ import requests
 
 from scrapers.shareholder import (
     _add_week_change_streak,
+    _fetch_one_stock,
     fetch_shareholder_weekly,
     recompute_latest_streak,
     save_to_db,
@@ -243,3 +244,40 @@ def test_save_to_db_persists_lv12_15_shares(tmp_path, monkeypatch):
     ).fetchone()
     con.close()
     assert row[0] == 5_000_000
+
+
+def test_fetch_one_stock_keeps_level_12_and_15_individually(monkeypatch):
+    """_fetch_one_stock 除了 lv12_15 合計，還要各自留下 level 12（400張門檻）跟
+    level 15（1000張以上）的股數/占比，不能只回傳加總後的數字。"""
+    html = (
+        "<table></table>"
+        "<table>"
+        "<tr><td>11</td><td>200,001-400,000</td><td>5</td><td>1,000,000</td><td>4.0</td></tr>"
+        "<tr><td>12</td><td>400,001-600,000</td><td>3</td><td>1,500,000</td><td>6.0</td></tr>"
+        "<tr><td>13</td><td>600,001-800,000</td><td>2</td><td>1,400,000</td><td>5.6</td></tr>"
+        "<tr><td>14</td><td>800,001-1,000,000</td><td>1</td><td>900,000</td><td>3.6</td></tr>"
+        "<tr><td>15</td><td>1,000,001以上</td><td>2</td><td>3,000,000</td><td>12.0</td></tr>"
+        "<tr><td>16</td><td>合計</td><td>13</td><td>25,000,000</td><td>100.0</td></tr>"
+        "</table>"
+    )
+
+    class FakeResp:
+        text = html
+
+        def raise_for_status(self):
+            pass
+
+    class FakeSession:
+        def post(self, *args, **kwargs):
+            return FakeResp()
+
+    rec = _fetch_one_stock(FakeSession(), "tok", "uri", "2330", "20260703")
+
+    assert rec is not None
+    # 合計（既有欄位）：level 12+13+14+15 股數加總
+    assert rec["lv12_15_shares"] == 1_500_000 + 1_400_000 + 900_000 + 3_000_000
+    # 新欄位：level 12、15 各自的數字（不是加總）
+    assert rec["lv12_shares"] == 1_500_000
+    assert rec["lv15_shares"] == 3_000_000
+    assert round(rec["lv12_pct"], 4) == round(1_500_000 / 25_000_000 * 100, 4)
+    assert round(rec["lv15_pct"], 4) == round(3_000_000 / 25_000_000 * 100, 4)

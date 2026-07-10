@@ -75,6 +75,8 @@ def _fetch_one_stock(s: requests.Session, tok: str, uri: str, stock_id: str, dat
 
     lv_shares = 0
     lv_cnt = 0
+    lv12_shares = 0
+    lv15_shares = 0
     total_shares = 0
     total_cnt = 0
 
@@ -92,6 +94,10 @@ def _fetch_one_stock(s: requests.Session, tok: str, uri: str, stock_id: str, dat
         elif level in _LARGE_HOLDER_LEVELS:
             lv_shares += shares
             lv_cnt += cnt
+            if level == "12":
+                lv12_shares = shares
+            elif level == "15":
+                lv15_shares = shares
 
     if total_shares == 0:
         return None
@@ -102,6 +108,10 @@ def _fetch_one_stock(s: requests.Session, tok: str, uri: str, stock_id: str, dat
         "total_shares": total_shares,
         "total_cnt": total_cnt,
         "lv12_15_pct": round(lv_shares / total_shares * 100, 4),
+        "lv12_shares": lv12_shares,
+        "lv15_shares": lv15_shares,
+        "lv12_pct": round(lv12_shares / total_shares * 100, 4),
+        "lv15_pct": round(lv15_shares / total_shares * 100, 4),
     }
 
 

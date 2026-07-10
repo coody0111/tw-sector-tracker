@@ -1,3 +1,50 @@
+## [2026-07-09] 改進 - 外資/投信連買榜改用 Composite Score（連買天數+漲幅 percentile rank 加總）
+
+### 改了什麼
+- 異動檔案：`export/chips_generator.py`
+- 新增測試：`tests/test_chips_generator.py`（3 個）
+
+### 背景
+接續同日稍早的「外資連買榜改用漲幅排序」修復。Cody 追問：如果外資連買到 10 天，會不會
+還是排在上面？查了真實資料發現不一定——純用漲幅排序（前一版做法）會讓「連買很久但漲幅
+普通」的股票被擠出 Top 15（實測案例：6834 連買 8 天但漲幅只有 9.22%，排到第 17 名，完全
+不會顯示在畫面上）。查了量化多因子排名的文獻（CANSLIM 的機構認同+價格確認雙重驗證、
+factor investing 的 composite score / index-of-indices 方法論），跟 Cody 討論後採用
+Composite Score：連買天數、股價累積漲幅各自轉成百分位排名（percentile rank，0~1），加總
+當綜合分數排序。
+
+### 邏輯說明
+- 新增 `_percentile_ranks(values)`：回傳每個值在清單中的百分位排名，同值取平均名次，
+  只有 1 個值時給 1.0（避免除以 0）
+- 新增 `_composite_sort(candidates, streak_key)`：連買天數（`foreign_streak`/`trust_streak`）
+  跟 `price_cum_pct` 各自算百分位排名相加，依總分排序。外資榜、投信榜都改用這個共用函式
+  （原本各自 `sorted(key=lambda x: -price_cum_pct)`）
+- 篩選條件（`foreign_streak>=3`／`trust_streak>=5` 且 `price_cum_pct>=5%`）沒有變，只有
+  「篩選之後怎麼排序」改變
+
+### 資料來源相關（如有異動）
+- 不適用——純排序方法調整，沒有新增資料源
+
+### 請 Debugger 驗證
+- [ ] 全專案測試都過（新增 3 個：`_percentile_ranks` 同值/單值邊界、`_composite_sort`
+  驗證「兩因子都強」穩居第一、「兩因子都弱」敬陪末座，且不等同純漲幅或純天數排序、
+  空清單不報錯）
+- [ ] 用真實 DB 驗證：之前被純漲幅排序擠出 Top15 的長連買股票（例如連買 8 天但漲幅個位數
+  的），現在應該有機會進入 Top15；同時漲幅暴衝的股票（百容）也不該被擠掉
+- [ ] 確認 Composite Score 沒有把篩選門檻本身弄壞（`price_cum_pct>=5%` 這個 AND 條件還是
+  在排序之前先過濾，不是排序邏輯的一部分）
+
+### 特別注意 🚩
+- Percentile rank 是相對排名（0~1，最大值→1），**不是**原始數值的正規化——好處是不同量綱
+  的因子（連買天數是整數幾天、漲幅是浮點百分比）可以直接相加比較，不用煩惱單位換算；
+  壞處是候選股票數少時容易同分（例如只有 3-4 檔候選時，percentile rank 的可能值有限，
+  容易撞出並列名次），這是這個方法論本身的已知限制，不是實作 bug
+- 這次的研究/決策過程：先用 WebSearch 查了量化多因子排名文獻（CANSLIM、factor investing
+  的 composite score vs index-of-indices 做法），跟 Cody 討論兩個方向的取捨後才動手，
+  不是憑感覺選的排序公式
+
+---
+
 ## [2026-07-09] 修 🔴 - index.html 只 render 21/41 個族群卡片，21 個族群完全點不進去
 
 ### 改了什麼

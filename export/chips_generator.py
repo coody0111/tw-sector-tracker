@@ -691,6 +691,43 @@ def _build_section5(meta_chips: dict) -> str:
 </div>"""
 
 
+def _percentile_ranks(values: list) -> list:
+    """回傳每個值對應的百分位排名（0~1，最大值→1.0，最小值→0.0，同值取平均名次）。
+    只有 1 個值時直接給 1.0（沒有比較對象，視為滿分，避免除以 0）。"""
+    n = len(values)
+    if n <= 1:
+        return [1.0] * n
+    order = sorted(range(n), key=lambda i: values[i])
+    ranks = [0.0] * n
+    i = 0
+    while i < n:
+        j = i
+        while j + 1 < n and values[order[j + 1]] == values[order[i]]:
+            j += 1
+        avg_rank = (i + j) / 2
+        for k in range(i, j + 1):
+            ranks[order[k]] = avg_rank
+        i = j + 1
+    return [r / (n - 1) for r in ranks]
+
+
+def _composite_sort(candidates: list, streak_key: str) -> list:
+    """連買天數跟股價累積漲幅各自轉成百分位排名、加總當綜合分數排序（Composite Score，
+    參考量化多因子排名常見做法：percentile rank 加總，而非直接拿其中一個因子當排序）。
+    避免像百容（漲幅大但連買天數短）跟長連買但漲幅普通的股票互相排擠掉對方——純用
+    漲幅排序，長連買、股價還沒噴出來的個股會被完全擠出榜單；純用連買天數排序，
+    絕對股數小的中小型股又會被大型股壓過去（2026-07-09 Cody 討論後採用此法）。"""
+    if not candidates:
+        return []
+    streak_vals = [c.get(streak_key, 0) for c in candidates]
+    price_vals = [c.get("price_cum_pct") or 0 for c in candidates]
+    streak_ranks = _percentile_ranks(streak_vals)
+    price_ranks = _percentile_ranks(price_vals)
+    scored = list(zip(candidates, (s + p for s, p in zip(streak_ranks, price_ranks))))
+    scored.sort(key=lambda x: -x[1])
+    return [c for c, _score in scored]
+
+
 def _build_section6(inst_scan: list) -> tuple[str, str]:
     """Section 6a/6b: 法人持續買進個股（過濾 ETF/特別股，只留 4 位數純數字代碼）"""
     import re as _re
@@ -701,22 +738,23 @@ def _build_section6(inst_scan: list) -> tuple[str, str]:
         [x for x in inst_scan if x.get("both_streak", 0) >= 2 and _is_stock(x.get("stock_id", ""))],
         key=lambda x: -x["both_streak"]
     )
-    # 排序改用股價累積漲幅（不是累積買超股數）：純用絕對股數排名會被大型股/高股本股
-    # 主宰前段班，把「外資買超雖然股數不多、但確實推動股價」的中小型股擠出榜單
-    # （2026-07-09 實測案例：百容 2483 外資連買 3 天、10 日內大漲，但用絕對股數排到
-    # 第 37 名，被擠出前 15）。改成看股價有沒有實際反應，同時用 min_price_cum_pct
-    # 濾掉外資買超但股價沒動的雜訊（可能是被動式資金流入，不是有效訊號）。
-    top_foreign = sorted(
+    # 排序改用「連買天數 + 股價累積漲幅」的 Composite Score（見 _composite_sort），不是
+    # 單純累積買超股數或單純漲幅：純用絕對股數排名會被大型股/高股本股主宰前段班，把
+    # 「外資買超雖然股數不多、但確實推動股價」的中小型股擠出榜單（2026-07-09 實測案例：
+    # 百容 2483 外資連買 3 天、10 日內大漲，但用絕對股數排到第 37 名，被擠出前 15）；
+    # 純用漲幅排序又會把「連買很久但股價還沒反應」的個股完全埋掉。用 min_price_cum_pct
+    # 濾掉外資買超但股價完全沒動的雜訊（可能是被動式資金流入，不是有效訊號）。
+    top_foreign = _composite_sort(
         [x for x in inst_scan if x.get("foreign_streak", 0) >= 3 and _is_stock(x.get("stock_id", ""))
          and (x.get("price_cum_pct") or 0) >= 5],
-        key=lambda x: -(x.get("price_cum_pct") or 0)
+        "foreign_streak"
     )[:15]
     # 投信榜比照外資榜（2026-07-09 Cody 要求一致）：同樣加 price_cum_pct>=5% 篩選、
-    # 排序改用漲幅而非今日金額。
-    top_trust = sorted(
+    # 排序改用 Composite Score。
+    top_trust = _composite_sort(
         [x for x in inst_scan if x.get("trust_streak", 0) >= 5 and _is_stock(x.get("stock_id", ""))
          and (x.get("price_cum_pct") or 0) >= 5],
-        key=lambda x: -(x.get("price_cum_pct") or 0)
+        "trust_streak"
     )[:15]
 
     s6a_html = f"""
@@ -728,11 +766,11 @@ def _build_section6(inst_scan: list) -> tuple[str, str]:
     s6b_html = f"""
 <div class="chips-grid">
   <div class="chips-section-half">
-    <div class="cs-title">外資持續買進 Top 15（連買 &ge;3 日 + 10日漲幅 &ge;5%，排漲幅）</div>
+    <div class="cs-title">外資持續買進 Top 15（連買 &ge;3 日 + 10日漲幅 &ge;5%，綜合排序）</div>
     {_inst_streak_table(top_foreign, 'foreign_streak', 'foreign_net', 'cum_foreign', '外資')}
   </div>
   <div class="chips-section-half">
-    <div class="cs-title">投信持續買進 Top 15（連買 &ge;5 日 + 10日漲幅 &ge;5%，排漲幅）</div>
+    <div class="cs-title">投信持續買進 Top 15（連買 &ge;5 日 + 10日漲幅 &ge;5%，綜合排序）</div>
     {_inst_streak_table(top_trust, 'trust_streak', 'trust_net', 'cum_trust', '投信')}
   </div>
 </div>"""

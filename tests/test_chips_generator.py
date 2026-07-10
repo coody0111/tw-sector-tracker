@@ -1,6 +1,6 @@
 from datetime import date
 
-from export.chips_generator import _build_section6, _coverage_flag, _esc, _inst_streak_table, _meta_link, _shareholder_table, _stock_rank_table, generate
+from export.chips_generator import _build_section6, _composite_sort, _coverage_flag, _esc, _inst_streak_table, _meta_link, _percentile_ranks, _shareholder_table, _stock_rank_table, generate
 
 
 def test_esc_escapes_html_special_characters():
@@ -190,6 +190,42 @@ def test_inst_streak_table_row_td_count_matches_header():
     body = html.split("</thead>")[1]
     n_td = body.count("<td")
     assert n_td == n_th, f"資料列 <td> 數 {n_td} != 表頭 <th> 數 {n_th}（可能有雙重 <td>）"
+
+
+def test_percentile_ranks_handles_ties_and_single_value():
+    """同值取平均名次；只有 1 個值時直接給 1.0（沒有比較對象，避免除以 0）。"""
+    assert _percentile_ranks([10, 20, 30]) == [0.0, 0.5, 1.0]
+    assert _percentile_ranks([5]) == [1.0]
+    assert _percentile_ranks([]) == []
+    # 兩個並列最小值，平均名次
+    ranks = _percentile_ranks([10, 10, 30])
+    assert ranks[0] == ranks[1] == 0.25   # 並列第0/1名，平均名次0.5，/(3-1)=0.25
+    assert ranks[2] == 1.0
+
+
+def test_composite_sort_rewards_strength_in_both_factors():
+    """回應 Cody：外資連買10天但漲幅普通的股票，不該被完全擠出榜單——Composite Score
+    （連買天數 + 漲幅各自轉百分位排名相加）應該讓「兩個因子都強」的股票穩居第一、
+    「兩個因子都弱」的股票敬陪末座，不是誰的漲幅大就贏（純漲幅排序）、也不是誰連買
+    最久就贏（純天數排序）。中間三檔（各自單一因子突出）用來確保不會被兩個極端排擠。"""
+    candidates = [
+        {"stock_id": "weakest", "foreign_streak": 3, "price_cum_pct": 6.0},    # 兩個因子都最弱
+        {"stock_id": "strongest", "foreign_streak": 10, "price_cum_pct": 71.1},  # 兩個因子都最強
+        {"stock_id": "price_only", "foreign_streak": 4, "price_cum_pct": 57.39},  # 漲幅強、連買普通
+        {"stock_id": "streak_only", "foreign_streak": 9, "price_cum_pct": 9.22},  # 連買強、漲幅普通
+        {"stock_id": "middling", "foreign_streak": 5, "price_cum_pct": 25.0},
+    ]
+    ids = [c["stock_id"] for c in _composite_sort(candidates, "foreign_streak")]
+
+    assert ids[0] == "strongest", "兩個因子都最強的應該穩居第一"
+    assert ids[-1] == "weakest", "兩個因子都最弱的應該敬陪末座"
+    # 純漲幅排序會把 price_only 排第一；純天數排序會把 streak_only 排第一。
+    # Composite Score 下兩者都不該是第一名（已經被 strongest 佔走）。
+    assert ids[0] not in ("price_only", "streak_only")
+
+
+def test_composite_sort_empty_list_does_not_crash():
+    assert _composite_sort([], "foreign_streak") == []
 
 
 def test_build_section6_trust_table_filters_by_price_cum_pct_too():

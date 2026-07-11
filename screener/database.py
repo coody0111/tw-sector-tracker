@@ -75,10 +75,18 @@ def init_db() -> None:
             total_shares    BIGINT,
             week_chg        DOUBLE,
             streak          INTEGER,
+            lv12_shares     BIGINT,
+            lv12_pct        DOUBLE,
+            lv15_shares     BIGINT,
+            lv15_pct        DOUBLE,
             PRIMARY KEY (stock_id, date)
         )
     """)
     con.execute("ALTER TABLE shareholder ADD COLUMN IF NOT EXISTS lv12_15_shares BIGINT")
+    con.execute("ALTER TABLE shareholder ADD COLUMN IF NOT EXISTS lv12_shares BIGINT")
+    con.execute("ALTER TABLE shareholder ADD COLUMN IF NOT EXISTS lv12_pct DOUBLE")
+    con.execute("ALTER TABLE shareholder ADD COLUMN IF NOT EXISTS lv15_shares BIGINT")
+    con.execute("ALTER TABLE shareholder ADD COLUMN IF NOT EXISTS lv15_pct DOUBLE")
     con.execute("""
         CREATE TABLE IF NOT EXISTS insider_holdings (
             stock_id                VARCHAR NOT NULL,

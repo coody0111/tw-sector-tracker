@@ -225,6 +225,7 @@ def test_save_to_db_persists_lv12_15_shares(tmp_path, monkeypatch):
             stock_id VARCHAR NOT NULL, date DATE NOT NULL,
             lv12_15_pct DOUBLE, lv12_15_cnt INTEGER, lv12_15_shares BIGINT,
             total_shares BIGINT, week_chg DOUBLE, streak INTEGER,
+            lv12_shares BIGINT, lv12_pct DOUBLE, lv15_shares BIGINT, lv15_pct DOUBLE,
             PRIMARY KEY (stock_id, date)
         )
     """)
@@ -234,6 +235,8 @@ def test_save_to_db_persists_lv12_15_shares(tmp_path, monkeypatch):
         "stock_id": "2330", "date": "2026-07-03",
         "lv12_15_pct": 20.0, "lv12_15_cnt": 100,
         "lv12_15_shares": 5_000_000, "total_shares": 25_000_000,
+        "lv12_shares": 0, "lv12_pct": 0.0,
+        "lv15_shares": 0, "lv15_pct": 0.0,
     }]
     n = save_to_db(rows)
     assert n == 1
@@ -281,3 +284,41 @@ def test_fetch_one_stock_keeps_level_12_and_15_individually(monkeypatch):
     assert rec["lv15_shares"] == 3_000_000
     assert round(rec["lv12_pct"], 4) == round(1_500_000 / 25_000_000 * 100, 4)
     assert round(rec["lv15_pct"], 4) == round(3_000_000 / 25_000_000 * 100, 4)
+
+
+def test_save_to_db_persists_lv12_and_lv15_tiers(tmp_path, monkeypatch):
+    """save_to_db 應該把 lv12_shares/lv12_pct/lv15_shares/lv15_pct 這 4 個新欄位
+    寫進 shareholder 表，不能像 lv12_15_shares 加欄位後只改 schema 卻沒改寫入邏輯。"""
+    import scrapers.shareholder as shareholder_mod
+    db_path = str(tmp_path / "t.db")
+    monkeypatch.setattr(shareholder_mod, "_DB_PATH", db_path)
+
+    con = duckdb.connect(db_path)
+    con.execute("""
+        CREATE TABLE shareholder (
+            stock_id VARCHAR NOT NULL, date DATE NOT NULL,
+            lv12_15_pct DOUBLE, lv12_15_cnt INTEGER, lv12_15_shares BIGINT,
+            total_shares BIGINT, week_chg DOUBLE, streak INTEGER,
+            lv12_shares BIGINT, lv12_pct DOUBLE, lv15_shares BIGINT, lv15_pct DOUBLE,
+            PRIMARY KEY (stock_id, date)
+        )
+    """)
+    con.close()
+
+    rows = [{
+        "stock_id": "2330", "date": "2026-07-03",
+        "lv12_15_pct": 20.0, "lv12_15_cnt": 100,
+        "lv12_15_shares": 5_000_000, "total_shares": 25_000_000,
+        "lv12_shares": 1_500_000, "lv12_pct": 6.0,
+        "lv15_shares": 3_000_000, "lv15_pct": 12.0,
+    }]
+    n = save_to_db(rows)
+    assert n == 1
+
+    con = duckdb.connect(db_path)
+    row = con.execute(
+        "SELECT lv12_shares, lv12_pct, lv15_shares, lv15_pct "
+        "FROM shareholder WHERE stock_id='2330' AND date='2026-07-03'"
+    ).fetchone()
+    con.close()
+    assert row == (1_500_000, 6.0, 3_000_000, 12.0)

@@ -1,3 +1,39 @@
+## [2026-07-13] 進行中 - 大戶持倉 400張/1000張分層追蹤 + 修正歷史 week_chg 損毀（換平台交接）
+
+### 背景
+Cody 回報「大戶持倉」畫面數字看起來不對（截圖貼出的資料），調查後發現：
+1. `lv12_15_shares`（大戶實際張數）全表 NULL——schema 有加欄位但從沒被真的寫入過資料
+2. 歷史 `week_chg` 損毀：`2380`（虹光）好幾筆歷史週變化都是「自己的 pct − 100.0」而非跟真正前一週比較，`100.0` 疑似 TDCC 該週解析錯誤的離群值
+3. 順帶討論後決定新增 400張(level 12)/1000張(level 15) 分層追蹤，不只看合計
+
+已走完 brainstorming → spec（`docs/superpowers/specs/2026-07-10-shareholder-tier-breakdown-design.md`）→ plan（`docs/superpowers/plans/2026-07-10-shareholder-tier-breakdown.md`，共 6 個 Task）→ subagent-driven 實作，全程 Cody 已授權在 master 上直接做。
+
+### 已完成（Task 1-3，各自都過 spec review + code quality review，皆 Ready to merge）
+- **Task 1**（commit `c2975f5`）：`scrapers/shareholder.py::_fetch_one_stock()` 多留 level 12/15 個別股數與占比
+- **Task 2**（commit `3be0ee9`）：`shareholder` 表新增 `lv12_shares`/`lv12_pct`/`lv15_shares`/`lv15_pct` 4 欄，`save_to_db()` 寫入
+- **Task 3**（commit `2052451`）：`get_shareholder_top()` 回傳這 4 欄現況 + 查詢時現算的 `lv12_chg`/`lv15_chg`（張數週變化，比照既有 `share_chg` 模式不落地存表）
+
+### 進行中，有 1 個待修（Task 4）
+- **Task 4**（實作在 commit `0682d92`，跟 Cody 另一個並發的 TAIEX_HEAVYWEIGHTS 修復意外綁在同一個 commit——內容沒問題，純粹是 commit 訊息不乾淨，已跟 Cody 說明過）：新增 `recompute_all_history()` 一次性修復整表歷史 `week_chg`/`streak` 損毀。
+  - 已過 spec compliance review（✅ 完全符合）
+  - Code quality review 發現 1 個 **Important** 問題還沒修：`lv12_15_pct` 若在某支股票歷史中段出現 NULL（schema 允許），目前只防第一筆、沒防中段——會讓 `chg` 變成 `NaN`（不是正確的 `NULL`）並一路往後傳染，讓該股後續所有週的 `week_chg` 永遠算不出來、且寫進 DB 的是 `NaN` 不是 `NULL`（下游 `WHERE week_chg IS NULL` 抓不到）。修法：比照第一筆的 `prev_pct is None` guard，中段也要判斷 `pd.isna(row["lv12_15_pct"])`，該筆跳過/清空、且不要把 NaN 往後傳給 `prev_pct`。
+  - **⚠️ 這個函式目前還不能拿去對 `data/screener.db` 真的跑**，要先補上面這個 guard。
+  - 位置：`scrapers/shareholder.py`，`recompute_all_history()` 函式（`recompute_latest_streak()` 之後）
+
+### 尚未開始
+- **Task 5**：`main.py` 組 `sh_rows` 迴圈加入 6 個新欄位（`lv12_shares`/`lv12_pct`/`lv12_chg`/`lv15_shares`/`lv15_pct`/`lv15_chg`）
+- **Task 6**：`export/chips_generator.py::_shareholder_table()` 顯示「400張大戶」「1000張大戶」兩欄，`_insider_cell()` 加 `pct_label` 參數
+
+### 換平台後接續方式
+1. 讀 `docs/superpowers/plans/2026-07-10-shareholder-tier-breakdown.md`，Task 4 先補 NaN guard + 一個新測試（NULL 出現在歷史中段），過 review 後再繼續 Task 5、6
+2. 全部做完後：Cody 需要實際跑一次 `--update-shareholder`/`--backfill-shareholder` 讓 `lv12_shares`/`lv15_shares`/`lv12_15_shares` 真的有非 NULL 資料（這幾個函式本身不會自動跑，純程式碼修正不會生資料）
+3. `2380`（虹光）2026-06-26 那筆 `lv12_15_pct=100.0` 本身是否為真實資料異常，建議人工核對 TDCC 原始回應，不在這次範圍內
+
+### 其他發現、待 Cody 決定
+- `scrapers/chips.py::fetch_margin`/`fetch_margin_all_today`（FinMind 版融資融券）已標記為死碼（全專案零呼叫，已被 `fetch_margin_all_twse`/`fetch_margin_all_tpex` 官方 API 版本取代），待確認後可整段刪除
+
+---
+
 ## [2026-07-12] 修 🔴 - `TAIEX_HEAVYWEIGHTS` 移除中信金（2891），daily_prices 從未有它的資料
 
 ### 改了什麼

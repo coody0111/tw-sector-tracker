@@ -2,6 +2,13 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+**狀態：❌ 已放棄，改走靜態 HTML 路線**（2026-07-10 事後確認）。本文件下方 checkbox 雖全部
+打勾，但 `frontend/` 目錄從未進過 git、React/Vite 方案**從未真正落地**。技術路線後來改為
+「不用 React，直接改寫 `export/html_generator.py`」（見 `docs/superpowers/mockups/README.md`
+「技術路線提醒」）。實際的族群總覽頁重新設計改走 `docs/superpowers/mockups/` 的 v1→v6 米色帳冊
+配色路線，直接在 `export/html_generator.py` 上迭代（現有 commit 如 `f958573` 即屬此路線）。
+**本文件保留作歷史紀錄，不要依此執行。**
+
 **Goal:** 把 `docs/index.html`（族群總覽頁）從 Python 直接產生的靜態 HTML，改成 Python 產生 `docs/data.json` + React/Vite 建置的前端頁面，採響應式雙模式排版（桌機固定明細面板／手機 inline 展開）。
 
 **Architecture:** Python 端新增 `export/data_generator.py`，把既有已算好的族群/個股/訊號資料（含新的週排名邏輯）序列化成 `docs/data.json`。前端是全新的 `frontend/` Vite + React + TypeScript 專案，執行期用 `fetch('./data.json')` 讀資料（不是 build-time 靜態 import），所以每天資料更新只需要 `python main.py`（覆寫 `data.json`）就好，不用重新 `npm run build`；只有改前端程式碼時才需要重建。

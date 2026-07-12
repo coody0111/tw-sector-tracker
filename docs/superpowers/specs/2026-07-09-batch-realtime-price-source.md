@@ -3,6 +3,11 @@
 **日期**：2026-07-09
 **範圍**：只改 `python main.py`（batch）的**股價抓取來源**；籌碼（法人/融資/TAIEX）不動。
 
+**狀態：✅ 已實作**（commit `25447d5` "feat: batch 股價改用 realtime 同源，與 --realtime 一致"，
+2026-07-09 18:54，早於本檔寫檔時間，此份為事後補記的設計文件）。`main.py:397-418` 已落地：
+batch 主打 `fetch_realtime_prices`，失敗/回空才退回 `fetch_prices_for_stocks`。未另開對應
+`plans/` 檔案（範圍小、方案單一，直接實作未拆步驟）。
+
 ## 背景與痛點
 
 Cody 實跑一整天，反覆遇到「跑 `python main.py` 看到舊/昨天的股價、族群漲跌」，但

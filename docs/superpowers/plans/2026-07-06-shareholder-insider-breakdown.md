@@ -2,6 +2,10 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+**狀態：✅ 已完成**（2026-07-10 事後確認）。`scrapers/insider_holdings.py`、`shareholder` 表
+`lv12_15_shares` 欄位、`get_shareholder_top()` 週變化都已在 code 裡確認存在。下方 checkbox
+未逐項補勾（實作時未回頭更新文件），但功能已上線，非待辦。
+
 **Goal:** 把 TDCC 大戶持倉補上實際張數變化，新增內部人持股（公司派/大股東）月頻資料源，並把 Section 8「大戶持倉」表格的股價欄位對齊集保週期、加上週股價變化。
 
 **Architecture:** 沿用 `scrapers/shareholder.py` 既有的「fetch → save_to_db（含衍生欄位計算）」模式新增一個獨立模組 `scrapers/insider_holdings.py`（月頻，公開資訊觀測站 `ajax_stapap1`）。兩個資料源（`shareholder` 週頻、`insider_holdings` 月頻）各自獨立更新，只在 `main.py` 組資料要餵給 `chips_generator.py` 時才 join 在一起。

@@ -253,6 +253,10 @@ def fetch_margin_all_tpex() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+# ⚠️ 死碼（2026-07-10 確認）：fetch_margin / fetch_margin_all_today 全專案零呼叫
+# （main.py、backfill.py、tests 都沒有引用）。融資融券上市/上櫃已改用官方 API
+# （fetch_margin_all_twse / fetch_margin_all_tpex，見上方，main.py 有實際呼叫並寫入 DB）。
+# 這兩個是改用官方 API 之前的 FinMind 版舊實作，待 Cody 確認後可整段刪除。
 def fetch_margin(stock_id: str, start_date: date, end_date: date) -> pd.DataFrame:
     """
     抓單支股票的融資融券資料（FinMind）。

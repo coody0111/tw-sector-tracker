@@ -1,3 +1,51 @@
+## [2026-07-12] 修 🔴 - `TAIEX_HEAVYWEIGHTS` 移除中信金（2891），daily_prices 從未有它的資料
+
+### 改了什麼
+- 異動檔案：`config.py`
+
+### 為什麼
+驗證 `docs/superpowers/specs/2026-07-09-momentum-notes-scan-mapping.md` 附錄裡對大盤分級
+儀表板的兩個 🔴 pre-review 風險點（Debugger 稍早在該文件裡寫下、尚未驗證的）：
+1. 資金集中度的「非權值股」母體要排除權值股本身，否則落差會被稀釋算錯
+2. `change_pct` 的 NULL/NaN 污染
+
+**驗證結果：這兩點在 `processors/performance.py::calc_capital_concentration()`/
+`calc_market_breadth()` 都已經正確處理**（`~is_hw` 排除邏輯實測 `overlap check=False`；
+`pd.to_numeric(errors="coerce")` + `dropna` 有濾掉 NaN）——原本以為的兩個高風險點，程式碼
+其實都寫對了。
+
+驗證過程中用真實 DB 交叉比對 `TAIEX_HEAVYWEIGHTS` 清單跟實際抓到的資料，**額外發現一個真
+問題**：`2891`（中信金）在 `daily_prices` 表裡**從未有任何一筆資料**（`COUNT(*)=0`，不是
+單日缺漏）。追出根因：`stock_universe.csv`（這個 app 的族群追蹤名單）從一開始就沒收錄金融
+股，`main.py` 每日抓價流程的股票清單來源就是這份 CSV，`2891` 不在清單裡、永遠不會被抓到。
+`TAIEX_HEAVYWEIGHTS` 清單「看起來 10 檔、實際只有 9 檔生效」，這比少一檔更危險——不誠實。
+
+### 邏輯說明
+直接移除 `2891`，不替換成別支股票。理由：換股票需要重新判斷「哪支才是正確替代」，會再度
+踩進 2026-07-09 debug-tasks.md 已經記錄過、還沒定案的「金融股邏輯跟成長權值相反、要不要納
+入」的哲學問題——但這次發現的其實不是哲學問題，是**技術上從未被追蹤、不可能有資料**，跟
+「要不要」無關，移除是唯一正確答案。原本那則「🟡 待討論」的備註也一併改寫，說明這不用再糾
+結了。
+
+### 資料來源相關
+- 不適用——純設定檔常數修正，不影響任何抓取邏輯
+
+### 請 Debugger 驗證
+- [ ] 全專案測試都過（無新增測試——`main.py`/`config.py` 都沒有硬編碼假設清單一定是 10 檔，
+  改動本身不需要新測試，`grep` 過 `tests/`、`main.py` 確認沒有依賴清單長度的隱性假設）
+- [ ] 用真實 DB 確認：`config.TAIEX_HEAVYWEIGHTS` 現在 9 檔，全部都在 `daily_prices` 抓得到
+  （不會再有「清單有但資料沒有」的落差）
+- [ ] 確認 `calc_capital_concentration()` 用新清單算出來的 `heavyweight_avg_pct` 前後數字
+  差異合理（少了中信金一檔，權值股籃平均可能會有小幅變動，屬預期）
+
+### 特別注意 🚩
+- 這是 Debugger 角色本 session 依 Cody 指示驗證 `momentum-notes-scan-mapping.md` 附錄裡的
+  pre-review 風險點時，過程中額外發現、Cody 當場授權直接修的
+- 如果之後真的要把金融股（含中信金）納入分析，需要先把它加進 `stock_universe.csv` 的抓取
+  範圍，是獨立的範圍擴充決策，不是這裡改個 `stock_id` 就能解決；`config.py` 的註解已經寫清楚
+
+---
+
 ## [2026-07-09] 改進 - 外資/投信連買榜改用 Composite Score（連買天數+漲幅 percentile rank 加總）
 
 ### 改了什麼

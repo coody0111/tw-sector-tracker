@@ -1,3 +1,41 @@
+## [2026-07-12] 驗證＋修復 - 大盤分級儀表板 pre-review 兩個 🔴 風險點 + 額外發現中信金無資料
+
+### 驗證方式
+- 讀 `docs/superpowers/specs/2026-07-09-momentum-notes-scan-mapping.md` 附錄裡 Debugger
+  自己稍早寫下、尚未驗證的兩個 🔴 pre-review 風險點
+- 讀 `processors/performance.py::calc_capital_concentration()`/`calc_market_breadth()`
+  程式碼邏輯，並用真實 `data/screener.db`（2026-07-09 資料）實跑交叉比對
+
+### ✅ 驗證通過（原本擔心的兩個 🔴 風險點）
+- **風險 #1（非權值股母體要排除權值股本身）**：`calc_capital_concentration()` 用
+  `broad_pct = df[~is_hw]["change_pct"]`（`~is_hw` 明確排除），不是用全 universe。實測
+  `overlap check`（broad 集合是否含任何權值股 id）結果為 `False`，確認兩籃互斥，沒有稀釋
+  問題。
+- **風險 #4（change_pct 的 NaN/NULL 污染）**：`calc_market_breadth()`／
+  `calc_capital_concentration()` 都有 `pd.to_numeric(errors="coerce")` + `dropna`，NaN
+  在算平均前就被濾掉，不會污染結果。
+
+### 🔴 驗證過程中額外發現的問題（已修）
+`config.TAIEX_HEAVYWEIGHTS` 清單裡的 `2891`（中信金）在 `daily_prices` 表**從未有任何一筆
+資料**（`SELECT COUNT(*) FROM daily_prices WHERE stock_id='2891'` = 0，不是單日缺漏）。
+根因：`stock_universe.csv`（族群追蹤名單）從未收錄金融股，`main.py` 每日抓價的股票清單來源
+就是這份 CSV，`2891` 永遠不會被抓到。導致權值股籃「清單寫 10 檔、實際只有 9 檔生效」。
+
+**已修**：直接移除 `2891`（不替換成別支股票，避免又要重新判斷替代股是否合理，見
+`config.py` 新註解）。清單改成 9 檔，實測全部都能在 `daily_prices` 找到對應資料
+（9/9 matched）。全專案 171 個測試過（本次改動不需要新增測試，`grep` 確認沒有任何地方硬
+編碼假設清單長度是 10）。
+
+這也順帶解決了 2026-07-09 debug-tasks.md 記錄過的「金融股該不該留」懸案——原本以為是哲學
+問題（風險逃難所邏輯跟成長權值相反），實際上是更根本的技術問題（從未被追蹤、不可能有資
+料），移除是唯一正確答案，不用再等 Cody 就邏輯面拍板。
+
+### 結論
+- [x] 可以繼續下一個任務——原本擔心的兩個高風險點確認程式碼寫對了；額外發現的第三個問題
+  （中信金無資料）已經修復並驗證
+
+---
+
 ## [2026-07-09] 修復 - 籌碼面 review 的 5 個 🔴（Cody 授權「你改吧」，Developer 忙別的）
 
 ### 改了什麼（對應下方 review 的 🔴 #1-#5）

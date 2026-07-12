@@ -13,6 +13,7 @@ from scrapers.shareholder import (
     _add_week_change_streak,
     _fetch_one_stock,
     fetch_shareholder_weekly,
+    recompute_all_history,
     recompute_latest_streak,
     save_to_db,
 )
@@ -322,3 +323,75 @@ def test_save_to_db_persists_lv12_and_lv15_tiers(tmp_path, monkeypatch):
     ).fetchone()
     con.close()
     assert row == (1_500_000, 6.0, 3_000_000, 12.0)
+
+
+def test_recompute_all_history_fixes_corrupted_historical_week_chg(tmp_path):
+    """
+    重現真實 bug：調查 2380 時發現，資料庫裡好幾筆歷史 week_chg 都精確等於
+    「自己的 pct 減掉某個離群值（100.0）」，而不是跟真正前一週比較——
+    等於每一筆都拿同一個錯誤基準去比，不是逐週正確比較。
+
+    recompute_all_history 應該無視現有（已損毀）的 week_chg，完全依照
+    lv12_15_pct 的日期序列重新計算每一筆，恢復成跟「真正前一週」的正確差值。
+    """
+    db_path = tmp_path / "t.db"
+    con = duckdb.connect(str(db_path))
+    _make_table(con)
+    # 模擬損毀狀態：pct 序列本身是正常的緩步變化，但 week_chg 全部被寫壞成
+    # 「自己 - 100.0」（100.0 是某個之後才出現、不相干的離群值）
+    rows = [
+        ("2380", "2026-05-08", 44.40, -55.60, 0),
+        ("2380", "2026-05-15", 44.61, -55.39, 0),
+        ("2380", "2026-05-22", 44.72, -55.28, 0),
+        ("2380", "2026-06-26", 100.00, 55.21, 1),   # 離群值本身（真正的異常來源）保留不動
+    ]
+    for sid, d, pct, bad_chg, bad_streak in rows:
+        con.execute(
+            "INSERT INTO shareholder VALUES (?, ?, ?, 0, 0, 0, ?, ?)",
+            [sid, pd.to_datetime(d).date(), pct, bad_chg, bad_streak],
+        )
+    con.close()
+
+    updated = recompute_all_history(str(db_path))
+    assert updated == len(rows)
+
+    con = duckdb.connect(str(db_path))
+    df = con.execute(
+        "SELECT date, week_chg, streak FROM shareholder WHERE stock_id='2380' ORDER BY date"
+    ).df()
+    con.close()
+
+    # 第一筆無前值可比 → week_chg 應為 NULL（不是 -55.60）
+    assert pd.isna(df.iloc[0]["week_chg"])
+    # 之後每一筆應該是跟「真正前一週」的差值，不是「自己 - 100.0」
+    assert round(df.iloc[1]["week_chg"], 2) == round(44.61 - 44.40, 2)
+    assert round(df.iloc[2]["week_chg"], 2) == round(44.72 - 44.61, 2)
+    assert round(df.iloc[3]["week_chg"], 2) == round(100.00 - 44.72, 2)  # 100.0 本身沒被改，只修「跟它比較」的方式
+    # streak：三週連續上升 0→1→2，第四週(100.0，繼續上升)累加成 3
+    assert df.iloc[0]["streak"] == 0
+    assert df.iloc[1]["streak"] == 1
+    assert df.iloc[2]["streak"] == 2
+    assert df.iloc[3]["streak"] == 3
+
+
+def test_recompute_all_history_handles_single_week_stock(tmp_path):
+    """只有一週資料的股票，第一筆 week_chg 應為 NULL、streak=0，不報錯。"""
+    db_path = tmp_path / "t.db"
+    con = duckdb.connect(str(db_path))
+    _make_table(con)
+    con.execute(
+        "INSERT INTO shareholder VALUES (?, ?, ?, 0, 0, 0, ?, ?)",
+        ["9999", pd.to_datetime("2026-07-03").date(), 20.0, -999.0, 5],
+    )
+    con.close()
+
+    updated = recompute_all_history(str(db_path))
+    assert updated == 1
+
+    con = duckdb.connect(str(db_path))
+    row = con.execute(
+        "SELECT week_chg, streak FROM shareholder WHERE stock_id='9999'"
+    ).fetchone()
+    con.close()
+    assert pd.isna(row[0])
+    assert row[1] == 0

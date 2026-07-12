@@ -306,6 +306,51 @@ def recompute_latest_streak(db_path: str = _DB_PATH) -> int:
     return len(updates)
 
 
+def recompute_all_history(db_path: str = _DB_PATH) -> int:
+    """
+    重算整張 shareholder 表**每一筆**（不只最新一筆）的 week_chg/streak，
+    完全依照 lv12_15_pct 的日期序列由舊到新重新計算，覆蓋掉現有值。
+
+    背景：調查大戶持倉顯示異常時發現，部分歷史列的 week_chg 是用錯誤的基準
+    算出來的（例如整批被某次錯誤的批次運算覆蓋成「跟某個不相干的離群值比較」），
+    不是跟真正的前一週比較。recompute_latest_streak() 只處理「每支股票目前最新
+    一筆」，不會碰到已經寫壞的歷史列，所以需要這支獨立的全表重算工具。
+
+    不需要重打 TDCC，lv12_15_pct 已經在 DB 裡，只是重算 week_chg/streak 兩個
+    衍生欄位。回傳實際更新的列數。
+    """
+    con = duckdb.connect(db_path)
+    df = con.execute("""
+        SELECT stock_id, date, lv12_15_pct
+        FROM shareholder
+        ORDER BY stock_id, date
+    """).df()
+
+    updates = []
+    for sid, grp in df.groupby("stock_id"):
+        grp = grp.sort_values("date").reset_index(drop=True)
+        prev_streak = 0
+        prev_pct = None
+        for _, row in grp.iterrows():
+            if prev_pct is None:
+                chg = None
+                streak = 0
+            else:
+                chg = round(float(row["lv12_15_pct"]) - float(prev_pct), 4)
+                streak = _streak_step(chg, prev_streak)
+            updates.append((chg, streak, sid, row["date"]))
+            prev_pct = row["lv12_15_pct"]
+            prev_streak = streak
+
+    if updates:
+        con.executemany(
+            "UPDATE shareholder SET week_chg = ?, streak = ? WHERE stock_id = ? AND date = ?",
+            updates,
+        )
+    con.close()
+    return len(updates)
+
+
 def get_available_dates() -> list[str]:
     """回傳 TDCC 目前可查的週別日期列表（YYYYMMDD 格式）。"""
     import warnings

@@ -1,0 +1,50 @@
+# 籌碼分頁三指標定義修正 + 外資持股% 新資料源
+
+日期：2026-07-14
+狀態：待 Cody 核准
+
+## 背景
+
+這次 session 把 chips.html 重整成 7 個獨立 tab（法人買賣/外資籌碼/投信籌碼/融資警示/大戶籌碼/董監持股）後，Cody 發現「大戶籌碼」tab 的「大戶持倉%」數字看起來奇怪（許多股票落在 80-90%），且排行榜前段班幾乎都是這種高比例股票。
+
+調查釐清了兩件事：
+
+1. **排序 bug**：`_build_section8()` 目前排序邏輯是 `(-streak, -lv12_15_pct)`——連增/連減週數相同時，比「持倉百分比絕對值」高低。現況資料才剛修復兩週，幾乎每檔 streak 都是 2（打平），所以實際上整個榜單被第二排序條件（絕對百分比）主宰，把外資保管銀行持股天生就高的股票（如 2330 台積電 87.77%）沖到榜首，即使它們當週實際變動只有 0.01-0.03% 這種無意義的雜訊。
+
+2. **指標定義跟 Cody 心中的標準定義有落差**。Cody 給的三個標準定義：
+   - 外資籌碼% = 全體外資持有股數 / 總發行股數 × 100%
+   - 大戶籌碼% = 千張以上（level 15）大戶股東持有股數 / 總發行股數 × 100%
+   - 董監持股% = 董監事持有股數 / 總發行股數 × 100%
+
+   對照現況：
+   - **董監持股%**：✅ 已有，現有「公司派持股」桶（董事/監察人/經理/協理/主管）已經拆成獨立 tab，跟 Cody 定義的精神一致（略寬，多算經理人，可接受）。
+   - **大戶籌碼%**：🔧 現在顯示的是 `lv12_15_pct`（TDCC level 12-15 合計，≥400張），Cody 要的是純 `lv15_pct`（level 15 單獨，≥1000張）——這個欄位資料庫裡已經有（Task 1-3 就寫入了），只是沒被拿來當主要顯示指標。
+   - **外資籌碼%**：🆕 完全沒有。現有「外資籌碼」tab 只有三大法人「今日買賣超」（流量），沒有「外資總共持有多少%」（存量）。需要新資料源。
+
+   已研究確認新資料源可行：TWSE `https://www.twse.com.tw/rwd/zh/fund/MI_QFIIS`（跟現有 T86/MI_MARGN 同一種 URL pattern，全市場一次回傳，欄位含「全體外資及陸資持股比率」）+ TPEx `https://www.tpex.org.tw/openapi/v1/tpex_3insti_qfii`（欄位 `PercentageOfSharesOC/FMIHeld`），兩者都已用真實請求驗證過格式正確（TSMC 2330 在 TWSE 端測得 69.59%）。
+
+## 範圍（這次做的 3 件事）
+
+### 1. 修排序：大戶連增/連減榜改比 |week_chg|
+`_build_section8()` 的 sort key 從 `(-streak, -lv12_15_pct)` / `(streak, -lv12_15_pct)` 改成
+`(-streak, -abs(week_chg))` / `(streak, -abs(week_chg))`——同樣的 streak 次數下，優先顯示**當週實際變動幅度最大**的股票，不是絕對持倉比例最高的。不改變資料來源、不改變 streak 本身的計算基礎（仍是 `lv12_15_pct` 週變化，這部分已經修好且穩定，不動它）。
+
+### 2. 大戶籌碼% 顯示改用 lv15_pct
+「大戶籌碼」tab 的「大戶持倉%」欄位，資料來源從 `lv12_15_pct` 換成 `lv15_pct`（純千張大戶，資料庫已有此欄位，`get_shareholder_top()` 已回傳，只是 `main.py`/`chips_generator.py` 目前顯示用的是 `lv12_15_pct`）。連增/連減 streak 的計算基礎維持用 `lv12_15_pct`（改變 streak 基礎是更大的結構性變動，這次不動），僅改「顯示的那個數字」。同步把欄位標籤從「大戶持倉%」改成「大戶持倉%（千張以上）」，避免之後又被誤解成 ≥400張。
+
+### 3. 新增外資籌碼% 資料源（TWSE MI_QFIIS + TPEx tpex_3insti_qfii）
+- **新 scraper**：`scrapers/chips.py` 新增 `fetch_foreign_holding_twse(trade_date)`、`fetch_foreign_holding_tpex()`，回傳欄位 `stock_id, date, foreign_pct`。比照現有 T86/MI_MARGN 的 request 模式（`_HEADERS_TWSE`/`_HEADERS_TPEX`、`_check_twse_response`、timeout=30, verify=False）。
+- **新 DB 表**：`foreign_holdings(stock_id VARCHAR, date DATE, foreign_pct DOUBLE, PRIMARY KEY(stock_id, date))`，獨立表（跟 institutional/margin/shareholder/insider_holdings 同樣一個資料關注點一張表的既有慣例一致），不擠進 `institutional` 表（那張是流量資料、更新邏輯不同）。
+- **main.py 接線**：`_update_chips_db()` 新增兩段抓取（TWSE 一段 + TPEx 一段），比照現有 institutional/margin 的寫入模式（DELETE WHERE date + INSERT），套用 `_retry_fetch()`（這個 session 稍早 #6 已經建好的重試機制，TPEx 沒有「尚未發布」的合法信號，任何例外都重試；TWSE 用同樣邏輯）。
+- **顯示**：「外資籌碼」tab 的 `_stock_rank_table()`（外資大買/大賣個股）新增一欄「外資持股%」，資料來自新表 `foreign_holdings` 最新一筆（跟 institutional 資料的日期不用嚴格對齊，用最新可查日期即可——這是存量資料，不像買賣超需要精確按日對帳）。
+
+## 已知限制（誠實揭露）
+
+- 大戶籌碼% 換成 `lv15_pct` 後，對外資持股極重的股票（如台積電）仍然會顯示偏高的數字（因為外資保管銀行的巨額集保帳戶本來就會落在 level 15），這是 TDCC 資料源本身的固有特性，不是這次能解決的（Cody 已確認接受，不做「扣除外資」的近似估計，避免引入日期對齊的複雜度跟精確度爭議）。
+- 外資籌碼%（新資料源）跟三大法人買賣超（既有資料）是兩個獨立的資料源、獨立的更新頻率，不會互相校驗一致性，只是並排顯示在同一個 tab。
+
+## Out of scope
+
+- 不做「真正大戶（扣除外資）」的近似計算（Cody 已經決定不做這個方向）。
+- 不改變 streak/week_chg 的計算基礎（維持 `lv12_15_pct`）。
+- 不新增外資持股% 的歷史回補路徑（TWSE MI_QFIIS 這支 API 本身支援帶日期查詢，理論上可以回補歷史，但這次先只接每日更新，回補是否要做、值不值得做，之後再議）。

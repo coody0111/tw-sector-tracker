@@ -1,3 +1,30 @@
+## [2026-07-13] 🚧 進度 - 大戶持倉待修清單 #1 完成、#2/#4 進行中（Developer）
+
+對應下面那份 Debugger 待修清單，目前進度：
+
+### ✅ #1 缺週防護（已 commit `408cc0d`、已 push、全綠）
+- `scrapers/shareholder.py::recompute_all_history()`：迴圈追蹤 `prev_date`，間隔 >
+  `_MAX_WEEK_GAP_DAYS`(10) 天視為缺週 → 該筆 `week_chg=NULL`、`streak=0`，prev 照常前進
+  （缺口後相鄰週恢復正常，不傳染）。
+- 新增缺週測試；更新既有 `test_recompute_all_history_fixes_corrupted`（05-22→06-26 隔 35 天，
+  現為 NULL，順帶讓 2380 的 100.0 離群值不再算 week_chg）。全專案 **176 passed**。
+
+### 🚧 #2 離群值防護 + #4 NaN guard（實作中、**尚未 push**、有 2 測試紅）
+- **#2 已寫**：寫入端 `_fetch_one_stock` 把 `lv12_15_pct >= 99` 視為異常寫 None；讀取端
+  `get_shareholder_top()` 加 `WHERE latest.lv12_15_pct < 99`（排除離群值/NULL）。
+- **#4 寫了但踩到真 bug**：`recompute_all_history` / `_add_week_change_streak` 加了
+  `pd.isna` guard，但實測發現 **`con.executemany(UPDATE...)` 會把 Python `None` 寫成 NaN
+  而不是真 NULL**（除第一列外）——這**正是 #4 要修的症狀本身**（`WHERE week_chg IS NULL`
+  抓不到）。所以 #4 的核心不只是 guard，還要**改寫入方式讓 None 真的落成 SQL NULL**。
+- 目前紅的 2 測試：`test_recompute_all_history_null_pct_gives_null_not_nan`（IS NULL 只數到 1
+  應為 3）、`test_add_week_change_streak_handles_null_prev`。
+- **下一步**：把 recompute/write 的 NULL 寫入改成不經 executemany 的批次 float 推斷
+  （逐列 execute，或用 object dtype），讓 None→真 NULL；綠了再 commit + push。
+- ⚠️ **這批 #2/#4 code 還在工作區未 commit**：在我修好前**別跑 `python main.py`**
+  （它的自動 `git add . && push` 會把壞掉的 code 一起推走）。
+
+---
+
 ## [2026-07-13] 🔧 Debugger → Developer：待修清單（Cody 拍板繼續改，依序做）
 
 Debugger 今天在真實資料上驗出來的，完整證據在 `bug-reports.md` 今天那三則。

@@ -1,6 +1,6 @@
 from datetime import date
 
-from export.chips_generator import _build_section6, _composite_sort, _coverage_flag, _esc, _inst_streak_table, _meta_link, _percentile_ranks, _shareholder_table, _stock_rank_table, generate
+from export.chips_generator import _build_section6, _composite_sort, _coverage_flag, _esc, _inst_streak_table, _margin_alert_table, _meta_link, _percentile_ranks, _shareholder_table, _stock_rank_table, generate
 
 
 def test_esc_escapes_html_special_characters():
@@ -244,3 +244,38 @@ def test_build_section6_trust_table_filters_by_price_cum_pct_too():
     assert "百容" in s6b_html
     assert "無反應股" not in s6b_html, "投信買超但股價沒反應（0.5% < 5% 門檻）應被濾掉"
     assert "投信持續買進" in s6b_html and "10日漲幅" in s6b_html
+
+
+def _margin_alert_row(sid, name, chg, data_date):
+    return {"stock_id": sid, "stock_name": name, "meta_sector": "半導體",
+            "margin_balance": 100000, "margin_change": chg,
+            "alert_pct": round(chg / 1000, 1), "close": 100.0, "change_pct": 1.0,
+            "data_date": data_date}
+
+
+def test_margin_alert_table_flags_lagged_data_date():
+    """新 🔴（融資跨交易日混用）：警示列混用不同交易日時，落後那一天的個股要被標出實際
+    資料日期，不能全部被當成同一天呈現。"""
+    alerts = [
+        _margin_alert_row("6488", "環球晶", 9000, "2026-07-09"),  # 最新日
+        _margin_alert_row("2330", "台積電", 8000, "2026-07-08"),  # 落後一天
+    ]
+    html = _margin_alert_table(alerts)
+    assert "07/08" in html, "落後那列(2330 用 7/08)要標出實際資料日期"
+    assert "07/09" not in html, "最新那列不標日期（避免噪音）"
+
+
+def test_margin_alert_table_no_date_badge_when_all_same_date():
+    """所有列同一天時不標任何資料日期徽章，保持乾淨。"""
+    alerts = [_margin_alert_row("2330", "台積電", 8000, "2026-07-09")]
+    html = _margin_alert_table(alerts)
+    assert "📅" not in html
+
+
+def test_margin_alert_table_handles_missing_data_date():
+    """舊資料沒有 data_date 欄位時不標徽章、不報錯。"""
+    row = _margin_alert_row("2330", "台積電", 8000, "2026-07-09")
+    del row["data_date"]
+    html = _margin_alert_table([row])
+    assert "📅" not in html
+    assert "2330" in html

@@ -446,12 +446,14 @@ def get_stock_chips_ranking(
         # institutional / margin 各自 per-stock 取自己最新一筆（不綁單一 MAX 日期）：
         # TWSE/TPEx 發布日不同步、或 margin 比 institutional 晚一天時，單一 MAX(date) 會漏掉
         # 落後那一邊、或整批 margin 歸零。比照 get_chips_today 的 per-stock fallback。
+        # 帶回每檔自己那筆的 date：per-stock 取最新時 TWSE/TPEx 進度不同會混用不同交易日，
+        # 每列保留 data_date，畫面才能誠實標示、不會把落後一天的數字謊報成同一天（新 🔴 修復）。
         inst_df = con.execute("""
-            SELECT stock_id, foreign_net, trust_net FROM institutional
+            SELECT stock_id, foreign_net, trust_net, date FROM institutional
             QUALIFY ROW_NUMBER() OVER (PARTITION BY stock_id ORDER BY date DESC) = 1
         """).fetchdf()
         margin_df = con.execute("""
-            SELECT stock_id, margin_balance, margin_change FROM margin
+            SELECT stock_id, margin_balance, margin_change, date FROM margin
             QUALIFY ROW_NUMBER() OVER (PARTITION BY stock_id ORDER BY date DESC) = 1
         """).fetchdf()
         price_df = con.execute("""
@@ -498,6 +500,7 @@ def get_stock_chips_ranking(
                 "trust_net":   int(r["trust_net"]),
                 "close":       px.get("close"),
                 "change_pct":  px.get("change_pct"),
+                "data_date":   str(r["date"])[:10],  # Timestamp→純日期(YYYY-MM-DD)
             }
 
         foreign_top_buy = [_row(r) for _, r in sorted_df.head(10).iterrows()]
@@ -529,6 +532,7 @@ def get_stock_chips_ranking(
                 "alert_pct":      float(r["alert_pct"]),
                 "close":          px.get("close"),
                 "change_pct":     px.get("change_pct"),
+                "data_date":      str(r["date"])[:10],  # Timestamp→純日期(YYYY-MM-DD)
             })
 
     return {

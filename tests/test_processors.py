@@ -291,6 +291,36 @@ def test_get_stock_chips_ranking_handles_null_close_without_crash(tmp_path):
         "NULL close 應洗成 None、不是 NaN（避免 _price_cell int(nan) crash）"
 
 
+def test_get_stock_chips_ranking_carries_per_row_data_date(tmp_path):
+    """新 🔴（融資跨交易日混用）：per-stock 取最新一筆時，兩交易所進度不同會靜默混用不同
+    交易日。每一列要帶自己的真實資料日期 data_date，畫面才能誠實標示，不會把前一天的數字
+    謊報成同一天。"""
+    db_path = tmp_path / "test.db"
+    universe = pd.DataFrame(
+        [("2330", "台積電", "半導體"), ("6488", "環球晶", "半導體")],
+        columns=["stock_id", "stock_name", "meta_sector"],
+    )
+    _seed_ranking_db(
+        db_path,
+        # 法人：2330(上市)停在 07-08、6488(上櫃)到 07-09（兩所進度差一天）
+        inst_rows=[("2330", "2026-07-08", 5000, 100), ("6488", "2026-07-09", 6000, 200)],
+        # margin：2330 只到 07-08、6488 到 07-09，兩檔都觸發融資警示(>5%)
+        margin_rows=[("2330", "2026-07-08", 100000, 8000), ("6488", "2026-07-09", 100000, 9000)],
+        price_rows=[("2330", "2026-07-08", 950.0, 1.5), ("6488", "2026-07-09", 600.0, 2.0)],
+    )
+    result = get_stock_chips_ranking(universe, db_path=str(db_path))
+
+    # margin 警示每列帶自己的資料日期（不是統一 chips_date）
+    md = {a["stock_id"]: a["data_date"] for a in result["margin_alerts"]}
+    assert md["2330"] == "2026-07-08"
+    assert md["6488"] == "2026-07-09"
+
+    # 外資榜同樣帶 per-row 資料日期（同一個 per-stock-latest 病）
+    fd = {r["stock_id"]: r["data_date"] for r in result["foreign_top_buy"]}
+    assert fd["2330"] == "2026-07-08"
+    assert fd["6488"] == "2026-07-09"
+
+
 # ── 大盤分級儀表板（Market Regime Dashboard）───────────────────────────
 from processors.performance import (
     calc_market_breadth,

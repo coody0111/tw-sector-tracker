@@ -174,9 +174,26 @@ def _trust_meta_table(meta_chips: dict) -> str:
     return html
 
 
+def _data_date_badge(data_date, latest) -> str:
+    """個股實際資料日落後該區塊最新日時，標一個橘色日期徽章，避免跨交易日資料
+    （TWSE/TPEx 發布進度不同步、per-stock 取最新）被謊報成同一天。同日或缺值時不標。"""
+    if not data_date or not latest or data_date == latest:
+        return ""
+    md = data_date[5:].replace("-", "/") if len(str(data_date)) >= 10 else str(data_date)
+    return (f" <span style='color:#fbbf24;font-size:.6rem;font-weight:700;"
+            f"border:1px solid #fbbf2455;border-radius:3px;padding:0 3px' "
+            f"title='此列資料日期為 {data_date}，落後榜上其他列'>📅{md}</span>")
+
+
+def _latest_data_date(rows: list):
+    """一組列裡最新的 data_date（跨交易所 per-stock 最新時可能有多個日期）。"""
+    return max((r.get("data_date") for r in rows if r.get("data_date")), default=None)
+
+
 def _stock_rank_table(stocks: list, header: str, net_key: str = "foreign_net") -> str:
     if not stocks:
         return "<div class='no-data'>無資料</div>"
+    latest_dd = _latest_data_date(stocks)
     html = f"<table class='ct'><thead><tr><th>#</th><th>股票</th><th>族群</th><th>收盤</th><th>{header}</th><th>投信</th></tr></thead><tbody>"
     for i, s in enumerate(stocks, 1):
         net = s.get(net_key, 0)
@@ -184,7 +201,7 @@ def _stock_rank_table(stocks: list, header: str, net_key: str = "foreign_net") -
         html += (
             f"<tr>"
             f"<td class='ct-rank'>{i}</td>"
-            f"<td><span class='sid'>{_esc(s['stock_id'])}</span> {_esc(s['stock_name'])}</td>"
+            f"<td><span class='sid'>{_esc(s['stock_id'])}</span> {_esc(s['stock_name'])}{_data_date_badge(s.get('data_date'), latest_dd)}</td>"
             f"<td class='ct-meta'>{_meta_link(s['meta_sector'])}</td>"
             f"{_price_cell(s.get('close'), s.get('change_pct'))}"
             f"<td>{_fmt_net(net)}</td>"
@@ -279,6 +296,7 @@ def _inst_streak_table(rows: list, streak_key: str, net_key: str, cum_key: str, 
 def _margin_alert_table(alerts: list) -> str:
     if not alerts:
         return "<div class='no-data'>無融資擴張警示</div>"
+    latest_dd = _latest_data_date(alerts)
     html = "<table class='ct'><thead><tr><th>#</th><th>股票</th><th>族群</th><th>收盤</th><th>融資餘額</th><th>增加量</th><th>增幅</th></tr></thead><tbody>"
     for i, s in enumerate(alerts, 1):
         pct = s["alert_pct"]
@@ -286,7 +304,7 @@ def _margin_alert_table(alerts: list) -> str:
         html += (
             f"<tr>"
             f"<td class='ct-rank'>{i}</td>"
-            f"<td><span class='sid'>{_esc(s['stock_id'])}</span> {_esc(s['stock_name'])}</td>"
+            f"<td><span class='sid'>{_esc(s['stock_id'])}</span> {_esc(s['stock_name'])}{_data_date_badge(s.get('data_date'), latest_dd)}</td>"
             f"<td class='ct-meta'>{_meta_link(s['meta_sector'])}</td>"
             f"{_price_cell(s.get('close'), s.get('change_pct'))}"
             f"<td style='color:#94a3b8'>{s['margin_balance']:,}</td>"

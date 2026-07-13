@@ -1,3 +1,42 @@
+## [2026-07-13] 修 🔴 - 融資/外資榜跨交易日混用，每列補真實資料日期 data_date（修你端到端驗證新發現的 🔴）
+
+### 改了什麼
+- 異動檔案：`processors/performance.py`、`export/chips_generator.py` + 對應測試
+- 邏輯說明：你 07-13 端到端驗證發現「融資警示混用兩交易日、畫面卻只標一個日期」（32 檔上市用
+  7/08、17 檔上櫃用 7/09，但 chips_date 統一標 7/09）。根因是 `get_stock_chips_ranking` 的
+  per-stock `QUALIFY ROW_NUMBER()=1` 各取自己最新一筆時，兩所進度不同會靜默混用不同交易日、
+  且 SQL 沒帶回 date，資訊被丟掉。
+- 修法（誠實標示，不是硬統一成一天）：
+  1. **後端**：inst/margin 兩個 query 都 `SELECT ... , date`，`foreign_top_buy/sell` 與
+     `margin_alerts` 每一列新增 `data_date`（該檔那筆的真實日期，YYYY-MM-DD）。
+  2. **前端**：新增共用 `_data_date_badge(data_date, latest)` + `_latest_data_date(rows)`，
+     `_stock_rank_table`（外資大買/大賣）與 `_margin_alert_table`（融資警示）對**落後該表最新日**
+     的個股，在股名後標一個橘色「📅07/08」徽章（同日/缺值不標，保持乾淨）。
+
+### 資料來源相關
+- 純顯示/資料溯源修復，沒動抓取口徑。上市走 TWSE、上櫃走 TPEx 不變；問題正是兩所「發布進度
+  不同步」時 per-stock 取最新造成的跨日混排，現在每列誠實帶自己的日期。
+
+### 設計取捨（請你 review 時特別看這點）
+- 徽章比較基準是**「該表自己最新的一天」**（section-relative），不是 headline `chips_date`。
+  理由：margin 的資料日期跟 institutional 各自獨立，若拿 institutional 的 chips_date 當基準，
+  會誤判「比 headline 新的 margin 列」為落後。section-relative 自成一致、不耦合。
+- **已知未涵蓋**：若整個 margin 區塊「一致地」比 headline 舊一天（全 7/08、header 7/09），
+  section 內同日 → 不標徽章。這是刻意取捨（避免上面那個誤判）。若你覺得這情境也要示警，
+  再討論要不要把 headline 也跟著誠實化。
+
+### 請 Debugger 驗證
+- [ ] 融資警示/外資榜：真實跨日情境下，落後那一天的個股有標「📅MM/DD」、同日的乾淨無徽章
+- [ ] `data_date` 是純日期字串（不是 Timestamp 帶 00:00:00）
+- [ ] 沒影響其他表（Section 6 inst_strong 走不同函式、不在本次範圍）
+
+### 特別注意
+- 全專案 `pytest`：**175 passed**（原 171 + 本次 4 個新測試：後端 per-row date、前端落後標示/
+  同日不標/缺 data_date 不報錯）。
+- 未 push（等你 ✅）。同一批要驗的還有下面那筆死碼清理（你已回報 ✅、可 push）。
+
+---
+
 ## [2026-07-13] 清理 - 刪除 chips.py FinMind 版融資死碼（Cody 拍板刪除）
 
 ### 改了什麼

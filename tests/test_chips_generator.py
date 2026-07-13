@@ -1,6 +1,6 @@
 from datetime import date
 
-from export.chips_generator import _build_section6, _composite_sort, _coverage_flag, _esc, _inst_streak_table, _margin_alert_table, _meta_link, _percentile_ranks, _shareholder_table, _stock_rank_table, generate
+from export.chips_generator import _build_section2, _build_section4, _build_section6, _composite_sort, _coverage_flag, _esc, _inst_streak_table, _margin_alert_table, _meta_link, _percentile_ranks, _shareholder_table, _stock_rank_table, generate
 
 
 def test_esc_escapes_html_special_characters():
@@ -304,3 +304,37 @@ def test_margin_alert_table_handles_missing_data_date():
     html = _margin_alert_table([row])
     assert "📅" not in html
     assert "2330" in html
+
+
+def test_build_section4_shows_section_date_when_all_rows_lagged():
+    """#5：融資警示整批一致落後 headline 一天時，區塊內同日 → 個股徽章不標（既有行為），
+    但 section 標題要標出這個區塊自己的資料日期，不能讓「整批落後」完全無跡可尋。"""
+    alerts = [
+        _margin_alert_row("2330", "台積電", 8000, "2026-07-08"),
+        _margin_alert_row("6488", "環球晶", 9000, "2026-07-08"),
+    ]
+    html = _build_section4({"margin_alerts": alerts})
+    assert "資料日 07/08" in html
+    assert "📅" not in html, "區塊內同日，個股徽章維持不標（既有行為不變）"
+
+
+def test_build_section4_no_section_date_when_no_alerts():
+    html = _build_section4({"margin_alerts": []})
+    assert "資料日" not in html
+
+
+def test_build_section2_shows_section_date_per_half_independently():
+    """#5：外資大買/大賣是兩個獨立區塊，各自標自己的資料日期，不能共用同一個基準。"""
+    buy_stocks = [{
+        "stock_id": "2330", "stock_name": "台積電", "meta_sector": "半導體",
+        "close": 950.0, "change_pct": 1.0, "foreign_net": 1000, "trust_net": 500,
+        "data_date": "2026-07-08",
+    }]
+    sell_stocks = [{
+        "stock_id": "2317", "stock_name": "鴻海", "meta_sector": "電子",
+        "close": 100.0, "change_pct": -1.0, "foreign_net": -1000, "trust_net": -500,
+        "data_date": "2026-07-09",
+    }]
+    html = _build_section2({"foreign_top_buy": buy_stocks, "foreign_top_sell": sell_stocks})
+    assert "資料日 07/08" in html
+    assert "資料日 07/09" in html

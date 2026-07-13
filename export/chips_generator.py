@@ -190,6 +190,20 @@ def _latest_data_date(rows: list):
     return max((r.get("data_date") for r in rows if r.get("data_date")), default=None)
 
 
+def _section_date_suffix(rows: list) -> str:
+    """該區塊自己最新一筆的資料日期，標在 section/半版標題旁。
+
+    跟 _data_date_badge（逐列、跟區塊內最新日比）是不同基準：那個只在區塊內「混用不同
+    交易日」時才會標，若整個區塊一致落後 headline 一天（區塊內同日），逐列徽章會全部
+    不標，畫面上完全看不出這個區塊其實是舊資料。這裡改成不論如何都標出區塊自己的
+    資料日期，讓「整批落後」也有跡可尋（見 debug-tasks.md #5）。無資料時不標。"""
+    latest = _latest_data_date(rows)
+    if not latest:
+        return ""
+    md = latest[5:].replace("-", "/") if len(str(latest)) >= 10 else str(latest)
+    return f" <span class='cs-date'>· 資料日 {md}</span>"
+
+
 def _stock_rank_table(stocks: list, header: str, net_key: str = "foreign_net") -> str:
     if not stocks:
         return "<div class='no-data'>無資料</div>"
@@ -603,11 +617,11 @@ def _build_section2(stock_chips: dict) -> str:
     return f"""
 <div class="chips-grid">
   <div class="chips-section-half">
-    <div class="cs-title">▲ 外資大買個股 Top 10</div>
+    <div class="cs-title">▲ 外資大買個股 Top 10{_section_date_suffix(buy_stocks)}</div>
     {_stock_rank_table(buy_stocks, "外資買超")}
   </div>
   <div class="chips-section-half">
-    <div class="cs-title">▼ 外資大賣個股 Top 10</div>
+    <div class="cs-title">▼ 外資大賣個股 Top 10{_section_date_suffix(sell_stocks)}</div>
     {_stock_rank_table(sell_stocks, "外資賣超")}
   </div>
 </div>"""
@@ -702,7 +716,7 @@ def _build_section4(stock_chips: dict) -> str:
     margin_alerts = stock_chips.get("margin_alerts", [])
     return f"""
 <div class="chips-section">
-  <div class="cs-title">融資擴張警示（增幅 &gt; 5%）</div>
+  <div class="cs-title">融資擴張警示（增幅 &gt; 5%）{_section_date_suffix(margin_alerts)}</div>
   {_margin_alert_table(margin_alerts)}
 </div>"""
 

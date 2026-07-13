@@ -1,3 +1,66 @@
+## [2026-07-13] 驗證 - 死碼清理(b670a90) ✅ + 籌碼面 5 個 🔴 端到端 ✅ + 新發現 1 個 🔴（融資跨交易日混用）
+
+### 驗證方式
+在**筆電的 master worktree**（`Desktop/tw-sector-tracker`，有完整多日真實資料）實跑
+`python main.py`（14:03，盤後）走完整流程 → 產出 docs/*.html → 再實跑各籌碼函式核對數字。
+（更正舊認知：Debugger 這台**做得了**真實資料端到端驗證，不必等桌電，見上一則報告。）
+
+### ✅ 驗證通過 — 死碼清理（commit b670a90）
+- 全專案 `python -m pytest -q`：**171 passed**。
+- `import scrapers.chips` OK、`import main` OK（實際走匯入鏈，不只靜態掃描）。
+- 刪除物確認：`FINMIND_URL`、`fetch_margin()`、`fetch_margin_all_today()` 三個都不見了；
+  官方版 `fetch_margin_all_twse` / `fetch_margin_all_tpex` 都還在。
+- **`FINMIND_TOKEN` 沒被誤刪**：仍在 `scrapers/chips.py`，`main.py:210` 與 `main.py:320`
+  的 `from scrapers.chips import FINMIND_TOKEN` 正常運作。
+- 全專案零殘留引用（`scrapers/backfill.py:31` 有自己**獨立定義**的 `FINMIND_URL`，
+  不是 import chips 的，不受影響）。
+- → **可以 push 到 origin**。
+
+### ✅ 驗證通過 — 籌碼面 5 個 🔴 端到端（真實資料，且今天天然重現了 skew 情境）
+今天 log 剛好就是要驗的跨表不同步情境：TWSE 法人/融資今日未發布→回退 7/10 也是
+「沒有符合條件的資料」；TPEx 停在 7/09。四項逐一對照：
+- **#1 漏股（per-stock lookback）**：法人篩選 **2263 檔**，股號首碼 0～9 **全部都在**，
+  最高號 **9962**，4000–8999 區間 **968 檔** → 高號 TPEx 股完整回來，沒被舊的全域 LIMIT 截掉。
+- **#3 跨表 skew**：`margin_alerts` **49 檔**，`margin_balance`/`margin_change` 都有值非零
+  → 在真實 skew 下**沒有整批消失**（修復前綁單一 `MAX(institutional)` 會漏光）。
+- **#5 meta margin 歸零**：41 個 META 的 `margin_balance_today` 全部有值
+  （min=6、max=152474）→ **沒有歸零**。`partial_coverage=True` 有正確標記。
+- **#4 NaN close**：`foreign_top_buy`/`sell` 10/10、`margin_alerts` 49/49 的 `close` 全非空，
+  無 `int(nan)` crash，`docs/chips.html` 正常產出。
+- **#2 假融資訊號**：49 檔的 `alert_pct` 介於 5.19～60.32、`margin_change` 6～7230，
+  **零個離群值**（無 `|change| > 100萬`、無 `balance <= 0`）→ 沒有 0 相減造出來的假「融資大減」。
+
+### 🔴 數據問題（新發現，修 #3/#5 的副作用）
+
+- 問題：**「融資擴張警示」混用兩個交易日的資料，畫面卻只標一個日期**
+  位置：`processors/performance.py::get_stock_chips_ranking`（per-stock `QUALIFY ROW_NUMBER()=1`）
+  重現方式：今天（2026-07-13 盤後）實跑即可重現。
+  說明：修 #3 把 margin 查詢改成「每檔各取自己最新一筆」，解決了漏股，但當兩個交易所
+  進度不同時會**靜默混用不同交易日**。實測今天的 49 檔警示：
+  - **32 檔上市（TWSE）用的是 2026-07-08 的融資資料**
+  - **17 檔上櫃（TPEx）用的是 2026-07-09 的融資資料**
+  - **但畫面 `chips_date` 統一標示 `2026-07-09`** → 上市股的數字其實是前一天的。
+  例：`4904 遠傳`（榜首，alert_pct 60.32%）的 `margin_balance=882 / margin_change=532`
+  實際是 **7/08** 的數字，卻被呈現成 7/09。
+  根因：`margin` 表 7/09 **完全沒有 TWSE 資料**（只有 TPEx 489 檔，當天 TWSE 端抓取失敗）。
+  危害：使用者以為看到的是同一天的全市場融資變化排行，實際上是**兩個日期混排**，
+  跨日期比大小不公平，且「今日融資暴增」可能是昨日的事。這比漏股更難察覺（不會報錯）。
+  建議修法：`chips_date` 不該是單一值——至少按交易所分別標示（TWSE: 7/08、TPEx: 7/09），
+  或每一列帶自己的資料日期；或只納入「該交易所最新日期」那批並在 UI 標明落後。
+
+### 🟡 建議改善
+- **TWSE/TPEx 籌碼抓取經常單邊失敗**，兩邊長期不同步（不是本次修復造成，但它是上面 🔴 的根因）：
+  - `institutional`：7/07、7/08 **TPEx 完全缺**（只有 TWSE 509 檔）
+  - `margin`：7/09 **TWSE 完全缺**（只有 TPEx 489 檔）
+  - 其餘日子兩邊都有（各 ~500）。建議：單邊抓取失敗時要能重試/補抓，否則 per-stock
+    取最新的策略會一直產生上面那種跨日混用。
+
+### 結論
+- [x] 需要修改後再確認（新的 🔴 融資跨交易日混用）
+- 死碼清理 ✅ 可 push；籌碼面 5 個 🔴 修復 ✅ 全部生效，舊帳可結案。
+
+---
+
 ## [2026-07-13] 報告 - 大戶持倉（Task 4 前置調查）：week_chg 全表 66% 損毀、髒值上榜、缺週未防護
 
 ### 驗證方式（重要：筆電也做得了端到端驗證）

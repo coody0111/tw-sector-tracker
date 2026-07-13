@@ -1,3 +1,39 @@
+## [2026-07-13] ✅ 大戶持倉分層 Task 5/6 完成（400張/1000張大戶欄位上畫面）
+
+`docs/superpowers/plans/2026-07-10-shareholder-tier-breakdown.md` 最後兩個 Task，照已核准的
+plan 逐步做完：
+
+### Task 5：`main.py` sh_rows 組裝加 6 個新 key
+`lv12_shares`/`lv12_pct`/`lv12_chg`/`lv15_shares`/`lv15_pct`/`lv15_chg`，餵給
+`generate_chips_html`。純資料組裝，跟 plan 內容一致，無偏離。
+
+### Task 6：`export/chips_generator.py::_shareholder_table()` 顯示新欄位
+- 表格新增「400張大戶」「1000張大戶」兩欄，重用 `_insider_cell()` render 格式。
+- `_insider_cell()` 第三參數改名 `pledge_pct`→`pct`，加 `pct_label: str = "質押"`（預設值
+  維持既有「公司派/大股東」兩欄行為不變），大戶分層兩欄呼叫時傳 `pct_label="持股"`
+  （避免「持股占比」被誤標成「質押」字樣）。
+- TDD：先在 `tests/test_chips_generator.py` 補 `_SAMPLE_SH_ROW` 的 lv12/lv15 欄位 + 2 個新測試，
+  確認紅了才動 production code。
+
+### 驗證
+全專案 `pytest`：**182 passed**（原 180 + Task 6 新增 2 個測試）。
+`test_shareholder_table_row_td_count_matches_header`（既有防雙重 `<td>` 回歸測試）維持通過，
+新增的 2 個 `<th>` 跟每列 2 個 `_insider_cell()` 回傳的 `<td>` 數對得上。
+
+### 資料來源相關
+不涉及資料源，純顯示層——組裝/渲染 Task 1-4 已經寫入 DB 的 `lv12_shares`/`lv12_pct`/
+`lv15_shares`/`lv15_pct` 欄位。
+
+### 特別注意（debug-tasks.md 之前記載的已知限制，還沒解）
+- **`lv12_chg`/`lv15_chg` 目前多數股票仍是 NULL**：這兩欄要跟「前一週」比較才有值，
+  Task 1/2 是這次 session 才開始把 `lv12_shares`/`lv15_shares` 寫進 DB，歷史週沒有這兩欄資料。
+  Cody 剛跑完 `python main.py --backfill-shareholder 2`（補 07-03、07-09 兩週），跑完後
+  07-09 這週應該就有值可比（07-03 這批本身就已經寫入 lv12/lv15，兩週都有資料）；再更早的
+  歷史週仍會是 NULL，要等之後每週例行更新累積。畫面上顯示「─」是預期行為，不是 bug。
+- 未 push（等 Debugger ✅，照專案規則）。
+
+---
+
 ## [2026-07-13] ✅ 大戶持倉待修清單 #1/#2/#4 全部完成（Developer，桌電接手 WIP 收尾）
 
 對應下面那份 Debugger 待修清單，目前進度：

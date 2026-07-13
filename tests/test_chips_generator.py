@@ -97,7 +97,32 @@ _SAMPLE_SH_ROW = {
     "week_chg": 1.0, "streak": 2,
     "company_shares": 1_500_000, "company_chg": 100_000, "company_pledge_pct": 13.33,
     "major_holder_shares": 3_000_000, "major_holder_chg": -50_000, "major_holder_pledge_pct": 0.0,
+    "lv12_shares": 1_600_000, "lv12_pct": 6.4, "lv12_chg": 100_000,
+    "lv15_shares": 2_900_000, "lv15_pct": 11.6, "lv15_chg": -100_000,
 }
+
+
+def test_shareholder_table_includes_lv12_and_lv15_columns():
+    html = _shareholder_table([_SAMPLE_SH_ROW])
+    assert "400張大戶" in html
+    assert "1000張大戶" in html
+    assert "1,600" in html   # lv12_shares / 1000 = 1,600 張
+    assert "2,900" in html   # lv15_shares / 1000 = 2,900 張
+    assert "6.4" in html     # lv12_pct
+    assert "11.6" in html    # lv15_pct
+
+
+def test_shareholder_table_handles_missing_lv12_lv15_data():
+    """沒有分層資料的股票（舊資料，尚未跑過新版 --update-shareholder）要顯示「─」，不能報錯。"""
+    row = dict(_SAMPLE_SH_ROW)
+    row["lv12_shares"] = None
+    row["lv12_pct"] = None
+    row["lv12_chg"] = None
+    row["lv15_shares"] = None
+    row["lv15_pct"] = None
+    row["lv15_chg"] = None
+    html = _shareholder_table([row])
+    assert "─" in html
 
 
 def test_shareholder_table_includes_share_chg_column():

@@ -379,7 +379,8 @@ def _shareholder_table(rows: list) -> str:
     """大戶持倉排行表。rows: list of dicts with stock_id, stock_name, meta_sector,
     lv12_15_pct, lv12_15_shares, share_chg, week_chg, streak,
     company_shares, company_chg, company_pledge_pct,
-    major_holder_shares, major_holder_chg, major_holder_pledge_pct"""
+    major_holder_shares, major_holder_chg, major_holder_pledge_pct,
+    lv12_shares, lv12_pct, lv12_chg, lv15_shares, lv15_pct, lv15_chg"""
     if not rows:
         return "<div class='no-data'>無大戶持倉資料（尚未執行 --update-shareholder）</div>"
     html = (
@@ -387,6 +388,7 @@ def _shareholder_table(rows: list) -> str:
         "<th>#</th><th>股票</th><th>族群</th><th>收盤(週漲跌)</th>"
         "<th>近5日</th><th>近7日</th><th>近10日</th><th>近14日</th>"
         "<th>大戶持倉%</th><th>週變化</th><th>大戶張數變化</th><th>連增週</th>"
+        "<th>400張大戶</th><th>1000張大戶</th>"
         "<th>公司派持股</th><th>大股東持股</th>"
         "</tr></thead><tbody>"
     )
@@ -422,6 +424,8 @@ def _shareholder_table(rows: list) -> str:
 
         company_html = _insider_cell(s.get("company_shares"), s.get("company_chg"), s.get("company_pledge_pct"))
         major_html = _insider_cell(s.get("major_holder_shares"), s.get("major_holder_chg"), s.get("major_holder_pledge_pct"))
+        lv12_html = _insider_cell(s.get("lv12_shares"), s.get("lv12_chg"), s.get("lv12_pct"), pct_label="持股")
+        lv15_html = _insider_cell(s.get("lv15_shares"), s.get("lv15_chg"), s.get("lv15_pct"), pct_label="持股")
 
         html += (
             f"<tr>"
@@ -437,6 +441,8 @@ def _shareholder_table(rows: list) -> str:
             f"<td>{chg_html}</td>"
             f"<td>{share_chg_html}</td>"
             f"<td>{streak_html}</td>"
+            f"{lv12_html}"
+            f"{lv15_html}"
             f"{company_html}"
             f"{major_html}"
             f"</tr>"
@@ -445,8 +451,9 @@ def _shareholder_table(rows: list) -> str:
     return html
 
 
-def _insider_cell(shares, chg, pledge_pct) -> str:
-    """內部人持股欄位：張數（第一行）＋ 月變化張數／質押% （第二行）。缺值顯示「─」。"""
+def _insider_cell(shares, chg, pct, pct_label: str = "質押") -> str:
+    """內部人/大戶分層持股欄位：張數（第一行）＋ 週/月變化張數（第二行）＋ 第三行百分比
+    （預設當「質押%」用，大戶分層欄位改傳 pct_label='持股' 顯示「持股%」）。缺值顯示「─」。"""
     if shares is None:
         return "<td style='color:#334155'>─</td>"
     lots = shares / 1000
@@ -456,8 +463,8 @@ def _insider_cell(shares, chg, pledge_pct) -> str:
         sign = "+" if chg_lots > 0 else ""
         color = "#f87171" if chg_lots > 0 else ("#4ade80" if chg_lots < 0 else "#64748b")
         lines.append(f"<span style='color:{color};font-size:.68rem'>{sign}{chg_lots:,.0f}張</span>")
-    if pledge_pct is not None:
-        lines.append(f"<span style='color:#64748b;font-size:.64rem'>質押{pledge_pct:.1f}%</span>")
+    if pct is not None:
+        lines.append(f"<span style='color:#64748b;font-size:.64rem'>{pct_label}{pct:.1f}%</span>")
     return f"<td>{'<br>'.join(lines)}</td>"
 
 

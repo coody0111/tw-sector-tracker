@@ -1,6 +1,6 @@
 from datetime import date
 
-from export.chips_generator import _build_section2, _build_section4, _build_section6, _composite_sort, _coverage_flag, _esc, _inst_streak_table, _margin_alert_table, _meta_link, _percentile_ranks, _shareholder_table, _stock_rank_table, generate
+from export.chips_generator import _build_section2, _build_section4, _build_section6, _composite_sort, _coverage_flag, _esc, _insider_holdings_table, _inst_streak_table, _margin_alert_table, _meta_link, _percentile_ranks, _shareholder_table, _stock_rank_table, generate
 
 
 def test_esc_escapes_html_special_characters():
@@ -131,14 +131,15 @@ def test_shareholder_table_includes_share_chg_column():
     assert "250" in html  # 250,000 股 = 250 張
 
 
-def test_shareholder_table_includes_insider_columns():
-    html = _shareholder_table([_SAMPLE_SH_ROW])
+def test_insider_holdings_table_includes_insider_columns():
+    """董監持股已從大戶籌碼表拆成獨立表格（_insider_holdings_table），兩者是不同資料源。"""
+    html = _insider_holdings_table([_SAMPLE_SH_ROW])
     assert "公司派" in html
     assert "大股東" in html
     assert "13.3" in html  # 質押比例
 
 
-def test_shareholder_table_handles_missing_insider_data():
+def test_insider_holdings_table_handles_missing_insider_data():
     """沒有 insider_holdings 資料的股票（新股/還沒跑過 --update-insider-holdings）要顯示「─」，不能報錯。"""
     row = dict(_SAMPLE_SH_ROW)
     row["company_shares"] = None
@@ -147,8 +148,15 @@ def test_shareholder_table_handles_missing_insider_data():
     row["major_holder_shares"] = None
     row["major_holder_chg"] = None
     row["major_holder_pledge_pct"] = None
-    html = _shareholder_table([row])
+    html = _insider_holdings_table([row])
     assert "─" in html
+
+
+def test_shareholder_table_does_not_include_insider_columns():
+    """大戶籌碼表（TDCC 集保）不該再顯示公司派/大股東欄——已拆成獨立的董監持股表。"""
+    html = _shareholder_table([_SAMPLE_SH_ROW])
+    assert "公司派" not in html
+    assert "大股東" not in html
 
 
 def test_shareholder_table_shows_5d_7d_10d_14d_columns():
@@ -265,7 +273,7 @@ def test_build_section6_strong_signal_excludes_stocks_outside_tracked_universe()
          "close": 40.0, "change_pct": 0.5, "foreign_streak": 5, "trust_streak": 5,
          "both_streak": 5, "foreign_net": 2000, "trust_net": 800, "total_net": 2800},
     ]
-    s6a_html, _ = _build_section6(inst_scan)
+    s6a_html, _, _ = _build_section6(inst_scan)
 
     assert "台積電" in s6a_html
     assert "兆豐金" not in s6a_html, "meta_sector 為空（不在追蹤的電子科技族群清單）應被排除"
@@ -282,11 +290,11 @@ def test_build_section6_trust_table_filters_by_price_cum_pct_too():
          "close": 50.0, "change_pct": 0.1, "trust_streak": 5, "foreign_streak": 0,
          "both_streak": 0, "trust_net": 1000, "cum_trust": 999999, "price_cum_pct": 0.5},
     ]
-    _, s6b_html = _build_section6(inst_scan)
+    _, _, s6_trust_html = _build_section6(inst_scan)
 
-    assert "百容" in s6b_html
-    assert "無反應股" not in s6b_html, "投信買超但股價沒反應（0.5% < 5% 門檻）應被濾掉"
-    assert "投信持續買進" in s6b_html and "10日漲幅" in s6b_html
+    assert "百容" in s6_trust_html
+    assert "無反應股" not in s6_trust_html, "投信買超但股價沒反應（0.5% < 5% 門檻）應被濾掉"
+    assert "投信持續買進" in s6_trust_html and "10日漲幅" in s6_trust_html
 
 
 def _margin_alert_row(sid, name, chg, data_date):

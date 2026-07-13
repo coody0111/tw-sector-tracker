@@ -205,13 +205,13 @@ def _section_date_suffix(rows: list) -> str:
 
 
 def _stock_rank_table(stocks: list, header: str, net_key: str = "foreign_net") -> str:
+    """外資籌碼個股排行——只看外資（獨立區塊，不混投信，見 debug-tasks.md 外資/法人拆分）。"""
     if not stocks:
         return "<div class='no-data'>無資料</div>"
     latest_dd = _latest_data_date(stocks)
-    html = f"<table class='ct'><thead><tr><th>#</th><th>股票</th><th>族群</th><th>收盤</th><th>{header}</th><th>投信</th></tr></thead><tbody>"
+    html = f"<table class='ct'><thead><tr><th>#</th><th>股票</th><th>族群</th><th>收盤</th><th>{header}</th></tr></thead><tbody>"
     for i, s in enumerate(stocks, 1):
         net = s.get(net_key, 0)
-        trust = s.get("trust_net", 0)
         html += (
             f"<tr>"
             f"<td class='ct-rank'>{i}</td>"
@@ -219,7 +219,6 @@ def _stock_rank_table(stocks: list, header: str, net_key: str = "foreign_net") -
             f"<td class='ct-meta'>{_meta_link(s['meta_sector'])}</td>"
             f"{_price_cell(s.get('close'), s.get('change_pct'))}"
             f"<td>{_fmt_net(net)}</td>"
-            f"<td>{_fmt_net(trust)}</td>"
             f"</tr>"
         )
     html += "</tbody></table>"
@@ -390,20 +389,19 @@ def _concentration_table(meta_chips: dict) -> str:
 
 
 def _shareholder_table(rows: list) -> str:
-    """大戶持倉排行表。rows: list of dicts with stock_id, stock_name, meta_sector,
-    lv12_15_pct, lv12_15_shares, share_chg, week_chg, streak,
-    company_shares, company_chg, company_pledge_pct,
-    major_holder_shares, major_holder_chg, major_holder_pledge_pct,
-    lv12_shares, lv12_pct, lv12_chg, lv15_shares, lv15_pct, lv15_chg"""
+    """大戶籌碼排行表（集保 TDCC ≥400張分層）。rows: list of dicts with stock_id,
+    stock_name, meta_sector, lv12_15_pct, lv12_15_shares, share_chg, week_chg, streak,
+    lv12_shares, lv12_pct, lv12_chg, lv15_shares, lv15_pct, lv15_chg。
+    董監持股（company_shares/major_holder_shares 等）獨立在 _insider_holdings_table()，
+    跟大戶籌碼是不同資料源（TDCC 集保 vs 公開觀測站董監申報），拆開避免混為一談。"""
     if not rows:
-        return "<div class='no-data'>無大戶持倉資料（尚未執行 --update-shareholder）</div>"
+        return "<div class='no-data'>無大戶籌碼資料（尚未執行 --update-shareholder）</div>"
     html = (
         "<table class='ct'><thead><tr>"
         "<th>#</th><th>股票</th><th>族群</th><th>收盤(週漲跌)</th>"
         "<th>近5日</th><th>近7日</th><th>近10日</th><th>近14日</th>"
         "<th>大戶持倉%</th><th>週變化</th><th>大戶張數變化</th><th>連增週</th>"
         "<th>400張大戶</th><th>1000張大戶</th>"
-        "<th>公司派持股</th><th>大股東持股</th>"
         "</tr></thead><tbody>"
     )
     for i, s in enumerate(rows, 1):
@@ -436,8 +434,6 @@ def _shareholder_table(rows: list) -> str:
 
         pct_color = "#f87171" if pct >= 70 else ("#fbbf24" if pct >= 50 else "#94a3b8")
 
-        company_html = _insider_cell(s.get("company_shares"), s.get("company_chg"), s.get("company_pledge_pct"))
-        major_html = _insider_cell(s.get("major_holder_shares"), s.get("major_holder_chg"), s.get("major_holder_pledge_pct"))
         lv12_html = _insider_cell(s.get("lv12_shares"), s.get("lv12_chg"), s.get("lv12_pct"), pct_label="持股")
         lv15_html = _insider_cell(s.get("lv15_shares"), s.get("lv15_chg"), s.get("lv15_pct"), pct_label="持股")
 
@@ -457,6 +453,34 @@ def _shareholder_table(rows: list) -> str:
             f"<td>{streak_html}</td>"
             f"{lv12_html}"
             f"{lv15_html}"
+            f"</tr>"
+        )
+    html += "</tbody></table>"
+    return html
+
+
+def _insider_holdings_table(rows: list) -> str:
+    """董監持股表（公司派/大股東持股申報，跟大戶籌碼是不同資料源）。
+    rows: list of dicts with stock_id, stock_name, meta_sector, close, change_pct,
+    company_shares, company_chg, company_pledge_pct,
+    major_holder_shares, major_holder_chg, major_holder_pledge_pct"""
+    if not rows:
+        return "<div class='no-data'>無董監持股資料（尚未執行 --update-insider-holdings）</div>"
+    html = (
+        "<table class='ct'><thead><tr>"
+        "<th>#</th><th>股票</th><th>族群</th><th>收盤(週漲跌)</th>"
+        "<th>公司派持股</th><th>大股東持股</th>"
+        "</tr></thead><tbody>"
+    )
+    for i, s in enumerate(rows, 1):
+        company_html = _insider_cell(s.get("company_shares"), s.get("company_chg"), s.get("company_pledge_pct"))
+        major_html = _insider_cell(s.get("major_holder_shares"), s.get("major_holder_chg"), s.get("major_holder_pledge_pct"))
+        html += (
+            f"<tr>"
+            f"<td class='ct-rank'>{i}</td>"
+            f"<td><span class='sid'>{_esc(s['stock_id'])}</span> {_esc(s.get('stock_name',''))}</td>"
+            f"<td class='ct-meta'>{_meta_link(s.get('meta_sector',''))}</td>"
+            f"{_price_cell(s.get('close'), s.get('change_pct'))}"
             f"{company_html}"
             f"{major_html}"
             f"</tr>"
@@ -539,7 +563,7 @@ function switchTab(id){
   document.getElementById(id).classList.add('active');
   history.replaceState(null,'','#'+id);
 }
-const _tabs=['tab-signal','tab-inst','tab-margin','tab-meta','tab-holder'];
+const _tabs=['tab-signal','tab-inst','tab-foreign','tab-trust','tab-margin','tab-holder','tab-insider'];
 const _h=location.hash.slice(1);
 switchTab(_tabs.includes(_h)?_h:'tab-signal');
 </script>
@@ -767,8 +791,10 @@ def _composite_sort(candidates: list, streak_key: str) -> list:
     return [c for c, _score in scored]
 
 
-def _build_section6(inst_scan: list) -> tuple[str, str]:
-    """Section 6a/6b: 法人持續買進個股（過濾 ETF/特別股，只留 4 位數純數字代碼）"""
+def _build_section6(inst_scan: list) -> tuple[str, str, str]:
+    """Section 6: 法人持續買進個股（過濾 ETF/特別股，只留 4 位數純數字代碼）。
+    回傳 (強力訊號, 外資持續買進, 投信持續買進) 三塊獨立 html——外資/投信各自要放進
+    「外資籌碼」「投信籌碼」獨立 tab，不能再綁成同一個 grid（見 chips.html tab 改版）。"""
     import re as _re
     def _is_stock(sid: str) -> bool:
         return bool(_re.match(r'^[1-9]\d{3}$', str(sid)))
@@ -807,18 +833,18 @@ def _build_section6(inst_scan: list) -> tuple[str, str]:
   {_inst_strong_table(strong)}
 </div>"""
 
-    s6b_html = f"""
-<div class="chips-grid">
-  <div class="chips-section-half">
-    <div class="cs-title">外資持續買進 Top 15（連買 &ge;3 日 + 10日漲幅 &ge;5%，綜合排序）</div>
-    {_inst_streak_table(top_foreign, 'foreign_streak', 'foreign_net', 'cum_foreign', '外資')}
-  </div>
-  <div class="chips-section-half">
-    <div class="cs-title">投信持續買進 Top 15（連買 &ge;5 日 + 10日漲幅 &ge;5%，綜合排序）</div>
-    {_inst_streak_table(top_trust, 'trust_streak', 'trust_net', 'cum_trust', '投信')}
-  </div>
+    s6_foreign_html = f"""
+<div class="chips-section">
+  <div class="cs-title">外資持續買進 Top 15（連買 &ge;3 日 + 10日漲幅 &ge;5%，綜合排序）</div>
+  {_inst_streak_table(top_foreign, 'foreign_streak', 'foreign_net', 'cum_foreign', '外資')}
 </div>"""
-    return s6a_html, s6b_html
+
+    s6_trust_html = f"""
+<div class="chips-section">
+  <div class="cs-title">投信持續買進 Top 15（連買 &ge;5 日 + 10日漲幅 &ge;5%，綜合排序）</div>
+  {_inst_streak_table(top_trust, 'trust_streak', 'trust_net', 'cum_trust', '投信')}
+</div>"""
+    return s6a_html, s6_foreign_html, s6_trust_html
 
 
 def _build_section7(margin_divergence: dict) -> str:
@@ -846,33 +872,44 @@ def _build_section7(margin_divergence: dict) -> str:
 </div>"""
 
 
-def _build_section8(shareholder_data: list) -> tuple[str, str]:
-    """Section 8: 大戶持倉（集保 ≥400張）"""
+def _build_section8(shareholder_data: list) -> tuple[str, str, str]:
+    """Section 8: 大戶籌碼（集保 TDCC ≥400張）+ 董監持股。回傳 (大戶籌碼html, 資料日期note, 董監持股html)——
+    兩者是不同資料源（TDCC 集保 vs 公開觀測站董監申報），拆成獨立 tab（見 chips.html 改版）。
+    董監持股表沿用大戶籌碼同一批「連增Top30+連減Top20」精選股票，不另外設計排序，避免
+    無謂的範圍擴張——這批本來就是本頁挑出的重點觀察股。"""
     if not shareholder_data:
+        empty = "<div class='no-data'>無資料（請執行 python main.py --update-shareholder）</div>"
         return (
-            "<div class='chips-section'><div class='cs-title'>大戶持倉</div>"
-            "<div class='no-data'>無資料（請執行 python main.py --update-shareholder）</div></div>",
+            f"<div class='chips-section'><div class='cs-title'>大戶籌碼</div>{empty}</div>",
             "",
+            f"<div class='chips-section'><div class='cs-title'>董監持股</div>{empty}</div>",
         )
     sh_increasing = [r for r in shareholder_data if (r.get("streak") or 0) > 0]
     sh_decreasing = [r for r in shareholder_data if (r.get("streak") or 0) < 0]
     sh_increasing.sort(key=lambda x: (-(x.get("streak") or 0), -(x.get("lv12_15_pct") or 0)))
     sh_decreasing.sort(key=lambda x: ((x.get("streak") or 0), -(x.get("lv12_15_pct") or 0)))
+    top_increasing, top_decreasing = sh_increasing[:30], sh_decreasing[:20]
 
     s8_html = f"""
 <div class="chips-grid">
   <div class="chips-section-half">
     <div class="cs-title">📈 大戶連增倉 Top 30（≥400張，集保）</div>
-    {_shareholder_table(sh_increasing[:30])}
+    {_shareholder_table(top_increasing)}
   </div>
   <div class="chips-section-half">
     <div class="cs-title">📉 大戶連減倉 Top 20</div>
-    {_shareholder_table(sh_decreasing[:20])}
+    {_shareholder_table(top_decreasing)}
   </div>
 </div>"""
     sh_date = shareholder_data[0].get("date", "")
     s8_note = f"<p style='color:#475569;font-size:.72rem;margin:4px 0 12px'>集保資料日期：{sh_date}｜共 {len(shareholder_data)} 支股票</p>"
-    return s8_html, s8_note
+
+    s_insider_html = f"""
+<div class="chips-section">
+  <div class="cs-title">董監持股（同大戶連增/連減榜精選股）</div>
+  {_insider_holdings_table(top_increasing + top_decreasing)}
+</div>"""
+    return s8_html, s8_note, s_insider_html
 
 
 def generate(
@@ -907,9 +944,9 @@ def generate(
     s35_html = _build_section35(meta_chips, cum_ranks)
     s4_html = _build_section4(stock_chips)
     s5_html = _build_section5(meta_chips)
-    s6a_html, s6b_html = _build_section6(inst_scan)
+    s6a_html, s6_foreign_html, s6_trust_html = _build_section6(inst_scan)
     s7_html = _build_section7(margin_divergence)
-    s8_html, s8_note = _build_section8(shareholder_data)
+    s8_html, s8_note, s_insider_html = _build_section8(shareholder_data)
 
     html = f"""<!DOCTYPE html>
 <html lang="zh-TW">
@@ -936,10 +973,12 @@ def generate(
     </div>
     <div class="tab-bar">
       <button class="tab-btn" data-tab="tab-signal" onclick="switchTab('tab-signal')">🔥 強力訊號</button>
-      <button class="tab-btn" data-tab="tab-inst" onclick="switchTab('tab-inst')">外資 / 投信</button>
+      <button class="tab-btn" data-tab="tab-inst" onclick="switchTab('tab-inst')">📊 法人買賣</button>
+      <button class="tab-btn" data-tab="tab-foreign" onclick="switchTab('tab-foreign')">🌍 外資籌碼</button>
+      <button class="tab-btn" data-tab="tab-trust" onclick="switchTab('tab-trust')">🏢 投信籌碼</button>
       <button class="tab-btn" data-tab="tab-margin" onclick="switchTab('tab-margin')">⚠ 融資警示</button>
-      <button class="tab-btn" data-tab="tab-meta" onclick="switchTab('tab-meta')">META 分析</button>
-      <button class="tab-btn" data-tab="tab-holder" onclick="switchTab('tab-holder')">🏦 大戶持倉</button>
+      <button class="tab-btn" data-tab="tab-holder" onclick="switchTab('tab-holder')">🐋 大戶籌碼</button>
+      <button class="tab-btn" data-tab="tab-insider" onclick="switchTab('tab-insider')">👔 董監持股</button>
     </div>
   </div>
   {exch_filter_btns}
@@ -949,9 +988,17 @@ def generate(
   </div>
 
   <div class="tab-panel" id="tab-inst">
-    {s6b_html}
-    {s2_html}
     {s1_html}
+  </div>
+
+  <div class="tab-panel" id="tab-foreign">
+    {s6_foreign_html}
+    {s2_html}
+    {s5_html}
+  </div>
+
+  <div class="tab-panel" id="tab-trust">
+    {s6_trust_html}
     {s3_html}
     {s35_html}
   </div>
@@ -961,13 +1008,13 @@ def generate(
     {s4_html}
   </div>
 
-  <div class="tab-panel" id="tab-meta">
-    {s5_html}
-  </div>
-
   <div class="tab-panel" id="tab-holder">
     {s8_note}
     {s8_html}
+  </div>
+
+  <div class="tab-panel" id="tab-insider">
+    {s_insider_html}
   </div>
 
   <div class="footer">資料來源：TWSE 三大法人 ｜ 台灣：漲紅跌綠 ｜ 外資正值=買超</div>

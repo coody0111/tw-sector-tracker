@@ -773,8 +773,13 @@ def _build_section6(inst_scan: list) -> tuple[str, str]:
     def _is_stock(sid: str) -> bool:
         return bool(_re.match(r'^[1-9]\d{3}$', str(sid)))
 
+    # 強力訊號只顯示 App 追蹤的電子科技族群個股：scan_institutional() 讀的是全市場法人
+    # 資料（institutional 表），不限於 stock_universe.csv 的 41 個電子科技族群，金融/鋼鐵/
+    # 傳產股（從未被收錄進 stock_universe.csv，meta_sector 對它們永遠是空字串）也會混進來，
+    # 跟這個 App「電子科技供應鏈掃盤」的追蹤範圍不符（Cody 實測看到兆豐金/東和鋼鐵混在裡面）。
     strong = sorted(
-        [x for x in inst_scan if x.get("both_streak", 0) >= 2 and _is_stock(x.get("stock_id", ""))],
+        [x for x in inst_scan if x.get("both_streak", 0) >= 2 and _is_stock(x.get("stock_id", ""))
+         and x.get("meta_sector")],
         key=lambda x: -x["both_streak"]
     )
     # 排序改用「連買天數 + 股價累積漲幅」的 Composite Score（見 _composite_sort），不是

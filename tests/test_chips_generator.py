@@ -253,6 +253,24 @@ def test_composite_sort_empty_list_does_not_crash():
     assert _composite_sort([], "foreign_streak") == []
 
 
+def test_build_section6_strong_signal_excludes_stocks_outside_tracked_universe():
+    """強力訊號只該顯示 App 追蹤的電子科技族群個股。stock_universe.csv 從未收錄金融/鋼鐵/
+    傳產股（meta_sector 對這些股票是空字串），這些股票不該混進強力訊號榜（Cody 實際看到
+    2886 兆豐金、2006 東和鋼鐵這類股票混在裡面，跟這個 App 的追蹤範圍不符）。"""
+    inst_scan = [
+        {"stock_id": "2330", "stock_name": "台積電", "meta_sector": "晶圓代工", "exchange": "TWSE",
+         "close": 950.0, "change_pct": 1.0, "foreign_streak": 3, "trust_streak": 3,
+         "both_streak": 3, "foreign_net": 1000, "trust_net": 500, "total_net": 1500},
+        {"stock_id": "2886", "stock_name": "兆豐金", "meta_sector": "", "exchange": "TWSE",
+         "close": 40.0, "change_pct": 0.5, "foreign_streak": 5, "trust_streak": 5,
+         "both_streak": 5, "foreign_net": 2000, "trust_net": 800, "total_net": 2800},
+    ]
+    s6a_html, _ = _build_section6(inst_scan)
+
+    assert "台積電" in s6a_html
+    assert "兆豐金" not in s6a_html, "meta_sector 為空（不在追蹤的電子科技族群清單）應被排除"
+
+
 def test_build_section6_trust_table_filters_by_price_cum_pct_too():
     """投信榜比照外資榜（2026-07-09 Cody 要求一致）：trust_streak>=5 且 price_cum_pct>=5%
     才入選，股價沒反應的投信買超（可能只是被動式資金流入）要濾掉。"""

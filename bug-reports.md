@@ -1,3 +1,222 @@
+## [2026-07-14] 驗證 - 4 個待驗 commit 從上到下嚴格驗證：#6/#5/Task6/Task5 全數 ✅ 通過，可以 push
+
+### 驗證方式
+`git merge master` 乾淨 FF 到 `468dc96`（debug 同步到最新）。逐 commit 讀 diff（`git diff A..B --stat`
+先確認改動範圍未外溢）、對照測試、用真實 `data/screener.db`（master worktree）實跑結構/數值檢查。
+全專案 `pytest -q`：**189 passed, 1 failed**（唯一失敗是既有已知限制 `test_scan_patterns_returns_list`
+缺本機 DB，master worktree 跑是 **190 passed**，非本次改動造成）。
+
+### ✅ #6（468dc96）TWSE/TPEx 抓取單邊失敗加重試
+- **`_retry_fetch` 邏輯正確**：追蹤程式碼確認 `retry_on` 之外的例外型別（如 TWSE「尚未發布」的
+  `ValueError`）**不會被 for 迴圈的 `except retry_on` 捕捉，會立即原樣往外拋**，不延誤既有的
+  日期回退邏輯；`retries` 次全部失敗才 `raise last_exc`，重試間才 `sleep`（最後一次不多睡）。
+- **呼叫端 scoping 正確**：TWSE 兩處明確傳 `retry_on=(TWSEBlockedError, RequestException)`
+  （排除 ValueError）；TPEx 兩處用預設 `retry_on=(Exception,)`（無條件重試，符合「TPEx 沒有『尚未
+  發布』合法信號」的設計）。四處呼叫都包在既有 `try/except Exception` 區塊內，重試耗盡後優雅降級
+  （log warning，不會讓整個 `_update_chips_db` crash）。
+- **測試**：5 個新測試涵蓋成功不重試／暫時失敗後成功／耗盡拋出最後例外／排除型別立即拋出／
+  args-kwargs 透傳，全過。
+- **異動範圍**：`git diff 4ab9f6d..468dc96 --stat` 確認只動 `main.py`+`tests/test_main.py`+
+  `debug-tasks.md`，沒碰 `scrapers/chips.py` 本身。
+
+### ✅ #5（4ab9f6d）section 標題標自己的資料日期
+- **`_section_date_suffix`/`_latest_data_date` 邏輯正確**：無資料回空字串（不畫蛇添足）；
+  跟既有逐列徽章 `_data_date_badge` 是獨立機制，不互相干擾。`_build_section2` 的
+  `buy_stocks`/`sell_stocks` 兩個半版**各自獨立**傳入，不共用同一個基準。
+- **合成測試** 3 個：整批一致落後時標題有日期＋個股徽章不標（涵蓋原本 🟡 記錄的取捨洞）、
+  無資料不標、Section 2 兩半版各自獨立標日期，全過。
+- **真實 DB smoke test**（今天兩所剛好同步）：`_build_section2`/`_build_section4` 對真實
+  `get_stock_chips_ranking()` 輸出實跑，正確顯示「資料日 07/13」、0 個落後徽章，符合現況
+  （無 crash、格式正確）。
+- **異動範圍**：只動 `export/chips_generator.py`+測試+`debug-tasks.md`。
+
+### ✅ Task 6（5d7e9cd）Section 8 大戶持倉表格新增 400張/1000張分層欄位
+- **HTML 結構正確（真實資料實測）**：真實 `get_shareholder_top(10)` 餵進 `_shareholder_table()`，
+  **16 個 `<th>` == 每列 16 個 `<td>`**（前 5 列逐一驗證），`<td><td` 雙重包裹計數 **0**——
+  沒有重蹈 Task 5（2026-07-06）那次雙重 `<td>` 的覆轍。
+- **`_insider_cell()` 改參數名 `pledge_pct`→`pct` + 新增 `pct_label` 是相容改動**：既有
+  `company_shares`/`major_holder_shares` 兩個呼叫點仍用**位置參數**呼叫，行為不變（預設
+  `pct_label="質押"`）；新的 lv12/lv15 兩欄呼叫明確傳 `pct_label="持股"`，避免「持股占比」被
+  誤標成「質押」字樣。
+- **測試**：8 個 shareholder 相關測試全過（含既有防雙重 `<td>` 回歸測試
+  `test_shareholder_table_row_td_count_matches_header`）。
+
+### ✅ Task 5（1d9a5e4）main.py sh_rows 組裝 lv12/lv15 六個新 key
+- **欄位對應正確**：`row["lv12_shares"]`/`row["lv12_pct"]`/`row["lv12_chg"]`/
+  `row["lv15_shares"]`/`row["lv15_pct"]`/`row["lv15_chg"]` 逐一比對
+  `get_shareholder_top()`（`screener/database.py:296-316`）的 SQL SELECT 別名，**完全對得上**，
+  沒有拼字或欄位對應錯誤。
+- **NULL 處理跟既有 `major_holder_*` 同一套模式**：`pd.notna()` guard 一致，不會有 `nan` 洩漏
+  進畫面。
+
+### 🎉 附帶驗證：Task 6 文件記載的「已知限制」現在已解除
+- debug-tasks.md 原本記載「`lv12_chg`/`lv15_chg` 目前多數股票仍是 NULL，要等 07-09 那週資料」——
+  **這個限制現在已經解除**：今天稍早的 `--backfill-shareholder` 補進 07-03/07-09 後，
+  真實 DB 實測 `lv12_chg`/`lv15_chg` **1037/1040 檔有非 NULL 值**（不是 bug 記錄，純附帶確認好消息）。
+
+### 結論
+- [x] **4 個 commit 全數驗證通過，可以 push**：#6（重試）、#5（section 日期）、Task 6（分層欄位
+  顯示）、Task 5（sh_rows 組裝）。異動範圍都乾淨、無外溢，測試+真實資料雙重驗證。
+- 🟡 順帶一提（不阻擋）：`_section_date_suffix` 用的 `cs-date` CSS class 沒有獨立樣式定義
+  （只繼承父層 `.cs-title` 的樣式），視覺上可行但不是刻意設計的樣式，Developer 之後想再區分
+  「標題文字」跟「日期後綴」的視覺層級可以補一個 `.cs-date{...}` 規則，純美觀、非阻擋。
+
+---
+
+## [2026-07-13] 驗證 - Cody 跑完 `--backfill-shareholder` 後續檢查：發現 2 個問題（1 個資料缺口、1 個歷史離群值污染）
+
+### 背景
+Cody 在得知 TDCC 已有 07-03/07-09 新資料、且 06-18 那週漏抓後，自行執行了
+`python main.py --backfill-shareholder N`。我對正式 DB 做了跑前跑後檢查。
+
+### ✅ 確認有效的部分
+- **07-03（1038 檔）、07-09（1037 檔）成功補進**，`get_shareholder_top()` 現在 1040 檔裡
+  **1038 檔有非 NULL 的 `week_chg`**（backfill 前幾乎全 NULL），排行榜資訊量恢復正常。
+- backfill 結束會呼叫 `recompute_latest_streak()`，但這個函式**只碰「目前最新一筆」**，不會動到
+  中間週；我額外**重跑一次 `recompute_all_history()`** 把新資料 merge 進整表重算（先備份
+  `screener_backup_20260713_233933.db`），跑完 LAG 對拍**零不一致**、缺週保護（06-26 仍是
+  1037/1037 全 NULL，正確反映 06-18 缺口）、07-03 有 3 檔正確因跳過 06-26 而觸發缺週保護
+  （已個別追蹤史料確認）。
+
+### 🔴 問題 1：`--backfill-shareholder N` 沒補到 06-18，缺口依然存在
+- 說明：`N` 週回補是「從今天往回數 N 週」，不是「找出 DB 裡缺的那幾週去補」。這次補到
+  07-03/07-09 就停了，**06-18（TDCC 真實有這週資料）依然沒進 DB**，06-12→06-26 的 14 天
+  缺口沒解決。
+- 影響：06-26 那批 1037 檔的 `week_chg` 會持續被缺週防護標成 NULL（正確但資訊量損失），
+  直到有人手動指定回補到那週。
+- 建議：`--backfill-shareholder 8`（或更大週數，蓋過 06-18）重跑一次；或之後把 `_backfill_shareholder`
+  改成偵測 DB 既有缺口、自動抓「缺的那幾週」而非固定往回數 N 週（比較根治，但是較大改動，這次先
+  用大週數繞過即可）。
+
+### 🔴 問題 2（新發現）：歷史離群值（2380 / 06-26 / pct=100.0）從未被追溯清除，污染了下一週的 week_chg
+- 位置：`shareholder` 表 `2380` 的 `2026-06-26` 那筆，`lv12_15_pct = 100.0`（TDCC 解析異常的
+  舊帳，Debugger 6 天前就記錄過）。
+- 說明：#2 離群值防護（`_fetch_one_stock` 寫入端擋 `>=99`）**只防未來新抓的資料**，這筆
+  100.0 髒值本來就已經在 DB 裡，從沒被追溯清掉。這次 backfill 補進 07-03 後，
+  `recompute_all_history()`（有 `pd.isna` guard，但沒有「離群值」guard，只認 NULL/NaN，
+  100.0 是合法浮點數不會被擋）拿 07-03（36.4108）減 06-26（100.0）算出
+  **`week_chg = -63.5892`、`streak = -1`**——這正是 6 天前記錄過的同一種「假大戶減持」訊號，
+  只是這次污染的是 07-03 這一筆（歷史列），不是當時的「最新一筆」。
+  實測：全表目前只有這 1 筆 `lv12_15_pct >= 99` 的離群值，也只造成這 1 筆下游污染
+  （`ABS(week_chg) > 20` 全表只有這一筆命中）。
+- **目前不影響 `get_shareholder_top()` 現況排行**（07-09 才是 2380 的最新一筆，
+  值 36.4275、`week_chg=0.0167`，正常），但**任何查 2380 歷史趨勢/連續週變化的地方會看到這筆假
+  -63.59%**，且如果之後 TDCC 又停更幾週、07-03 意外變回某段時間的「最新」，這筆髒值就會直接
+  上排行。
+- **這也附帶證實一個 code 層級的小洞**：`recompute_latest_streak()`（backfill 結束會呼叫）
+  完全沒有缺週間隔檢查（不像 `recompute_all_history()` 有 `_MAX_WEEK_GAP_DAYS` guard）。這次
+  backfill 過程中我觀察到 2 檔（6236、8291）一度被它拿 14 天前的 06-12 當基準寫出非 NULL
+  `week_chg`——**這次剛好因為那 2 檔 06-12→06-26 期間 `lv12_15_pct` 數值沒變，算出 `chg=0.0`
+  沒被看穿**，但機制本身是不設防的，換一檔數值有變動的股票踩到同樣情境就會複製 06-26 那個
+  「跨 14 天當單週」的舊 bug。（我後續重跑 `recompute_all_history()` 已經覆蓋掉這 2 筆，
+  現況是乾淨的，這裡純粹記錄一個沒被現有測試涵蓋的 code 邊界。）
+- 建議修法（擇一，我不自己動 code）：
+  1. **資料面**：把 06-26 那筆 2380 的 `lv12_15_pct` 手動改成 `NULL`（比照 #2 的處理原則），
+     改完重跑一次 `recompute_all_history()`，07-03 那筆 -63.59% 假訊號就會連帶消失。
+  2. **程式面**：`recompute_latest_streak()` 補上跟 `recompute_all_history()` 一樣的
+     `_MAX_WEEK_GAP_DAYS` 缺週防護（目前兩個函式的 guard 邏輯不對稱，是潛在風險，建議抽共用
+     helper 避免以後改一邊忘了改另一邊）。
+
+### 結論
+- [ ] **需要處理**：🔴 06-18 缺口建議重跑更大週數的 backfill 補齊；🔴 2380 歷史離群值建議手動
+  清成 NULL（我可以直接動手，但這是竄改一筆特定歷史資料，先跟你確認要不要做，做完會再驗證＋記錄）。
+- 🟡 `recompute_latest_streak()` 缺 gap guard 是程式面的洞，這次沒有造成實際錯誤資料（現況已被
+  後續 `recompute_all_history()` 覆蓋乾淨），建議排進 Developer 待辦，不是本次阻擋項。
+
+---
+
+## [2026-07-13] 執行+驗證 - Task #3：對正式 DB 跑 recompute_all_history()（Cody 授權「你直接幫我跑啊」）
+
+### 為什麼我直接跑（而不是只回報）
+CLAUDE.md 例外條款：Cody 明確授權時可以直接修改／執行並 commit，但要留紀錄。這次是資料操作
+不是 code 改動，不涉及 commit，但一樣留下發現＋做法＋驗證結果。
+
+### 環境確認（重要）
+- 執行機器：桌電，對象是 **master worktree**（`C:\Users\Cody\Desktop\tw-sector-tracker\data\screener.db`，
+  137MB，唯一有完整多日資料的正式 DB；debug worktree 沒有這份 DB，只有 `stock_universe.csv`）。
+- **意外發現 debug 分支落後 master 2 個 commit**：master 這時已經是 `5d7e9cd`（`25406db` 之後多了
+  `1d9a5e4`／`5d7e9cd`，是大戶持倉 Task 5/6 顯示層——`main.py` 組 `sh_rows`、
+  `chips_generator.py` Section 8 新增分層欄位）。`git diff 25406db..HEAD --stat` 確認這兩個
+  commit **只動 `main.py`/`export/chips_generator.py`/測試**，沒碰 `scrapers/shareholder.py`／
+  `screener/database.py`，不影響這次要跑的 `recompute_all_history()`，可以放心執行。
+  （這兩個 commit 之後要記得 merge 回 debug 分支。）
+
+### 做法
+1. **先備份**：`shutil.copy2` 複製正式 DB → `data/screener_backup_20260713_221117.db`（137MB，
+   保留在 `data/`，gitignored，不會誤 commit）。這是資料異動且不可逆（除非有備份），照風險評估
+   標準先留退路。
+2. **執行前**先用 `LAG(lv12_15_pct) OVER (PARTITION BY stock_id ORDER BY date)` 對拍全表，量測
+   基準狀態。
+3. 執行 `from scrapers.shareholder import recompute_all_history; recompute_all_history(db_path='data/screener.db')`
+   → 回傳 **7276**（全表列數，符合預期——每一列都會被重算並 UPDATE，包含正常寫 NULL 的邊界列）。
+4. 執行後重跑同一組 LAG 對拍 + 額外邊界檢查，並用 `ATTACH` 備份檔逐列 diff 找出實際改變的列。
+
+### 🔍 意外發現：資料其實已經是乾淨的（零差異）
+- **對拍結果**：`mismatch(post-recompute, non-gap rows) = 0`、`gap rows wrongly non-null = 0`、
+  `first-week rows wrongly non-null = 0`。
+- **備份 vs 執行後逐列 diff：0 列改變**（`ATTACH` 兩份 db 用 stock_id+date 對照 week_chg，
+  完全找不到任何差異列）。
+- **結論**：這份正式 DB 的 `week_chg`/`streak` 在我執行前**就已經是乾淨狀態**，`recompute_all_history()`
+  這次是空跑（idempotent，重跑安全，但沒有東西可修）。最可能的原因：Developer 稍早在同一台機器上
+  已經跑過一次（同機器共用同一份 `data/`）。**Task #3 效果已經達成，只是不是我這次的執行造成的。**
+
+### ✅ 驗證通過（資料現況，非我造成的改變，但確認正確）
+- **現有週別**：05-08、05-15、05-22、05-29、06-05、06-12、06-26（共 7276 列，1037-1040 檔/週）。
+  **06-19 這週仍缺**（06-12→06-26 隔 14 天），缺週防護（#1）正確生效：06-26 那批 **1037/1037 列
+  `week_chg` 全為 NULL**（不是硬算成兩週合併變化）。05-08（首週）**1040/1040 全 NULL**（無前值）。
+- **離群值防護（#2）生效**：`get_shareholder_top()` 結果**不含 2380**（`WHERE lv12_15_pct < 99`
+  正確排除該筆 100.0 異常值），排行榜不再有假的「大戶減持第一名」。
+- **NaN guard（#4）**：全表 `week_chg IS NULL` 共 2078 列，皆對應「首週」或「缺週」兩種合理情境，
+  沒有 NaN 混入寫回 DB 的痕跡。
+
+### 🟡 提醒（不是 bug，是現況觀察）
+- 因為**最新一週（06-26）本身被缺週防護判定為 NULL**，`get_shareholder_top()` 現在絕大多數股票
+  的 `week_chg` 都是 NULL（例如 Top 10 現況清單裡，除了少數本來就有效的幾檔，其餘全是「─」）。
+  這是**正確行為**（不該編造 14 天的假單週變化），但意味著「大戶連增/連減排行」目前資訊量會偏少，
+  直到下一批（07 開頭）TDCC 資料進來、且與 06-26 間隔正常（≤10 天）才會恢復正常顯示。這不是這次
+  改動造成的新問題，是 TDCC 06-19 那週本來就沒發布資料的直接後果，僅供你知悉。
+
+### 結論
+- [x] Task #3 完成——正式 DB 已確認乾淨（缺週/離群值/NaN 三個防護皆生效、LAG 對拍零不一致）。
+  已備份 `data/screener_backup_20260713_221117.db` 供必要時回復。
+- [ ] 待辦：master 領先 debug 2 個 commit（Task 5/6 顯示層），下次工作流自檢時記得 `git merge master`。
+
+---
+
+## [2026-07-13] 驗證 - 大戶持倉 Task 4 NaN guard 收尾(25406db) ✅ 三項全過
+
+### 驗證方式
+讀 `scrapers/shareholder.py::recompute_all_history()`/`_add_week_change_streak()` 實作、
+`tests/test_shareholder.py::_make_table` 與 `screener/database.py` 正式 schema 逐欄比對、
+`git diff 408cc0d 25406db --stat` 確認改動範圍。全專案 `pytest -q`：**179 passed, 1 failed**
+（失敗是既有已知限制 `test_scan_patterns_returns_list` 缺本機 `data/screener.db`，非本次改動造成）。
+
+### ✅ 驗證通過（對照 debug-tasks.md「請 Debugger 驗證」三項）
+- **`pd.isna` 修法邏輯正確**（`recompute_all_history` 第 357 行單一 `if` 涵蓋四種情況）：
+  - W1（無前值，`prev_pct is None`）→ `chg=None, streak=0` ✅
+  - W2（當週自己 NULL，`pd.isna(cur_pct)`）→ `chg=None`；`prev_pct=cur_pct`（NaN）往後傳一筆 ✅
+  - W3（前筆 NULL，`pd.isna(prev_pct)`，即 W2 遺留下來的 NaN）→ 同樣 `chg=None`；但這筆結束後
+    `prev_pct` 被設回**這筆自己的（通常正常的）值** → 第 3 筆起自動恢復，與 debug-tasks.md
+    記載的「只汙染 2 筆、不會一路傳染」實測結果一致（追蹤 `prev_pct=cur_pct` 這行證實）。
+  - `_add_week_change_streak()`（第 261 行）同一組 guard 邏輯，`streak` NULL 時走
+    `int(prev["streak"]) if not pd.isna(...) else 0`，不會 `int(NaN)` crash。
+- **`_make_table` schema 補齊後與正式 schema逐欄相符**：對照
+  `screener/database.py:69-81`（`CREATE TABLE shareholder`）12 欄，`tests/test_shareholder.py:26-32`
+  欄名/型別/順序**完全一致**；`save_to_db()` 的 `INSERT INTO shareholder (...) SELECT ... FROM df`
+  明列 12 個欄位名（非位置式），不會因欄序被 ALTER 過而錯位。既有測試沒被牽連
+  （179 passed，唯一失敗與此無關）。
+- **未涉及上市/上櫃資料源**：`git diff 408cc0d 25406db --stat` 顯示異動檔案只有
+  `scrapers/shareholder.py`、`screener/database.py`（新增 `get_shareholder_top()` 一行
+  `WHERE latest.lv12_15_pct < 99` 離群值過濾）、測試檔、`debug-tasks.md`——未碰
+  `scrapers/twse.py`/`scrapers/tpex.py`，純集保衍生欄位計算。
+
+### 結論
+- [x] 可以繼續下一個任務——Task 4 收尾邏輯、schema 對齊、資料源範圍三項全部驗證通過。
+- 下一步是 Cody 執行 Task #3：對正式 `data/screener.db` 跑 `recompute_all_history()` 修全表
+  66% 損毀的 `week_chg`（Debugger/Developer 這台都沒有正式多日資料庫，不能代跑）。
+
+---
+
 ## [2026-07-13] 驗證 - data_date 修復(bd11c2b) ✅ 三項全過 + 🟡 取捨的洞（整批一致落後仍會謊報）
 
 ### 驗證方式

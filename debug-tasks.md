@@ -1,3 +1,59 @@
+## [2026-07-13] 🔧 Debugger → Developer：大戶持倉 backfill 後續 2 個問題（Cody 已跑完 `--backfill-shareholder`）
+
+背景：Cody 得知 TDCC 已有 07-03/07-09 新資料、06-18 漏抓後，自行執行了
+`python main.py --backfill-shareholder N`。Debugger 對正式 `data/screener.db` 做了跑前跑後檢查，
+完整證據見 `bug-reports.md` 今天「Cody 跑完 `--backfill-shareholder` 後續檢查」那則。
+
+✅ 07-03（1038 檔）、07-09（1037 檔）成功補進，`get_shareholder_top()` 排行榜資訊量恢復正常
+（1040 檔裡 1038 檔有非 NULL `week_chg`）。以下兩項需要處理：
+
+---
+
+### 🔴 #7：`--backfill-shareholder N` 是「往回數 N 週」，不是「補缺的那幾週」，06-18 缺口仍未補
+**位置**：`main.py::_backfill_shareholder()`
+**問題**：這次跑完，06-18（TDCC 真實有這週資料，不是沒發布）依然沒進 DB，06-12→06-26 的
+14 天缺口沒解決，06-26 那批 1037 檔的 `week_chg` 會持續被缺週防護標成 NULL（正確但資訊量損失）。
+**修法**（擇一）：
+1. 短期：這次先手動用更大週數（例如 `--backfill-shareholder 8`）蓋過 06-18 補一次即可，不用改 code。
+2. 根治（可排後）：`_backfill_shareholder` 改成先讀 DB 既有日期序列、比對 TDCC `get_available_dates()`
+   算出真正缺的那幾週去補，而非固定往回數 N 週——這樣以後任何一週漏抓都會被自動抓回來，不用每次
+   人工判斷該填多少週數。
+**驗收**：補完後 `SELECT date, COUNT(*) FROM shareholder GROUP BY date ORDER BY date` 應該看到
+06-18 那筆，且 06-12→06-18→06-26 間隔都 ≤ 10 天。
+
+### 🔴 #8：歷史離群值（2380 / 06-26 / `lv12_15_pct=100.0`）從未被追溯清除，這次污染了下一週
+**位置**：資料本身（`shareholder` 表該筆列）+ `scrapers/shareholder.py::recompute_all_history()`（沒有
+離群值 guard，只認 NULL/NaN，100.0 是合法浮點數不會被擋）
+**問題**：#2 離群值防護（`_fetch_one_stock` 寫入端擋 `>=99`）**只防未來新抓的資料**，2380 這筆
+100.0 髒值本來就已經在 DB 裡，從沒被追溯清掉。這次 backfill 補進 07-03 後，
+`recompute_all_history()` 拿 07-03（36.4108）減 06-26（100.0）算出 **`week_chg=-63.5892`、
+`streak=-1`**——跟一週前記錄過的同一種「假大戶減持」訊號一樣，只是這次污染的是歷史列
+（07-03），不是當時的最新一筆。目前不影響現況排行（07-09 才是 2380 最新一筆，數值正常），但
+任何查 2380 歷史趨勢的地方會看到這筆假的；全表目前只有這 1 筆離群值、造成 1 筆下游污染
+（`ABS(week_chg) > 20` 全表僅此一筆命中，範圍很小）。
+**修法**（擇一，Cody 尚未拍板，Debugger 已詢問是否要直接動手改資料）：
+1. 資料面：把 2380 那筆 06-26 的 `lv12_15_pct` 手動改成 `NULL`，改完重跑一次
+   `recompute_all_history()`，07-03 那筆假訊號會連帶消失。一次性操作，不用改 code。
+2. 程式面（更根治，建議跟 #7 的根治方案一起排）：`recompute_all_history()` 的迴圈也比照 #2 加一個
+   離群值 guard（`pct >= 99` 視為當週不可信，等同 NULL 處理，不要拿它當 `prev_pct`/`cur_pct`
+   參與計算）——這樣以後任何歷史列出現類似髒值，不用等 Debugger 人工發現才追殺一筆。
+**驗收**：修完後全表 `SELECT * FROM shareholder WHERE ABS(week_chg) > 20` 應該回空（或至少
+2380 那筆消失）。
+
+### 🟡 #9：`recompute_latest_streak()` 沒有跟 `recompute_all_history()` 一樣的缺週防護，是不對稱的洞
+**位置**：`scrapers/shareholder.py::recompute_latest_streak()`（`--backfill-shareholder` 結尾會呼叫）
+**問題**：這次 backfill 過程中實測到 2 檔（6236、8291）一度被它拿 14 天前的 06-12 當基準寫出
+非 NULL `week_chg`——**這次剛好因為那 2 檔期間 `lv12_15_pct` 數值沒變，算出 `chg=0.0` 沒被看穿**，
+但機制本身不設防，換一檔數值有變動的股票踩到同樣情境就會重演 06-26 那個「跨 14 天當單週」的舊 bug
+（Debugger 事後重跑 `recompute_all_history()` 已覆蓋掉這 2 筆，現況是乾淨的，純粹記錄一個沒被
+現有測試涵蓋的 code 邊界）。
+**修法**：比照 `recompute_all_history()` 的 `_MAX_WEEK_GAP_DAYS` guard，抽成共用 helper 讓兩個函式
+一起用，避免以後改一邊忘了改另一邊（這正是這次踩到的成因）。
+**優先度**：低於 #7/#8，這次沒有造成實際錯誤資料，但建議跟 #7/#8 一起做（同一批程式碼、同樣的
+「缺週/離群值」防護主題）。
+
+---
+
 ## [2026-07-13] ✅ #6 修好——TWSE/TPEx 籌碼抓取單邊失敗加重試
 
 **現行犯抓到**：實作前先查了現況，`data/screener.db` 今天（07-13）`institutional`/`margin`

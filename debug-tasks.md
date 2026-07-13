@@ -1,3 +1,36 @@
+## [2026-07-13] ✅ #6 修好——TWSE/TPEx 籌碼抓取單邊失敗加重試
+
+**現行犯抓到**：實作前先查了現況，`data/screener.db` 今天（07-13）`institutional`/`margin`
+兩張表都是**只有 TWSE、TPEx 完全沒資料**；當場直接打 TPEx 三大法人 API 驗證，**當下完全
+正常**（200、922 檔、日期就是今天）——證實今天稍早 `main.py` 跑的時候是暫時性失敗，因為
+沒有重試機制，失敗一次就整批漏了，且 TPEx 這兩支端點沒有歷史回補路徑，永久補不回來。
+
+**位置**：`main.py`，新增 `_retry_fetch(fn, *args, retries=3, backoff=(1.0,3.0), retry_on, **kwargs)`
+（接在 `_prev_trading_day` 之後），比照 `scrapers/shareholder.py` 既有的 TDCC 抓取重試模式
+（3 次、1-3 秒隨機退避，已驗證穩定）。
+
+**套用方式**（`_update_chips_db()` 4 個抓取呼叫）：
+- **TWSE**（`fetch_institutional`/`fetch_margin_all_twse`）：只對 `TWSEBlockedError` 跟
+  `requests.exceptions.RequestException`（涵蓋逾時/連線錯誤/HTTPError）重試，**刻意不重試
+  `ValueError`**——那是 TWSE「今日尚未發布」的既有信號，main.py 靠它觸發日期回退到前一
+  交易日，這個邏輯完全沒動，重試機制不會延誤或吃掉它。
+- **TPEx**（`fetch_institutional_tpex`/`fetch_margin_all_tpex`）：對任何例外都重試——TPEx
+  沒有「尚未發布」這種需要保護的合法信號，每次失敗不是暫時性問題就是真的還沒更新，重試
+  成本低（最多 3 次、退避 1-3 秒）。
+
+**測試**：新增 `tests/test_main.py`（首次為 `main.py` 建測試檔），5 個測試涵蓋
+`_retry_fetch`：成功不重試、失敗幾次後成功、重試耗盡後拋出最後一次例外、**排除在
+`retry_on` 外的例外型別不重試**（保護 TWSE 的 ValueError 回退邏輯）、args/kwargs 正確傳遞。
+全專案 **190 passed**（原 185 + 5）。
+
+**未涵蓋**：這次沒有改 `scrapers/chips.py` 本身，重試邏輯只包在 `main.py` 呼叫端外層——
+維持 fetch 函式單一職責（抓取+解析），重試是編排層的關心事。也沒有處理「TPEx 真的整天
+都沒更新」的情境（3 次快速重試無法解決，需要的話要另外設計排程重跑，這次範圍不含）。
+
+未 push（等 Debugger ✅）。
+
+---
+
 ## [2026-07-13] ✅ #5 修好——section 標題標自己的資料日期（整批一致落後不再無跡可尋）
 
 **位置**：`export/chips_generator.py`，新增 `_section_date_suffix(rows)`，接在既有

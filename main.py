@@ -1,8 +1,11 @@
 import argparse
 import logging
+import random
 import subprocess
 import sys
+import time
 import pandas as pd
+import requests
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -33,6 +36,28 @@ def _prev_trading_day(d: date) -> date:
         d -= timedelta(days=1)
     return d
 
+
+def _retry_fetch(fn, *args, retries: int = 3, backoff: tuple = (1.0, 3.0), retry_on=(Exception,), **kwargs):
+    """通用重試小幫手：對 retry_on 型別的例外重試 retries 次，每次退避在 backoff 秒數範圍內
+    隨機（比照 scrapers/shareholder.py 既有的 TDCC 抓取重試模式，已驗證穩定）。
+
+    背景（debug-tasks.md #6）：TWSE/TPEx 籌碼資料抓取偶發單邊整批失敗（例：2026-07-13
+    TPEx 三大法人/融資融券當下完全正常，但當次抓取因暫時性網路問題整批漏掉），且
+    institutional/margin 的 TPEx 端 API 只能查「當下」、沒有歷史回補路徑，失敗一次
+    當天資料就永久遺失，值得多花幾秒重試。
+
+    retries 次全部失敗時，把最後一次的例外原樣往外拋——呼叫端既有的 except 分支（例如
+    TWSE 的『尚未發布』ValueError 判斷、日期回退邏輯）不用跟著改。"""
+    last_exc = None
+    for attempt in range(retries):
+        try:
+            return fn(*args, **kwargs)
+        except retry_on as exc:
+            last_exc = exc
+            if attempt < retries - 1:
+                time.sleep(random.uniform(*backoff))
+    raise last_exc
+
 LOG_DIR = Path("logs")
 LOG_DIR.mkdir(exist_ok=True)
 logging.basicConfig(
@@ -59,14 +84,16 @@ def _update_chips_db(trade_date: date, stock_ids: list) -> None:
     try:
         inst_date = trade_date
         try:
-            inst_df = fetch_institutional(inst_date)
+            inst_df = _retry_fetch(fetch_institutional, inst_date,
+                                    retry_on=(TWSEBlockedError, requests.exceptions.RequestException))
         except TWSEBlockedError as exc:
             logger.warning("三大法人抓取失敗（非『尚未發布』）：%s，本次跳過", exc)
             inst_df = pd.DataFrame()
         except ValueError:
             inst_date = _prev_trading_day(trade_date)
             logger.info("三大法人今日尚未發布，改抓前一交易日 %s", inst_date)
-            inst_df = fetch_institutional(inst_date)
+            inst_df = _retry_fetch(fetch_institutional, inst_date,
+                                    retry_on=(TWSEBlockedError, requests.exceptions.RequestException))
         if not inst_df.empty:
             import duckdb
             con = duckdb.connect("data/screener.db")
@@ -81,7 +108,7 @@ def _update_chips_db(trade_date: date, stock_ids: list) -> None:
         # TPEx OpenAPI 沒有日期參數，只回傳當下這支 API 認定的「今天」，可能跟 trade_date 對不上
         # （例如 TPEx 還沒更新），所以用回應裡自己的 date 欄位為準，不強套 trade_date。
         # DELETE 只刪這批 TPEx stock_id，避免把上面剛寫入的 TWSE 同日資料誤刪。
-        inst_tpex_df = fetch_institutional_tpex()
+        inst_tpex_df = _retry_fetch(fetch_institutional_tpex)
         if not inst_tpex_df.empty:
             resp_dates = inst_tpex_df["date"].unique().tolist()
             if len(resp_dates) > 1:
@@ -105,14 +132,16 @@ def _update_chips_db(trade_date: date, stock_ids: list) -> None:
     try:
         marg_date = trade_date
         try:
-            margin_df = fetch_margin_all_twse(marg_date)
+            margin_df = _retry_fetch(fetch_margin_all_twse, marg_date,
+                                      retry_on=(TWSEBlockedError, requests.exceptions.RequestException))
         except TWSEBlockedError as exc:
             logger.warning("融資融券抓取失敗（非『尚未發布』）：%s，本次跳過", exc)
             margin_df = pd.DataFrame()
         except ValueError:
             marg_date = _prev_trading_day(trade_date)
             logger.info("融資融券今日尚未發布，改抓前一交易日 %s", marg_date)
-            margin_df = fetch_margin_all_twse(marg_date)
+            margin_df = _retry_fetch(fetch_margin_all_twse, marg_date,
+                                      retry_on=(TWSEBlockedError, requests.exceptions.RequestException))
         if not margin_df.empty:
             import duckdb
             con = duckdb.connect("data/screener.db")
@@ -124,7 +153,7 @@ def _update_chips_db(trade_date: date, stock_ids: list) -> None:
         logger.warning("融資融券寫入失敗: %s", exc)
 
     try:
-        margin_tpex_df = fetch_margin_all_tpex()
+        margin_tpex_df = _retry_fetch(fetch_margin_all_tpex)
         if not margin_tpex_df.empty:
             resp_dates = margin_tpex_df["date"].unique().tolist()
             if len(resp_dates) > 1:

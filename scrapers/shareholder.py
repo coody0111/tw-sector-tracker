@@ -104,12 +104,18 @@ def _fetch_one_stock(s: requests.Session, tok: str, uri: str, stock_id: str, dat
     if total_shares == 0:
         return None
 
+    lv12_15_pct = round(lv_shares / total_shares * 100, 4)
+    # 離群值防護(#2)：大戶持股 >= 99% 幾乎不可能，多半是 TDCC 當週解析異常（例 2380
+    # 2026-06-26 = 100.0）→ 視為無效寫 NULL，不讓假值進 DB 汙染排行與 week_chg。
+    if lv12_15_pct >= 99:
+        lv12_15_pct = None
+
     return {
         "lv12_15_shares": lv_shares,
         "lv12_15_cnt": lv_cnt,
         "total_shares": total_shares,
         "total_cnt": total_cnt,
-        "lv12_15_pct": round(lv_shares / total_shares * 100, 4),
+        "lv12_15_pct": lv12_15_pct,
         "lv12_shares": lv12_shares,
         "lv15_shares": lv15_shares,
         "lv12_pct": round(lv12_shares / total_shares * 100, 4),
@@ -249,12 +255,16 @@ def _add_week_change_streak(con: duckdb.DuckDBPyConnection, df) -> None:
 
     for _, row in df.iterrows():
         prev = prev_map.get(row["stock_id"])
-        if prev is not None:
-            chg = round(row["lv12_15_pct"] - prev["lv12_15_pct"], 4)
-            s = _streak_step(chg, int(prev.get("streak", 0)))
-        else:
+        # NaN guard(#4)：前一週/本週 lv12_15_pct 為 NULL（離群值被 #2 改寫、或缺）→ 無法比較，
+        # week_chg 記 None（不是 NaN，下游 WHERE week_chg IS NULL 才抓得到）；prev streak 為
+        # NULL 時從 0 起算（避免 int(NaN) → ValueError crash）。
+        if prev is None or pd.isna(prev["lv12_15_pct"]) or pd.isna(row["lv12_15_pct"]):
             chg = None
             s = 0
+        else:
+            chg = round(row["lv12_15_pct"] - prev["lv12_15_pct"], 4)
+            prev_streak = int(prev["streak"]) if not pd.isna(prev["streak"]) else 0
+            s = _streak_step(chg, prev_streak)
         week_chg.append(chg)
         streak.append(s)
 
@@ -321,6 +331,7 @@ def recompute_all_history(db_path: str = _DB_PATH) -> int:
     不需要重打 TDCC，lv12_15_pct 已經在 DB 裡，只是重算 week_chg/streak 兩個
     衍生欄位。回傳實際更新的列數。
     """
+    import pandas as pd
     con = duckdb.connect(db_path)
     df = con.execute("""
         SELECT stock_id, date, lv12_15_pct

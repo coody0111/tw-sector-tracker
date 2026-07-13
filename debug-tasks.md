@@ -9,7 +9,9 @@
 - 新增缺週測試；更新既有 `test_recompute_all_history_fixes_corrupted`（05-22→06-26 隔 35 天，
   現為 NULL，順帶讓 2380 的 100.0 離群值不再算 week_chg）。全專案 **176 passed**。
 
-### 🚧 #2 離群值防護 + #4 NaN guard（實作中、**尚未 push**、有 2 測試紅）
+### 🚧 #2 離群值防護 + #4 NaN guard（**WIP、已 push 供桌電接手**、有 2 測試紅）
+> ⚠️ **這是未完成的 WIP commit**（回家換機交接用）。2 個測試還是紅的，**resume 點見下方「下一步」**。
+> 接手前先 `pytest tests/test_shareholder.py tests/test_database.py` 確認紅在哪，修綠再往下。
 - **#2 已寫**：寫入端 `_fetch_one_stock` 把 `lv12_15_pct >= 99` 視為異常寫 None；讀取端
   `get_shareholder_top()` 加 `WHERE latest.lv12_15_pct < 99`（排除離群值/NULL）。
 - **#4 寫了但踩到真 bug**：`recompute_all_history` / `_add_week_change_streak` 加了
@@ -18,10 +20,16 @@
   抓不到）。所以 #4 的核心不只是 guard，還要**改寫入方式讓 None 真的落成 SQL NULL**。
 - 目前紅的 2 測試：`test_recompute_all_history_null_pct_gives_null_not_nan`（IS NULL 只數到 1
   應為 3）、`test_add_week_change_streak_handles_null_prev`。
-- **下一步**：把 recompute/write 的 NULL 寫入改成不經 executemany 的批次 float 推斷
-  （逐列 execute，或用 object dtype），讓 None→真 NULL；綠了再 commit + push。
-- ⚠️ **這批 #2/#4 code 還在工作區未 commit**：在我修好前**別跑 `python main.py`**
-  （它的自動 `git add . && push` 會把壞掉的 code 一起推走）。
+- **下一步（resume 點）**：兩條寫入路徑都要讓 `None`→真 SQL NULL：
+  1. `recompute_all_history`：`con.executemany("UPDATE...")` 對 DOUBLE 欄會把 None 寫成 NaN
+     （除第一列）→ 改逐列 `con.execute`，或先把 updates 建成 nullable/object dtype 的 df 再
+     `UPDATE ... FROM df`。
+  2. `_add_week_change_streak` → `save_to_db` 的 `INSERT ... SELECT FROM df`：df 的 `week_chg`
+     是 float64、None 變 NaN → 同樣要讓它落成 NULL（確認 DuckDB 對 df NaN 的處理，必要時用
+     object dtype）。
+  綠了（`test_recompute_all_history_null_pct_gives_null_not_nan` 用 `IS NULL` 數到 3、
+  `test_add_week_change_streak_handles_null_prev` 的 `a[0] is None`）再結案。
+- ⚠️ 桌電接手後，在 #2/#4 修綠之前**別把它當完成品**——它是 WIP。
 
 ---
 

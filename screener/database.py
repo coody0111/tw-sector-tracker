@@ -310,6 +310,8 @@ def get_shareholder_top(n: int = 50) -> pd.DataFrame:
                (latest.lv15_shares - prev.lv15_shares) AS lv15_chg
         FROM (SELECT * FROM ranked WHERE rn = 1) latest
         LEFT JOIN (SELECT * FROM ranked WHERE rn = 2) prev ON latest.stock_id = prev.stock_id
+        WHERE latest.lv12_15_pct < 99  -- 離群值防護(#2)：>=99% 幾乎不可能(TDCC解析異常)，
+                                       -- 排除離榜；NULL(被改寫的異常)也一併排除(NULL<99→false)
         ORDER BY latest.streak DESC, latest.lv12_15_pct DESC
     """).df()
     con.close()

@@ -435,3 +435,93 @@ def test_recompute_all_history_handles_single_week_stock(tmp_path):
     con.close()
     assert pd.isna(row[0])
     assert row[1] == 0
+
+
+def test_fetch_one_stock_nulls_impossible_lv12_15_pct_outlier():
+    """離群值防護(#2)：大戶持股算出 >= 99%（TDCC 當週解析異常，例 2380 2026-06-26 = 100.0）
+    幾乎不可能 → lv12_15_pct 應寫 NULL(None)，不讓假值進 DB 汙染排行與 week_chg。"""
+    html = (
+        "<table></table>"
+        "<table>"
+        "<tr><td>12</td><td>400,001-600,000</td><td>1</td><td>999,000</td><td>99.9</td></tr>"
+        "<tr><td>16</td><td>合計</td><td>1</td><td>1,000,000</td><td>100.0</td></tr>"
+        "</table>"
+    )
+
+    class FakeResp:
+        text = html
+        def raise_for_status(self): pass
+
+    class FakeSession:
+        def post(self, *a, **k): return FakeResp()
+
+    rec = _fetch_one_stock(FakeSession(), "tok", "uri", "2380", "20260626")
+    assert rec is not None
+    assert rec["lv12_15_pct"] is None, "大戶持股 99.9% 應被當離群值寫 NULL"
+
+
+def test_recompute_all_history_null_pct_gives_null_not_nan(tmp_path):
+    """NaN guard(#4)：某週 lv12_15_pct 為 NULL（離群值被 #2 改寫）時，該週及其下一週的 week_chg
+    應為真正的 NULL（不是 NaN），且不報錯——下游 WHERE week_chg IS NULL 才抓得到。"""
+    db_path = tmp_path / "t.db"
+    con = duckdb.connect(str(db_path))
+    _make_table(con)
+    rows = [
+        ("2380", "2026-06-12", 40.0),
+        ("2380", "2026-06-19", None),   # 離群值改寫成 NULL
+        ("2380", "2026-06-26", 42.0),
+        ("2380", "2026-07-03", 43.0),
+    ]
+    for sid, d, pct in rows:
+        con.execute(
+            "INSERT INTO shareholder VALUES (?, ?, ?, 0, 0, 0, ?, ?)",
+            [sid, pd.to_datetime(d).date(), pct, -999.0, 9],
+        )
+    con.close()
+
+    recompute_all_history(str(db_path))
+
+    con = duckdb.connect(str(db_path))
+    # W1 無前值、W2 自己 NULL、W3 前一筆 NULL → 三筆都該是真 NULL（IS NULL 抓得到）
+    null_cnt = con.execute(
+        "SELECT COUNT(*) FROM shareholder WHERE stock_id='2380' AND week_chg IS NULL"
+    ).fetchone()[0]
+    df = con.execute(
+        "SELECT date, week_chg FROM shareholder WHERE stock_id='2380' ORDER BY date"
+    ).df()
+    con.close()
+    assert null_cnt == 3, "W1/W2/W3 的 week_chg 都應是真 NULL（不是 NaN）"
+    assert round(df.iloc[3]["week_chg"], 2) == 1.0, "W4 前一筆有效 → 恢復正常 43-42"
+
+
+def test_add_week_change_streak_handles_null_prev(tmp_path, monkeypatch):
+    """寫入路徑 NaN guard(#4)：前一週 lv12_15_pct 或 streak 為 NULL 時，本週 week_chg 應為
+    None（pct NULL）、streak 從 0 起算（streak NULL），都不 crash（避免 int(NaN) ValueError）。"""
+    import scrapers.shareholder as sh
+    db_path = str(tmp_path / "t.db")
+    monkeypatch.setattr(sh, "_DB_PATH", db_path)
+
+    con = duckdb.connect(db_path)
+    _make_table(con)
+    # A: 前一週 pct NULL → 本週無法比較
+    con.execute("INSERT INTO shareholder VALUES ('2380', ?, NULL, 0, 0, 0, NULL, NULL)",
+                [pd.to_datetime("2026-06-26").date()])
+    # B: 前一週 pct 有效但 streak NULL → 不可 int(NaN) crash
+    con.execute("INSERT INTO shareholder VALUES ('9999', ?, 20.0, 0, 0, 0, NULL, NULL)",
+                [pd.to_datetime("2026-06-26").date()])
+    con.close()
+
+    def _row(sid, pct):
+        return {"stock_id": sid, "date": "2026-07-03", "lv12_15_pct": pct,
+                "lv12_15_cnt": 0, "lv12_15_shares": 0, "total_shares": 0,
+                "lv12_shares": 0, "lv12_pct": 0.0, "lv15_shares": 0, "lv15_pct": 0.0}
+
+    n = sh.save_to_db([_row("2380", 42.0), _row("9999", 22.0)])
+    assert n == 2
+
+    con = duckdb.connect(db_path)
+    a = con.execute("SELECT week_chg, streak FROM shareholder WHERE stock_id='2380' AND date='2026-07-03'").fetchone()
+    b = con.execute("SELECT week_chg, streak FROM shareholder WHERE stock_id='9999' AND date='2026-07-03'").fetchone()
+    con.close()
+    assert a[0] is None, "前一週 pct NULL → 本週 week_chg None"
+    assert round(b[0], 2) == 2.0 and b[1] == 1, "前一週 streak NULL 應當 0 起算、不 crash"

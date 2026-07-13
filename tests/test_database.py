@@ -195,3 +195,24 @@ def test_get_shareholder_top_returns_lv12_and_lv15_tiers(tmp_path, monkeypatch):
     assert row["lv15_shares"] == 2_900_000
     assert row["lv15_pct"] == 11.6
     assert row["lv15_chg"] == -100_000    # 2,900,000 - 3,000,000
+
+
+def test_get_shareholder_top_excludes_impossible_pct_outlier(tmp_path, monkeypatch):
+    """離群值防護(#2) 讀取端：lv12_15_pct 為不可能的 >= 99（TDCC 解析異常，例 2380 的 100.0）
+    的股票不該進大戶持倉排行，否則會用假 week_chg 佔據榜單。"""
+    import screener.database as db_mod
+    db_path = str(tmp_path / "t.db")
+    monkeypatch.setattr(db_mod, "DB_PATH", db_path)
+
+    con = duckdb.connect(db_path)
+    _seed_shareholder(con)  # 2330 正常（20.0 / 21.0）
+    con.execute(
+        "INSERT INTO shareholder VALUES "
+        "('2380', '2026-07-03', 100.0, 50, 9990000, 10000000, -63.59, 0, 5000000, 50.0, 4990000, 49.9)"
+    )
+    con.close()
+
+    df = get_shareholder_top()
+    ids = set(df["stock_id"])
+    assert "2380" not in ids, "lv12_15_pct=100.0 的離群值股不該上榜"
+    assert "2330" in ids, "正常股仍在榜上"

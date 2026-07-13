@@ -350,14 +350,18 @@ def recompute_all_history(db_path: str = _DB_PATH) -> int:
             # 跟前一筆間隔超過一週時，不硬把跨多週的累積變化寫成單週 week_chg——該筆記 NULL、
             # streak 歸 0。prev_* 照常前進，讓缺口後相鄰的下一週能正常比較（缺口不傳染）。
             gapped = prev_date is not None and (row["date"] - prev_date).days > _MAX_WEEK_GAP_DAYS
-            if prev_pct is None or gapped:
+            cur_pct = row["lv12_15_pct"]
+            # NaN guard：DB 的 SQL NULL 經 DuckDB→pandas 讀回是 NaN、不是 None，
+            # 原本只判斷 `prev_pct is None` 抓不到，會讓 nan 混進 round() 算出 nan
+            # （不是 None）寫回 DB，NaN != SQL NULL，下游 WHERE week_chg IS NULL 抓不到。
+            if prev_pct is None or pd.isna(prev_pct) or pd.isna(cur_pct) or gapped:
                 chg = None
                 streak = 0
             else:
-                chg = round(float(row["lv12_15_pct"]) - float(prev_pct), 4)
+                chg = round(float(cur_pct) - float(prev_pct), 4)
                 streak = _streak_step(chg, prev_streak)
             updates.append((chg, streak, sid, row["date"]))
-            prev_pct = row["lv12_15_pct"]
+            prev_pct = cur_pct
             prev_streak = streak
             prev_date = row["date"]
 

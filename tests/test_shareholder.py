@@ -20,11 +20,14 @@ from scrapers.shareholder import (
 
 
 def _make_table(con):
+    # lv12_shares/lv12_pct/lv15_shares/lv15_pct 對齊 screener/database.py 正式 schema
+    # （2052451 新增）——save_to_db() 的 INSERT 明列這幾欄，測試表沒有會直接 BinderException。
     con.execute("""
         CREATE TABLE shareholder (
             stock_id VARCHAR NOT NULL, date DATE NOT NULL,
             lv12_15_pct DOUBLE, lv12_15_cnt INTEGER, lv12_15_shares BIGINT,
             total_shares BIGINT, week_chg DOUBLE, streak INTEGER,
+            lv12_shares BIGINT, lv12_pct DOUBLE, lv15_shares BIGINT, lv15_pct DOUBLE,
             PRIMARY KEY (stock_id, date)
         )
     """)
@@ -32,7 +35,9 @@ def _make_table(con):
 
 def _insert(con, sid, d, pct, streak):
     con.execute(
-        "INSERT INTO shareholder VALUES (?, ?, ?, 0, 0, 0, 0.0, ?)",
+        "INSERT INTO shareholder "
+        "(stock_id, date, lv12_15_pct, lv12_15_cnt, lv12_15_shares, total_shares, week_chg, streak) "
+        "VALUES (?, ?, ?, 0, 0, 0, 0.0, ?)",
         [sid, pd.to_datetime(d).date(), pct, streak],
     )
 
@@ -347,7 +352,9 @@ def test_recompute_all_history_fixes_corrupted_historical_week_chg(tmp_path):
     ]
     for sid, d, pct, bad_chg, bad_streak in rows:
         con.execute(
-            "INSERT INTO shareholder VALUES (?, ?, ?, 0, 0, 0, ?, ?)",
+            "INSERT INTO shareholder "
+            "(stock_id, date, lv12_15_pct, lv12_15_cnt, lv12_15_shares, total_shares, week_chg, streak) "
+            "VALUES (?, ?, ?, 0, 0, 0, ?, ?)",
             [sid, pd.to_datetime(d).date(), pct, bad_chg, bad_streak],
         )
     con.close()
@@ -392,7 +399,9 @@ def test_recompute_all_history_gap_week_gives_null_not_multiweek_chg(tmp_path):
     ]
     for sid, d, pct in rows:
         con.execute(
-            "INSERT INTO shareholder VALUES (?, ?, ?, 0, 0, 0, ?, ?)",
+            "INSERT INTO shareholder "
+            "(stock_id, date, lv12_15_pct, lv12_15_cnt, lv12_15_shares, total_shares, week_chg, streak) "
+            "VALUES (?, ?, ?, 0, 0, 0, ?, ?)",
             [sid, pd.to_datetime(d).date(), pct, -999.0, 9],  # 塞髒值確認會被覆蓋
         )
     con.close()
@@ -420,7 +429,9 @@ def test_recompute_all_history_handles_single_week_stock(tmp_path):
     con = duckdb.connect(str(db_path))
     _make_table(con)
     con.execute(
-        "INSERT INTO shareholder VALUES (?, ?, ?, 0, 0, 0, ?, ?)",
+        "INSERT INTO shareholder "
+        "(stock_id, date, lv12_15_pct, lv12_15_cnt, lv12_15_shares, total_shares, week_chg, streak) "
+        "VALUES (?, ?, ?, 0, 0, 0, ?, ?)",
         ["9999", pd.to_datetime("2026-07-03").date(), 20.0, -999.0, 5],
     )
     con.close()
@@ -474,7 +485,9 @@ def test_recompute_all_history_null_pct_gives_null_not_nan(tmp_path):
     ]
     for sid, d, pct in rows:
         con.execute(
-            "INSERT INTO shareholder VALUES (?, ?, ?, 0, 0, 0, ?, ?)",
+            "INSERT INTO shareholder "
+            "(stock_id, date, lv12_15_pct, lv12_15_cnt, lv12_15_shares, total_shares, week_chg, streak) "
+            "VALUES (?, ?, ?, 0, 0, 0, ?, ?)",
             [sid, pd.to_datetime(d).date(), pct, -999.0, 9],
         )
     con.close()
@@ -504,11 +517,17 @@ def test_add_week_change_streak_handles_null_prev(tmp_path, monkeypatch):
     con = duckdb.connect(db_path)
     _make_table(con)
     # A: 前一週 pct NULL → 本週無法比較
-    con.execute("INSERT INTO shareholder VALUES ('2380', ?, NULL, 0, 0, 0, NULL, NULL)",
-                [pd.to_datetime("2026-06-26").date()])
+    con.execute(
+        "INSERT INTO shareholder "
+        "(stock_id, date, lv12_15_pct, lv12_15_cnt, lv12_15_shares, total_shares, week_chg, streak) "
+        "VALUES ('2380', ?, NULL, 0, 0, 0, NULL, NULL)",
+        [pd.to_datetime("2026-06-26").date()])
     # B: 前一週 pct 有效但 streak NULL → 不可 int(NaN) crash
-    con.execute("INSERT INTO shareholder VALUES ('9999', ?, 20.0, 0, 0, 0, NULL, NULL)",
-                [pd.to_datetime("2026-06-26").date()])
+    con.execute(
+        "INSERT INTO shareholder "
+        "(stock_id, date, lv12_15_pct, lv12_15_cnt, lv12_15_shares, total_shares, week_chg, streak) "
+        "VALUES ('9999', ?, 20.0, 0, 0, 0, NULL, NULL)",
+        [pd.to_datetime("2026-06-26").date()])
     con.close()
 
     def _row(sid, pct):

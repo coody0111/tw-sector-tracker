@@ -1,6 +1,39 @@
-## [2026-07-13] 🚧 進度 - 大戶持倉待修清單 #1 完成、#2/#4 進行中（Developer）
+## [2026-07-13] ✅ 大戶持倉待修清單 #1/#2/#4 全部完成（Developer，桌電接手 WIP 收尾）
 
 對應下面那份 Debugger 待修清單，目前進度：
+
+### ✅ #2/#4 收尾（接續筆電 WIP，2 測試轉綠，全專案 180 passed）
+- **真正根因**：`recompute_all_history()` 的迴圈只判斷 `prev_pct is None`，但 SQL NULL
+  經 DuckDB→pandas 讀回是 `NaN`（不是 `None`），這個判斷從沒抓到過。且原本沒檢查**當週自己**
+  的 `lv12_15_pct` 是否為 NULL/NaN（例：2380 被 #2 改寫成 NULL 那週）。結果 `nan - prev`／
+  `prev - nan` 算出 Python `nan`（不是 `None`）寫回 DB，`nan != SQL NULL`，下游
+  `WHERE week_chg IS NULL` 抓不到——這才是 2 個測試紅的真正原因，不是 WIP 筆記猜測的
+  `executemany` 型別轉換問題（有另外寫小腳本重現排除這個猜測）。
+  修法：兩個條件都改用 `pd.isna()`，並新增當週 `cur_pct` 的 isna 檢查。
+- **test_add_week_change_streak_handles_null_prev 紅的真正原因是測試 fixture 過期**：
+  `_make_table()`（`tests/test_shareholder.py`）還是舊的 8 欄 schema，沒跟上
+  `2052451`（`lv12_15 分層`）新增的 `lv12_shares/lv12_pct/lv15_shares/lv15_pct` 4 欄，
+  導致 `save_to_db()` 明列這些欄位的 INSERT 直接 `BinderException`，根本沒跑到 NaN 判斷那段。
+  修法：`_make_table` 補齊 12 欄對齊 `screener/database.py` 正式 schema；連帶把該檔案裡
+  所有位置式 `INSERT INTO shareholder VALUES (...)`（8 個值）改成明列欄位名，避免欄位數對不上。
+- 全專案測試：**180 passed**（原本 176 + 新增的缺週/NaN guard 測試）。
+
+### 請 Cody 執行 #3（重算正式 DB，我不自己跑資料）
+`#1/#2/#4` code 都綠燈了，輪到 `#3`：對 `data/screener.db` 跑一次
+`recompute_all_history()` 修全表 66% 損毀的 `week_chg`（缺週防護 #1 已在裡面，會一併生效）。
+建議在 Python shell 或臨時腳本跑：
+```python
+from scrapers.shareholder import recompute_all_history
+recompute_all_history()
+```
+跑完麻煩簡單抽查一下 `week_chg` 用 `LAG(lv12_15_pct)` 對拍應該零不一致（debug-tasks.md #3 驗收標準），我這邊沒有正式 DB 不能替你跑。
+
+### 請 Debugger 驗證
+- [ ] `recompute_all_history()` 的 `pd.isna` 修法邏輯正確（W1 無前值/W2 自身 NULL/W3 前筆 NULL 三種情況都應該是真 NULL）
+- [ ] `tests/test_shareholder.py::_make_table` schema 補齊後，其他既有測試沒有因為欄位變多而被影響（已跑全專案 180 passed，但麻煩交叉確認）
+- [ ] 上市/上櫃資料來源沒有涉及（這次改動只在集保 shareholder 表的衍生欄位計算，不碰 TWSE/TPEx 資料源）
+
+---
 
 ### ✅ #1 缺週防護（已 commit `408cc0d`、已 push、全綠）
 - `scrapers/shareholder.py::recompute_all_history()`：迴圈追蹤 `prev_date`，間隔 >

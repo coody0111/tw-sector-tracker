@@ -292,8 +292,9 @@ def get_chips_today(trade_date: str) -> pd.DataFrame:
 def get_shareholder_top(n: int = 50) -> pd.DataFrame:
     """取最新週大戶持倉資料，含週變化、連增週數、張數變化與上週日期，
     以及 400張(lv12)/1000張(lv15) 分層的現況與週張數變化，按 streak desc 排序。"""
+    from scrapers.shareholder import _OUTLIER_PCT_THRESHOLD
     con = get_conn()
-    df = con.execute("""
+    df = con.execute(f"""
         WITH ranked AS (
             SELECT stock_id, date, lv12_15_pct, lv12_15_cnt, lv12_15_shares, week_chg, streak,
                    lv12_shares, lv12_pct, lv15_shares, lv15_pct,
@@ -310,8 +311,9 @@ def get_shareholder_top(n: int = 50) -> pd.DataFrame:
                (latest.lv15_shares - prev.lv15_shares) AS lv15_chg
         FROM (SELECT * FROM ranked WHERE rn = 1) latest
         LEFT JOIN (SELECT * FROM ranked WHERE rn = 2) prev ON latest.stock_id = prev.stock_id
-        WHERE latest.lv12_15_pct < 99  -- 離群值防護(#2)：>=99% 幾乎不可能(TDCC解析異常)，
-                                       -- 排除離榜；NULL(被改寫的異常)也一併排除(NULL<99→false)
+        WHERE latest.lv12_15_pct < {_OUTLIER_PCT_THRESHOLD}
+            -- 離群值防護(#2)：>=門檻幾乎不可能(TDCC解析異常)，排除離榜；
+            -- NULL(被改寫的異常)也一併排除(NULL<閾值→false)
         ORDER BY latest.streak DESC, latest.lv12_15_pct DESC
     """).df()
     con.close()

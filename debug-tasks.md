@@ -1,3 +1,42 @@
+## [2026-07-14] ✅ #7/#8/#9 全部修好（根治方案，比照 Debugger 建議的選項 2）
+
+### #7：`_backfill_shareholder` 改成只補 DB 實際缺的那幾週
+`main.py::_backfill_shareholder()` 新增純函式 `_missing_shareholder_dates(available, existing, weeks)`：
+先查 DB 現有日期集合，從 TDCC 最近 `weeks` 筆可查週別裡只挑 DB 沒有的那幾週抓（不是無腦
+`available[:weeks]` 全部重抓）。同一個 weeks 視窗內的任何缺口（像 06-18）現在都會被抓到；
+DB 已有的週不會被重複覆蓋，等於是「無害的冪等操作」——重跑同一個 `--backfill-shareholder N`
+不會浪費 API 額度重抓已有資料。**視窗外的缺口仍然抓不到**（例如 06-18 若在 weeks=2 視窗外，
+要調大 weeks 才會涵蓋），這是取捨不是 bug，跟 Debugger 建議的「根治方案」一致。
+
+### #8：`recompute_all_history`/`recompute_latest_streak` 都加離群值 guard
+新增共用常數 `_OUTLIER_PCT_THRESHOLD = 99`（原本 `_fetch_one_stock` 寫入端門檻是寫死的 99，
+現在跟 `screener/database.py::get_shareholder_top()` 的 SQL 門檻共用同一個常數，不會之後
+改一邊忘了改另一邊）。兩個 recompute 函式現在都把 `pct >= 99` 的歷史列視同 NaN 處理：
+- `recompute_all_history`：該筆自己 `week_chg` 為 NULL，且不會被設成下一筆的 `prev_pct`
+  繼續污染（真實案例：2380 2026-06-26=100.0 讓 07-03 算出假 `week_chg=-63.59`）。
+- `recompute_latest_streak`：一致地把 `pct`/`prev_pct` 任一為離群值的情況視為無法計算，
+  跳過（維持原狀），不寫入假值。
+
+**⚠️ 這只是程式修好，真實 `data/screener.db` 裡 2380 那筆 07-03 的 `week_chg=-63.59` 假值
+還沒被覆蓋**——麻煩 Cody 跑一次 `python -c "from scrapers.shareholder import recompute_all_history; recompute_all_history()"`
+讓正式資料庫套用這次修復（不用手動改 `lv12_15_pct` 原始值，程式修好後重算就會自動排除
+100.0 離群值，不需要 debug-tasks.md 原本提議的「資料面：手動改 NULL」那個選項）。
+
+### #9：`recompute_latest_streak` 補齊缺週防護（原本不對稱的洞）
+SQL 查詢加回 `prev.date`，跟 `recompute_all_history` 一樣判斷「次新一筆」跟「最新一筆」間隔
+是否超過 `_MAX_WEEK_GAP_DAYS`，超過就跳過（不當基準硬算）。
+
+### 測試
+`tests/test_shareholder.py` 新增 4 個測試（缺週防護、離群值防護 in `recompute_latest_streak`；
+離群值不污染下一週 in `recompute_all_history`）；`tests/test_main.py` 新增 4 個測試涵蓋
+`_missing_shareholder_dates` 的邊界情況。原本 `test_recompute_latest_streak_fixes_week_frozen_before_backfill`
+的 fixture 日期從隔 14 天改成隔 7 天（原本剛好會被新的 #9 缺週防護擋掉，不是這次要測的東西）。
+全專案 **199 passed**。
+
+未 push（等 Debugger ✅）。
+
+---
+
 ## [2026-07-13] 🔧 Debugger → Developer：大戶持倉 backfill 後續 2 個問題（Cody 已跑完 `--backfill-shareholder`）
 
 背景：Cody 得知 TDCC 已有 07-03/07-09 新資料、06-18 漏抓後，自行執行了

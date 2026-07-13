@@ -310,17 +310,39 @@ def _update_insider_holdings() -> None:
         )
 
 
+def _missing_shareholder_dates(available: list, existing: set, weeks: int) -> list:
+    """從 TDCC 最近 `weeks` 筆可查週別（available，新到舊）裡，找出 DB 還沒有的那幾週
+    （existing，YYYYMMDD 字串集合），回傳舊到新排序供依序寫入。
+
+    純函式，獨立於 DB/網路呼叫，方便單獨測試 debug-tasks.md #7 的「補缺的那幾週」邏輯：
+    舊版 `available[:weeks]` 是無條件「往回數 N 週」重抓，不是「補缺的那幾週」——如果缺口
+    （例如 TDCC 某週抓取失敗漏掉）剛好落在往回數 N 週的窗口之外，就永遠不會被抓到。
+    """
+    missing = [d for d in available[:weeks] if d not in existing]
+    # save_to_db 內的週變化/連增減週數計算是拿「DB 裡目前最新一筆」當作上一週比較基準，
+    # 所以這裡務必由舊到新依序寫入，否則會拿較新的週去對較舊的週算出方向相反、毫無意義的
+    # week_chg/streak。
+    return list(reversed(missing))
+
+
 def _backfill_shareholder(weeks: int = 4) -> None:
-    """補齊過去 N 週的集保持股分散表。"""
+    """補齊集保持股分散表：檢查 TDCC 最近 `weeks` 筆可查週別，只抓 DB 裡實際缺的那幾週
+    （見 _missing_shareholder_dates 的設計說明，debug-tasks.md #7）。"""
+    import duckdb
     from scrapers.shareholder import fetch_shareholder_weekly, save_to_db as sh_save, get_available_dates, recompute_latest_streak
     init_db()
     stock_ids = pd.read_csv(UNIVERSE_PATH, dtype=str)["stock_id"].tolist()
-    available = get_available_dates()
-    # available[0] 是最新週；save_to_db 內的週變化/連增減週數計算是拿「DB 裡目前最新一筆」
-    # 當作上一週比較基準，所以這裡務必由舊到新依序寫入，否則會拿較新的週去對較舊的週算出
-    # 方向相反、毫無意義的 week_chg/streak。
-    target_dates = list(reversed(available[:weeks]))
-    logger.info("=== 集保補齊 %d 週（由舊到新）：%s ===", len(target_dates), target_dates)
+    available = get_available_dates()  # YYYYMMDD，新到舊
+
+    con = duckdb.connect("data/screener.db")
+    existing = {row[0].strftime("%Y%m%d") for row in con.execute("SELECT DISTINCT date FROM shareholder").fetchall()}
+    con.close()
+
+    target_dates = _missing_shareholder_dates(available, existing, weeks)
+    if not target_dates:
+        logger.info("=== 集保補齊：檢查最近 %d 筆可查週別，DB 皆已有資料，無需補 ===", weeks)
+        return
+    logger.info("=== 集保補齊 %d 週（由舊到新，已排除 DB 既有週）：%s ===", len(target_dates), target_dates)
     for d_str in target_dates:
         logger.info("  抓 %s ...", d_str)
         rows = fetch_shareholder_weekly(stock_ids, date_str=d_str)

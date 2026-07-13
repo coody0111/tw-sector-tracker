@@ -117,9 +117,9 @@ def test_recompute_latest_streak_fixes_week_frozen_before_backfill(tmp_path):
     _insert(con, "2330", "2026-06-26", 15.0, 0)   # 先寫最新週，當時無前值 → streak=0（凍結前）
     con.close()
 
-    # 之後才 backfill 補進更舊的週
+    # 之後才 backfill 補進更舊的週（7 天前，正常間隔，不觸發 #9 缺週防護）
     con = duckdb.connect(str(db_path))
-    _insert(con, "2330", "2026-06-12", 13.0, 1)
+    _insert(con, "2330", "2026-06-19", 13.0, 1)
     con.close()
 
     updated = recompute_latest_streak(str(db_path))
@@ -168,6 +168,43 @@ def test_recompute_latest_streak_skips_stock_with_only_one_week(tmp_path):
 
     updated = recompute_latest_streak(str(db_path))
     assert updated == 0
+
+
+def test_recompute_latest_streak_skips_gapped_prev_week(tmp_path):
+    """#9：次新一筆跟最新一筆間隔超過 _MAX_WEEK_GAP_DAYS（缺週）時，不該拿它當基準硬算，
+    應跳過（維持原狀），比照 recompute_all_history 已有的缺週防護，避免不對稱的洞
+    （backfill 過程中曾實測到有股票拿 14 天前的週當基準，只是那次數值沒變沒被看穿）。"""
+    db_path = tmp_path / "t.db"
+    con = duckdb.connect(str(db_path))
+    _make_table(con)
+    _insert(con, "2330", "2026-06-12", 13.0, 1)
+    _insert(con, "2330", "2026-06-26", 15.0, 0)   # 隔 14 天，缺 06-19 那週
+    con.close()
+
+    updated = recompute_latest_streak(str(db_path))
+    assert updated == 0, "06-12 跟 06-26 隔 14 天，缺週不該被當成單週基準"
+
+    con = duckdb.connect(str(db_path))
+    row = con.execute(
+        "SELECT week_chg, streak FROM shareholder WHERE stock_id='2330' AND date='2026-06-26'"
+    ).fetchone()
+    con.close()
+    assert row == (0, 0), "維持原狀（凍結前的值），不能被 14 天前的週污染"
+
+
+def test_recompute_latest_streak_treats_outlier_pct_as_invalid(tmp_path):
+    """#8：歷史離群值（lv12_15_pct>=99，例如 2380 2026-06-26=100.0）從沒被追溯清掉，
+    recompute_latest_streak 也要比照 recompute_all_history 視為無效，不能拿離群值當
+    prev_pct 或 cur_pct 算出假 week_chg。"""
+    db_path = tmp_path / "t.db"
+    con = duckdb.connect(str(db_path))
+    _make_table(con)
+    _insert(con, "2380", "2026-06-19", 40.0, 0)
+    _insert(con, "2380", "2026-06-26", 100.0, 0)  # 離群值（TDCC 解析異常）
+    con.close()
+
+    updated = recompute_latest_streak(str(db_path))
+    assert updated == 0, "最新一筆本身是離群值，不該算出 week_chg"
 
 
 def test_transient_post_failure_is_retried(monkeypatch):
@@ -381,6 +418,40 @@ def test_recompute_all_history_fixes_corrupted_historical_week_chg(tmp_path):
     assert df.iloc[1]["streak"] == 1
     assert df.iloc[2]["streak"] == 2
     assert df.iloc[3]["streak"] == 0
+
+
+def test_recompute_all_history_outlier_week_does_not_contaminate_next_week(tmp_path):
+    """#8：真實案例——2380 2026-06-26 lv12_15_pct=100.0（TDCC 解析異常離群值），跟下一週
+    07-03（正常間隔 7 天、無缺週）算出 week_chg=-63.59 的假訊號。離群值防護只在寫入端
+    （_fetch_one_stock）擋未來新抓的資料，DB 裡這種舊離群值從沒被追溯清掉。
+    recompute_all_history 現在要把 >=_OUTLIER_PCT_THRESHOLD 的歷史列本身視同 NaN：
+    該筆自己 week_chg 為 NULL，且不能被下一筆拿去當 prev_pct 算出假差值。"""
+    db_path = tmp_path / "t.db"
+    con = duckdb.connect(str(db_path))
+    _make_table(con)
+    rows = [
+        ("2380", "2026-06-19", 40.0000),
+        ("2380", "2026-06-26", 100.0000),  # 離群值
+        ("2380", "2026-07-03", 36.4108),   # 正常間隔 7 天，若拿 100.0 當基準會算出 -63.5892
+    ]
+    for sid, d, pct in rows:
+        con.execute(
+            "INSERT INTO shareholder "
+            "(stock_id, date, lv12_15_pct, lv12_15_cnt, lv12_15_shares, total_shares, week_chg, streak) "
+            "VALUES (?, ?, ?, 0, 0, 0, -999.0, 9)",
+            [sid, pd.to_datetime(d).date(), pct],
+        )
+    con.close()
+
+    recompute_all_history(str(db_path))
+
+    con = duckdb.connect(str(db_path))
+    df = con.execute(
+        "SELECT date, week_chg FROM shareholder WHERE stock_id='2380' ORDER BY date"
+    ).df()
+    con.close()
+    assert pd.isna(df.iloc[1]["week_chg"]), "離群值那筆自己的 week_chg 應為 NULL"
+    assert pd.isna(df.iloc[2]["week_chg"]), "07-03 不該用 100.0 離群值當基準算出假 -63.59"
 
 
 def test_recompute_all_history_gap_week_gives_null_not_multiweek_chg(tmp_path):

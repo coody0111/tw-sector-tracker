@@ -1,3 +1,84 @@
+## [2026-07-13] 報告 - 大戶持倉（Task 4 前置調查）：week_chg 全表 66% 損毀、髒值上榜、缺週未防護
+
+### 驗證方式（重要：筆電也做得了端到端驗證）
+之前以為「debug 機只有單日資料、端到端要等桌電」——**這是誤解**。同一台筆電的 master worktree
+`C:\Users\codyliu\Desktop\tw-sector-tracker\data\screener.db` **有完整多日資料**（shareholder
+7128 列 / 1040 檔 / 2026-05-08～07-03），以下全部是對這個真實 DB（read-only）+ 實跑
+`screener.database.get_shareholder_top()` 得到的結果，不是推論。
+（debug 資料夾自己的 `data/screener.db` schema 較舊，連 `lv12_15_shares` 欄都還沒有。）
+
+### 🔴 數據問題（需立刻修）
+
+- 問題 #1：**`week_chg` 全表約 66% 損毀（4707 / 7128 列），生產畫面現在就在用**
+  位置：`shareholder` 表歷史資料（成因不在現行程式碼，是過去某次批次運算覆蓋）
+  說明：以 `LAG(lv12_15_pct)` 重算比對，**3724 列**的 `week_chg` ≠ 與前一週的實際差；
+  另外 5/08 是**第一週、根本沒有前一週可比，卻有 983 列有非 NULL 的 `week_chg`**（憑空的值）。
+  逐週損毀率：5/15 917/1010、5/22 933/1014、5/29 937/1019、6/05 935/1026（≈92%）。
+  只有最新的 7/03 那批（1038 列）是乾淨的。
+  ⚠️ 修正 `debug-tasks.md` 的成因描述：「自己的 pct − 100.0」**只有 4 筆**（全是 2380 自己），
+  解釋不了那 3724 筆。我反推過基準（`pct − week_chg`），也不是 first/last/self week，
+  真正兇手不在現行程式碼裡（`_add_week_change_streak` 邏輯本身是對的）。考古兇手意義不大，
+  重點是 `recompute_all_history()` 能重算回來——但**別急著跑，先看 #3**。
+
+- 問題 #2：**2380（虹光）的髒值已經是「大戶減持排行」榜首，而且是假的**
+  位置：`shareholder` 表 2380 / 2026-06-26，`lv12_15_pct = 100.0`
+  說明：`get_shareholder_top()` 實跑，2380 以 `week_chg = -63.5892` 排減持第 1 名，
+  第 2 名（8112）只有 -5.52 —— 差一個量級，明顯離群。根源是 6/26 那筆 `lv12_15_pct = 100.0`
+  （大戶持股 100%，不可能，TDCC 該週解析異常）。全表 `pct >= 99 或 <= 0` 的離群值就這 1 筆。
+  **`get_shareholder_top()`（`screener/database.py:292`）沒有任何離群值過濾**，髒值直接上榜。
+
+- 問題 #3：**缺 6/12、6/19 兩週，`week_chg` 混著「1 週」和「4 週」的變化，畫面一律當週變化**
+  位置：`scrapers/shareholder.py::recompute_all_history()`、`screener/database.py::get_shareholder_top()`
+  說明：TDCC 週別序列是 5/08→5/15→5/22→5/29→6/05→**(缺 6/12、6/19)**→6/26→7/03。
+  且 6/26 那批只有 1006 檔、7/03 有 1038 檔，兩批**股票集合不同**——實跑 `get_shareholder_top()`
+  可看到 `prev_date` 每檔不一樣（2380 是 6/26，但 8112/3152/6741/3003/3413 都是 **6/05**，
+  等於拿 4 週前當「上週」）。`week_chg`／`share_chg` 都沒有做日期間隔檢查。
+  🚩 **這代表 `recompute_all_history()` 現在跑下去，會把「跨 3 週的累積變化」寫成 6/26 的
+  `week_chg`，把問題從「部分損毀」固化成「全表都有、但語意錯」**——比現況更難察覺
+  （現在 6/26 的 chg 有 1002/1006 是 NULL，反而還算誠實）。
+  建議：`recompute_all_history()` 與 `get_shareholder_top()` 都要用 `date - prev_date` 判斷，
+  超過一週（例如 > 10 天）就寫 NULL / 不出訊號，而不是硬算成「本週變化」。
+
+- 問題 #4：**`share_chg` / `lv12_chg` / `lv15_chg` 目前 1040 檔全部是 NULL（畫面整欄空白）**
+  位置：`screener/database.py:292` `get_shareholder_top()`（`latest.xxx_shares - prev.xxx_shares`）
+  說明：`lv12_15_shares` 只有最新的 7/03 那批（1038 列）有值，其餘 6090 列全是 NULL
+  （Task 1/2 之前沒寫入這欄）。相減時 prev 是 NULL → 三個 `_chg` 欄全 NULL。這應該就是 Cody
+  一開始回報「大戶持倉數字看起來不對」的直接來源之一。**純程式碼修不好，要等下一批 TDCC
+  資料（或 backfill 補寫 shares 欄）才會有值**——Task 5/6 把這幾欄搬上畫面前要注意這件事。
+
+### 🟡 建議改善
+
+- **Task 4 的 NaN guard（Developer code review 提的那個 Important）：問題屬實，但嚴重度被高估**
+  位置：`scrapers/shareholder.py::recompute_all_history()` 第 334-343 行
+  我用臨時 DB 實測（中段塞一筆 `lv12_15_pct = NULL`，前後正常）：
+  - 實際汙染 **2 筆**（NULL 那筆 + 下一筆的 `week_chg` 都變 NaN），第 3 筆起自動恢復正常。
+    **不是** `debug-tasks.md` 寫的「一路往後傳染、該股後續所有週永遠算不出來」——因為
+    `_streak_step(NaN, ...)` 兩個比較都是 False，回 0，不會傳出怪值。
+  - 但**核心危害成立**：寫進 DB 的是 **NaN 而不是 NULL**，下游 `WHERE week_chg IS NULL` 抓不到。
+  - **且目前真實 DB 裡 `lv12_15_pct` 的 NULL 數 = 0**（`_fetch_one_stock` 在 `total_shares == 0`
+    時回 None、整筆跳過，正常抓取路徑產不出 NULL）→ **這個 guard 現在不會觸發，是純 defensive**。
+    優先度應該低於上面 4 個 🔴。（但如果之後照 #2 建議把 100.0 這種髒值改寫成 NULL，它就會觸發，
+    所以還是要修，只是順序在後。）
+- **同一個 NaN 洞也在寫入路徑**：`_add_week_change_streak()` 第 251-252 行同樣沒防 NaN
+  （每次 `--update-shareholder` 都會跑，比一次性工具常觸發）。另外第 252 行
+  `int(prev.get("streak", 0))`：`prev` 是 pandas Series，key 存在時 default 不生效，若 `streak`
+  是 NULL 會變成 `int(NaN)` → `ValueError` crash。目前 DB `streak` 沒有 NULL（不觸發），但
+  要修 NaN 就一起修。
+
+### ✅ 驗證通過
+- 全專案 `python -m pytest -q`：**171 passed**（含以前因缺 `data/screener.db` 會失敗的那個，現在也過）。
+- Task 1/2/3 的成果在真實 DB 可見：7/03 那批 1038 列的 `lv12_15_shares` 已正確寫入、
+  `week_chg` 零損毀 → 新資料流是對的，問題都在歷史資料與缺週防護。
+- 工作流自檢：乾淨 FF merge、`CLAUDE.md` 未被追蹤（Developer 的 `9a3202a` 已 revert 掉那次失誤）。
+
+### 結論
+- [x] 需要修改後再確認
+- Task 4 **先別對真實 DB 跑 `recompute_all_history()`**：不是因為 NaN guard（那個不會觸發），
+  而是因為 **#3 缺週**——現在跑會把跨 3 週變化固化成「本週變化」。
+- 建議順序：**#3 缺週防護 → #2 離群值防護 → 才跑 recompute 修 #1 → #4 等資料 → 最後補 NaN guard**。
+
+---
+
 ## [2026-07-12] 驗證＋修復 - 大盤分級儀表板 pre-review 兩個 🔴 風險點 + 額外發現中信金無資料
 
 ### 驗證方式

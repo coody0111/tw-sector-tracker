@@ -22,6 +22,8 @@ _HEADERS = {
 # 等級 12-15 代表持股 ≥ 400,001 股（≥ 400張）
 _LARGE_HOLDER_LEVELS = {"12", "13", "14", "15"}
 _DB_PATH = "data/screener.db"
+# 週別資料正常間隔 7 天；超過此天數視為缺週，week_chg 不硬算成跨週變化（見 recompute_all_history）
+_MAX_WEEK_GAP_DAYS = 10
 
 # 防封鎖／容錯（比照 backfill_yfinance 的手法）：暫時性 SSL 斷線/限流時退避重試，
 # 每支之間隨機延遲而非固定間隔。
@@ -331,8 +333,13 @@ def recompute_all_history(db_path: str = _DB_PATH) -> int:
         grp = grp.sort_values("date").reset_index(drop=True)
         prev_streak = 0
         prev_pct = None
+        prev_date = None
         for _, row in grp.iterrows():
-            if prev_pct is None:
+            # 缺週防護（#1）：TDCC 週別序列可能缺週（例：6/05 直接跳 6/26，隔 21 天）。
+            # 跟前一筆間隔超過一週時，不硬把跨多週的累積變化寫成單週 week_chg——該筆記 NULL、
+            # streak 歸 0。prev_* 照常前進，讓缺口後相鄰的下一週能正常比較（缺口不傳染）。
+            gapped = prev_date is not None and (row["date"] - prev_date).days > _MAX_WEEK_GAP_DAYS
+            if prev_pct is None or gapped:
                 chg = None
                 streak = 0
             else:
@@ -341,6 +348,7 @@ def recompute_all_history(db_path: str = _DB_PATH) -> int:
             updates.append((chg, streak, sid, row["date"]))
             prev_pct = row["lv12_15_pct"]
             prev_streak = streak
+            prev_date = row["date"]
 
     if updates:
         con.executemany(

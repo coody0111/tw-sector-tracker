@@ -366,12 +366,52 @@ def test_recompute_all_history_fixes_corrupted_historical_week_chg(tmp_path):
     # 之後每一筆應該是跟「真正前一週」的差值，不是「自己 - 100.0」
     assert round(df.iloc[1]["week_chg"], 2) == round(44.61 - 44.40, 2)
     assert round(df.iloc[2]["week_chg"], 2) == round(44.72 - 44.61, 2)
-    assert round(df.iloc[3]["week_chg"], 2) == round(100.00 - 44.72, 2)  # 100.0 本身沒被改，只修「跟它比較」的方式
-    # streak：三週連續上升 0→1→2，第四週(100.0，繼續上升)累加成 3
+    # 第四筆 06-26 跟前一筆 05-22 隔 35 天（缺週）→ 缺週防護(#1)讓它為 NULL，
+    # 不硬算成跨 5 週的 55.28。這也順帶讓 2380 那個 100.0 離群值不再汙染 week_chg。
+    assert pd.isna(df.iloc[3]["week_chg"])
+    # streak：三週連續上升 0→1→2，第四週缺週 → 歸 0
     assert df.iloc[0]["streak"] == 0
     assert df.iloc[1]["streak"] == 1
     assert df.iloc[2]["streak"] == 2
-    assert df.iloc[3]["streak"] == 3
+    assert df.iloc[3]["streak"] == 0
+
+
+def test_recompute_all_history_gap_week_gives_null_not_multiweek_chg(tmp_path):
+    """🔴 #1：TDCC 週別序列缺週時（真實案例 6/05 直接跳到 6/26，隔 21 天），不能把跨多週的
+    累積變化硬寫成單週 week_chg。間隔超過一週的那筆應為 NULL、streak 歸 0；缺口後相鄰的
+    下一週要恢復正常比較（缺口不會一路傳染）。"""
+    db_path = tmp_path / "t.db"
+    con = duckdb.connect(str(db_path))
+    _make_table(con)
+    rows = [
+        ("2330", "2026-05-22", 40.0),   # W1
+        ("2330", "2026-05-29", 42.0),   # W2：+2（正常一週）
+        # 缺 06-05、06-12（兩週）
+        ("2330", "2026-06-19", 45.0),   # 隔 21 天 → 缺週，應 NULL
+        ("2330", "2026-06-26", 46.0),   # 缺口後相鄰週（7 天）→ 恢復正常 +1
+    ]
+    for sid, d, pct in rows:
+        con.execute(
+            "INSERT INTO shareholder VALUES (?, ?, ?, 0, 0, 0, ?, ?)",
+            [sid, pd.to_datetime(d).date(), pct, -999.0, 9],  # 塞髒值確認會被覆蓋
+        )
+    con.close()
+
+    recompute_all_history(str(db_path))
+
+    con = duckdb.connect(str(db_path))
+    df = con.execute(
+        "SELECT date, week_chg, streak FROM shareholder WHERE stock_id='2330' ORDER BY date"
+    ).df()
+    con.close()
+
+    assert pd.isna(df.iloc[0]["week_chg"])                          # 第一筆無前值
+    assert round(df.iloc[1]["week_chg"], 2) == 2.0                  # W2 正常
+    assert df.iloc[1]["streak"] == 1
+    assert pd.isna(df.iloc[2]["week_chg"]), "缺兩週(21天)那筆不該硬算成跨週變化"
+    assert df.iloc[2]["streak"] == 0                               # 缺週 streak 歸 0
+    assert round(df.iloc[3]["week_chg"], 2) == 1.0, "缺口後相鄰週要恢復正常比較"
+    assert df.iloc[3]["streak"] == 1
 
 
 def test_recompute_all_history_handles_single_week_stock(tmp_path):

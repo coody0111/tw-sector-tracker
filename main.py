@@ -684,6 +684,12 @@ def run(trade_date: date = None, realtime: bool = False) -> None:
                         "major_holder_shares":     int(insider["major_holder_shares"]) if insider is not None and pd.notna(insider["major_holder_shares"]) else None,
                         "major_holder_chg":        int(insider["major_holder_chg"]) if insider is not None and pd.notna(insider["major_holder_chg"]) else None,
                         "major_holder_pledge_pct": float(insider["major_holder_pledge_pct"]) if insider is not None and pd.notna(insider["major_holder_pledge_pct"]) else None,
+                        "lv12_shares": int(row["lv12_shares"]) if pd.notna(row["lv12_shares"]) else None,
+                        "lv12_pct":    float(row["lv12_pct"]) if pd.notna(row["lv12_pct"]) else None,
+                        "lv12_chg":    int(row["lv12_chg"]) if pd.notna(row["lv12_chg"]) else None,
+                        "lv15_shares": int(row["lv15_shares"]) if pd.notna(row["lv15_shares"]) else None,
+                        "lv15_pct":    float(row["lv15_pct"]) if pd.notna(row["lv15_pct"]) else None,
+                        "lv15_chg":    int(row["lv15_chg"]) if pd.notna(row["lv15_chg"]) else None,
                     })
             else:
                 sh_rows = []

@@ -1,3 +1,30 @@
+## [2026-07-13] 清理 - 刪除 chips.py FinMind 版融資死碼（Cody 拍板刪除）
+
+### 改了什麼
+- 異動檔案：`scrapers/chips.py`（−59 行）、`HANDOFF.md`（doc 一行）
+- 邏輯說明：刪掉 `fetch_margin()` / `fetch_margin_all_today()` 兩個 FinMind 版融資融券死函式
+  （全專案零呼叫，早已被官方 API 版 `fetch_margin_all_twse` / `fetch_margin_all_tpex` 取代，
+  2026-07-10 就標記過死碼、這次 Cody 確認可刪）。順手刪掉只剩死函式在用的孤兒常數 `FINMIND_URL`。
+- **保留**：`FINMIND_TOKEN`（`main.py:210/320` 回補流程仍 import 使用）、`requests`/`os` import
+  （官方 API 函式仍在用）。
+- HANDOFF.md 檔案結構那行過時的 `fetch_margin_all_today()` 改成實際在用的官方函式名。
+
+### 資料來源相關
+- 不涉及抓取口徑變動——刪的是「改用官方 API 之前」的舊 FinMind 實作，每日流程/回補都沒在走它。
+  每日融資融券仍是上市 TWSE 官方 API、上櫃 TPEx 官方 API，不變。
+
+### 請 Debugger 驗證
+- [ ] 全專案 `pytest` 通過（確認刪除沒打到任何隱藏引用）
+- [ ] `import scrapers.chips` 不報錯（`FINMIND_URL` 已無任何 import 端）
+- [ ] `main.py` 的 `from scrapers.chips import FINMIND_TOKEN`（210/320）仍正常
+
+### 特別注意
+- 已本機 `py_compile scrapers/chips.py` 通過、grep 確認 tests/main.py/backfill.py 無引用死函式。
+- 未 push（等 Debugger ✅）。⚠️ 若 Cody 這期間跑 `python main.py`，其自動 push 會把此 commit 一起
+  推到 origin——理想上先讓 Debugger 跑一次 pytest 再跑 main.py。
+
+---
+
 ## [2026-07-13] 進行中 - 大戶持倉 400張/1000張分層追蹤 + 修正歷史 week_chg 損毀（換平台交接）
 
 ### 背景

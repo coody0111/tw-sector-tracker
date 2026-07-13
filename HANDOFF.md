@@ -164,7 +164,7 @@ scrapers/
   twse.py          # 每日 TWSE 全股行情（User-Agent + CSV parse）
   tpex.py          # 每日 TPEx 行情
   finmind.py       # fetch_prices_for_stocks()（組合 TWSE+TPEx 當日）
-  chips.py         # fetch_institutional(), fetch_margin_all_today()
+  chips.py         # fetch_institutional(), fetch_margin_all_twse() / fetch_margin_all_tpex()
   backfill.py      # backfill_prices() + backfill_twse_monthly()
 
 processors/

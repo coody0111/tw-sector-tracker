@@ -12,8 +12,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 TWSE_T86_URL = "https://www.twse.com.tw/rwd/zh/fund/T86"
-FINMIND_URL = "https://api.finmindtrade.com/api/v4/data"
-FINMIND_TOKEN = os.environ.get("FINMIND_TOKEN", "")
+FINMIND_TOKEN = os.environ.get("FINMIND_TOKEN", "")  # main.py 回補流程 import 使用
 
 _HEADERS_TWSE = {
     "User-Agent": (
@@ -251,59 +250,3 @@ def fetch_margin_all_tpex() -> pd.DataFrame:
         })
 
     return pd.DataFrame(rows)
-
-
-# ⚠️ 死碼（2026-07-10 確認）：fetch_margin / fetch_margin_all_today 全專案零呼叫
-# （main.py、backfill.py、tests 都沒有引用）。融資融券上市/上櫃已改用官方 API
-# （fetch_margin_all_twse / fetch_margin_all_tpex，見上方，main.py 有實際呼叫並寫入 DB）。
-# 這兩個是改用官方 API 之前的 FinMind 版舊實作，待 Cody 確認後可整段刪除。
-def fetch_margin(stock_id: str, start_date: date, end_date: date) -> pd.DataFrame:
-    """
-    抓單支股票的融資融券資料（FinMind）。
-    欄位：stock_id, date, margin_balance, margin_change, short_balance, short_change
-    """
-    resp = requests.get(
-        FINMIND_URL,
-        params={
-            "dataset":    "TaiwanStockMarginPurchaseShortSale",
-            "data_id":    stock_id,
-            "start_date": start_date.strftime("%Y-%m-%d"),
-            "end_date":   end_date.strftime("%Y-%m-%d"),
-            "token":      FINMIND_TOKEN,
-        },
-        timeout=30
-    )
-    resp.raise_for_status()
-    data = resp.json()
-
-    if data.get("status") != 200 or not data.get("data"):
-        return pd.DataFrame()
-
-    rows = []
-    for row in data["data"]:
-        rows.append({
-            "stock_id":      stock_id,
-            "date":          row["date"],
-            "margin_balance": int(row["MarginPurchaseTodayBalance"]),
-            "margin_change":  int(row["MarginPurchaseTodayBalance"]) - int(row["MarginPurchaseYesterdayBalance"]),
-            "short_balance":  int(row["ShortSaleTodayBalance"]),
-            "short_change":   int(row["ShortSaleTodayBalance"]) - int(row["ShortSaleYesterdayBalance"]),
-        })
-
-    return pd.DataFrame(rows)
-
-
-def fetch_margin_all_today(trade_date: date, stock_ids: list) -> pd.DataFrame:
-    """
-    批量抓所有股票今日融資融券（逐支查詢，適合每日增量更新）。
-    """
-    frames = []
-    for sid in stock_ids:
-        try:
-            df = fetch_margin(sid, trade_date, trade_date)
-            if not df.empty:
-                frames.append(df)
-        except Exception:
-            continue
-
-    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()

@@ -631,15 +631,20 @@ import math
 
 
 def test_calc_accumulation_score_handles_none_sh_streak_without_crash():
-    """sh_streak 為 None（新股，集保資料還沒有這檔）不該 crash，holder_pts 當 0 貢獻。"""
-    result = calc_accumulation_score(**_base_acc_kwargs(sh_streak=None, recent_return=1.0))
+    """sh_streak 為 None（新股，集保資料還沒有這檔）不該 crash，holder_pts 當 0 貢獻。
+    foreign_streak=3 讓 weakening=False，確保 sh_streak 的值真的會流到最終 round()，
+    不會被 weakening 的 holder_pts=0 短路掉（回歸：原本兩個測試 foreign/trust_streak 都是
+    預設 0，weakening 恆為 True，NaN 根本沒機會進到 round()，測試沒真正驗證到防呆）。"""
+    result = calc_accumulation_score(**_base_acc_kwargs(foreign_streak=3, sh_streak=None, recent_return=1.0))
     assert result["score"] is not None
     assert not (isinstance(result["score"], float) and math.isnan(result["score"]))
 
 
 def test_calc_accumulation_score_handles_nan_sh_streak_without_crash():
-    """sh_streak 為 NaN（DuckDB NULL 經 pandas 讀回）不該 crash，等同 None 處理。"""
-    result = calc_accumulation_score(**_base_acc_kwargs(sh_streak=float("nan"), recent_return=1.0))
+    """sh_streak 為 NaN（DuckDB NULL 經 pandas 讀回）不該 crash，等同 None 處理。
+    foreign_streak=3 讓 weakening=False（理由同上一個測試），這是真正會 crash 的路徑：
+    pre-guard 版本對這個輸入實測會拋 ValueError: cannot convert float NaN to integer。"""
+    result = calc_accumulation_score(**_base_acc_kwargs(foreign_streak=3, sh_streak=float("nan"), recent_return=1.0))
     assert result["score"] is not None
     assert not (isinstance(result["score"], float) and math.isnan(result["score"]))
 

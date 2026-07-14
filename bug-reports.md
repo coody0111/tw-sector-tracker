@@ -1,3 +1,63 @@
+## [2026-07-14] 驗證（筆電）- week_chg 邏輯 ✅ 真的修好了，但 🔴 2380 假訊號還在（既有髒值沒清）
+
+### TL;DR
+- **`week_chg` 重算邏輯：✅ 真的修好了**（在真實 DB 的**副本**上實跑驗證，損毀統計全部歸零）。
+- **🔴 但 2380 仍掛在大戶減持榜首 `-63.59%`**——寫入端的 `pct >= 99` 防護**只擋新資料，
+  沒清洗 DB 裡既有的那筆 100.0 髒值**。只差「清洗既有髒值」這一刀。
+- **⚠️ 而且筆電的 DB 根本還沒修**：桌電跑過的 recompute **不會隨 git 過來**（`data/` gitignored）。
+
+### 驗證方式
+`git pull` 同步 code 到 origin 最新（192 passed）後，**複製** `data/screener.db` 到 scratchpad，
+在副本上實跑 `recompute_all_history()`（**沒有動原始 DB**），再對拍 `LAG(lv12_15_pct)`。
+
+### ✅ 驗證通過 — 重算邏輯與缺週防護
+recompute 前（= 筆電 DB 現況）→ recompute 後：
+| 檢查項 | 修復前 | 副本 recompute 後 |
+|---|---|---|
+| 基準錯（≠ 與前一週實際差） | 3724 | **0** |
+| 第一週憑空值（無前週卻有 chg） | 1006 | **0** |
+| 缺週未清 NULL（間隔 > 10 天卻有值） | 112 | **0** |
+| `isnan(week_chg)`（NaN 汙染） | 0 | **0** |
+- **缺週防護（`_MAX_WEEK_GAP_DAYS`）生效**：6/26 那筆（距 6/05 隔 21 天）正確寫成 `NULL`，
+  沒有把「跨三週的累積變化」謊報成單週。
+- **NaN guard 生效**：清洗髒值後 `week_chg` 全部是 **SQL NULL**（`isnan` 0 筆），
+  不是 NaN → 下游 `WHERE week_chg IS NULL` 抓得到。
+- 全專案 `pytest`：**192 passed**。
+
+### 🔴 數據問題（還沒修完的那一刀）
+- 問題：**既有髒值沒被清洗，2380 假訊號原封不動**
+  位置：`scrapers/shareholder.py:110`（寫入端 `if lv12_15_pct >= 99` → NULL）、
+  `screener/database.py:314`（讀取端排除）
+  說明：兩個防護都**擋不到已經躺在 DB 裡的那筆** 2380 / 2026-06-26 `lv12_15_pct = 100.0`：
+  - 寫入端只作用於**新抓的資料**，不會回頭清洗歷史列。
+  - 讀取端濾的是「**最新一筆** `pct >= 99`」的股票，而 2380 最新一筆是 7/03 的 36.41 → **濾不到**。
+  - recompute 於是老實拿 100.0 當基準：7/03 距 6/26 只有 7 天、不算缺週 →
+    `chg = 36.4108 − 100.0 = -63.5892` → **仍是減持第 1 名**（第 2 名只有 -4.51，差一個量級）。
+  **修法（我已在副本上驗證有效）**：清洗既有髒值後再 recompute——
+  ```sql
+  UPDATE shareholder SET lv12_15_pct = NULL WHERE lv12_15_pct >= 99;  -- 全表就 1 筆
+  ```
+  → 再跑 `recompute_all_history()`。實測結果：2380 從榜首消失（7/03 `week_chg` = NULL），
+  榜首變成 6127 的 -4.51%（合理量級），且 `isnan` 0 筆、全為 SQL NULL。
+  **建議把這個清洗步驟寫進程式碼**（例如 `recompute_all_history()` 開頭先清、或獨立的一次性
+  修復函式），不要只靠人工下 SQL——否則換一台機器又會忘記做。
+
+### 🚩 給 Cody 的待辦（換到桌電後）
+1. **桌電也要各自跑一次資料修復**（清洗 + recompute）。`data/` 是 gitignored、**不隨 git 同步**，
+   桌電修好的資料傳不到筆電，筆電修好的也傳不到桌電——**兩台都要各跑一次**。
+2. **桌電的 `CLAUDE.md` 記得重建**：本次把「換平台開工鐵律」寫進了 tracked 的
+   `CLAUDE-debugger.md`（規則：換平台第一件事＝強制 `git pull`／`reset --hard origin/master`；
+   但 `git pull` **拉不到 `data/`**，資料修復每台各自跑）。桌電 `git pull` 後，
+   在**兩個 worktree 各下一行**重建本地身分檔（`CLAUDE.md` 是 gitignored、不會自己更新）：
+   - Developer worktree：`cp CLAUDE-developer.md CLAUDE.md`
+   - Debugger worktree：`cp CLAUDE-debugger.md CLAUDE.md`
+
+### 結論
+- [x] 需要修改後再確認（🔴 既有髒值清洗）
+- `week_chg` 重算邏輯、缺週防護、NaN guard 三項 ✅ 確認有效，不需重做。
+
+---
+
 ## [2026-07-14] 驗證 - 4 個待驗 commit 從上到下嚴格驗證：#6/#5/Task6/Task5 全數 ✅ 通過，可以 push
 
 ### 驗證方式

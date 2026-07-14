@@ -168,6 +168,43 @@ master 與 debug 曾各自長出獨立 commit → 分岔成 Y 形，要手動解
 
 ---
 
+## 🖥️ 換平台開工鐵律（筆電 ⇄ 桌電，2026-07-14 定）
+
+換到另一台機器開工，**第一件事就是強制把 code 同步到 origin 最新**，不要客氣：
+
+```bash
+git -C <master worktree> fetch origin
+git -C <master worktree> reset --hard origin/master   # 本地若只有 cron 產出 commit，直接丟
+git merge --ff-only master                            # debug worktree 跟上
+cp CLAUDE-debugger.md CLAUDE.md                       # 重建本地身分檔（gitignored、不會自己來）
+```
+
+- 本地 master 常會有 cron 自動長出來的 `update: sector performance` commit（純 `docs/*.html`
+  產出檔），它會擋掉 `pull --ff-only`。那些 HTML 下次跑 `main.py` 就重生，**沒有保留價值 →
+  直接 reset 丟掉**（保險起見先 `git branch backup-xxx <sha>` 留個 ref）。
+
+**在 debug 資料夾直接強制 reset 可不可以？可以，但兩個前提：**
+1. **先確認 debug 沒有還沒同步回 master 的 commit**。在 debug 資料夾下
+   `git reset --hard origin/master` 動到的是 **`debug` 分支**——你剛寫還沒 push 的
+   `bug-reports.md` commit 會直接消失。順序永遠是：**先把報告 commit 同步回 master + push，
+   再強制對齊**。
+2. **master worktree 那邊也要一起同步**。只 reset debug 的話，master worktree 的本地 master
+   還停在舊 commit，cron 會繼續從那個舊點長 commit → 下次又分岔。
+- 硬限制：**debug 資料夾裡不能 `git checkout master`**（master 已被另一個 worktree 佔用，git 會拒絕）。
+  要動 master 一律用 `git -C <master worktree 路徑>`。
+
+### ⚠️ 但 `git pull` **拉不到資料** —— 最容易搞錯的一點
+- **`data/`（含 `screener.db`、`daily_prices/`）是 gitignored、不在 git 裡。**
+- 所以「桌電已經把資料修好了」**不代表**筆電的資料是對的，反之亦然。
+  **程式碼修好 ≠ 資料修好**，這是兩件獨立的事。
+- 一次性的資料修復（例如 `recompute_all_history()`、清洗髒值的 UPDATE）**每台都要各自跑一次**。
+- 驗「資料類」修復時，一定要在**當下這台**實查 DB，不能只信 `debug-tasks.md` 的「已修」勾選，
+  也不能因為另一台驗過就當作過了。
+- 實例（2026-07-14 踩到）：Developer 在桌電修好 `week_chg` 邏輯並跑了 recompute，筆電 `git pull`
+  之後 DB **完全沒變**——3724 筆基準錯、2380 假訊號仍掛在大戶減持榜首。
+
+---
+
 ## 原則
 
 數據的錯誤比程式 crash 更危險，因為它不會報錯，但會給出錯誤的掃盤結果。

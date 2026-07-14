@@ -1524,6 +1524,43 @@ def _recent_return_as_of(index: dict, stock_id: str, d_ts, days: int = 5):
     return round((c0 - cn) / cn * 100, 2)
 
 
+def scan_accumulation_score(db_path: str = _DB_PATH):
+    """
+    回傳 (scanner, cache) tuple（見設計 spec
+    docs/superpowers/specs/2026-07-15-accumulation-score-backtest-calibration-design.md）：
+    - scanner: 符合 run_backtest() 介面的 Callable[[str, str], list[dict]]，每天對
+      scan_institutional() 撈到的全市場股票算一次進貨分。
+    - cache: dict，key=(date_str, stock_id) → calc_accumulation_score() 完整回傳值。
+      run_backtest() 本身只認 sig["stock_id"]，不會把 score 等欄位帶進輸出，這裡用
+      side-effect 快取事後 merge 回結果 DataFrame，刻意不修改 screener/backtest.py。
+    """
+    from screener.institutional import scan_institutional
+
+    sh_index = _shareholder_history_index(db_path)
+    ret_index = _recent_return_index(db_path)
+    cache: dict = {}
+
+    def _scan(date_str: str, scan_db_path: str) -> list:
+        d_ts = pd.Timestamp(date_str)
+        picks = []
+        for stock in scan_institutional(date_str, db_path=scan_db_path):
+            sid = stock["stock_id"]
+            sh_streak, holder_net_lots = _shareholder_as_of(sh_index, sid, d_ts)
+            recent_return = _recent_return_as_of(ret_index, sid, d_ts, days=5)
+            result = calc_accumulation_score(
+                foreign_streak=stock["foreign_streak"],
+                trust_streak=stock["trust_streak"],
+                sh_streak=sh_streak,
+                holder_net_lots=holder_net_lots,
+                recent_return=recent_return,
+            )
+            cache[(date_str, sid)] = result
+            picks.append({"stock_id": sid, "close": stock.get("close")})
+        return picks
+
+    return _scan, cache
+
+
 def backtest_patterns(days: int = 120, db_path: str = _DB_PATH) -> None:
     """
     跑過去 N 個交易日的形態掃描，輸出各形態 3/5/10 日勝率 + 平均報酬。

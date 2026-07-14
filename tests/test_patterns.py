@@ -727,3 +727,72 @@ def test_recent_return_as_of_uses_only_past_data(tmp_path):
 
     ret_insufficient = _recent_return_as_of(index, "2330", pd.Timestamp("2026-05-03"), days=5)
     assert ret_insufficient is None
+
+
+from screener.patterns import scan_accumulation_score
+
+
+def _make_full_accumulation_db(tmp_path):
+    """建 institutional + shareholder + daily_prices 三張最小表，模擬 2330 在
+    訊號日 2026-05-08 當下：外資連買5日(全正)、投信連買3日(前2天賣、後3天買)、
+    大戶第2週資料(streak=2, holder_net_lots=20000+5000=25000)、近5日報酬>0。"""
+    db = str(tmp_path / "acc.db")
+    con = duckdb.connect(db)
+    con.execute("CREATE TABLE institutional (stock_id VARCHAR, date DATE, foreign_net BIGINT, trust_net BIGINT, dealer_net BIGINT, total_net BIGINT)")
+    con.execute("""
+        CREATE TABLE shareholder (
+            stock_id VARCHAR, date DATE, lv12_15_pct DOUBLE, lv12_15_cnt INTEGER,
+            lv12_15_shares BIGINT, total_shares BIGINT, week_chg DOUBLE, streak INTEGER,
+            lv12_shares BIGINT, lv12_pct DOUBLE, lv15_shares BIGINT, lv15_pct DOUBLE
+        )
+    """)
+    con.execute("CREATE TABLE daily_prices (stock_id VARCHAR, date DATE, open DOUBLE, high DOUBLE, low DOUBLE, close DOUBLE, volume BIGINT, change DOUBLE, change_pct DOUBLE)")
+
+    inst_rows = [
+        ("2330", "2026-05-04", 1000, -500),
+        ("2330", "2026-05-05", 1000, -500),
+        ("2330", "2026-05-06", 1000, 800),
+        ("2330", "2026-05-07", 1000, 800),
+        ("2330", "2026-05-08", 1000, 800),
+    ]
+    con.executemany(
+        "INSERT INTO institutional VALUES (?, ?, ?, ?, 0, ?)",
+        [(s, pd.to_datetime(d).date(), f, t, f + t) for (s, d, f, t) in inst_rows],
+    )
+
+    sh_rows = [
+        ("2330", "2026-05-01", 1, 100000, 50000),
+        ("2330", "2026-05-08", 2, 120000, 55000),
+    ]
+    con.executemany(
+        "INSERT INTO shareholder (stock_id, date, streak, lv12_shares, lv15_shares) VALUES (?, ?, ?, ?, ?)",
+        [(s, pd.to_datetime(d).date(), streak, lv12, lv15) for (s, d, streak, lv12, lv15) in sh_rows],
+    )
+
+    px_rows = [("2330", f"2026-05-{d:02d}", 100.0 + d) for d in range(1, 9)]
+    con.executemany(
+        "INSERT INTO daily_prices (stock_id, date, close, change_pct) VALUES (?, ?, ?, 0.0)",
+        [(s, pd.to_datetime(d).date(), c) for (s, d, c) in px_rows],
+    )
+    con.close()
+    return db
+
+
+def test_scan_accumulation_score_computes_score_for_signal_date(tmp_path):
+    """驗證 scan_accumulation_score() 在某一天的訊號清單裡，每檔股票的分數是用
+    calc_accumulation_score() 對「as of 那天」的五個輸入算出來的，cache 存了完整明細。
+    手動推演：foreign_streak=5(40分) + trust_streak=3(18分) + sh_streak=2(14分)
+    = 72分；weakening=False(holder_net_lots=25000>0)；近5日報酬(108-103)/103*100=4.85%>0
+    → confirmed → gate=1.0 → score=72 → label='進貨'。"""
+    db = _make_full_accumulation_db(tmp_path)
+    scanner, cache = scan_accumulation_score(db_path=db)
+
+    picks = scanner("2026-05-08", db)
+    assert len(picks) == 1
+    assert picks[0]["stock_id"] == "2330"
+
+    result = cache[("2026-05-08", "2330")]
+    assert result["score"] == 72
+    assert result["weakening"] is False
+    assert result["label"] == "進貨"
+    assert result["holder_net_lots"] == 25000

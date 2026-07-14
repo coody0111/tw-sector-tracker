@@ -148,8 +148,9 @@ body{
   v1~v10 都沒畫過的「兩層點擊」缺口，這版第一次補上）。點左邊清單試試看。<br>
   <b>修正：</b>拿掉自動跟系統亮暗模式切換的邏輯（原本亮色版調得太接近舊米色，多數瀏覽器預設亮色
   模式時深色主線根本沒被看到）。現在固定顯示深色，右上角「切換亮色預覽」按鈕可手動看亮色版。<br>
-  <b>調色：</b>漲跌色改成正紅／綠茶色（Cody 反饋）。左側排行清單改成<b>整列底色</b>（不是前面加
-  小色塊，Cody 澄清過），跟熱區格同一套色階邏輯（深淺代表幅度），一眼就能看出強弱，不用只靠文字顏色。
+  <b>調色：</b>漲跌色改成正紅／綠茶色。左側排行清單改成<b>整列底色</b>（不是前面加小色塊），
+  飽和度調到跟熱區格一樣濃（不是調淡版），越極端色塊越深；飽和度高的列文字改用米白色維持對比，
+  不會糊在色塊裡。
 </details>
 
 <div class="triptych">
@@ -216,22 +217,27 @@ const STOCKS = {
 const maxAbs = Math.max(...GROUPS.map(d=>Math.abs(d[1])));
 function fmtPct(v){ const s=v>0?'+':''; return `${s}${v.toFixed(2)}%`; }
 function rowBg(pct){
-  // 跟熱區格同一套色階邏輯：深淺代表幅度，紅漲/綠茶跌。整列底色（不是小色塊），
-  // alpha 比熱區格淡一點，因為這裡文字要疊在上面，太濃會影響可讀性。
+  // 跟熱區格同一套飽和度，不是調淡版——深淺代表幅度，紅漲/綠茶跌，越極端色塊越深。
   const t = Math.min(Math.abs(pct)/maxAbs, 1);
-  const alpha = 0.14 + t*0.42;
-  return pct >= 0
+  const alpha = 0.22 + t*0.66;
+  return { color: pct >= 0
     ? `color-mix(in srgb, var(--up) ${(alpha*100).toFixed(0)}%, var(--panel))`
-    : `color-mix(in srgb, var(--down) ${(alpha*100).toFixed(0)}%, var(--panel))`;
+    : `color-mix(in srgb, var(--down) ${(alpha*100).toFixed(0)}%, var(--panel))`,
+    strong: t > 0.5 };
 }
 
-// 左欄排行：整列底色（跟熱區格同一套色階），一眼區分漲跌強弱，不是只有文字顏色或前面色塊
-document.getElementById('ranklist').innerHTML = GROUPS.map(([name,pct],i)=>`
-  <div class="rank-row" data-name="${name}" onclick="selectGroup(this)" style="background:${rowBg(pct)}">
+// 左欄排行：整列底色（跟熱區格同一套飽和度），一眼區分漲跌強弱，不是只有文字顏色或前面色塊。
+// 飽和度高的列（跌深/漲多）文字改用米白色維持對比，不是死板套用 --up/--down 讓文字糊在色塊裡。
+document.getElementById('ranklist').innerHTML = GROUPS.map(([name,pct],i)=>{
+  const bg = rowBg(pct);
+  const pctColor = bg.strong ? 'var(--ink)' : (pct>=0?'var(--up)':'var(--down)');
+  return `
+  <div class="rank-row" data-name="${name}" onclick="selectGroup(this)" style="background:${bg.color}">
     <span class="rk-n tabular">${i+1}</span>
     <span class="rk-name">${name}</span>
-    <span class="rk-pct ${pct>=0?'up':'down'} tabular">${fmtPct(pct)}</span>
-  </div>`).join('');
+    <span class="rk-pct tabular" style="color:${pctColor};font-weight:${bg.strong?800:600}">${fmtPct(pct)}</span>
+  </div>`;
+}).join('');
 
 // 中欄：異動族群（直向堆疊）
 const ANOMALIES = [

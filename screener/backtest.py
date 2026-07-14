@@ -80,6 +80,21 @@ def _bench_return(idx_map, stock_dates, sid, d_ts, horizon):
     return round((ix / ie - 1) * 100, 2)
 
 
+def _regime_at(idx_map, sorted_dates, d_ts, lookback=20, up=3.0, down=-3.0) -> str:
+    """
+    大盤等權指數在訊號日 d_ts 當下的氛圍：回看 lookback 個交易日的累積報酬，
+    >=up% 判「多頭」、<=down% 判「空頭」，中間「盤整」；資料不足回「?」。
+    """
+    past = [t for t in sorted_dates if t <= d_ts]
+    if len(past) < lookback + 1:
+        return "?"
+    now, ref = idx_map[past[-1]], idx_map[past[-1 - lookback]]
+    if ref == 0:
+        return "?"
+    r = (now / ref - 1) * 100
+    return "多頭" if r >= up else ("空頭" if r <= down else "盤整")
+
+
 def run_backtest(
     scanner: Callable[[str, str], List[Dict[str, Any]]],
     db_path: str = _DB_PATH,
@@ -107,9 +122,11 @@ def run_backtest(
         ret_5/bench_5/excess_5, ret_10/..., ret_14/...（依 horizons 而定）
         bench_H 為大盤等權指數同進出區間報酬%，excess_H = ret_H - bench_H
         no_fill 為 True 代表 D+1 開盤即漲停鎖死，實際上買不到，主結果可用這欄剔除
+        regime 為訊號日當下的大盤氛圍（多頭/盤整/空頭/?），供 print_summary 分段
     """
     close_map, open_map, stock_dates = _build_price_index(db_path)
     idx_map = _market_index(db_path)
+    sorted_mkt = sorted(idx_map.keys())
     con = duckdb.connect(db_path, read_only=True)
     dates = [str(r[0])[:10] for r in con.execute(
         "SELECT DISTINCT date FROM daily_prices ORDER BY date").fetchall()]
@@ -131,7 +148,8 @@ def run_backtest(
             no_fill = bool(limit_up_skip and d_close and d1_open
                            and d1_open >= d_close * 1.095)
             row = {"signal_date": d_str, "stock_id": sid,
-                   "entry_price": None, "no_fill": no_fill}
+                   "entry_price": None, "no_fill": no_fill,
+                   "regime": _regime_at(idx_map, sorted_mkt, d_ts)}
             for h in horizons:
                 entry, ret = _forward_return(close_map, open_map, stock_dates, sid, d_ts, h)
                 if entry is not None:

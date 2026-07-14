@@ -108,6 +108,21 @@ def test_run_backtest_deducts_cost(tmp_path):
     assert df.iloc[0]["ret_5"] == round(10.0 - 0.6, 2)   # 9.4
 
 
+def test_regime_at_classifies_market_trend(tmp_path):
+    from screener.backtest import _market_index, _regime_at
+    # 造一段大盤：前 22 天每天 +0.5%(累積約 +11%)→ D 應判「多頭」
+    rows = []
+    price = 100.0
+    for d in range(1, 26):
+        price *= 1.005
+        rows.append(("MKT", f"2026-05-{d:02d}", price, price))
+    db = _make_prices_with_change(tmp_path, rows)
+    idx = _market_index(db)
+    sdates = sorted(idx.keys())
+    reg = _regime_at(idx, sdates, pd.Timestamp("2026-05-25"), lookback=20, up=3.0, down=-3.0)
+    assert reg == "多頭"
+
+
 def test_run_backtest_preserves_entry_price_when_later_horizon_lacks_data(tmp_path):
     """回歸：entry_price 不該被『資料不夠導致某天期算不出來』的 horizon 覆蓋成 None。
     只給 8 個交易日（05-01 訊號日 + 7 天），horizons=(5,14) 時 h=5 資料夠、h=14 不夠——

@@ -1,0 +1,513 @@
+<title>族群總覽頁 — v16 個股清單點開 Mockup</title>
+<style>
+:root{
+  --bg:#080B12; --panel:#0F1420; --panel-2:#161D2C; --panel-3:#1E2738;
+  --border:#293346; --border-2:#37435C;
+  --ink:#DADFE8; --ink-2:#98A0B4; --ink-3:#636B80;
+  --up:#E6432F; --down:#37B25C;
+  --accent:#F0BB55; --accent-dim:#B98A3A;
+  --burst:#F0BB55; --trend:#C77FBD;
+  --tier-super:#F0BB55; --tier-strong:#4FC46A; --tier-mid:#8B94AC; --tier-weak:#E08A3E; --tier-superweak:#E6432F;
+  --heat-hot:#FF7A3D; --heat-cold:#4FA8E8;
+  --serif: Georgia,"Iowan Old Style","Source Serif 4","Noto Serif TC",serif;
+  --sans: "Public Sans",-apple-system,"PingFang TC","Microsoft JhengHei","Segoe UI",sans-serif;
+  --mono: ui-monospace,"IBM Plex Mono","Cascadia Code","Roboto Mono",monospace;
+  --shadow-1: 0 1px 2px rgba(0,0,0,.35);
+  --shadow-2: 0 10px 28px rgba(0,0,0,.5), 0 2px 6px rgba(0,0,0,.35);
+}
+:root[data-theme="light"]{
+  --bg:#EFE8D8; --panel:#F8F3E6; --panel-2:#EAE1CB; --panel-3:#E0D5B8;
+  --border:#D6C9A3; --border-2:#C3B387;
+  --ink:#241C10; --ink-2:#6B5B3D; --ink-3:#93825E;
+  --up:#A8432C; --down:#3D7048;
+  --accent:#93701E; --accent-dim:#C4A24E;
+  --burst:#93701E; --trend:#7A4E6E;
+  --tier-super:#93701E; --tier-strong:#3D7048; --tier-mid:#7A7260; --tier-weak:#9A5A24; --tier-superweak:#A8432C;
+  --heat-hot:#C05A20; --heat-cold:#2E6FA3;
+  --shadow-1: 0 1px 2px rgba(60,45,10,.1);
+  --shadow-2: 0 10px 28px rgba(60,45,10,.16), 0 2px 6px rgba(60,45,10,.1);
+}
+
+*{box-sizing:border-box}
+body{
+  margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.55;padding:0 0 80px;
+  background-image:radial-gradient(ellipse at top left, rgba(255,255,255,.04), transparent 55%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E");
+}
+.tabular{font-family:var(--mono);font-variant-numeric:tabular-nums}
+
+.topbar{display:flex;align-items:baseline;gap:16px;padding:20px 26px;border-bottom:1px solid var(--border)}
+.topbar h1{font-family:var(--serif);font-size:1.28rem;font-weight:600;color:var(--ink);letter-spacing:.01em;margin:0}
+.topbar .kicker{font-size:.62rem;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--accent)}
+.topbar .updated{font-size:.72rem;color:var(--ink-3);margin-left:auto;font-family:var(--mono)}
+.topbar button{font-family:var(--mono);font-size:.68rem;background:var(--panel-2);border:1px solid var(--border);color:var(--ink-2);padding:5px 12px;border-radius:4px;cursor:pointer}
+
+.changelog{margin:14px 26px 0;padding:12px 16px;background:var(--panel);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:3px;font-size:.72rem;color:var(--ink-2);line-height:1.7}
+.changelog b{color:var(--ink);font-weight:600}
+.changelog summary{cursor:pointer;font-weight:600;color:var(--ink);font-size:.74rem}
+
+.section-head{display:flex;align-items:baseline;gap:12px;padding:26px 26px 8px}
+.section-head h2{font-family:var(--serif);font-size:1.05rem;font-weight:600;color:var(--ink);margin:0}
+.section-head .count{font-family:var(--mono);font-size:.7rem;color:var(--ink-3)}
+.section-rule{height:1px;background:linear-gradient(to right,var(--ink) 0%,var(--border) 45%,transparent 100%);margin:0 26px 4px}
+.section-sub{padding:0 26px 14px;font-size:.76rem;color:var(--ink-2);max-width:720px}
+
+/* 異動族群：橫向捲動快報，跟下面的族群排行/族群近況不同——
+   這是「現在正在發生」的訊號（爆量暴衝/連續噴出），不是排名或週趨勢。 */
+.anomaly-wrap{position:relative;margin:0 26px}
+.anomaly-strip{display:flex;gap:14px;overflow-x:auto;padding:2px 2px 6px}
+.anomaly-wrap::after{content:"";position:absolute;top:0;right:0;bottom:6px;width:44px;pointer-events:none;background:linear-gradient(to right, transparent, var(--bg) 88%)}
+.anomaly-card{flex:0 0 240px;background:var(--panel);border:1px solid var(--border);border-radius:4px;padding:15px 17px;position:relative;cursor:pointer;transition:box-shadow .2s,transform .2s,border-color .2s}
+.anomaly-card:hover{border-color:var(--border-2);transform:translateY(-2px)}
+.anomaly-card::before{content:"";position:absolute;left:0;top:15px;bottom:15px;width:2px;border-radius:2px}
+.anomaly-card.burst::before{background:var(--burst)} .anomaly-card.trend::before{background:var(--trend)}
+.anomaly-kind{font-size:.6rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px}
+.anomaly-kind.burst{color:var(--burst)} .anomaly-kind.trend{color:var(--trend)}
+.anomaly-name{font-family:var(--serif);font-weight:600;font-size:1.0rem;color:var(--ink)}
+.anomaly-pct{font-family:var(--mono);font-weight:600;font-size:1.02rem;color:var(--up);float:right}
+.anomaly-reason{margin-top:10px;font-size:.72rem;color:var(--ink-2);line-height:1.6;padding-top:9px;border-top:1px solid var(--border)}
+.anomaly-reason b{color:var(--ink);font-family:var(--mono);font-weight:600}
+
+.tier-legend{display:flex;gap:16px;padding:0 26px 16px;font-size:.68rem;color:var(--ink-2);flex-wrap:wrap;font-family:var(--mono)}
+.tier-legend span{display:inline-flex;align-items:center;gap:5px}
+.tier-legend .dot{width:8px;height:8px;border-radius:2px}
+
+.heatgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(224px,1fr));gap:8px;padding:0 26px}
+.heat-tile{
+  border-radius:5px;padding:13px 14px;cursor:pointer;transition:transform .15s,box-shadow .15s;
+  position:relative;border:1px solid rgba(255,255,255,.06);background:var(--panel);
+  border-top:3px solid transparent;
+}
+.heat-tile:hover{transform:translateY(-2px);box-shadow:var(--shadow-2);z-index:2}
+.heat-tile.active{outline:2px solid var(--accent);outline-offset:-2px}
+
+/* 個股清單點開面板：點族群卡片/異動族群卡片都會開這個 */
+.detail-panel{margin:16px 26px 0;background:var(--panel);border:1px solid var(--border-2);border-radius:5px;padding:22px 26px;box-shadow:var(--shadow-2);scroll-margin-top:20px}
+.detail-panel.hidden{display:none}
+.detail-head{display:flex;align-items:baseline;gap:12px;margin-bottom:2px}
+.detail-head h3{font-family:var(--serif);font-size:1.22rem;font-weight:600;margin:0;color:var(--ink)}
+.detail-head .dpct{font-family:var(--mono);font-size:.98rem;font-weight:700}
+.detail-close{margin-left:auto;font-family:var(--mono);font-size:.68rem;background:none;border:1px solid var(--border);color:var(--ink-3);padding:4px 10px;border-radius:4px;cursor:pointer}
+.detail-sub{font-size:.75rem;color:var(--ink-3);margin-bottom:18px;font-family:var(--mono)}
+.stocktable{width:100%;border-collapse:collapse}
+.stocktable thead th{text-align:left;font-family:var(--mono);font-size:.6rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);padding:0 10px 8px;border-bottom:1px solid var(--ink)}
+.stocktable thead th.num{text-align:right}
+.stocktable tbody td{padding:10px 10px;border-bottom:1px solid var(--border);font-size:.84rem}
+.stocktable tbody tr:hover{background:var(--panel-2)}
+.stocktable .sid{font-family:var(--mono);color:var(--ink-3);font-size:.72rem;margin-right:8px}
+.stocktable .sname{font-family:var(--serif);font-weight:600;color:var(--ink)}
+.stocktable td.num{text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums}
+.stocktable .bar-cell{width:120px}
+.mini-bar{height:6px;border-radius:3px;background:var(--panel-3);position:relative;overflow:hidden}
+.mini-bar span{position:absolute;top:0;bottom:0;left:0;border-radius:3px}
+.detail-empty{color:var(--ink-3);font-size:.86rem;padding:20px 0;font-family:var(--serif)}
+
+.ht-top{display:flex;align-items:baseline;gap:8px}
+.ht-rank{font-family:var(--mono);font-size:.6rem;color:var(--ink-3);flex-shrink:0}
+.ht-name{
+  font-family:var(--serif);font-weight:700;font-size:.96rem;color:var(--ink);flex:1;min-width:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;letter-spacing:.01em;
+}
+.ht-pct{font-family:var(--mono);font-weight:700;font-size:1.0rem;flex-shrink:0}
+
+.ht-status-row{display:flex;align-items:center;gap:6px;margin-top:8px;flex-wrap:wrap}
+.ht-tier{
+  display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border-radius:20px;
+  font-size:.62rem;font-weight:700;letter-spacing:.02em;
+}
+.ht-tier .dot{width:6px;height:6px;border-radius:50%}
+
+/* 溫度變化：跟漲跌紅綠是不同的視覺語言（橙=增溫/急升、藍=退燒/急降），
+   避免跟今日漲跌色系混淆——這正是這個指標的重點：溫度變化(本週比上週)
+   跟今日漲跌方向是兩件不同的事，一個族群可能今日還是紅的、但已經在退燒。 */
+.ht-temp{
+  display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:20px;
+  font-family:var(--mono);font-size:.62rem;font-weight:700;
+}
+.ht-temp.hot{background:color-mix(in srgb, var(--heat-hot) 20%, transparent);color:var(--heat-hot)}
+.ht-temp.cold{background:color-mix(in srgb, var(--heat-cold) 20%, transparent);color:var(--heat-cold)}
+.ht-temp.flat{background:rgba(255,255,255,.06);color:var(--ink-3)}
+
+.ht-streak{font-family:var(--mono);font-size:.68rem;color:var(--ink-2);margin-top:7px;font-weight:600}
+.ht-streak .n{font-weight:800}
+.ht-streak .cnt{color:var(--ink-3);font-weight:400}
+
+.ht-badges{display:flex;gap:5px;margin-top:7px;flex-wrap:wrap}
+.badge{font-family:var(--mono);font-size:.58rem;font-weight:700;padding:2px 6px;border-radius:3px;display:inline-flex;align-items:center;gap:3px}
+.badge.foreign{background:rgba(212,162,78,.16);color:var(--accent);border:1px solid rgba(212,162,78,.3)}
+.badge.trust{background:rgba(169,120,154,.16);color:var(--trend);border:1px solid rgba(169,120,154,.3)}
+.badge.vol{background:rgba(255,255,255,.06);color:var(--ink-2);border:1px solid var(--border)}
+
+.ht-week{
+  display:flex;align-items:center;justify-content:space-between;margin-top:9px;padding-top:8px;
+  border-top:1px solid rgba(255,255,255,.08);font-family:var(--mono);font-size:.62rem;
+}
+.ht-week .lbl{color:var(--ink-3)}
+.ht-week .vals{font-weight:700}
+
+.legend-note{padding:14px 26px 0;font-size:.7rem;color:var(--ink-3);max-width:720px}
+
+/* ── 族群近況（新獨立區塊，v15）── */
+.role-note{
+  margin:0 26px 20px;padding:11px 15px;background:var(--panel);border:1px solid var(--border);
+  border-radius:4px;font-size:.74rem;color:var(--ink-2);display:flex;gap:18px;flex-wrap:wrap;
+}
+.role-note b{color:var(--ink)}
+
+.status-cols{display:grid;grid-template-columns:1fr 1fr;gap:20px;padding:0 26px}
+@media (max-width:760px){.status-cols{grid-template-columns:1fr}}
+.status-col-head{
+  display:flex;align-items:center;gap:8px;font-family:var(--serif);font-weight:700;font-size:1rem;
+  margin-bottom:12px;padding-bottom:10px;border-bottom:2px solid;
+}
+.status-col-head.hot{color:var(--heat-hot);border-color:var(--heat-hot)}
+.status-col-head.cold{color:var(--heat-cold);border-color:var(--heat-cold)}
+.status-row{
+  display:flex;align-items:center;gap:10px;padding:9px 4px;border-bottom:1px solid var(--border);
+}
+.status-row .sr-rank{font-family:var(--mono);font-size:.68rem;color:var(--ink-3);width:16px}
+.status-row .sr-name{font-family:var(--serif);font-weight:600;font-size:.88rem;color:var(--ink);flex:1}
+.status-row .sr-today{font-family:var(--mono);font-size:.74rem;width:56px;text-align:right}
+.status-row .sr-pt{font-family:var(--mono);font-weight:800;font-size:.86rem;width:66px;text-align:right}
+
+.turning-wrap{margin:26px 26px 0;background:var(--panel);border:1px solid var(--border-2);border-radius:5px;padding:18px 22px}
+.turning-head{font-family:var(--serif);font-weight:700;font-size:1rem;color:var(--ink);margin-bottom:4px}
+.turning-sub{font-size:.72rem;color:var(--ink-3);margin-bottom:14px}
+.detail-empty{color:var(--ink-3);font-size:.82rem;padding:8px 0;font-family:var(--serif);font-style:italic}
+.turning-row{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)}
+.turning-row:last-child{border-bottom:none}
+.turning-name{font-family:var(--serif);font-weight:700;font-size:.9rem;color:var(--ink);width:110px;flex-shrink:0}
+.turning-transition{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:.72rem}
+.turning-pill{padding:3px 9px;border-radius:20px;font-weight:700}
+.turning-arrow{color:var(--ink-3)}
+.turning-desc{margin-left:auto;font-size:.72rem;color:var(--ink-2);font-style:italic;font-family:var(--serif)}
+</style>
+
+<div class="topbar">
+  <div><div class="kicker">台股電子半導體族群追蹤</div><h1>族群總覽</h1></div>
+  <button onclick="toggleTheme()" id="themeToggle">切換亮色預覽</button>
+  <div class="updated">2026-07-08 更新</div>
+</div>
+
+<details class="changelog" open>
+  <summary>v14 是什麼：溫度變化指標＋近況一句話（點收合，含 v13 沿革）</summary>
+  Cody 要求卡片資訊要更多，但核心訴求是「知道族群是持續走強還是弱掉」，不是單純塞數字。這版重新
+  分層：<b>①動能狀態標籤</b>（超強/強/整理/弱/超弱，借用逆轟策略 `scan_momentum_health` 已定義的
+  五級分類邏輯，這裡在族群層級用「本週漲跌+連漲天數+加速度」綜合判斷，是這次新增的核心）、
+  <b>②連漲/連跌天數</b>（新增，直接回答「持續多久了」）、<b>③法人連買 badge</b>（外資/投信連買
+  天數，新增）、<b>④量能異常</b>（量比 &gge;1.5x 才顯示，新增）、<b>⑤上週→本週原始數字</b>
+  （保留但降到最下面當輔助佐證）。卡片因此變大（168px→224px 起跳），一頁能看到的族群數變少，
+  這是資訊量增加的必然取捨。<br>
+  <b>校對修正：</b>族群名加防截斷（`text-overflow:ellipsis` + `title` 屬性 fallback）、字重字級
+  加強對比；連漲/連跌天數改照漲跌色系上色（原本是死板灰字，跟卡片其他數據的色彩語言不一致）；
+  上週→本週那組數字也拆成兩個各自照自己正負號上色（原本整組都是同一種灰色，看不出哪個是漲哪個跌）。<br>
+  <b>調飽和度：</b>漲跌色/強調色整體調亮調飽和（原本沿用熱區格米色版的磚紅/森林綠太克制，深藍底
+  其實撐得起更鮮豔的顏色）；動能狀態五級的色票也一併加強，避免變回原本熱區格那組低飽和度顏色。<br>
+  <b>v14 新增：</b>Cody 問「之前不是還有 pt 的嗎」——v9~v12 都有的「本週比上週加速度」(pt) 在 v13
+  重做卡片時被拿掉了，這版做回來，但改用<b>溫度變化</b>的視覺語言（🔥增溫／❄️退燒），刻意跟今日
+  漲跌的紅綠色系分開，因為這兩件事本來就不同：一個族群今天可能還是紅的，但已經在退燒。<br>
+  <b>v15 改版：</b>Cody 反饋「不要塞進每格」，v14 原本每格內嵌的「族群近況」一句話拿掉，
+  改成<b>熱區格下方獨立的「族群近況」區塊</b>，包含三塊：
+  <b>①升溫/退燒雙欄排行</b>（按 pt 排序 Top5，一眼看到誰在加速誰在轉弱，不用掃 41 格）、
+  <b>②轉折點列表</b>（等級真的翻轉的族群，例如上週「強」這週變「弱」，故事性最強但需要「上週
+  等級」這個目前只是示範值的資料）、<b>③跟異動族群的角色說明</b>（兩者容易搞混：異動族群抓
+  「瞬間訊號」——爆量+排名跳動，是單日事件；族群近況抓「週度趨勢」——加速度+等級翻轉，是持續性
+  變化，時間尺度不同，故意分開兩區塊）。<br>
+  <b>校正（v15 補）：</b>Cody 發現頁面最上方的「⚡ 異動族群」快報不見了——查證後這是 v13 整版重做
+  卡片資訊密度時漏掉的（v13/v14 都沒有這段 markup，只是文字說明一直誤植「它存在」）。這版補回原本
+  v7~v12 就有的異動族群橫向捲動區塊，位置在族群排行上方（原本的位置）。<br>
+  <b>v16 新增：</b>Cody 提醒「點開要有個股列表」——這是 v11/v12 就做過、但 v13 整版重做卡片時
+  一併拿掉的功能（連同 v13 漏掉的異動族群區塊，同一次重做造成兩個功能一起消失）。這版把點開
+  面板（<b>detail-panel</b>）接回族群排行熱區格跟異動族群卡片：點任一張卡會在熱區格下方展開
+  該族群的個股清單（股號/股名/收盤/漲跌%+幅度長條）。<b>誠實限制：</b>只有異動族群那 5 檔族群
+  （網通設備/晶圓代工/功率半導體/機器人自動化/半導體材料）補了範例個股資料，其餘 36 個族群點開
+  會顯示「還沒補資料」的提示，不是真的每族群都能點出清單；正式版要接 `calc_stock_sparklines`
+  或等價的個股層級查詢，不是把 mockup 裡編造的股價數字搬進生產程式碼。
+</details>
+
+<div class="section-head"><h2>⚡ 異動族群</h2><span class="count">2 種訊號・5 檔符合</span></div>
+<div class="section-sub">「現在正在發生」的瞬間訊號——爆量排名跳動、或連續多週噴出。跟下面「族群近況」不同：這裡是單日事件，族群近況是週度趨勢。</div>
+<div class="anomaly-wrap">
+  <div class="anomaly-strip">
+    <div class="anomaly-card burst" onclick="selectGroup('網通設備')"><div class="anomaly-kind burst">爆量暴衝</div><span class="anomaly-pct">+1.79%</span><div class="anomaly-name">網通設備</div><div class="anomaly-reason">今日量能 <b>1.1x</b> 於5日均量，昨日#21→今日#2</div></div>
+    <div class="anomaly-card burst" onclick="selectGroup('晶圓代工')"><div class="anomaly-kind burst">爆量暴衝</div><span class="anomaly-pct">+1.74%</span><div class="anomaly-name">晶圓代工</div><div class="anomaly-reason">今日量能 <b>1.8x</b> 於5日均量，昨日#15→今日#3</div></div>
+    <div class="anomaly-card trend" onclick="selectGroup('功率半導體')"><div class="anomaly-kind trend">連續噴出</div><span class="anomaly-pct">+2.03%</span><div class="anomaly-name">功率半導體</div><div class="anomaly-reason">上週 <b>-4.2%</b> → 本週 <b>+17.8%</b>　加速 <b>+21.9pt</b></div></div>
+    <div class="anomaly-card trend" onclick="selectGroup('機器人/自動化')"><div class="anomaly-kind trend">連續噴出</div><span class="anomaly-pct">+1.58%</span><div class="anomaly-name">機器人/自動化</div><div class="anomaly-reason">上週 <b>-0.4%</b> → 本週 <b>+12.4%</b>　加速 <b>+12.8pt</b></div></div>
+    <div class="anomaly-card trend" onclick="selectGroup('半導體材料')"><div class="anomaly-kind trend">連續噴出</div><span class="anomaly-pct">+1.01%</span><div class="anomaly-name">半導體材料</div><div class="anomaly-reason">上週 <b>-1.1%</b> → 本週 <b>+10.2%</b>　加速 <b>+11.3pt</b></div></div>
+  </div>
+</div>
+
+<div class="section-head"><h2>族群排行</h2><span class="count">今日漲跌% ・41 個族群（真實漲跌%/家數/週資料，法人+量能為示範數值）</span></div>
+<div class="section-rule"></div>
+<div class="section-sub">動能狀態標籤是這版的重點：不是只看今日漲跌，而是綜合「連漲天數＋本週比上週是否加速」判斷這個族群現在的動能還在不在——這樣才抓得到「本週還在漲但其實已經開始弱掉」的族群。</div>
+<div class="tier-legend">
+  <span><span class="dot" style="background:var(--tier-super)"></span>超強＝多頭排列+持續加速</span>
+  <span><span class="dot" style="background:var(--tier-strong)"></span>強＝多頭排列，動能穩定</span>
+  <span><span class="dot" style="background:var(--tier-mid)"></span>整理＝方向不明</span>
+  <span><span class="dot" style="background:var(--tier-weak)"></span>弱＝動能減弱中</span>
+  <span><span class="dot" style="background:var(--tier-superweak)"></span>超弱＝轉弱+連跌</span>
+</div>
+<div class="heatgrid" id="heatgrid"></div>
+<div class="detail-panel hidden" id="detailPanel"></div>
+<div class="legend-note">⚠️ 法人連買天數／量比是這版示範用的合理範例數值，還沒接真實 `institutional`/`daily_prices` 查詢，正式版才會是真實資料。動能狀態標籤的判斷規則也是這次先訂的草案，跟 `scan_momentum_health` 的五級分類邏輯呼應但沒有直接共用程式碼，之後要接線時應該讓族群層級的分類重用同一套規則常數，不要各寫一份。<br>⚠️ 「上週→本週」是<b>滾動 5 個交易日</b>的複利累積漲跌幅，不是自然週一到週五（例如今天週三，「本週」會往前吃到上上週四、五，不是只算這週一到週三）——跟現有 `get_rolling_returns`/`cum5` 的窗口慣例一致。標籤字面容易被誤讀成日曆週，正式版可能需要改標籤文字或加 tooltip 說明。<br>⚠️ 溫度變化門檻（±5pt 才顯示徽章）是這次先訂的草案，沒有回測或跟 Cody 確認過門檻合不合理，之後要接線時建議先實跑真實資料看門檻鬆緊有沒有問題。</div>
+
+<div class="section-head"><h2>族群近況</h2><span class="count">升溫/退燒排行・轉折點</span></div>
+<div class="section-rule"></div>
+<div class="role-note">
+  <span>🔥❄️ <b>族群近況</b>＝週度趨勢訊號（加速度、等級翻轉），時間尺度是「這週 vs 上週」</span>
+  <span>⚡ <b>異動族群</b>（頁面最上方）＝瞬間訊號（爆量+排名跳動），時間尺度是「今天 vs 昨天」</span>
+  <span>兩者角色不同，故意分開兩個區塊，不是重複資訊</span>
+</div>
+
+<div class="status-cols">
+  <div>
+    <div class="status-col-head hot">🔥 近期增溫 Top 5</div>
+    <div id="hotList"></div>
+  </div>
+  <div>
+    <div class="status-col-head cold">❄️ 近期退燒 Top 5</div>
+    <div id="coldList"></div>
+  </div>
+</div>
+
+<div class="turning-wrap">
+  <div class="turning-head">⚠ 轉折點：等級真的翻轉的族群</div>
+  <div class="turning-sub">不是看誰漲最多，是看「上週的等級」跟「這週的等級」是否真的換了一級——這個故事性最強，因為代表趨勢方向可能真的變了，不是單純幅度大小的波動。</div>
+  <div id="turningList"></div>
+</div>
+
+<script>
+// name, today_pct, up, down, last_week, this_week, streak(連漲+/連跌-天數), foreign_streak, trust_streak, vol_ratio
+const GROUPS = [
+["功率半導體",2.03,9,6,-4.17,17.76,6,5,3,1.8],
+["網通設備",1.79,26,13,-0.43,3.16,2,0,0,2.1],
+["晶圓代工",1.74,13,5,-4.42,1.13,1,2,4,1.9],
+["機器人/自動化",1.58,4,3,-0.37,12.41,5,3,2,1.2],
+["通訊IC",1.43,5,4,-3.13,2.41,3,0,0,1.1],
+["AI晶片",1.37,12,5,-2.94,2.18,2,4,0,1.0],
+["銅箔基板",1.36,9,5,1.51,1.70,1,0,0,0.9],
+["光通訊",1.17,10,6,-5.81,1.38,1,0,0,1.0],
+["半導體材料",1.01,9,8,-1.13,10.21,4,0,2,1.3],
+["光學/相機",0.63,9,12,-2.81,1.16,-1,0,0,0.8],
+["LED",0.47,10,13,1.34,4.55,2,0,0,1.0],
+["行動通訊",0.37,2,1,-0.44,0.76,1,0,0,0.7],
+["電腦周邊",0.37,25,36,-0.16,4.36,-2,0,0,0.9],
+["AI伺服器",0.26,21,20,-1.00,2.91,-1,3,0,1.1],
+["載板",0.23,6,9,3.34,2.59,-3,0,0,0.9],
+["生物辨識",0.17,2,0,-1.31,2.55,1,0,0,0.6],
+["MCU/嵌入式",0.02,9,17,-3.40,3.74,-2,0,0,0.8],
+["電源供應器",0.01,7,15,-1.99,4.03,-1,0,0,0.9],
+["太陽能",0.01,6,9,2.94,1.39,-4,0,0,0.7],
+["被動元件",-0.12,16,22,3.37,1.65,-3,0,0,0.8],
+["IC封裝",-0.15,18,17,-3.43,6.09,-1,0,0,0.9],
+["PCB",-0.20,13,16,-0.34,-0.08,-2,0,0,0.7],
+["面板",-0.34,19,38,-0.61,0.58,-3,0,0,0.6],
+["軟體/雲端",-0.36,19,53,-0.62,0.97,-2,0,0,0.7],
+["連接器",-0.44,18,27,-2.39,2.57,-1,0,0,0.8],
+["軟板/FPC",-0.51,2,6,-4.16,-1.23,-5,0,0,0.6],
+["電池",-0.54,4,11,-3.58,4.65,-2,0,0,0.7],
+["音響/耳機",-0.70,1,9,1.15,1.28,-3,0,0,0.6],
+["消費電子",-0.70,2,10,-1.16,3.50,-2,0,0,0.6],
+["遊戲/電競",-0.72,5,12,-0.79,-0.53,-4,0,0,0.5],
+["PMIC",-0.72,9,18,-2.90,4.45,-3,0,0,0.6],
+["電動車",-0.73,5,10,-1.45,3.53,-2,0,0,0.6],
+["感測/影像IC",-0.77,2,7,-0.86,1.29,-3,0,0,0.5],
+["半導體設備",-0.98,22,62,-0.68,0.92,-4,0,0,0.6],
+["電子製造服務",-1.00,9,23,-0.12,1.10,-3,0,0,0.5],
+["電子通路",-1.10,3,23,-0.69,-0.42,-5,0,0,0.5],
+["其他電子",-1.22,3,13,-1.77,1.18,-4,0,0,0.5],
+["散熱",-1.35,2,12,-0.63,0.05,-6,0,0,0.4],
+["記憶體",-2.12,2,19,-4.98,-4.37,-7,0,0,0.4],
+["電信",-2.81,0,4,-2.37,-2.83,-8,0,0,0.3],
+["先進封裝設備",-2.93,0,8,-0.86,-1.12,-9,0,0,0.3],
+];
+
+// ⚠️ 示範用「上週等級」覆寫表——真實版本需要存一份歷史快照（例如每天/每週把 classifyTier
+// 的結果存進 DB）才算得出來，這次 mockup 沒有歷史資料，用手動指定幾檔製造轉折點故事讓 Cody
+// 看呈現方式；沒被列在這裡的族群，預設視為「等級沒變」（不會出現在轉折點列表）。
+const PREV_TIER_OVERRIDE = {
+  '晶圓代工': 'weak',       // 弱 → 超強：這週回溫最猛的
+  '機器人/自動化': 'mid',   // 整理 → 超強：從盤整噴出
+  '電腦周邊': 'strong',     // 強 → 整理：動能鈍化
+  '載板': 'strong',         // 強 → 整理：動能鈍化
+  '太陽能': 'weak',         // 弱 → 整理：止跌喘息
+  '記憶體': 'weak',         // 弱 → 超弱：破位加速下跌
+};
+const TIER_LABEL = {super:'超強', strong:'強', mid:'整理', weak:'弱', superweak:'超弱'};
+
+// ⚠️ 個股清單示範資料——只幫異動族群那 5 檔補了範例個股（股號/股名/收盤/漲跌%都是編造的展示
+// 數字，不是真實報價），其餘 36 個族群點開會顯示「還沒補資料」的誠實提示。正式版要接
+// `calc_stock_sparklines` 或等價的個股層級查詢，不是把這份 STOCKS 常數直接搬進生產程式碼。
+const STOCKS = {
+  "功率半導體": [["8261","富鼎",312.5,9.85],["2481","強茂",68.4,6.75],["5299","杰力",412.0,5.12],["5403","大中",118.5,4.30],["2455","全新",89.2,3.68],["8255","朋程",203.0,1.95]],
+  "網通設備": [["2345","智邦",812.0,4.21],["4979","華星光",148.5,3.90],["6285","啟碁",92.3,2.15],["3596","智易",176.0,1.88],["4906","正文",23.5,0.85]],
+  "晶圓代工": [["2330","台積電",1105.0,2.41],["6770","力積電",28.9,3.02],["5347","世界先進",128.0,1.55]],
+  "機器人/自動化": [["2049","上銀",298.0,4.65],["6221","晉泰",65.8,3.90],["1533","車王電",42.3,2.10]],
+  "半導體材料": [["3131","弘塑",412.0,3.15],["4739","康普",112.5,2.40],["4707","磐亞",145.0,1.05]],
+};
+
+const maxAbs = Math.max(...GROUPS.map(d=>Math.abs(d[1])));
+function fmtPct(v){ const s=v>0?'+':''; return `${s}${v.toFixed(2)}%`; }
+function heatBg(pct){
+  const t = Math.min(Math.abs(pct)/maxAbs, 1);
+  const alpha = 0.16 + t*0.5;
+  return pct>=0 ? `color-mix(in srgb, var(--up) ${(alpha*100).toFixed(0)}%, var(--panel))`
+                : `color-mix(in srgb, var(--down) ${(alpha*100).toFixed(0)}%, var(--panel))`;
+}
+
+// 動能狀態五級分類（草案，呼應 scan_momentum_health 的五級邏輯，未直接共用程式碼——見頁尾提醒）：
+// 依「連漲天數(streak) + 本週比上週是否加速(accel=tw-lw)」綜合判斷
+function classifyTier(streak, lw, tw){
+  const accel = tw - lw;
+  if(streak <= -5) return {label:'超弱', key:'superweak'};
+  if(streak > 0 && accel > 3) return {label:'超強', key:'super'};
+  if(streak > 0 && accel >= -2) return {label:'強', key:'strong'};
+  if(streak < 0 && accel < -2) return {label:'弱', key:'weak'};
+  return {label:'整理', key:'mid'};
+}
+const TIER_COLOR = {super:'var(--tier-super)', strong:'var(--tier-strong)', mid:'var(--tier-mid)', weak:'var(--tier-weak)', superweak:'var(--tier-superweak)'};
+
+// 溫度變化分類：accel = 本週 - 上週（pt）。門檻是這次先訂的草案：
+// |accel| >= 5pt 才顯示徽章（避免每格都掛一個、雜訊過多），3~5pt 之間算溫和變化不特別標。
+function classifyTemp(accel){
+  if(accel >= 5) return {label:`增溫 +${accel.toFixed(1)}pt`, key:'hot', icon:'🔥'};
+  if(accel <= -5) return {label:`退燒 ${accel.toFixed(1)}pt`, key:'cold', icon:'❄️'};
+  return null;
+}
+
+document.getElementById('heatgrid').innerHTML = GROUPS.map(([name,pct,up,down,lw,tw,streak,fstreak,tstreak,vol],i)=>{
+  const tier = classifyTier(streak, lw, tw);
+  const accel = tw - lw;
+  const temp = classifyTemp(accel);
+  // 連漲/連跌方向也照漲跌色系上色，不再是死板灰字——跟卡片其他數據的色彩語言一致
+  const streakColor = streak > 0 ? 'var(--up)' : (streak < 0 ? 'var(--down)' : 'var(--ink-3)');
+  const streakTxt = streak > 0
+    ? `連漲 <span class="n" style="color:${streakColor}">${streak}</span> 日`
+    : (streak < 0 ? `連跌 <span class="n" style="color:${streakColor}">${Math.abs(streak)}</span> 日` : `持平`);
+  const badges = [];
+  if(fstreak >= 2) badges.push(`<span class="badge foreign">外資連買${fstreak}日</span>`);
+  if(tstreak >= 2) badges.push(`<span class="badge trust">投信連買${tstreak}日</span>`);
+  if(vol >= 1.5) badges.push(`<span class="badge vol">量能${vol}x</span>`);
+  return `
+  <div class="heat-tile" data-name="${name}" onclick="selectGroup('${name}')" style="background:${heatBg(pct)};border-top-color:${TIER_COLOR[tier.key]}">
+    <div class="ht-top">
+      <span class="ht-rank tabular">#${i+1}</span>
+      <span class="ht-name" title="${name}">${name}</span>
+      <span class="ht-pct tabular" style="color:${pct>=0?'#fff':'var(--ink)'}">${fmtPct(pct)}</span>
+    </div>
+    <div class="ht-status-row">
+      <div class="ht-tier" style="background:${TIER_COLOR[tier.key]}22;color:${TIER_COLOR[tier.key]}">
+        <span class="dot" style="background:${TIER_COLOR[tier.key]}"></span>${tier.label}
+      </div>
+      ${temp ? `<div class="ht-temp ${temp.key}">${temp.icon} ${temp.label}</div>` : `<div class="ht-temp flat tabular">→ ${accel>=0?'+':''}${accel.toFixed(1)}pt</div>`}
+    </div>
+    <div class="ht-streak">${streakTxt}<span class="cnt">　<span style="color:var(--up)">▲${up}檔</span> <span style="color:var(--down)">▼${down}檔</span></span></div>
+    ${badges.length ? `<div class="ht-badges">${badges.join('')}</div>` : ''}
+    <div class="ht-week">
+      <span class="lbl">上週→本週</span>
+      <span class="vals tabular">
+        <span style="color:${lw>=0?'var(--up)':'var(--down)'}">${fmtPct(lw)}</span>
+        <span class="lbl">→</span>
+        <span style="color:${tw>=0?'var(--up)':'var(--down)'}">${fmtPct(tw)}</span>
+      </span>
+    </div>
+  </div>`;
+}).join('');
+
+// ── 族群近況：① 升溫/退燒雙欄排行 ────────────────────────────────
+const withAccel = GROUPS.map(g => ({name:g[0], pct:g[1], accel:g[5]-g[4]}));
+const hotTop = [...withAccel].sort((a,b)=>b.accel-a.accel).slice(0,5);
+const coldTop = [...withAccel].sort((a,b)=>a.accel-b.accel).slice(0,5);
+
+function statusRow(g, isHot){
+  const color = isHot ? 'var(--heat-hot)' : 'var(--heat-cold)';
+  const sign = g.accel>=0?'+':'';
+  return `<div class="status-row">
+    <span class="sr-name">${g.name}</span>
+    <span class="sr-today tabular" style="color:${g.pct>=0?'var(--up)':'var(--down)'}">${fmtPct(g.pct)}</span>
+    <span class="sr-pt tabular" style="color:${color}">${sign}${g.accel.toFixed(1)}pt</span>
+  </div>`;
+}
+document.getElementById('hotList').innerHTML = hotTop.map(g=>statusRow(g,true)).join('');
+document.getElementById('coldList').innerHTML = coldTop.map(g=>statusRow(g,false)).join('');
+
+// ── 族群近況：② 轉折點（上週等級 vs 這週等級真的換了一級）───────────
+const turningPoints = GROUPS
+  .map(([name,pct,up,down,lw,tw,streak]) => {
+    const curTier = classifyTier(streak, lw, tw);
+    const prevKey = PREV_TIER_OVERRIDE[name];
+    if(!prevKey || prevKey === curTier.key) return null; // 沒被指定覆寫，或指定了但剛好同級 → 不算轉折
+    return {name, prevKey, curKey: curTier.key, curLabel: curTier.label};
+  })
+  .filter(Boolean);
+
+const TIER_RANK = {superweak:0, weak:1, mid:2, strong:3, super:4}; // 用來判斷是「轉強」還是「轉弱」
+function turningDesc(prevKey, curKey){
+  return TIER_RANK[curKey] > TIER_RANK[prevKey] ? '轉強訊號' : '轉弱訊號，留意';
+}
+
+document.getElementById('turningList').innerHTML = turningPoints.length
+  ? turningPoints.map(tp => `
+    <div class="turning-row">
+      <span class="turning-name">${tp.name}</span>
+      <span class="turning-transition">
+        <span class="turning-pill" style="background:${TIER_COLOR[tp.prevKey]}22;color:${TIER_COLOR[tp.prevKey]}">${TIER_LABEL[tp.prevKey]}</span>
+        <span class="turning-arrow">→</span>
+        <span class="turning-pill" style="background:${TIER_COLOR[tp.curKey]}22;color:${TIER_COLOR[tp.curKey]}">${tp.curLabel}</span>
+      </span>
+      <span class="turning-desc">${turningDesc(tp.prevKey, tp.curKey)}</span>
+    </div>`).join('')
+  : '<div class="detail-empty">本週沒有族群發生等級翻轉</div>';
+
+// ── 點開個股清單 ────────────────────────────────
+let currentGroup = null;
+function selectGroup(name){
+  const panel = document.getElementById('detailPanel');
+  document.querySelectorAll('.heat-tile').forEach(t=>t.classList.remove('active'));
+
+  if(currentGroup === name){
+    panel.classList.add('hidden');
+    currentGroup = null;
+    return;
+  }
+  currentGroup = name;
+  const tile = document.querySelector(`.heat-tile[data-name="${name}"]`);
+  if(tile) tile.classList.add('active');
+
+  const g = GROUPS.find(d=>d[0]===name);
+  if(!g){ panel.classList.add('hidden'); currentGroup = null; return; }
+  const [,pct,up,down] = g;
+  const stocks = STOCKS[name];
+
+  if(!stocks){
+    panel.innerHTML = `
+      <div class="detail-head"><h3>${name}</h3><span class="dpct" style="color:${pct>=0?'var(--up)':'var(--down)'}">${fmtPct(pct)}</span><button class="detail-close" onclick="selectGroup('${name}')">收合</button></div>
+      <div class="detail-sub">▲${up}檔 ▼${down}檔</div>
+      <div class="detail-empty">這個族群的個股明細 mockup 資料還沒補（先幫異動族群那 5 檔做示範），正式版會接真實個股清單查詢。</div>`;
+  } else {
+    const maxChg = Math.max(...stocks.map(s=>Math.abs(s[3])));
+    panel.innerHTML = `
+      <div class="detail-head"><h3>${name}</h3><span class="dpct" style="color:${pct>=0?'var(--up)':'var(--down)'}">${fmtPct(pct)}</span><button class="detail-close" onclick="selectGroup('${name}')">收合</button></div>
+      <div class="detail-sub">▲${up}檔 ▼${down}檔　・　共 ${stocks.length} 檔範例（非全部成分股）</div>
+      <table class="stocktable">
+        <thead><tr><th>個股</th><th class="num">收盤</th><th class="num">漲跌%</th><th>幅度</th></tr></thead>
+        <tbody>
+          ${stocks.map(([sid,sname,close,chg])=>{
+            const w=(Math.abs(chg)/maxChg*100).toFixed(0);
+            const color = chg>=0?'var(--up)':'var(--down)';
+            return `<tr><td><span class="sid">${sid}</span><span class="sname">${sname}</span></td><td class="num">${close.toFixed(1)}</td><td class="num" style="color:${color}">${fmtPct(chg)}</td><td class="bar-cell"><div class="mini-bar"><span style="width:${w}%;background:${color}"></span></div></td></tr>`;
+          }).join('')}
+        </tbody>
+      </table>`;
+  }
+  panel.classList.remove('hidden');
+  panel.scrollIntoView({behavior:'smooth', block:'nearest'});
+}
+
+function toggleTheme(){
+  const root = document.documentElement;
+  const isLight = root.getAttribute('data-theme') === 'light';
+  root.setAttribute('data-theme', isLight ? 'dark' : 'light');
+  document.getElementById('themeToggle').textContent = isLight ? '切換亮色預覽' : '切換深色預覽';
+}
+</script>

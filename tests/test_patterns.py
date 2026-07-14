@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from screener.patterns import _calc_streak, _calc_vol_price_score, _calc_chips_score
+from screener.patterns import print_accumulation_calibration
 
 
 def test_streak_consecutive_buy():
@@ -796,3 +797,23 @@ def test_scan_accumulation_score_computes_score_for_signal_date(tmp_path):
     assert result["weakening"] is False
     assert result["label"] == "進貨"
     assert result["holder_net_lots"] == 25000
+
+
+def test_print_accumulation_calibration_runs_with_buckets_and_boundary_case(capsys):
+    df = pd.DataFrame([
+        {"signal_date": "2026-05-01", "stock_id": "2330", "no_fill": False, "excess_5": 6.0},
+        {"signal_date": "2026-05-02", "stock_id": "2454", "no_fill": False, "excess_5": -1.0},
+        {"signal_date": "2026-05-03", "stock_id": "8261", "no_fill": False, "excess_5": 3.0},
+    ])
+    cache = {
+        ("2026-05-01", "2330"): {"score": 72, "weakening": False, "holder_net_lots": 25000},
+        ("2026-05-02", "2454"): {"score": 10, "weakening": False, "holder_net_lots": None},
+        ("2026-05-03", "8261"): {"score": 20, "weakening": True, "holder_net_lots": 920},
+    }
+    print_accumulation_calibration(df, cache, horizons=(5,))
+    out = capsys.readouterr().out
+    assert "60-100分" in out
+    assert "富鼎型邊界" in out
+
+    # 空 df 不 crash
+    print_accumulation_calibration(pd.DataFrame(), {}, horizons=(5,))

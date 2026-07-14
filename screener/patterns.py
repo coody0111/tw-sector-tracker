@@ -1561,6 +1561,63 @@ def scan_accumulation_score(db_path: str = _DB_PATH):
     return _scan, cache
 
 
+def print_accumulation_calibration(df: pd.DataFrame, cache: dict, horizons=(5, 10, 14)) -> None:
+    """
+    印出進貨分校準報告：
+    1. 依 score 分桶（0-19/20-39/40-59/60-100）看各桶平均超額報酬/勝率，回答
+       「分數越高，後續表現是否真的越好」。
+    2. weakening=True 但 holder_net_lots>0 的「富鼎型邊界案例」子集，跟其餘樣本對照，
+       回答「純大戶進貨、法人沒動被判轉弱，是否真的該轉弱」。
+    預設剔除 no_fill=True（漲停買不到）的訊號，比照 backtest.py::print_summary()。
+    """
+    if df.empty:
+        print("無訊號資料")
+        return
+
+    df = df.copy()
+    df["score"] = df.apply(
+        lambda r: cache.get((r["signal_date"], r["stock_id"]), {}).get("score"), axis=1)
+    df["weakening"] = df.apply(
+        lambda r: cache.get((r["signal_date"], r["stock_id"]), {}).get("weakening"), axis=1)
+    df["holder_net_lots"] = df.apply(
+        lambda r: cache.get((r["signal_date"], r["stock_id"]), {}).get("holder_net_lots"), axis=1)
+
+    used = df[~df["no_fill"]] if "no_fill" in df.columns else df
+
+    def _block(sub, tag, h):
+        exc = f"excess_{h}"
+        if exc not in sub.columns:
+            return
+        s = sub[sub[exc].notna()]
+        if s.empty:
+            print(f"  [{tag}] D+{h:<2}  n=0")
+            return
+        win = (s[exc] > 0).mean() * 100
+        avg_ex = s[exc].mean()
+        print(f"  [{tag}] D+{h:<2}  n={len(s):<4} 勝率(超額>0) {win:4.0f}%  平均超額 {avg_ex:+.2f}%")
+
+    print("=" * 60)
+    print("  進貨分分數分桶（score 越高，後續超額報酬是否越好？）")
+    print("=" * 60)
+    buckets = [(0, 20, "0-19分"), (20, 40, "20-39分"), (40, 60, "40-59分"), (60, 101, "60-100分")]
+    for lo, hi, tag in buckets:
+        sub = used[(used["score"] >= lo) & (used["score"] < hi)]
+        if sub.empty:
+            continue
+        for h in horizons:
+            _block(sub, tag, h)
+
+    print("-" * 60)
+    print("  富鼎型邊界案例（weakening=True 但大戶當週淨增 >0）vs 其餘樣本")
+    print("-" * 60)
+    is_boundary = (used["weakening"] == True) & (used["holder_net_lots"] > 0)
+    boundary = used[is_boundary]
+    rest = used[~is_boundary]
+    for h in horizons:
+        _block(boundary, "富鼎型邊界", h)
+        _block(rest, "其餘樣本", h)
+
+
 def backtest_patterns(days: int = 120, db_path: str = _DB_PATH) -> None:
     """
     跑過去 N 個交易日的形態掃描，輸出各形態 3/5/10 日勝率 + 平均報酬。

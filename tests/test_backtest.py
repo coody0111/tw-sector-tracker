@@ -123,6 +123,22 @@ def test_regime_at_classifies_market_trend(tmp_path):
     assert reg == "多頭"
 
 
+def test_print_summary_runs_with_new_columns(capsys, tmp_path):
+    from screener.backtest import print_summary
+    df = pd.DataFrame([
+        {"signal_date":"2026-05-01","stock_id":"2330","entry_price":100.0,"no_fill":False,
+         "regime":"多頭","ret_5":9.4,"bench_5":3.0,"excess_5":6.4},
+        {"signal_date":"2026-05-02","stock_id":"2454","entry_price":50.0,"no_fill":True,
+         "regime":"盤整","ret_5":-2.0,"bench_5":0.0,"excess_5":-2.0},
+    ])
+    print_summary(df, horizons=(5,))
+    out = capsys.readouterr().out
+    assert "超額" in out
+    assert "多頭" in out or "regime" in out.lower()
+    # 空 df 不 crash
+    print_summary(pd.DataFrame(), horizons=(5,))
+
+
 def test_run_backtest_preserves_entry_price_when_later_horizon_lacks_data(tmp_path):
     """回歸：entry_price 不該被『資料不夠導致某天期算不出來』的 horizon 覆蓋成 None。
     只給 8 個交易日（05-01 訊號日 + 7 天），horizons=(5,14) 時 h=5 資料夠、h=14 不夠——

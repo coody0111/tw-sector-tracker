@@ -165,38 +165,42 @@ def run_backtest(
     return pd.DataFrame(rows)
 
 
-def print_summary(df: pd.DataFrame) -> None:
+def print_summary(df: pd.DataFrame, horizons=(5, 10, 14), skip_no_fill=True) -> None:
+    """
+    印出超額報酬摘要，並依 regime（多頭/盤整/空頭）分段。
+    skip_no_fill=True 時，統計會剔除 no_fill（漲停買不到）的訊號。
+    """
     if df.empty:
         print("無訊號資料")
         return
+    used = df[~df["no_fill"]] if (skip_no_fill and "no_fill" in df.columns) else df
+    n_skip = len(df) - len(used)
+    print("=" * 60)
+    print(f"  回測結果  訊號 {len(df)} 筆（漲停剔除 {n_skip}）  "
+          f"日期 {df['signal_date'].min()} ~ {df['signal_date'].max()}")
+    print("=" * 60)
 
-    print(f"\n{'='*55}")
-    print(f"  巨量換手回測結果  共 {len(df)} 個訊號  視窗 {df['vol_days'].min()}~{df['vol_days'].max()} 日")
-    print(f"{'='*55}")
-    print(f"  訊號日期範圍: {df['signal_date'].min()} ~ {df['signal_date'].max()}")
-    print(f"  平均量倍數:   {df['vol_multiple'].mean():.1f}x")
-    print()
+    def _block(sub, tag):
+        for h in horizons:
+            col, exc = f"ret_{h}", f"excess_{h}"
+            if exc not in sub.columns:
+                continue
+            s = sub[sub[exc].notna()]
+            if s.empty:
+                continue
+            win = (s[exc] > 0).mean() * 100
+            avg_ex = s[exc].mean()
+            avg_ret = s[col].mean()
+            wins = s[s[exc] > 0][exc]
+            loss = s[s[exc] <= 0][exc]
+            ev = win/100 * (wins.mean() if len(wins) else 0) + (1-win/100) * (loss.mean() if len(loss) else 0)
+            print(f"  [{tag}] D+{h:<2}  n={len(s):<4} 勝率(超額>0) {win:4.0f}%  "
+                  f"平均超額 {avg_ex:+.2f}%  平均報酬 {avg_ret:+.2f}%  期望值 {ev:+.2f}%")
 
-    for n in [1, 3, 5]:
-        col_ret = f"ret_d{n}"
-        col_win = f"win_d{n}"
-        if col_ret not in df.columns:
-            continue
-        sub = df[df[col_ret].notna()]
-        if sub.empty:
-            continue
-        win_rate = sub[col_win].mean() * 100
-        avg_ret  = sub[col_ret].mean()
-        avg_win  = sub[sub[col_win] == True][col_ret].mean() if (sub[col_win] == True).any() else 0
-        avg_loss = sub[sub[col_win] == False][col_ret].mean() if (sub[col_win] == False).any() else 0
-        ev       = (win_rate/100 * avg_win) + ((1 - win_rate/100) * avg_loss)
-        print(f"  D+{n}  勝率 {win_rate:.0f}%  "
-              f"平均報酬 {avg_ret:+.2f}%  "
-              f"贏 {avg_win:+.2f}% / 輸 {avg_loss:+.2f}%  "
-              f"期望值 {ev:+.2f}%")
-
-    print(f"\n{'─'*55}")
-    print("  個別訊號明細:")
-    cols = ["signal_date","stock_id","entry_close","change_pct","vol_multiple"] + \
-           [c for c in ["ret_d1","ret_d3","ret_d5"] if c in df.columns]
-    print(df[cols].to_string(index=False))
+    _block(used, "全部")
+    if "regime" in used.columns:
+        print("-" * 60)
+        for reg in ["多頭", "盤整", "空頭"]:
+            sub = used[used["regime"] == reg]
+            if not sub.empty:
+                _block(sub, reg)

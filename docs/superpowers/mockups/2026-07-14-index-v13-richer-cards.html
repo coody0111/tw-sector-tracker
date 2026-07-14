@@ -1,0 +1,223 @@
+<title>族群總覽頁 — v13 卡片資訊分層（持續/弱掉判斷）Mockup</title>
+<style>
+:root{
+  --bg:#080B12; --panel:#0F1420; --panel-2:#161D2C; --panel-3:#1E2738;
+  --border:#293346; --border-2:#37435C;
+  --ink:#DADFE8; --ink-2:#98A0B4; --ink-3:#636B80;
+  --up:#A8321F; --down:#2F6B3F;
+  --accent:#D4A24E; --accent-dim:#8C7038;
+  --burst:#D4A24E; --trend:#A9789A;
+  --tier-super:#D4A24E; --tier-strong:#6E9B5E; --tier-mid:#7A8296; --tier-weak:#B5763F; --tier-superweak:#8B3A2E;
+  --serif: Georgia,"Iowan Old Style","Source Serif 4","Noto Serif TC",serif;
+  --sans: "Public Sans",-apple-system,"PingFang TC","Microsoft JhengHei","Segoe UI",sans-serif;
+  --mono: ui-monospace,"IBM Plex Mono","Cascadia Code","Roboto Mono",monospace;
+  --shadow-1: 0 1px 2px rgba(0,0,0,.35);
+  --shadow-2: 0 10px 28px rgba(0,0,0,.5), 0 2px 6px rgba(0,0,0,.35);
+}
+:root[data-theme="light"]{
+  --bg:#EFE8D8; --panel:#F8F3E6; --panel-2:#EAE1CB; --panel-3:#E0D5B8;
+  --border:#D6C9A3; --border-2:#C3B387;
+  --ink:#241C10; --ink-2:#6B5B3D; --ink-3:#93825E;
+  --up:#A8432C; --down:#3D7048;
+  --accent:#93701E; --accent-dim:#C4A24E;
+  --burst:#93701E; --trend:#7A4E6E;
+  --tier-super:#93701E; --tier-strong:#3D7048; --tier-mid:#7A7260; --tier-weak:#9A5A24; --tier-superweak:#A8432C;
+  --shadow-1: 0 1px 2px rgba(60,45,10,.1);
+  --shadow-2: 0 10px 28px rgba(60,45,10,.16), 0 2px 6px rgba(60,45,10,.1);
+}
+
+*{box-sizing:border-box}
+body{
+  margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.55;padding:0 0 80px;
+  background-image:radial-gradient(ellipse at top left, rgba(255,255,255,.04), transparent 55%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E");
+}
+.tabular{font-family:var(--mono);font-variant-numeric:tabular-nums}
+
+.topbar{display:flex;align-items:baseline;gap:16px;padding:20px 26px;border-bottom:1px solid var(--border)}
+.topbar h1{font-family:var(--serif);font-size:1.28rem;font-weight:600;color:var(--ink);letter-spacing:.01em;margin:0}
+.topbar .kicker{font-size:.62rem;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--accent)}
+.topbar .updated{font-size:.72rem;color:var(--ink-3);margin-left:auto;font-family:var(--mono)}
+.topbar button{font-family:var(--mono);font-size:.68rem;background:var(--panel-2);border:1px solid var(--border);color:var(--ink-2);padding:5px 12px;border-radius:4px;cursor:pointer}
+
+.changelog{margin:14px 26px 0;padding:12px 16px;background:var(--panel);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:3px;font-size:.72rem;color:var(--ink-2);line-height:1.7}
+.changelog b{color:var(--ink);font-weight:600}
+.changelog summary{cursor:pointer;font-weight:600;color:var(--ink);font-size:.74rem}
+
+.section-head{display:flex;align-items:baseline;gap:12px;padding:26px 26px 8px}
+.section-head h2{font-family:var(--serif);font-size:1.05rem;font-weight:600;color:var(--ink);margin:0}
+.section-head .count{font-family:var(--mono);font-size:.7rem;color:var(--ink-3)}
+.section-rule{height:1px;background:linear-gradient(to right,var(--ink) 0%,var(--border) 45%,transparent 100%);margin:0 26px 4px}
+.section-sub{padding:0 26px 14px;font-size:.76rem;color:var(--ink-2);max-width:720px}
+
+.tier-legend{display:flex;gap:16px;padding:0 26px 16px;font-size:.68rem;color:var(--ink-2);flex-wrap:wrap;font-family:var(--mono)}
+.tier-legend span{display:inline-flex;align-items:center;gap:5px}
+.tier-legend .dot{width:8px;height:8px;border-radius:2px}
+
+.heatgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(224px,1fr));gap:8px;padding:0 26px}
+.heat-tile{
+  border-radius:5px;padding:13px 14px;cursor:pointer;transition:transform .15s,box-shadow .15s;
+  position:relative;border:1px solid rgba(255,255,255,.06);background:var(--panel);
+  border-top:3px solid transparent;
+}
+.heat-tile:hover{transform:translateY(-2px);box-shadow:var(--shadow-2);z-index:2}
+
+.ht-top{display:flex;align-items:baseline;justify-content:space-between;gap:6px}
+.ht-rank{font-family:var(--mono);font-size:.6rem;color:var(--ink-3)}
+.ht-name{font-family:var(--serif);font-weight:600;font-size:.9rem;color:var(--ink);flex:1;margin:0 6px}
+.ht-pct{font-family:var(--mono);font-weight:700;font-size:1.0rem}
+
+.ht-tier{
+  display:inline-flex;align-items:center;gap:5px;margin-top:8px;padding:3px 8px;border-radius:20px;
+  font-size:.62rem;font-weight:700;letter-spacing:.02em;
+}
+.ht-tier .dot{width:6px;height:6px;border-radius:50%}
+
+.ht-streak{font-family:var(--mono);font-size:.66rem;color:var(--ink-2);margin-top:7px}
+.ht-streak b{color:var(--ink)}
+
+.ht-badges{display:flex;gap:5px;margin-top:7px;flex-wrap:wrap}
+.badge{font-family:var(--mono);font-size:.58rem;font-weight:700;padding:2px 6px;border-radius:3px;display:inline-flex;align-items:center;gap:3px}
+.badge.foreign{background:rgba(212,162,78,.16);color:var(--accent);border:1px solid rgba(212,162,78,.3)}
+.badge.trust{background:rgba(169,120,154,.16);color:var(--trend);border:1px solid rgba(169,120,154,.3)}
+.badge.vol{background:rgba(255,255,255,.06);color:var(--ink-2);border:1px solid var(--border)}
+
+.ht-week{
+  display:flex;align-items:center;justify-content:space-between;margin-top:9px;padding-top:8px;
+  border-top:1px solid rgba(255,255,255,.08);font-family:var(--mono);font-size:.6rem;color:var(--ink-3);
+}
+.ht-week .now{color:var(--ink-2)}
+
+.legend-note{padding:14px 26px 0;font-size:.7rem;color:var(--ink-3);max-width:720px}
+</style>
+
+<div class="topbar">
+  <div><div class="kicker">台股電子半導體族群追蹤</div><h1>族群總覽</h1></div>
+  <button onclick="toggleTheme()" id="themeToggle">切換亮色預覽</button>
+  <div class="updated">2026-07-08 更新</div>
+</div>
+
+<details class="changelog" open>
+  <summary>v13 是什麼：卡片資訊分層，核心是「持續 vs 弱掉」的判斷（點收合）</summary>
+  Cody 要求卡片資訊要更多，但核心訴求是「知道族群是持續走強還是弱掉」，不是單純塞數字。這版重新
+  分層：<b>①動能狀態標籤</b>（超強/強/整理/弱/超弱，借用逆轟策略 `scan_momentum_health` 已定義的
+  五級分類邏輯，這裡在族群層級用「本週漲跌+連漲天數+加速度」綜合判斷，是這次新增的核心）、
+  <b>②連漲/連跌天數</b>（新增，直接回答「持續多久了」）、<b>③法人連買 badge</b>（外資/投信連買
+  天數，新增）、<b>④量能異常</b>（量比 &gge;1.5x 才顯示，新增）、<b>⑤上週→本週原始數字</b>
+  （保留但降到最下面當輔助佐證）。卡片因此變大（168px→224px 起跳），一頁能看到的族群數變少，
+  這是資訊量增加的必然取捨。
+</details>
+
+<div class="section-head"><h2>族群排行</h2><span class="count">今日漲跌% ・41 個族群（真實漲跌%/家數/週資料，法人+量能為示範數值）</span></div>
+<div class="section-rule"></div>
+<div class="section-sub">動能狀態標籤是這版的重點：不是只看今日漲跌，而是綜合「連漲天數＋本週比上週是否加速」判斷這個族群現在的動能還在不在——這樣才抓得到「本週還在漲但其實已經開始弱掉」的族群。</div>
+<div class="tier-legend">
+  <span><span class="dot" style="background:var(--tier-super)"></span>超強＝多頭排列+持續加速</span>
+  <span><span class="dot" style="background:var(--tier-strong)"></span>強＝多頭排列，動能穩定</span>
+  <span><span class="dot" style="background:var(--tier-mid)"></span>整理＝方向不明</span>
+  <span><span class="dot" style="background:var(--tier-weak)"></span>弱＝動能減弱中</span>
+  <span><span class="dot" style="background:var(--tier-superweak)"></span>超弱＝轉弱+連跌</span>
+</div>
+<div class="heatgrid" id="heatgrid"></div>
+<div class="legend-note">⚠️ 法人連買天數／量比是這版示範用的合理範例數值，還沒接真實 `institutional`/`daily_prices` 查詢，正式版才會是真實資料。動能狀態標籤的判斷規則也是這次先訂的草案，跟 `scan_momentum_health` 的五級分類邏輯呼應但沒有直接共用程式碼，之後要接線時應該讓族群層級的分類重用同一套規則常數，不要各寫一份。</div>
+
+<script>
+// name, today_pct, up, down, last_week, this_week, streak(連漲+/連跌-天數), foreign_streak, trust_streak, vol_ratio
+const GROUPS = [
+["功率半導體",2.03,9,6,-4.17,17.76,6,5,3,1.8],
+["網通設備",1.79,26,13,-0.43,3.16,2,0,0,2.1],
+["晶圓代工",1.74,13,5,-4.42,1.13,1,2,4,1.9],
+["機器人/自動化",1.58,4,3,-0.37,12.41,5,3,2,1.2],
+["通訊IC",1.43,5,4,-3.13,2.41,3,0,0,1.1],
+["AI晶片",1.37,12,5,-2.94,2.18,2,4,0,1.0],
+["銅箔基板",1.36,9,5,1.51,1.70,1,0,0,0.9],
+["光通訊",1.17,10,6,-5.81,1.38,1,0,0,1.0],
+["半導體材料",1.01,9,8,-1.13,10.21,4,0,2,1.3],
+["光學/相機",0.63,9,12,-2.81,1.16,-1,0,0,0.8],
+["LED",0.47,10,13,1.34,4.55,2,0,0,1.0],
+["行動通訊",0.37,2,1,-0.44,0.76,1,0,0,0.7],
+["電腦周邊",0.37,25,36,-0.16,4.36,-2,0,0,0.9],
+["AI伺服器",0.26,21,20,-1.00,2.91,-1,3,0,1.1],
+["載板",0.23,6,9,3.34,2.59,-3,0,0,0.9],
+["生物辨識",0.17,2,0,-1.31,2.55,1,0,0,0.6],
+["MCU/嵌入式",0.02,9,17,-3.40,3.74,-2,0,0,0.8],
+["電源供應器",0.01,7,15,-1.99,4.03,-1,0,0,0.9],
+["太陽能",0.01,6,9,2.94,1.39,-4,0,0,0.7],
+["被動元件",-0.12,16,22,3.37,1.65,-3,0,0,0.8],
+["IC封裝",-0.15,18,17,-3.43,6.09,-1,0,0,0.9],
+["PCB",-0.20,13,16,-0.34,-0.08,-2,0,0,0.7],
+["面板",-0.34,19,38,-0.61,0.58,-3,0,0,0.6],
+["軟體/雲端",-0.36,19,53,-0.62,0.97,-2,0,0,0.7],
+["連接器",-0.44,18,27,-2.39,2.57,-1,0,0,0.8],
+["軟板/FPC",-0.51,2,6,-4.16,-1.23,-5,0,0,0.6],
+["電池",-0.54,4,11,-3.58,4.65,-2,0,0,0.7],
+["音響/耳機",-0.70,1,9,1.15,1.28,-3,0,0,0.6],
+["消費電子",-0.70,2,10,-1.16,3.50,-2,0,0,0.6],
+["遊戲/電競",-0.72,5,12,-0.79,-0.53,-4,0,0,0.5],
+["PMIC",-0.72,9,18,-2.90,4.45,-3,0,0,0.6],
+["電動車",-0.73,5,10,-1.45,3.53,-2,0,0,0.6],
+["感測/影像IC",-0.77,2,7,-0.86,1.29,-3,0,0,0.5],
+["半導體設備",-0.98,22,62,-0.68,0.92,-4,0,0,0.6],
+["電子製造服務",-1.00,9,23,-0.12,1.10,-3,0,0,0.5],
+["電子通路",-1.10,3,23,-0.69,-0.42,-5,0,0,0.5],
+["其他電子",-1.22,3,13,-1.77,1.18,-4,0,0,0.5],
+["散熱",-1.35,2,12,-0.63,0.05,-6,0,0,0.4],
+["記憶體",-2.12,2,19,-4.98,-4.37,-7,0,0,0.4],
+["電信",-2.81,0,4,-2.37,-2.83,-8,0,0,0.3],
+["先進封裝設備",-2.93,0,8,-0.86,-1.12,-9,0,0,0.3],
+];
+
+const maxAbs = Math.max(...GROUPS.map(d=>Math.abs(d[1])));
+function fmtPct(v){ const s=v>0?'+':''; return `${s}${v.toFixed(2)}%`; }
+function heatBg(pct){
+  const t = Math.min(Math.abs(pct)/maxAbs, 1);
+  const alpha = 0.16 + t*0.5;
+  return pct>=0 ? `color-mix(in srgb, var(--up) ${(alpha*100).toFixed(0)}%, var(--panel))`
+                : `color-mix(in srgb, var(--down) ${(alpha*100).toFixed(0)}%, var(--panel))`;
+}
+
+// 動能狀態五級分類（草案，呼應 scan_momentum_health 的五級邏輯，未直接共用程式碼——見頁尾提醒）：
+// 依「連漲天數(streak) + 本週比上週是否加速(accel=tw-lw)」綜合判斷
+function classifyTier(streak, lw, tw){
+  const accel = tw - lw;
+  if(streak <= -5) return {label:'超弱', key:'superweak'};
+  if(streak > 0 && accel > 3) return {label:'超強', key:'super'};
+  if(streak > 0 && accel >= -2) return {label:'強', key:'strong'};
+  if(streak < 0 && accel < -2) return {label:'弱', key:'weak'};
+  return {label:'整理', key:'mid'};
+}
+const TIER_COLOR = {super:'var(--tier-super)', strong:'var(--tier-strong)', mid:'var(--tier-mid)', weak:'var(--tier-weak)', superweak:'var(--tier-superweak)'};
+
+document.getElementById('heatgrid').innerHTML = GROUPS.map(([name,pct,up,down,lw,tw,streak,fstreak,tstreak,vol],i)=>{
+  const tier = classifyTier(streak, lw, tw);
+  const streakTxt = streak > 0 ? `連漲 <b>${streak}</b> 日` : (streak < 0 ? `連跌 <b>${Math.abs(streak)}</b> 日` : `持平`);
+  const badges = [];
+  if(fstreak >= 2) badges.push(`<span class="badge foreign">外資連買${fstreak}日</span>`);
+  if(tstreak >= 2) badges.push(`<span class="badge trust">投信連買${tstreak}日</span>`);
+  if(vol >= 1.5) badges.push(`<span class="badge vol">量能${vol}x</span>`);
+  return `
+  <div class="heat-tile" style="background:${heatBg(pct)};border-top-color:${TIER_COLOR[tier.key]}">
+    <div class="ht-top">
+      <span class="ht-rank tabular">#${i+1}</span>
+      <span class="ht-name">${name}</span>
+      <span class="ht-pct tabular" style="color:${pct>=0?'#fff':'var(--ink)'}">${fmtPct(pct)}</span>
+    </div>
+    <div class="ht-tier" style="background:${TIER_COLOR[tier.key]}22;color:${TIER_COLOR[tier.key]}">
+      <span class="dot" style="background:${TIER_COLOR[tier.key]}"></span>${tier.label}
+    </div>
+    <div class="ht-streak">${streakTxt}　▲${up}檔 ▼${down}檔</div>
+    ${badges.length ? `<div class="ht-badges">${badges.join('')}</div>` : ''}
+    <div class="ht-week">
+      <span>上週→本週</span>
+      <span class="now tabular">${fmtPct(lw)} → ${fmtPct(tw)}</span>
+    </div>
+  </div>`;
+}).join('');
+
+function toggleTheme(){
+  const root = document.documentElement;
+  const isLight = root.getAttribute('data-theme') === 'light';
+  root.setAttribute('data-theme', isLight ? 'dark' : 'light');
+  document.getElementById('themeToggle').textContent = isLight ? '切換亮色預覽' : '切換深色預覽';
+}
+</script>

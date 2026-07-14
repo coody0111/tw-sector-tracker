@@ -1,3 +1,31 @@
+## [2026-07-14] ✅ 回測框架 Task 2：大盤等權指數 + 超額報酬（plan: docs/superpowers/plans/2026-07-14-backtest-framework.md Task 2）
+
+`screener/backtest.py` 新增 `_market_index()`（`daily_prices.change_pct` 逐日平均、`(1+avg/100)` 連乘出等權指數）與
+`_bench_return()`（該股 D+1→D+1+horizon 同進出區間，指數同期報酬%）。`run_backtest()` 每個 horizon 多出
+`bench_H`（大盤同期報酬%）、`excess_H`（`ret_H - bench_H`）兩欄。完全照 plan 裡 Task 2 已經寫好的程式碼實作，
+沒有偏離設計。
+
+### 範圍
+- 只做 Task 2，plan 裡 Task 3（扣交易成本）、Task 4/5（regime 分段）都還沒動工。
+- `tests/test_backtest.py` 新增 `test_run_backtest_excess_return_vs_market` + `_make_prices_with_change` helper（plan 裡原本就寫好的測試，逐字照抄，未修改）。
+
+### 測試
+沒有自己跑 pytest（照專案規則留給 Debugger）。有手動推演過測試案例數字：2330 訊號日 05-01、
+D+1(05-02)開盤100進、D+1+5(05-07)收110出 → ret_5=10.0；大盤等權指數只在 05-07 被 2330 自己的
++10% 拉抬（另一檔 9999 全程不動）→ bench_5=5.0、excess_5=5.0，跟測試斷言（`bench_5>0`、
+`excess_5<ret_5`、`excess_5 == ret_5-bench_5` 誤差<1e-6）對得上。
+
+### 請 Debugger 驗證
+- [ ] `python -m pytest tests/test_backtest.py -q` 全過，尤其新增的 `test_run_backtest_excess_return_vs_market`
+- [ ] 全專案 `pytest -q` 沒有因為 `run_backtest()` 多了 `bench_H`/`excess_H` 欄位而破壞其他消費端（目前搜尋沒有其他程式碼呼叫 `run_backtest`，應該無影響，但麻煩複查）
+- [ ] `_market_index()` 的 SQL（`AVG(change_pct) GROUP BY date`）在真實 `data/screener.db` 上跑起來不會太慢（純合成小 DB 測試沒測到效能）
+
+### 特別注意
+- 這次沒有改 `_forward_return()` 的對外行為/簽章，`test_forward_return_enters_next_day_open` 這種舊測試不受影響。
+- `bench_H`/`excess_H` 在資料不足（entry/exit 指數查不到）時回 `None`，不會 crash，沿用既有「缺資料回 None」慣例。
+
+---
+
 ## [2026-07-14] ✅ 進貨分 calc_accumulation_score() 完成（spec: docs/superpowers/specs/2026-07-14-accumulation-score-design.md）
 
 新增純函式 `screener/patterns.py::calc_accumulation_score()`，把外資/投信連買日數、

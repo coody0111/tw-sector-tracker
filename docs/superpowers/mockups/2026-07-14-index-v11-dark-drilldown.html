@@ -72,14 +72,13 @@ body{
 /* ── 左欄：精簡排行清單 ── */
 .ranklist{display:flex;flex-direction:column}
 .rank-row{
-  display:flex;align-items:baseline;gap:10px;padding:8px 8px;border-radius:3px;cursor:pointer;
-  border:1px solid transparent;transition:background .15s,border-color .15s;
+  display:flex;align-items:baseline;gap:10px;padding:8px 10px;border-radius:3px;cursor:pointer;
+  border:1px solid transparent;margin-bottom:2px;transition:filter .15s,border-color .15s;
 }
-.rank-row:hover{background:var(--panel-2)}
-.rank-row.active{background:var(--panel-2);border-color:var(--accent-dim)}
+.rank-row:hover{filter:brightness(1.18)}
+.rank-row.active{border-color:var(--accent)}
 .rank-row.active .rk-name{color:var(--accent)}
 .rk-n{font-family:var(--mono);font-size:.66rem;color:var(--ink-3);width:16px;flex-shrink:0;text-align:right}
-.rk-swatch{width:14px;height:14px;border-radius:3px;flex-shrink:0}
 .rk-name{font-family:var(--serif);font-size:.86rem;font-weight:600;color:var(--ink);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rk-pct{font-family:var(--mono);font-size:.76rem;font-weight:600;flex-shrink:0;width:54px;text-align:right}
 .rk-pct.up{color:var(--up)} .rk-pct.down{color:var(--down)}
@@ -149,8 +148,8 @@ body{
   v1~v10 都沒畫過的「兩層點擊」缺口，這版第一次補上）。點左邊清單試試看。<br>
   <b>修正：</b>拿掉自動跟系統亮暗模式切換的邏輯（原本亮色版調得太接近舊米色，多數瀏覽器預設亮色
   模式時深色主線根本沒被看到）。現在固定顯示深色，右上角「切換亮色預覽」按鈕可手動看亮色版。<br>
-  <b>調色：</b>漲跌色改成正紅／綠茶色（Cody 反饋）。左側排行清單每列加色塊（跟熱區格同一套色階，
-  深淺代表幅度），不再只靠文字顏色分漲跌，一眼就能看出強弱。
+  <b>調色：</b>漲跌色改成正紅／綠茶色（Cody 反饋）。左側排行清單改成<b>整列底色</b>（不是前面加
+  小色塊，Cody 澄清過），跟熱區格同一套色階邏輯（深淺代表幅度），一眼就能看出強弱，不用只靠文字顏色。
 </details>
 
 <div class="triptych">
@@ -216,20 +215,20 @@ const STOCKS = {
 
 const maxAbs = Math.max(...GROUPS.map(d=>Math.abs(d[1])));
 function fmtPct(v){ const s=v>0?'+':''; return `${s}${v.toFixed(2)}%`; }
-function swatchBg(pct){
-  // 跟熱區格同一套色階邏輯：深淺代表幅度，紅漲/綠茶跌
+function rowBg(pct){
+  // 跟熱區格同一套色階邏輯：深淺代表幅度，紅漲/綠茶跌。整列底色（不是小色塊），
+  // alpha 比熱區格淡一點，因為這裡文字要疊在上面，太濃會影響可讀性。
   const t = Math.min(Math.abs(pct)/maxAbs, 1);
-  const alpha = 0.35 + t*0.65;
+  const alpha = 0.14 + t*0.42;
   return pct >= 0
-    ? `color-mix(in srgb, var(--up) ${(alpha*100).toFixed(0)}%, var(--panel-3))`
-    : `color-mix(in srgb, var(--down) ${(alpha*100).toFixed(0)}%, var(--panel-3))`;
+    ? `color-mix(in srgb, var(--up) ${(alpha*100).toFixed(0)}%, var(--panel))`
+    : `color-mix(in srgb, var(--down) ${(alpha*100).toFixed(0)}%, var(--panel))`;
 }
 
-// 左欄排行：每列前面加色塊（跟熱區格同一套色階），一眼區分漲跌強弱，不用只靠文字顏色
+// 左欄排行：整列底色（跟熱區格同一套色階），一眼區分漲跌強弱，不是只有文字顏色或前面色塊
 document.getElementById('ranklist').innerHTML = GROUPS.map(([name,pct],i)=>`
-  <div class="rank-row" data-name="${name}" onclick="selectGroup(this)">
+  <div class="rank-row" data-name="${name}" onclick="selectGroup(this)" style="background:${rowBg(pct)}">
     <span class="rk-n tabular">${i+1}</span>
-    <span class="rk-swatch" style="background:${swatchBg(pct)}"></span>
     <span class="rk-name">${name}</span>
     <span class="rk-pct ${pct>=0?'up':'down'} tabular">${fmtPct(pct)}</span>
   </div>`).join('');

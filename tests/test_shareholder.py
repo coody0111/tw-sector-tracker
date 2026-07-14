@@ -423,6 +423,44 @@ def test_recompute_all_history_gap_week_gives_null_not_multiweek_chg(tmp_path):
     assert df.iloc[3]["streak"] == 1
 
 
+def test_recompute_all_history_outlier_pct_treated_as_null(tmp_path):
+    """離群值根治(#8)：lv12_15_pct >= 99%（TDCC 解析異常，例 2380 06-26=100.0）視為當週不可信，
+    比照 NULL——該筆 week_chg=NULL、streak=0，且不當下一週的比較基準（不會再算出 -63.59 那種
+    假的『大戶大減持』訊號）。歷史髒值不用人工追殺，重跑 recompute 就自動消。"""
+    db_path = tmp_path / "t.db"
+    con = duckdb.connect(str(db_path))
+    _make_table(con)
+    rows = [
+        ("2380", "2026-06-12", 43.0),
+        ("2380", "2026-06-19", 44.0),    # +1 正常
+        ("2380", "2026-06-26", 100.0),   # 離群值（TDCC 解析異常）
+        ("2380", "2026-07-03", 36.41),   # 沒 #8 的話會算出 36.41-100=-63.59 假訊號
+    ]
+    for sid, d, pct in rows:
+        con.execute(
+            "INSERT INTO shareholder "
+            "(stock_id, date, lv12_15_pct, lv12_15_cnt, lv12_15_shares, total_shares, week_chg, streak) "
+            "VALUES (?, ?, ?, 0, 0, 0, ?, ?)",
+            [sid, pd.to_datetime(d).date(), pct, -999.0, 9],
+        )
+    con.close()
+
+    recompute_all_history(str(db_path))
+
+    con = duckdb.connect(str(db_path))
+    df = con.execute(
+        "SELECT date, week_chg, streak FROM shareholder WHERE stock_id='2380' ORDER BY date"
+    ).df()
+    big = con.execute("SELECT COUNT(*) FROM shareholder WHERE ABS(week_chg) > 20").fetchone()[0]
+    con.close()
+
+    assert round(df.iloc[1]["week_chg"], 2) == 1.0                 # 06-19 正常
+    assert pd.isna(df.iloc[2]["week_chg"]), "離群值 06-26 那筆 week_chg 應 NULL"
+    assert df.iloc[2]["streak"] == 0
+    assert pd.isna(df.iloc[3]["week_chg"]), "07-03 不該拿 100.0 當基準算出 -63.59 假訊號"
+    assert big == 0, "全表不該再有 |week_chg|>20 的假大戶減持訊號（#8 驗收）"
+
+
 def test_recompute_all_history_handles_single_week_stock(tmp_path):
     """只有一週資料的股票，第一筆 week_chg 應為 NULL、streak=0，不報錯。"""
     db_path = tmp_path / "t.db"

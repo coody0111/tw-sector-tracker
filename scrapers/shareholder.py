@@ -24,6 +24,9 @@ _LARGE_HOLDER_LEVELS = {"12", "13", "14", "15"}
 _DB_PATH = "data/screener.db"
 # 週別資料正常間隔 7 天；超過此天數視為缺週，week_chg 不硬算成跨週變化（見 recompute_all_history）
 _MAX_WEEK_GAP_DAYS = 10
+# 大戶持股 >= 此百分比視為 TDCC 當週解析異常（100% 不可能，例 2380 06-26=100.0）：
+# 寫入端(_fetch_one_stock)擋成 NULL、重算端(recompute_all_history)也不拿它當比較基準
+_MAX_VALID_HOLDER_PCT = 99
 
 # 防封鎖／容錯（比照 backfill_yfinance 的手法）：暫時性 SSL 斷線/限流時退避重試，
 # 每支之間隨機延遲而非固定間隔。
@@ -105,9 +108,9 @@ def _fetch_one_stock(s: requests.Session, tok: str, uri: str, stock_id: str, dat
         return None
 
     lv12_15_pct = round(lv_shares / total_shares * 100, 4)
-    # 離群值防護(#2)：大戶持股 >= 99% 幾乎不可能，多半是 TDCC 當週解析異常（例 2380
-    # 2026-06-26 = 100.0）→ 視為無效寫 NULL，不讓假值進 DB 汙染排行與 week_chg。
-    if lv12_15_pct >= 99:
+    # 離群值防護(#2)：大戶持股 >= _MAX_VALID_HOLDER_PCT% 幾乎不可能，多半是 TDCC 當週解析
+    # 異常（例 2380 2026-06-26 = 100.0）→ 視為無效寫 NULL，不讓假值進 DB 汙染排行與 week_chg。
+    if lv12_15_pct >= _MAX_VALID_HOLDER_PCT:
         lv12_15_pct = None
 
     return {
@@ -351,6 +354,11 @@ def recompute_all_history(db_path: str = _DB_PATH) -> int:
             # streak 歸 0。prev_* 照常前進，讓缺口後相鄰的下一週能正常比較（缺口不傳染）。
             gapped = prev_date is not None and (row["date"] - prev_date).days > _MAX_WEEK_GAP_DAYS
             cur_pct = row["lv12_15_pct"]
+            # 離群值防護(#8)：pct >= 99% 幾乎不可能（TDCC 當週解析異常，例 2380 06-26=100.0），
+            # 視為當週不可信、比照 NULL——本筆不算 week_chg、也不當下一週的比較基準（設成 nan
+            # 讓下面的 NaN guard 一併處理，且 prev_pct 帶著 nan 傳下去、下一週也擋掉）。
+            if not pd.isna(cur_pct) and cur_pct >= _MAX_VALID_HOLDER_PCT:
+                cur_pct = float("nan")
             # NaN guard：DB 的 SQL NULL 經 DuckDB→pandas 讀回是 NaN、不是 None，
             # 原本只判斷 `prev_pct is None` 抓不到，會讓 nan 混進 round() 算出 nan
             # （不是 None）寫回 DB，NaN != SQL NULL，下游 WHERE week_chg IS NULL 抓不到。

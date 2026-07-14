@@ -1,3 +1,22 @@
+## [2026-07-14] ✅ #8 離群值 code 根治完成（Developer）
+
+- 異動：`scrapers/shareholder.py` + `tests/test_shareholder.py`
+- 做法：`recompute_all_history()` 迴圈加離群值 guard——`lv12_15_pct >= _MAX_VALID_HOLDER_PCT`(99)
+  視為當週不可信、比照 NULL（本筆 week_chg=NULL、streak=0，也不當下一週比較基準）。抽共用常數
+  `_MAX_VALID_HOLDER_PCT`，寫入端 `_fetch_one_stock`(#2) 與重算端(#8) 共用，避免兩個魔術數 99 漂移。
+- 效果：**2380 06-26=100.0 這類歷史髒值不用人工追殺**——任何一台重跑 `recompute_all_history()`，
+  它的 week_chg 自動變 NULL、07-03 那筆假 -63.59% 假訊號連帶消失。
+- 新增測試 `test_recompute_all_history_outlier_pct_treated_as_null`（驗收：全表 `|week_chg|>20` = 0）。
+  **全專案 193 passed**。
+- ⚠️ 這是 **code 修復**，機器無關（單元測試驗）。真正把 production DB 的假訊號洗掉，仍需在**有真實
+  DB 的那台**重跑一次 `recompute_all_history()`（本機沒跑法人/集保資料，不在這台跑）。
+
+### 還開著：#7（06-18 缺週補抓）
+`--backfill-shareholder N` 是往回數 N 週、不是補缺的那幾週，06-18 缺口未解。短期你在有 DB 的那台
+跑 `--backfill-shareholder 8` 蓋過去；根治要改 `_backfill_shareholder` 成「比對缺哪幾週補哪幾週」。
+
+---
+
 ## [2026-07-13] 🔧 Debugger → Developer：大戶持倉 backfill 後續 2 個問題（Cody 已跑完 `--backfill-shareholder`）
 
 背景：Cody 得知 TDCC 已有 07-03/07-09 新資料、06-18 漏抓後，自行執行了

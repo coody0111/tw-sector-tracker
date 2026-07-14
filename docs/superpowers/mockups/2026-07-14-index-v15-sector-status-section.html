@@ -52,6 +52,22 @@ body{
 .section-rule{height:1px;background:linear-gradient(to right,var(--ink) 0%,var(--border) 45%,transparent 100%);margin:0 26px 4px}
 .section-sub{padding:0 26px 14px;font-size:.76rem;color:var(--ink-2);max-width:720px}
 
+/* 異動族群：橫向捲動快報，跟下面的族群排行/族群近況不同——
+   這是「現在正在發生」的訊號（爆量暴衝/連續噴出），不是排名或週趨勢。 */
+.anomaly-wrap{position:relative;margin:0 26px}
+.anomaly-strip{display:flex;gap:14px;overflow-x:auto;padding:2px 2px 6px}
+.anomaly-wrap::after{content:"";position:absolute;top:0;right:0;bottom:6px;width:44px;pointer-events:none;background:linear-gradient(to right, transparent, var(--bg) 88%)}
+.anomaly-card{flex:0 0 240px;background:var(--panel);border:1px solid var(--border);border-radius:4px;padding:15px 17px;position:relative;cursor:pointer;transition:box-shadow .2s,transform .2s,border-color .2s}
+.anomaly-card:hover{border-color:var(--border-2);transform:translateY(-2px)}
+.anomaly-card::before{content:"";position:absolute;left:0;top:15px;bottom:15px;width:2px;border-radius:2px}
+.anomaly-card.burst::before{background:var(--burst)} .anomaly-card.trend::before{background:var(--trend)}
+.anomaly-kind{font-size:.6rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px}
+.anomaly-kind.burst{color:var(--burst)} .anomaly-kind.trend{color:var(--trend)}
+.anomaly-name{font-family:var(--serif);font-weight:600;font-size:1.0rem;color:var(--ink)}
+.anomaly-pct{font-family:var(--mono);font-weight:600;font-size:1.02rem;color:var(--up);float:right}
+.anomaly-reason{margin-top:10px;font-size:.72rem;color:var(--ink-2);line-height:1.6;padding-top:9px;border-top:1px solid var(--border)}
+.anomaly-reason b{color:var(--ink);font-family:var(--mono);font-weight:600}
+
 .tier-legend{display:flex;gap:16px;padding:0 26px 16px;font-size:.68rem;color:var(--ink-2);flex-wrap:wrap;font-family:var(--mono)}
 .tier-legend span{display:inline-flex;align-items:center;gap:5px}
 .tier-legend .dot{width:8px;height:8px;border-radius:2px}
@@ -174,8 +190,23 @@ body{
   <b>②轉折點列表</b>（等級真的翻轉的族群，例如上週「強」這週變「弱」，故事性最強但需要「上週
   等級」這個目前只是示範值的資料）、<b>③跟異動族群的角色說明</b>（兩者容易搞混：異動族群抓
   「瞬間訊號」——爆量+排名跳動，是單日事件；族群近況抓「週度趨勢」——加速度+等級翻轉，是持續性
-  變化，時間尺度不同，故意分開兩區塊）。
+  變化，時間尺度不同，故意分開兩區塊）。<br>
+  <b>校正（v15 補）：</b>Cody 發現頁面最上方的「⚡ 異動族群」快報不見了——查證後這是 v13 整版重做
+  卡片資訊密度時漏掉的（v13/v14 都沒有這段 markup，只是文字說明一直誤植「它存在」）。這版補回原本
+  v7~v12 就有的異動族群橫向捲動區塊，位置在族群排行上方（原本的位置）。
 </details>
+
+<div class="section-head"><h2>⚡ 異動族群</h2><span class="count">2 種訊號・5 檔符合</span></div>
+<div class="section-sub">「現在正在發生」的瞬間訊號——爆量排名跳動、或連續多週噴出。跟下面「族群近況」不同：這裡是單日事件，族群近況是週度趨勢。</div>
+<div class="anomaly-wrap">
+  <div class="anomaly-strip">
+    <div class="anomaly-card burst"><div class="anomaly-kind burst">爆量暴衝</div><span class="anomaly-pct">+1.79%</span><div class="anomaly-name">網通設備</div><div class="anomaly-reason">今日量能 <b>1.1x</b> 於5日均量，昨日#21→今日#2</div></div>
+    <div class="anomaly-card burst"><div class="anomaly-kind burst">爆量暴衝</div><span class="anomaly-pct">+1.74%</span><div class="anomaly-name">晶圓代工</div><div class="anomaly-reason">今日量能 <b>1.8x</b> 於5日均量，昨日#15→今日#3</div></div>
+    <div class="anomaly-card trend"><div class="anomaly-kind trend">連續噴出</div><span class="anomaly-pct">+2.03%</span><div class="anomaly-name">功率半導體</div><div class="anomaly-reason">上週 <b>-4.2%</b> → 本週 <b>+17.8%</b>　加速 <b>+21.9pt</b></div></div>
+    <div class="anomaly-card trend"><div class="anomaly-kind trend">連續噴出</div><span class="anomaly-pct">+1.58%</span><div class="anomaly-name">機器人/自動化</div><div class="anomaly-reason">上週 <b>-0.4%</b> → 本週 <b>+12.4%</b>　加速 <b>+12.8pt</b></div></div>
+    <div class="anomaly-card trend"><div class="anomaly-kind trend">連續噴出</div><span class="anomaly-pct">+1.01%</span><div class="anomaly-name">半導體材料</div><div class="anomaly-reason">上週 <b>-1.1%</b> → 本週 <b>+10.2%</b>　加速 <b>+11.3pt</b></div></div>
+  </div>
+</div>
 
 <div class="section-head"><h2>族群排行</h2><span class="count">今日漲跌% ・41 個族群（真實漲跌%/家數/週資料，法人+量能為示範數值）</span></div>
 <div class="section-rule"></div>

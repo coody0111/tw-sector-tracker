@@ -1,5 +1,11 @@
 # 族群總覽頁（index.html）前端重新設計
 
+> **⚠️ 2026-07-15 取代**：這份 spec 定的方向（React + Vite、`data.json` + build 產物、
+> 財經媒體式排行清單）**沒有被採用**。實際從 v6~v16 mockup 迭代收斂出的方向完全不同
+> （熱區格 heatmap、維持純靜態站不用 React）。請改看
+> [`2026-07-15-sector-overview-heatmap-redesign.md`](2026-07-15-sector-overview-heatmap-redesign.md)，
+> 這份保留純粹當歷史紀錄，**不要照這份實作**。
+
 **日期**：2026-07-02
 **範圍**：`docs/index.html` 一頁，不含 `chips.html`／`patterns.html`（資料補齊後再做）
 

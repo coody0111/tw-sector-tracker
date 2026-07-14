@@ -65,7 +65,11 @@ body{
 .heat-tile:hover{transform:translateY(-2px);box-shadow:var(--shadow-2);z-index:2}
 
 .ht-top{display:flex;align-items:baseline;gap:8px}
-.ht-status-line{font-family:var(--serif);font-style:italic;font-size:.74rem;color:var(--ink-2);margin-top:3px}
+.ht-status-line{
+  font-family:var(--serif);font-style:italic;font-weight:600;font-size:.82rem;color:var(--ink);
+  margin-top:6px;padding:6px 9px;background:rgba(255,255,255,.05);border-left:2px solid var(--accent);
+  border-radius:0 3px 3px 0;
+}
 .ht-rank{font-family:var(--mono);font-size:.6rem;color:var(--ink-3);flex-shrink:0}
 .ht-name{
   font-family:var(--serif);font-weight:700;font-size:.96rem;color:var(--ink);flex:1;min-width:0;
@@ -135,7 +139,9 @@ body{
   重做卡片時被拿掉了，這版做回來，但改用<b>溫度變化</b>的視覺語言（🔥增溫／❄️退燒），刻意跟今日
   漲跌的紅綠色系分開，因為這兩件事本來就不同：一個族群今天可能還是紅的，但已經在退燒。另外新增
   <b>「族群近況」一句話</b>（Cody 要求）：把動能狀態+溫度變化綜合成人話短句（例如「強勢再加速」
-  「走弱，尚未止穩」），不用使用者自己拼湊徽章腦補。
+  「走弱，尚未止穩」），不用使用者自己拼湊徽章腦補。<br>
+  <b>修正：</b>這句話一開始用小號斜體灰字呈現，太不顯眼容易被忽略，改成有底色+左邊金色豎線的
+  引言框樣式、字級加大、顏色改用主要文字色，確保掃過去不會漏看。
 </details>
 
 <div class="section-head"><h2>族群排行</h2><span class="count">今日漲跌% ・41 個族群（真實漲跌%/家數/週資料，法人+量能為示範數值）</span></div>

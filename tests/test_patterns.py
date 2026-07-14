@@ -505,6 +505,60 @@ def test_calc_accumulation_score_caps_foreign_trust_holder_points():
     assert over_cap["foreign_buy_days"] == 10, "foreign_buy_days 本身如實回傳，只有算分時封頂"
 
 
+def test_calc_accumulation_score_weakening_when_both_streaks_non_positive():
+    """外資與投信 streak 皆 <= 0 時應標記 weakening=True，holder_pts 也應被歸零
+    （即使 sh_streak 本身是正數）。"""
+    result = calc_accumulation_score(**_base_acc_kwargs(
+        foreign_streak=0, trust_streak=0, sh_streak=3, holder_net_lots=100, recent_return=1.0,
+    ))
+    assert result["weakening"] is True
+
+
+def test_calc_accumulation_score_weakening_when_holder_net_lots_turns_negative():
+    """大戶當週由增轉減（holder_net_lots < 0）應標記 weakening=True，
+    即使外資/投信仍在連買。"""
+    result = calc_accumulation_score(**_base_acc_kwargs(
+        foreign_streak=3, trust_streak=3, sh_streak=2, holder_net_lots=-500, recent_return=1.0,
+    ))
+    assert result["weakening"] is True
+
+
+def test_calc_accumulation_score_not_weakening_when_any_source_buying_and_holder_not_negative():
+    """外資或投信有連買、且大戶張數沒有轉負，不該標記 weakening。"""
+    result = calc_accumulation_score(**_base_acc_kwargs(
+        foreign_streak=3, trust_streak=0, sh_streak=2, holder_net_lots=100, recent_return=1.0,
+    ))
+    assert result["weakening"] is False
+
+
+def test_calc_accumulation_score_label_progression():
+    """label 導出優先序：weakening 最優先覆蓋一切；其次未 confirm 是「整理」；
+    否則依 score>=40 分「進貨」或「整理」。"""
+    weakening_case = calc_accumulation_score(**_base_acc_kwargs(
+        foreign_streak=0, trust_streak=0, sh_streak=0, holder_net_lots=0, recent_return=1.0,
+    ))
+    assert weakening_case["label"] == "轉弱"
+
+    not_confirmed_case = calc_accumulation_score(**_base_acc_kwargs(
+        foreign_streak=5, trust_streak=5, sh_streak=2, holder_net_lots=100, recent_return=-1.0,
+    ))
+    assert not_confirmed_case["weakening"] is False
+    assert not_confirmed_case["label"] == "整理"
+
+    strong_buy_case = calc_accumulation_score(**_base_acc_kwargs(
+        foreign_streak=5, trust_streak=5, sh_streak=2, holder_net_lots=100, recent_return=1.0,
+    ))
+    assert strong_buy_case["score"] >= 40
+    assert strong_buy_case["label"] == "進貨"
+
+    weak_buy_case = calc_accumulation_score(**_base_acc_kwargs(
+        foreign_streak=1, trust_streak=0, sh_streak=0, holder_net_lots=100, recent_return=1.0,
+    ))
+    assert weak_buy_case["weakening"] is False
+    assert weak_buy_case["score"] < 40
+    assert weak_buy_case["label"] == "整理"
+
+
 def _seed_scan_and_track_db(db_path):
     """建立 scan_and_track() 需要的最小 schema，並預先塞一筆 'active' 的
     pattern_signals 訊號（繞過真的觸發形態偵測器的複雜度），讓 stock_id

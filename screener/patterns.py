@@ -1417,7 +1417,19 @@ def calc_accumulation_score(
 
 
 def _accumulation_label(score: int, price_confirmed: bool, weakening: bool) -> str:
-    return "整理"  # 暫時 stub，Task 3 補完整導出規則
+    """進貨分 label 導出，優先序（見設計 spec 第 92-96 行）：
+    1. weakening 為真 → '轉弱'
+    2. 否則 price_confirmed 為假 → '整理'（有進貨動作但價格沒 confirm，可能外強中乾）
+    3. 否則 score >= 40 → '進貨'
+    4. 否則 → '整理'
+    """
+    if weakening:
+        return "轉弱"
+    if not price_confirmed:
+        return "整理"
+    if score >= 40:
+        return "進貨"
+    return "整理"
 
 
 def backtest_patterns(days: int = 120, db_path: str = _DB_PATH) -> None:

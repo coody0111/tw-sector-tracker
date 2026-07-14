@@ -1444,6 +1444,178 @@ def _accumulation_label(score: int, price_confirmed: bool, weakening: bool) -> s
     return "整理"
 
 
+def _shareholder_history_index(db_path: str) -> dict:
+    """
+    讀一次 shareholder 全表，依 stock_id 分組、按 date 排序，計算每筆的
+    lv12_chg/lv15_chg（跟同股前一筆比較，用 pandas diff，不逐股查 DB），
+    回傳 {stock_id: [{"date":..., "streak":..., "lv12_chg":..., "lv15_chg":...}, ...]}。
+    """
+    con = duckdb.connect(db_path, read_only=True)
+    df = con.execute(
+        "SELECT stock_id, date, streak, lv12_shares, lv15_shares FROM shareholder ORDER BY stock_id, date"
+    ).df()
+    con.close()
+
+    df["date"] = pd.to_datetime(df["date"])
+    index = {}
+    for sid, grp in df.groupby("stock_id"):
+        grp = grp.sort_values("date").reset_index(drop=True)
+        grp["lv12_chg"] = grp["lv12_shares"].diff()
+        grp["lv15_chg"] = grp["lv15_shares"].diff()
+        rows = []
+        for r in grp.itertuples():
+            rows.append({
+                "date": r.date,
+                "streak": None if pd.isna(r.streak) else int(r.streak),
+                "lv12_chg": None if pd.isna(r.lv12_chg) else int(r.lv12_chg),
+                "lv15_chg": None if pd.isna(r.lv15_chg) else int(r.lv15_chg),
+            })
+        index[str(sid)] = rows
+    return index
+
+
+def _shareholder_as_of(index: dict, stock_id: str, d_ts) -> tuple:
+    """回傳 <= d_ts 的最新一筆大戶資料 (streak, holder_net_lots)；查無資料回 (None, None)。"""
+    rows = index.get(stock_id, [])
+    candidates = [r for r in rows if r["date"] <= d_ts]
+    if not candidates:
+        return None, None
+    latest = candidates[-1]
+    streak = latest["streak"]
+    if latest["lv12_chg"] is None or latest["lv15_chg"] is None:
+        holder_net_lots = None
+    else:
+        holder_net_lots = latest["lv12_chg"] + latest["lv15_chg"]
+    return streak, holder_net_lots
+
+
+def _recent_return_index(db_path: str) -> dict:
+    """
+    讀一次 daily_prices 全表，依 stock_id 分組、按 date 排序，回傳
+    {stock_id: [(date, close), ...]}，供 _recent_return_as_of() 查詢。
+    """
+    con = duckdb.connect(db_path, read_only=True)
+    df = con.execute(
+        "SELECT stock_id, date, close FROM daily_prices ORDER BY stock_id, date"
+    ).df()
+    con.close()
+
+    df["date"] = pd.to_datetime(df["date"])
+    index = {}
+    for sid, grp in df.groupby("stock_id"):
+        grp = grp.sort_values("date")
+        index[str(sid)] = list(zip(grp["date"], grp["close"]))
+    return index
+
+
+def _recent_return_as_of(index: dict, stock_id: str, d_ts, days: int = 5):
+    """
+    回傳 <= d_ts 的最近 days 個交易日累積報酬%（收盤價比值法，跟
+    screener/database.py::get_rolling_returns() 同公式，但支援任意歷史日期）。
+    資料不足或除零回 None。
+    """
+    rows = [(d, c) for d, c in index.get(stock_id, []) if d <= d_ts]
+    if len(rows) < days + 1:
+        return None
+    c0 = rows[-1][1]
+    cn = rows[-1 - days][1]
+    if c0 is None or cn is None or pd.isna(c0) or pd.isna(cn) or cn == 0:
+        return None
+    return round((c0 - cn) / cn * 100, 2)
+
+
+def scan_accumulation_score(db_path: str = _DB_PATH):
+    """
+    回傳 (scanner, cache) tuple（見設計 spec
+    docs/superpowers/specs/2026-07-15-accumulation-score-backtest-calibration-design.md）：
+    - scanner: 符合 run_backtest() 介面的 Callable[[str, str], list[dict]]，每天對
+      scan_institutional() 撈到的全市場股票算一次進貨分。
+    - cache: dict，key=(date_str, stock_id) → calc_accumulation_score() 完整回傳值。
+      run_backtest() 本身只認 sig["stock_id"]，不會把 score 等欄位帶進輸出，這裡用
+      side-effect 快取事後 merge 回結果 DataFrame，刻意不修改 screener/backtest.py。
+    """
+    from screener.institutional import scan_institutional
+
+    sh_index = _shareholder_history_index(db_path)
+    ret_index = _recent_return_index(db_path)
+    cache: dict = {}
+
+    def _scan(date_str: str, scan_db_path: str) -> list:
+        d_ts = pd.Timestamp(date_str)
+        picks = []
+        for stock in scan_institutional(date_str, db_path=scan_db_path):
+            sid = stock["stock_id"]
+            sh_streak, holder_net_lots = _shareholder_as_of(sh_index, sid, d_ts)
+            recent_return = _recent_return_as_of(ret_index, sid, d_ts, days=5)
+            result = calc_accumulation_score(
+                foreign_streak=stock["foreign_streak"],
+                trust_streak=stock["trust_streak"],
+                sh_streak=sh_streak,
+                holder_net_lots=holder_net_lots,
+                recent_return=recent_return,
+            )
+            cache[(date_str, sid)] = result
+            picks.append({"stock_id": sid, "close": stock.get("close")})
+        return picks
+
+    return _scan, cache
+
+
+def print_accumulation_calibration(df: pd.DataFrame, cache: dict, horizons=(5, 10, 14)) -> None:
+    """
+    印出進貨分校準報告：
+    1. 依 score 分桶（0-19/20-39/40-59/60-100）看各桶平均超額報酬/勝率，回答
+       「分數越高，後續表現是否真的越好」。
+    2. weakening=True 但 holder_net_lots>0 的「富鼎型邊界案例」子集，跟其餘樣本對照，
+       回答「純大戶進貨、法人沒動被判轉弱，是否真的該轉弱」。
+    預設剔除 no_fill=True（漲停買不到）的訊號，比照 backtest.py::print_summary()。
+    """
+    if df.empty:
+        print("無訊號資料")
+        return
+
+    df = df.copy()
+    lookups = [cache.get((d, s), {}) for d, s in zip(df["signal_date"], df["stock_id"])]
+    df["score"] = [c.get("score") for c in lookups]
+    df["weakening"] = [c.get("weakening") for c in lookups]
+    df["holder_net_lots"] = [c.get("holder_net_lots") for c in lookups]
+
+    used = df[~df["no_fill"]] if "no_fill" in df.columns else df
+
+    def _block(sub, tag, h):
+        exc = f"excess_{h}"
+        if exc not in sub.columns:
+            return
+        s = sub[sub[exc].notna()]
+        if s.empty:
+            print(f"  [{tag}] D+{h:<2}  n=0")
+            return
+        win = (s[exc] > 0).mean() * 100
+        avg_ex = s[exc].mean()
+        print(f"  [{tag}] D+{h:<2}  n={len(s):<4} 勝率(超額>0) {win:4.0f}%  平均超額 {avg_ex:+.2f}%")
+
+    print("=" * 60)
+    print("  進貨分分數分桶（score 越高，後續超額報酬是否越好？）")
+    print("=" * 60)
+    buckets = [(0, 20, "0-19分"), (20, 40, "20-39分"), (40, 60, "40-59分"), (60, 101, "60-100分")]
+    for lo, hi, tag in buckets:
+        sub = used[(used["score"] >= lo) & (used["score"] < hi)]
+        if sub.empty:
+            continue
+        for h in horizons:
+            _block(sub, tag, h)
+
+    print("-" * 60)
+    print("  富鼎型邊界案例（weakening=True 但大戶當週淨增 >0）vs 其餘樣本")
+    print("-" * 60)
+    is_boundary = (used["weakening"] == True) & (used["holder_net_lots"] > 0)
+    boundary = used[is_boundary]
+    rest = used[~is_boundary]
+    for h in horizons:
+        _block(boundary, "富鼎型邊界", h)
+        _block(rest, "其餘樣本", h)
+
+
 def backtest_patterns(days: int = 120, db_path: str = _DB_PATH) -> None:
     """
     跑過去 N 個交易日的形態掃描，輸出各形態 3/5/10 日勝率 + 平均報酬。

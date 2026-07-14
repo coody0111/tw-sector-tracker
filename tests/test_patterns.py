@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from screener.patterns import _calc_streak, _calc_vol_price_score, _calc_chips_score
+from screener.patterns import print_accumulation_calibration
 
 
 def test_streak_consecutive_buy():
@@ -659,3 +660,160 @@ def test_calc_accumulation_score_handles_none_holder_net_lots():
     assert result["weakening"] is False
     assert result["holder_net_lots"] is None
     assert result["score"] > 0, "holder_net_lots=None 不該讓 holder_pts 被歸零，sh_streak 仍要計分"
+
+
+from screener.patterns import (
+    _shareholder_history_index, _shareholder_as_of,
+    _recent_return_index, _recent_return_as_of,
+)
+
+
+def _make_shareholder_db(tmp_path, rows):
+    """rows: list of (stock_id, 'YYYY-MM-DD', streak, lv12_shares, lv15_shares)"""
+    db = str(tmp_path / "sh.db")
+    con = duckdb.connect(db)
+    con.execute("""
+        CREATE TABLE shareholder (
+            stock_id VARCHAR, date DATE, lv12_15_pct DOUBLE, lv12_15_cnt INTEGER,
+            lv12_15_shares BIGINT, total_shares BIGINT, week_chg DOUBLE, streak INTEGER,
+            lv12_shares BIGINT, lv12_pct DOUBLE, lv15_shares BIGINT, lv15_pct DOUBLE
+        )
+    """)
+    con.executemany(
+        "INSERT INTO shareholder (stock_id, date, streak, lv12_shares, lv15_shares) VALUES (?, ?, ?, ?, ?)",
+        [(s, pd.to_datetime(d).date(), streak, lv12, lv15) for (s, d, streak, lv12, lv15) in rows],
+    )
+    con.close()
+    return db
+
+
+def test_shareholder_as_of_uses_historical_week_not_latest(tmp_path):
+    """驗證「as of 某日」查的是那天當下最新的一週資料，不是資料庫裡整體最新一筆
+    （最容易犯的 bug：forward-fill 方向抓錯，見設計 spec 測試策略#2）。"""
+    rows = [
+        ("2330", "2026-05-01", 1, 100000, 50000),   # 第1週
+        ("2330", "2026-05-08", 2, 120000, 55000),   # 第2週：lv12_chg=+20000, lv15_chg=+5000
+        ("2330", "2026-05-15", 3, 150000, 40000),   # 第3週：lv12_chg=+30000, lv15_chg=-15000
+    ]
+    db = _make_shareholder_db(tmp_path, rows)
+    index = _shareholder_history_index(db)
+
+    streak, holder_net_lots = _shareholder_as_of(index, "2330", pd.Timestamp("2026-05-10"))
+    assert streak == 2
+    assert holder_net_lots == 25000  # 用第2週的變化，不是第3週的 15000
+
+    streak1, holder1 = _shareholder_as_of(index, "2330", pd.Timestamp("2026-05-03"))
+    assert streak1 == 1
+    assert holder1 is None  # 第1週沒有前一週可比
+
+    streak0, holder0 = _shareholder_as_of(index, "2330", pd.Timestamp("2026-04-01"))
+    assert streak0 is None
+    assert holder0 is None  # 所有資料之前，查無資料
+
+
+def test_recent_return_as_of_uses_only_past_data(tmp_path):
+    """近5日報酬「as of d_ts」只能用 <= d_ts 的收盤價，不能偷看未來
+    （回測最基本的 no-lookahead 要求，見設計 spec 資料索引細節段落）。"""
+    db = str(tmp_path / "px.db")
+    con = duckdb.connect(db)
+    con.execute("CREATE TABLE daily_prices (stock_id VARCHAR, date DATE, close DOUBLE)")
+    rows = [("2330", f"2026-05-{d:02d}", 100.0 + d) for d in range(1, 11)]
+    con.executemany("INSERT INTO daily_prices VALUES (?, ?, ?)",
+                     [(s, pd.to_datetime(d).date(), c) for (s, d, c) in rows])
+    con.close()
+
+    index = _recent_return_index(db)
+    ret = _recent_return_as_of(index, "2330", pd.Timestamp("2026-05-06"), days=5)
+    assert ret == round((106.0 - 101.0) / 101.0 * 100, 2)
+
+    ret_insufficient = _recent_return_as_of(index, "2330", pd.Timestamp("2026-05-03"), days=5)
+    assert ret_insufficient is None
+
+
+from screener.patterns import scan_accumulation_score
+
+
+def _make_full_accumulation_db(tmp_path):
+    """建 institutional + shareholder + daily_prices 三張最小表，模擬 2330 在
+    訊號日 2026-05-08 當下：外資連買5日(全正)、投信連買3日(前2天賣、後3天買)、
+    大戶第2週資料(streak=2, holder_net_lots=20000+5000=25000)、近5日報酬>0。"""
+    db = str(tmp_path / "acc.db")
+    con = duckdb.connect(db)
+    con.execute("CREATE TABLE institutional (stock_id VARCHAR, date DATE, foreign_net BIGINT, trust_net BIGINT, dealer_net BIGINT, total_net BIGINT)")
+    con.execute("""
+        CREATE TABLE shareholder (
+            stock_id VARCHAR, date DATE, lv12_15_pct DOUBLE, lv12_15_cnt INTEGER,
+            lv12_15_shares BIGINT, total_shares BIGINT, week_chg DOUBLE, streak INTEGER,
+            lv12_shares BIGINT, lv12_pct DOUBLE, lv15_shares BIGINT, lv15_pct DOUBLE
+        )
+    """)
+    con.execute("CREATE TABLE daily_prices (stock_id VARCHAR, date DATE, open DOUBLE, high DOUBLE, low DOUBLE, close DOUBLE, volume BIGINT, change DOUBLE, change_pct DOUBLE)")
+
+    inst_rows = [
+        ("2330", "2026-05-04", 1000, -500),
+        ("2330", "2026-05-05", 1000, -500),
+        ("2330", "2026-05-06", 1000, 800),
+        ("2330", "2026-05-07", 1000, 800),
+        ("2330", "2026-05-08", 1000, 800),
+    ]
+    con.executemany(
+        "INSERT INTO institutional VALUES (?, ?, ?, ?, 0, ?)",
+        [(s, pd.to_datetime(d).date(), f, t, f + t) for (s, d, f, t) in inst_rows],
+    )
+
+    sh_rows = [
+        ("2330", "2026-05-01", 1, 100000, 50000),
+        ("2330", "2026-05-08", 2, 120000, 55000),
+    ]
+    con.executemany(
+        "INSERT INTO shareholder (stock_id, date, streak, lv12_shares, lv15_shares) VALUES (?, ?, ?, ?, ?)",
+        [(s, pd.to_datetime(d).date(), streak, lv12, lv15) for (s, d, streak, lv12, lv15) in sh_rows],
+    )
+
+    px_rows = [("2330", f"2026-05-{d:02d}", 100.0 + d) for d in range(1, 9)]
+    con.executemany(
+        "INSERT INTO daily_prices (stock_id, date, close, change_pct) VALUES (?, ?, ?, 0.0)",
+        [(s, pd.to_datetime(d).date(), c) for (s, d, c) in px_rows],
+    )
+    con.close()
+    return db
+
+
+def test_scan_accumulation_score_computes_score_for_signal_date(tmp_path):
+    """驗證 scan_accumulation_score() 在某一天的訊號清單裡，每檔股票的分數是用
+    calc_accumulation_score() 對「as of 那天」的五個輸入算出來的，cache 存了完整明細。
+    手動推演：foreign_streak=5(40分) + trust_streak=3(18分) + sh_streak=2(14分)
+    = 72分；weakening=False(holder_net_lots=25000>0)；近5日報酬(108-103)/103*100=4.85%>0
+    → confirmed → gate=1.0 → score=72 → label='進貨'。"""
+    db = _make_full_accumulation_db(tmp_path)
+    scanner, cache = scan_accumulation_score(db_path=db)
+
+    picks = scanner("2026-05-08", db)
+    assert len(picks) == 1
+    assert picks[0]["stock_id"] == "2330"
+
+    result = cache[("2026-05-08", "2330")]
+    assert result["score"] == 72
+    assert result["weakening"] is False
+    assert result["label"] == "進貨"
+    assert result["holder_net_lots"] == 25000
+
+
+def test_print_accumulation_calibration_runs_with_buckets_and_boundary_case(capsys):
+    df = pd.DataFrame([
+        {"signal_date": "2026-05-01", "stock_id": "2330", "no_fill": False, "excess_5": 6.0},
+        {"signal_date": "2026-05-02", "stock_id": "2454", "no_fill": False, "excess_5": -1.0},
+        {"signal_date": "2026-05-03", "stock_id": "8261", "no_fill": False, "excess_5": 3.0},
+    ])
+    cache = {
+        ("2026-05-01", "2330"): {"score": 72, "weakening": False, "holder_net_lots": 25000},
+        ("2026-05-02", "2454"): {"score": 10, "weakening": False, "holder_net_lots": None},
+        ("2026-05-03", "8261"): {"score": 20, "weakening": True, "holder_net_lots": 920},
+    }
+    print_accumulation_calibration(df, cache, horizons=(5,))
+    out = capsys.readouterr().out
+    assert "60-100分" in out
+    assert "富鼎型邊界" in out
+
+    # 空 df 不 crash
+    print_accumulation_calibration(pd.DataFrame(), {}, horizons=(5,))

@@ -17,15 +17,17 @@ def _make_prices(tmp_path, rows):
 
 
 def test_forward_return_enters_next_day_open(tmp_path):
-    # 訊號日 05-01；D+1(05-02) 開盤 100 進，D+1+5(05-07) 收 110 → +10%
+    # 訊號日 05-01（收盤90，刻意跟進場價不同以確保測到日期沒抓錯）；
+    # D+1(05-02) 開盤 100 進，D+1+5(05-07) 收 110 → +10%
     rows = [("2330", f"2026-05-{d:02d}", 100.0, 100.0) for d in range(1, 8)]
-    rows[-1] = ("2330", "2026-05-07", 108.0, 110.0)  # 出場日收盤 110
-    rows[1] = ("2330", "2026-05-02", 100.0, 101.0)   # 進場日開盤 100
+    rows[0] = ("2330", "2026-05-01", 100.0, 90.0)     # 訊號日收盤 90（刻意跟進場價不同）
+    rows[-1] = ("2330", "2026-05-07", 108.0, 110.0)   # 出場日收盤 110
+    rows[1] = ("2330", "2026-05-02", 100.0, 101.0)    # 進場日開盤 100、收盤 101（刻意不同，確認用的是開盤）
     db = _make_prices(tmp_path, rows)
     close_map, open_map, stock_dates = _build_price_index(db)
     entry, ret = _forward_return(close_map, open_map, stock_dates, "2330",
                                  pd.Timestamp("2026-05-01"), 5)
-    assert entry == 100.0            # 用 D+1 開盤，不是 D 收盤
+    assert entry == 100.0            # 用 D+1(05-02) 開盤 100，不是 D(05-01) 收盤 90，也不是 D+1 收盤 101
     assert ret == 10.0              # (110-100)/100
 
 
@@ -41,3 +43,21 @@ def test_run_backtest_accepts_any_scanner(tmp_path):
     assert df.iloc[0]["signal_date"] == "2026-05-01"
     assert df.iloc[0]["stock_id"] == "2330"
     assert "ret_5" in df.columns
+
+
+def test_run_backtest_preserves_entry_price_when_later_horizon_lacks_data(tmp_path):
+    """回歸：entry_price 不該被『資料不夠導致某天期算不出來』的 horizon 覆蓋成 None。
+    只給 8 個交易日（05-01 訊號日 + 7 天），horizons=(5,14) 時 h=5 資料夠、h=14 不夠——
+    entry_price 應該保留 h=5 算出的正確值，不能被 h=14 的 (None, None) 蓋掉。"""
+    rows = [("2330", f"2026-05-{d:02d}", 100.0, 100.0 + d) for d in range(1, 9)]  # 05-01 ~ 05-08
+    db = _make_prices(tmp_path, rows)
+
+    def fake_scanner(date_str, db_path):
+        return [{"stock_id": "2330", "close": 100.0}] if date_str == "2026-05-01" else []
+
+    df = run_backtest(fake_scanner, db_path=db, horizons=(5, 14))
+    row = df.iloc[0]
+    assert row["ret_5"] is not None, "h=5 有足夠未來資料應該算得出來"
+    assert row["ret_14"] is None, "h=14 資料不夠應該是 None（這是預期行為，不是本次修的 bug）"
+    assert row["entry_price"] is not None, "entry_price 不該被 h=14 的失敗覆蓋成 None（這是本次修的 bug）"
+    assert row["entry_price"] == 100.0

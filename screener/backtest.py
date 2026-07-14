@@ -90,7 +90,8 @@ def run_backtest(
             row = {"signal_date": d_str, "stock_id": sid, "entry_price": None}
             for h in horizons:
                 entry, ret = _forward_return(close_map, open_map, stock_dates, sid, d_ts, h)
-                row["entry_price"] = entry
+                if entry is not None:
+                    row["entry_price"] = entry
                 row[f"ret_{h}"] = ret
             rows.append(row)
     return pd.DataFrame(rows)

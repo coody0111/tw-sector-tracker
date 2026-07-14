@@ -1,3 +1,65 @@
+## [2026-07-14] ✅ 進貨分 calc_accumulation_score() 完成（spec: docs/superpowers/specs/2026-07-14-accumulation-score-design.md）
+
+新增純函式 `screener/patterns.py::calc_accumulation_score()`，把外資/投信連買日數、
+大戶持股連增週數與當週張數變化、近5日股價報酬，綜合成 0-100 進貨分 + 狀態旗標
+（`price_confirmed`/`weakening`/`label`）。只算進貨不倒扣連賣分數、價格閘門讓
+「法人買但價格沒動」的分數打對折——依據逆轟動能派筆記「籌碼是配角、只給50分」的
+設計原則。
+
+### 範圍
+- 只做這個純函式本身，**不整合進任何消費端**（`export/html_generator.py`、
+  `export/chips_generator.py` 都未修改）——spec 明確排除 UI/視覺整合，那是後續
+  `ui-ux-pro-max` 的另一關。
+- 純函式不連 DB、不依賴任何全域狀態，單元測試用合成值即可涵蓋所有分支。
+
+### 測試
+`tests/test_patterns.py` 新增約 14 個測試，涵蓋：只算進貨不倒扣、價格閘門（含
+`recent_return=None` 視為未 confirm）、外資來源封頂、weakening 兩種觸發條件
+（外資投信皆非正 / 大戶轉負）、label 四種導出情境、`sh_streak`/`holder_net_lots` 為
+None 或 NaN 不 crash。全專案 `pytest -q`：231 passed。
+
+### 開發過程中的重要調整（跟原計畫略有出入，如實記錄）
+
+1. **投信/大戶封頂測試覆蓋不足，只測了外資**：Task 2 code review 發現
+   `test_calc_accumulation_score_caps_foreign_trust_holder_points` 這個測試名字說要測三個
+   來源的封頂，但實際上 `trust_streak`/`sh_streak` 全部用預設值 0，只有外資封頂（40分）
+   真的被驗證到。這是原計畫寫的測試本身的範圍限制，不是實作偏離，已知但未在這次補上
+   （trust 封頂 30 分、holder 封頂 20 分尚未有專屬測試），留給之後有動這塊時一併補上。
+
+2. **NaN guard 的兩個測試原本沒有真正驗證到防呆，事後修正**：Task 4 的
+   `test_calc_accumulation_score_handles_none_sh_streak_without_crash` 跟
+   `test_calc_accumulation_score_handles_nan_sh_streak_without_crash` 原始寫法（照抄計畫
+   文字）用 `_base_acc_kwargs()` 預設值（`foreign_streak=0, trust_streak=0`），這剛好讓
+   `weakening` 恆為 True，導致 `holder_pts` 在 NaN 值流到 `round()` 之前就被歸零短路——
+   兩個測試即使拿掉 NaN guard 本身也會通過，沒有真正驗證到防呆邏輯。兩輪 code review
+   都抓到這個問題，已修正（加 `foreign_streak=3` 讓 `weakening=False`），修正後獨立驗證
+   過 pre-guard 版本確實會對修正後的輸入拋 `ValueError`。這是 plan 裡寫的測試輸入本身
+   有缺陷，不是實作犯的錯——記錄下來避免以後看到類似「照抄 plan 但測試沒測到重點」的
+   情況又重演。
+
+3. **weakening 規則的一個真實邊界案例，Cody 已決定暫不調整**：討論這個 spec 時，Cody
+   拿 spec 裡「三族群個案研究」的真實股票（富鼎 8261）當例子提出疑慮——這檔外資/投信
+   都沒連買、但大戶當週實際在買（+920張），現有的 `weakening` 判斷條件
+   `(foreign_streak<=0 and trust_streak<=0) or (holder_net_lots<0)` 完全沒把「大戶方向」
+   納入第一個 OR 分支的判斷，導致這種「純大戶進貨、法人沒動」的情境會被判「轉弱」，
+   不管分數多高都被蓋掉。**Cody 明確決定這次不改公式**——他的原則是「做任何事都要回測」，
+   要等 `docs/superpowers/plans/2026-07-14-backtest-framework.md`（另一個目前完全沒動工的
+   plan，通用「任意訊號 → 查後續報酬」回測框架）做出來後，才用真實歷史資料驗證這個
+   weakening 規則對不對，不要憑感覺先改。這個 plan 的 `screener/patterns.py::calc_accumulation_score()`
+   目前的 `weakening` 邏輯維持跟 Task 1 committed 時完全一致，全程沒有被動過。
+
+### 請 Debugger 驗證
+- [ ] `calc_accumulation_score()` 公式對照 spec（`docs/superpowers/specs/2026-07-14-accumulation-score-design.md` 第 57-96 行）逐項核對，特別是封頂數字（40/30/20）跟 weakening 的兩個觸發條件
+- [ ] NaN guard 邏輯正確（`pd.isna` 對 None 也會回 True，這裡刻意先判斷 `is None` 再判斷 `pd.isna` 是因為 `pd.isna(None)` 本身也是合法的，純粹是防禦性寫兩層判斷，確認沒有邏輯上的遺漏）
+- [ ] 沒有影響其他既有的 `screener/patterns.py` 函式（`calc_composite_score`、`_calc_streak` 等），這次是純新增函式，不動既有程式碼
+- [ ] 上面第 3 點記錄的 weakening 邊界案例（富鼎型：純大戶進貨、法人沒動）——這不是 bug，是刻意保留待回測的已知行為，麻煩 review 時不要當成問題回報，除非有新的資料/理由
+
+### 特別注意
+- 這次**沒有消費端整合**，`calc_accumulation_score()` 目前沒有任何呼叫端在用它——這是刻意的（spec 範圍如此），之後要接進畫面時（個股卡片 payload、籌碼進貨排行）需要另開 plan，不在本次範圍。
+- 公式裡的封頂數字（8/6/7 分、40/30/20 封頂、0.5 閘門）都是 spec 標注的「草案切點」，之後要用 `screener/backtest.py`（另一個尚未開工的 `2026-07-14-backtest-framework` plan）對真實歷史資料驗證校準，不是最終定論。這也是上面第 3 點 weakening 邊界案例最終要一起驗證的地方。
+
+---
+
 ## [2026-07-14] 🔀 Merge 說明：#7/#8/#9 兩邊各自獨立修過，衝突已收斂
 
 master 分支跟 origin 各自獨立修了下面這兩則 #7/#8/#9（不同機器/session，換機沒同步到）。

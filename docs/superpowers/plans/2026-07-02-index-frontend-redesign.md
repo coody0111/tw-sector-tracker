@@ -5,9 +5,23 @@
 **狀態：❌ 已放棄，改走靜態 HTML 路線**（2026-07-10 事後確認）。本文件下方 checkbox 雖全部
 打勾，但 `frontend/` 目錄從未進過 git、React/Vite 方案**從未真正落地**。技術路線後來改為
 「不用 React，直接改寫 `export/html_generator.py`」（見 `docs/superpowers/mockups/README.md`
-「技術路線提醒」）。實際的族群總覽頁重新設計改走 `docs/superpowers/mockups/` 的 v1→v6 米色帳冊
-配色路線，直接在 `export/html_generator.py` 上迭代（現有 commit 如 `f958573` 即屬此路線）。
+「技術路線提醒」）。
 **本文件保留作歷史紀錄，不要依此執行。**
+
+> **⚠️ 2026-07-14 更正**：上面這段 2026-07-10 補記原本還寫著「實際的族群總覽頁重新設計已改走
+> `docs/superpowers/mockups/` 的 v1→v6 米色帳冊配色路線，直接在 `export/html_generator.py` 上
+> 迭代（現有 commit 如 `f958573` 即屬此路線）」——**這段是錯的，已移除**。查證 `export/
+> html_generator.py`：米色帳冊配色（`#F3EDE1` 等）／異動族群／熱區格／slopegraph 等 v6 mockup
+> 的特徵字串**完全不存在**（grep 0 符合）。`f958573` 是修舊版深色卡片「21/41 族群點不進去」的
+> 渲染 bug，跟 v1→v6 mockup 路線無關，commit 訊息本身也只提到「React 前端重構被 revert 回
+> legacy generator 後跟著回來的舊限制」，沒有提及米色帳冊設計。
+>
+> **真實狀況**：`docs/superpowers/mockups/` 的 v1→v6 mockup 迭代到 v6（`2026-07-09-index-v6-
+> clarity-audit.html`，commit `6735d74`）之後就停了，**從未接回 `export/html_generator.py`**。
+> 目前 `docs/index.html` 產線版本仍是最原始的深色卡片式設計（`.mc-grid`），沒有任何一輪重新設計
+> 真正上線過。v6 mockup 本身也只涵蓋「異動族群卡片」「族群排行（熱區格/長條）」兩塊，缺「點進
+> 族群看個股清單」這個現行頁面最核心的兩層點擊功能，也還沒接真實資料（238 行檔案裡是寫死的
+> JS array）。要重新推進，下一步是先跟 Cody 定案缺的那塊個股明細怎麼呈現。
 
 **Goal:** 把 `docs/index.html`（族群總覽頁）從 Python 直接產生的靜態 HTML，改成 Python 產生 `docs/data.json` + React/Vite 建置的前端頁面，採響應式雙模式排版（桌機固定明細面板／手機 inline 展開）。
 

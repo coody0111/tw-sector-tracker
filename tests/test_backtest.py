@@ -97,6 +97,17 @@ def test_run_backtest_flags_limit_up_no_fill(tmp_path):
     assert bool(df.iloc[0]["no_fill"]) is True
 
 
+def test_run_backtest_deducts_cost(tmp_path):
+    rows = [("2330", f"2026-05-{d:02d}", 100.0, 100.0) for d in range(1, 10)]
+    rows = [r for r in rows if not (r[0]=="2330" and r[1] in ("2026-05-02","2026-05-07"))]
+    rows += [("2330","2026-05-02",100.0,100.0), ("2330","2026-05-07",100.0,110.0)]
+    db = _make_prices(tmp_path, rows)
+    def scanner(ds, dbp):
+        return [{"stock_id":"2330","close":100.0}] if ds=="2026-05-01" else []
+    df = run_backtest(scanner, db_path=db, horizons=(5,), cost_pct=0.6)
+    assert df.iloc[0]["ret_5"] == round(10.0 - 0.6, 2)   # 9.4
+
+
 def test_run_backtest_preserves_entry_price_when_later_horizon_lacks_data(tmp_path):
     """回歸：entry_price 不該被『資料不夠導致某天期算不出來』的 horizon 覆蓋成 None。
     只給 8 個交易日（05-01 訊號日 + 7 天），horizons=(5,14) 時 h=5 資料夠、h=14 不夠——

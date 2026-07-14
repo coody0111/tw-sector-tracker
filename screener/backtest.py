@@ -85,6 +85,7 @@ def run_backtest(
     db_path: str = _DB_PATH,
     horizons=(5, 10, 14),
     limit_up_skip: bool = True,
+    cost_pct: float = 0.6,
 ) -> pd.DataFrame:
     """
     對 DuckDB 中所有交易日逐日呼叫 scanner(date_str, db_path)，
@@ -96,6 +97,8 @@ def run_backtest(
         (date_str, db_path) -> [{"stock_id": ..., "close": ...}, ...]
     limit_up_skip : bool
         True 時標記 no_fill（D+1 開盤 ≥ D 收盤 ×1.095，代表一開盤就鎖漲停買不到）。
+    cost_pct : float
+        來回交易成本（%），從 ret 扣一次；excess 用「已扣成本的 ret」再減 bench。
 
     Returns
     -------
@@ -133,6 +136,8 @@ def run_backtest(
                 entry, ret = _forward_return(close_map, open_map, stock_dates, sid, d_ts, h)
                 if entry is not None:
                     row["entry_price"] = entry
+                if ret is not None:
+                    ret = round(ret - cost_pct, 2)
                 row[f"ret_{h}"] = ret
                 bench = _bench_return(idx_map, stock_dates, sid, d_ts, h)
                 row[f"bench_{h}"] = bench

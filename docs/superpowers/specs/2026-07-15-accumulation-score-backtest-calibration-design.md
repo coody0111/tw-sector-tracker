@@ -2,7 +2,7 @@
 
 **日期**：2026-07-15
 **作者**：Developer（與 Cody brainstorming 後）
-**狀態**：草案，待 Cody review
+**狀態**：已核准（2026-07-15 Cody review 通過）
 
 ---
 

@@ -2,6 +2,16 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **⚠️ 2026-07-14 更新**：本 plan 已依統整 design spec
+> `docs/superpowers/specs/2026-07-14-momentum-strategy-page-design.md` §1 收斂修正兩處，取代
+> 原本 `2026-07-02-momentum-health-signal-design.md`（已刪除，內容併入上述統整 spec）：
+> 1. `ma_alignment` 判斷改回策略原始口徑，只看 `close>MA5>MA10>MA60`（三線），**不再要求 MA20
+>    也卡在中間**——原始版本誤把 MA20 也放進門檻，比策略定義更嚴格，會漏抓（詳見統整 spec §1.1）。
+>    `ma20` 仍會算、仍回傳，純資訊性欄位，不參與判斷。
+> 2. 新增 `rs_market_score`（個股 vs universe 等權平均的相對強弱，見統整 spec §1.2 決定 2），
+>    Task 2 一併新增。
+> 下方 Task 1/2/3 的程式碼區塊已直接套用修正後版本，可以照抄執行，不用再對照舊版。
+
 **Goal:** 新增 `screener/signals.py::scan_momentum_health()`，掃描全市場個股的均線排列狀態、出場三原則、族群內相對強弱評分，並產出五級強弱分類，供後續「持股健檢」頁面使用。
 
 **Architecture:** 沿用 `scan_volume_turnover()` 的既有慣例（DuckDB read-only 查詢、逐股 groupby、graceful skip 歷史不足的股票、回傳 list of dict）。相對強弱評分重用 `processors/performance.py::calc_cumulative_meta()` 算好的族群層級 5 日累積漲跌，不重複實作族群聚合邏輯。
@@ -27,7 +37,7 @@
 
 **Interfaces:**
 - Consumes：DuckDB `daily_prices` 表（`stock_id, date, close, change_pct`）；`data/stock_universe.csv`（`stock_id, stock_name, meta_sector`）
-- Produces：`scan_momentum_health(trade_date: str, db_path: str = _DB_PATH, universe_path: str = _UNIVERSE_PATH) -> List[Dict[str, Any]]`，每筆 dict 含 `stock_id, stock_name, meta_sector, close, change_pct, ma5, ma10, ma20, ma60, ma_alignment, ma5_slope_down, exit_3_rule_triggered, entry_confirmed, rs_score(None), rs_rank_pct(None), strength_tier(None)`。後續 Task 2/3 會就地補上 `rs_score`／`rs_rank_pct`／`strength_tier`。
+- Produces：`scan_momentum_health(trade_date: str, db_path: str = _DB_PATH, universe_path: str = _UNIVERSE_PATH) -> List[Dict[str, Any]]`，每筆 dict 含 `stock_id, stock_name, meta_sector, close, change_pct, ma5, ma10, ma20, ma60, ma_alignment, ma5_slope_down, exit_3_rule_triggered, entry_confirmed, rs_score(None), rs_rank_pct(None), rs_market_score(None), strength_tier(None)`。後續 Task 2/3 會就地補上 `rs_score`／`rs_rank_pct`／`rs_market_score`／`strength_tier`。
 
 - [ ] **Step 1: 寫失敗測試 — 多頭排列 + 不觸發出場三原則**
 
@@ -59,6 +69,32 @@ def test_scan_momentum_health_classifies_ma_alignment(tmp_path):
     assert results[0]["ma_alignment"] == "多頭排列"
     assert results[0]["exit_3_rule_triggered"] is False
     assert results[0]["entry_confirmed"] is True
+
+
+def test_scan_momentum_health_ma_alignment_ignores_ma20(tmp_path):
+    """2026-07-14 修正的回歸測試：MA20 暫時卡在 MA10 之上（若舊版誤把 MA20 也塞進判斷式，
+    這裡會被誤判「糾結」），但 close>MA5>MA10>MA60 三線本身成立，應正確判斷「多頭排列」。
+    手算：MA60=109.22, MA20=127.65, MA10=125.3, MA5=125.6, close=128
+    （MA10 125.3 < MA20 127.65——若程式碼還在用四線判斷會判「糾結」，這裡要驗證不是）。"""
+    db_path = tmp_path / "test.db"
+    dates = pd.date_range("2026-01-01", periods=70, freq="D")
+    rows = []
+    closes = (
+        [100.0] * 50            # index0-49：長期打底，撐住 MA60 基期
+        + [130.0] * 10           # index50-59：只落在 MA60/MA20 窗口內，不在 MA10 窗口內
+        + [125.0] * 9            # index60-68：落在 MA60/MA20/MA10 窗口內
+        + [128.0]                # index69（今天）
+    )
+    for d, c in zip(dates, closes):
+        rows.append(("2330", d.strftime("%Y-%m-%d"), c, 0.1, 1000))
+    _seed_db(db_path, rows)
+
+    results = scan_momentum_health(dates[-1].strftime("%Y-%m-%d"), db_path=str(db_path))
+
+    assert len(results) == 1
+    assert results[0]["ma10"] < results[0]["ma20"], "確認測試場景本身真的建構出 MA10<MA20 的情境"
+    assert results[0]["ma_alignment"] == "多頭排列", \
+        "close>MA5>MA10>MA60 三線成立即應判多頭排列，不該因為 MA20 的相對位置被誤判成糾結"
 
 
 def test_scan_momentum_health_triggers_exit_3_rule(tmp_path):
@@ -98,6 +134,9 @@ def test_scan_momentum_health_exit_3_rule_needs_all_three_conditions(tmp_path):
     """跌破MA5 + MA5下彎兩個條件都滿足，但跌幅沒到 -4% 門檻時，不該觸發出場三原則。
     這個測試專門隔離驗證「重挫長黑」這個條件本身，避免像之前 scan_volume_turnover
     的測試一樣，被其他條件先擋下、沒有真正測到目標條件（Debugger review 時抓到的問題）。
+    （2026-07-14 實作時修正：原本用 -1.5% 手算沒過——5日窗口往前推一天掉出去的那筆
+    比今天跌完還低，MA5 反而會微升、slope_down 判 False；改用 -2.5% 才確實讓
+    MA5_today(130.74) < MA5_yday(131.0)，已用真實跑過的程式驗證。）
     """
     db_path = tmp_path / "test.db"
     dates = pd.date_range("2026-01-01", periods=65, freq="D")
@@ -108,8 +147,8 @@ def test_scan_momentum_health_exit_3_rule_needs_all_three_conditions(tmp_path):
             close += 0.5
             pct = 0.5
         else:
-            close = close * (1 - 0.015)  # 只跌 -1.5%，跌破MA5+MA5下彎都成立，但沒到 -4% 門檻
-            pct = -1.5
+            close = close * (1 - 0.025)  # 跌 -2.5%，跌破MA5+MA5下彎都成立，但沒到 -4% 門檻
+            pct = -2.5
         rows.append(("2330", d.strftime("%Y-%m-%d"), close, pct, 1000))
     _seed_db(db_path, rows)
 
@@ -225,9 +264,14 @@ def scan_momentum_health(
         ma20_today = float(ma20.iloc[-1])
         ma60_today = float(ma60.iloc[-1])
 
-        if ma5_today > ma10_today > ma20_today > ma60_today:
+        today_close = float(window["close"].iloc[-1])
+
+        # 2026-07-14 修正：只看三線 close>MA5>MA10>MA60（策略原始口徑），MA20 純資訊性欄位、
+        # 不參與判斷——原始版本誤把 MA20 也塞進門檻，比策略定義更嚴格會漏抓，
+        # 見 docs/superpowers/specs/2026-07-14-momentum-strategy-page-design.md §1.1
+        if today_close > ma5_today > ma10_today > ma60_today:
             ma_alignment = "多頭排列"
-        elif ma5_today < ma10_today < ma20_today < ma60_today:
+        elif today_close < ma5_today < ma10_today < ma60_today:
             ma_alignment = "空頭排列"
         else:
             ma_alignment = "糾結"
@@ -263,6 +307,7 @@ def scan_momentum_health(
             "entry_confirmed":       entry_confirmed,
             "rs_score":              None,
             "rs_rank_pct":           None,
+            "rs_market_score":       None,
             "strength_tier":         None,
         })
 
@@ -273,7 +318,7 @@ def scan_momentum_health(
 - [ ] **Step 4: 執行測試確認通過**
 
 Run: `pytest tests/test_signals.py -k momentum_health -v`
-Expected: 4 個測試全 PASS
+Expected: 5 個測試全 PASS（含 2026-07-14 新增的 MA20 不參與判斷回歸測試）
 
 - [ ] **Step 5: 確認既有測試沒有被 `_load_universe_map` 簽名變動影響**
 
@@ -297,7 +342,7 @@ git commit -m "feat: 新增 scan_momentum_health 均線排列與出場三原則�
 
 **Interfaces:**
 - Consumes：Task 1 的 `scan_momentum_health()` 產出（就地補上 `rs_score`／`rs_rank_pct` 欄位）；`processors/performance.py::calc_cumulative_meta(universe_df: pd.DataFrame, db_path: str) -> List[Dict]`（既有函式，回傳含 `meta_name`／`cum5` 欄位的 list，`cum5` 可能為 `None`）
-- Produces：`scan_momentum_health()` 回傳值裡的 `rs_score`（float 或 None）、`rs_rank_pct`（float 0~1 或 None，1.0 代表該族群內最強）欄位改為有值
+- Produces：`scan_momentum_health()` 回傳值裡的 `rs_score`（float 或 None）、`rs_rank_pct`（float 0~1 或 None，1.0 代表該族群內最強）、`rs_market_score`（float 或 None，個股 vs universe 等權平均近5日報酬，2026-07-14 新增）欄位改為有值
 
 - [ ] **Step 1: 寫失敗測試**
 
@@ -336,12 +381,46 @@ def test_scan_momentum_health_computes_relative_strength(tmp_path):
     assert strong["rs_score"] == 5.0
     assert strong["rs_rank_pct"] == 1.0
     assert weak["rs_rank_pct"] < strong["rs_rank_pct"]
+
+
+def test_scan_momentum_health_computes_market_relative_strength(tmp_path):
+    """2026-07-14 新增（統整 spec §1.2 決定 2）：rs_market_score = 個股5日報酬 − universe
+    等權平均5日報酬。1101 最後5天每天+2%（cum5≈10.41%），1102 最後5天每天0%（cum5=0%），
+    market（兩檔等權平均，每天 (2.0+0.0)/2=1.0%，cum5≈5.10%）。
+    1101 的 rs_market_score = 10.41 − 5.10 = 5.31。"""
+    db_path = tmp_path / "test.db"
+    universe_path = tmp_path / "universe.csv"
+    universe_path.write_text(
+        "stock_id,stock_name,meta_sector\n"
+        "1101,測試股A,sectorA\n"
+        "1102,測試股B,sectorB\n",
+        encoding="utf-8",
+    )
+
+    dates = pd.date_range("2026-01-01", periods=65, freq="D")
+    rows = []
+    for sid, last5_pct in [("1101", 2.0), ("1102", 0.0)]:
+        close = 100.0
+        for i, d in enumerate(dates):
+            pct = 0.0 if i < 60 else last5_pct
+            close = close * (1 + pct / 100)
+            rows.append((sid, d.strftime("%Y-%m-%d"), close, pct, 1000))
+    _seed_db(db_path, rows)
+
+    results = scan_momentum_health(
+        dates[-1].strftime("%Y-%m-%d"),
+        db_path=str(db_path),
+        universe_path=str(universe_path),
+    )
+
+    strong = next(r for r in results if r["stock_id"] == "1101")
+    assert strong["rs_market_score"] == 5.31
 ```
 
 - [ ] **Step 2: 執行測試確認失敗**
 
 Run: `pytest tests/test_signals.py -k relative_strength -v`
-Expected: FAIL（`rs_score` 仍是 `None`，斷言 `None == 5.0` 失敗）
+Expected: FAIL（`rs_score`/`rs_market_score` 仍是 `None`）
 
 - [ ] **Step 3: 實作相對強弱計算**
 
@@ -369,12 +448,29 @@ def _load_universe_df(universe_path: str = _UNIVERSE_PATH) -> pd.DataFrame:
     sector_cum = calc_cumulative_meta(universe_df, db_path)
     sector_cum5_map = {r["meta_name"]: r["cum5"] for r in sector_cum if r["cum5"] is not None}
 
+    # 2026-07-14 新增（統整 spec §1.2 決定 2）：「大盤」基準 = universe 等權平均近5日累積報酬
+    # （不用 TAIEX 加權指數——universe 只有 1040 檔電子科技股，跟涵蓋全市場的 TAIEX 不是同一個
+    # 母體，混用會有 apples-to-oranges 問題）。只用有在 universe 裡的股票，跟族群基準同一套母體。
+    universe_ids = set(universe_df["stock_id"].astype(str))
+    market_df = price_df[price_df["stock_id"].astype(str).isin(universe_ids) & (price_df["date"] <= target)]
+    market_cum5 = None
+    market_dates = sorted(market_df["date"].unique())
+    if len(market_dates) >= _RS_WINDOW_DAYS:
+        last_n = market_dates[-_RS_WINDOW_DAYS:]
+        daily_avg = market_df[market_df["date"].isin(last_n)].groupby("date")["change_pct"].mean()
+        factor = 1.0
+        for d in last_n:
+            pct = daily_avg.get(d)
+            if pct is not None and pd.notna(pct):
+                factor *= (1 + float(pct) / 100)
+        market_cum5 = round((factor - 1) * 100, 2)
+
     for row in results:
         sid = row["stock_id"]
         grp = price_df[(price_df["stock_id"] == sid) & (price_df["date"] <= target)]
         cum5_window = grp.sort_values("date").tail(_RS_WINDOW_DAYS)
         if len(cum5_window) < _RS_WINDOW_DAYS:
-            continue  # rs_score 保持 None
+            continue  # rs_score/rs_market_score 保持 None
 
         factor = 1.0
         for pct in cum5_window["change_pct"]:
@@ -384,6 +480,8 @@ def _load_universe_df(universe_path: str = _UNIVERSE_PATH) -> pd.DataFrame:
         sector_cum5 = sector_cum5_map.get(row["meta_sector"])
         if sector_cum5 is not None:
             row["rs_score"] = round(stock_cum5 - sector_cum5, 2)
+        if market_cum5 is not None:
+            row["rs_market_score"] = round(stock_cum5 - market_cum5, 2)
 
     rs_df = pd.DataFrame(results)
     valid = rs_df["rs_score"].notna()
@@ -406,13 +504,13 @@ def _load_universe_df(universe_path: str = _UNIVERSE_PATH) -> pd.DataFrame:
 - [ ] **Step 4: 執行測試確認通過**
 
 Run: `pytest tests/test_signals.py -k "momentum_health or relative_strength" -v`
-Expected: 全部 PASS（含 Task 1 的 3 個 + 這次新增的 1 個）
+Expected: 全部 PASS（含 Task 1 的 5 個 + 這次新增的 2 個，共 7 個）
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add screener/signals.py tests/test_signals.py
-git commit -m "feat: scan_momentum_health 加上相對強弱評分（rs_score/rs_rank_pct）"
+git commit -m "feat: scan_momentum_health 加上相對強弱評分（rs_score/rs_rank_pct/rs_market_score）"
 ```
 
 ---
@@ -464,19 +562,23 @@ def test_scan_momentum_health_tier_exit_signal_overrides_alignment(tmp_path):
 
 
 def test_scan_momentum_health_tier_bullish_but_weak_rs_is_weak(tmp_path):
-    """多頭排列，但族群內相對強弱排名落後（<50%），應歸類為弱，不是強。"""
+    """多頭排列，但族群內相對強弱排名落後（<50%），應歸類為弱，不是強。
+    （2026-07-14 實作時修正：族群內原本只放 2 檔——pandas pct rank 只有 2 檔時最差也是
+    1/2=0.5，剛好卡在「強」門檻（rank>=0.5）上，測不出真正 <0.5 的情境；改放 3 檔，
+    已用真實跑過的程式驗證。）"""
     db_path = tmp_path / "test.db"
     universe_path = tmp_path / "universe.csv"
     universe_path.write_text(
         "stock_id,stock_name,meta_sector\n"
         "1101,測試強股,sectorA\n"
-        "1102,測試弱股,sectorA\n",
+        "1102,測試弱股,sectorA\n"
+        "1103,測試中段股,sectorA\n",
         encoding="utf-8",
     )
     dates = pd.date_range("2026-01-01", periods=65, freq="D")
     rows = []
-    # 兩檔都緩步上漲維持多頭排列，但最後一天漲幅差很多，1102 明顯較弱
-    for sid, last_day_pct in [("1101", 8.0), ("1102", 0.1)]:
+    # 三檔都緩步上漲維持多頭排列，但最後一天漲幅差很多，1102 明顯墊底
+    for sid, last_day_pct in [("1101", 8.0), ("1102", 0.1), ("1103", 3.0)]:
         close = 100.0
         for i, d in enumerate(dates):
             pct = 0.3 if i < 64 else last_day_pct

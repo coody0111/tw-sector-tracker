@@ -62,10 +62,13 @@ body{
 }
 .heat-tile:hover{transform:translateY(-2px);box-shadow:var(--shadow-2);z-index:2}
 
-.ht-top{display:flex;align-items:baseline;justify-content:space-between;gap:6px}
-.ht-rank{font-family:var(--mono);font-size:.6rem;color:var(--ink-3)}
-.ht-name{font-family:var(--serif);font-weight:600;font-size:.9rem;color:var(--ink);flex:1;margin:0 6px}
-.ht-pct{font-family:var(--mono);font-weight:700;font-size:1.0rem}
+.ht-top{display:flex;align-items:baseline;gap:8px}
+.ht-rank{font-family:var(--mono);font-size:.6rem;color:var(--ink-3);flex-shrink:0}
+.ht-name{
+  font-family:var(--serif);font-weight:700;font-size:.96rem;color:var(--ink);flex:1;min-width:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;letter-spacing:.01em;
+}
+.ht-pct{font-family:var(--mono);font-weight:700;font-size:1.0rem;flex-shrink:0}
 
 .ht-tier{
   display:inline-flex;align-items:center;gap:5px;margin-top:8px;padding:3px 8px;border-radius:20px;
@@ -73,8 +76,9 @@ body{
 }
 .ht-tier .dot{width:6px;height:6px;border-radius:50%}
 
-.ht-streak{font-family:var(--mono);font-size:.66rem;color:var(--ink-2);margin-top:7px}
-.ht-streak b{color:var(--ink)}
+.ht-streak{font-family:var(--mono);font-size:.68rem;color:var(--ink-2);margin-top:7px;font-weight:600}
+.ht-streak .n{font-weight:800}
+.ht-streak .cnt{color:var(--ink-3);font-weight:400}
 
 .ht-badges{display:flex;gap:5px;margin-top:7px;flex-wrap:wrap}
 .badge{font-family:var(--mono);font-size:.58rem;font-weight:700;padding:2px 6px;border-radius:3px;display:inline-flex;align-items:center;gap:3px}
@@ -84,9 +88,10 @@ body{
 
 .ht-week{
   display:flex;align-items:center;justify-content:space-between;margin-top:9px;padding-top:8px;
-  border-top:1px solid rgba(255,255,255,.08);font-family:var(--mono);font-size:.6rem;color:var(--ink-3);
+  border-top:1px solid rgba(255,255,255,.08);font-family:var(--mono);font-size:.62rem;
 }
-.ht-week .now{color:var(--ink-2)}
+.ht-week .lbl{color:var(--ink-3)}
+.ht-week .vals{font-weight:700}
 
 .legend-note{padding:14px 26px 0;font-size:.7rem;color:var(--ink-3);max-width:720px}
 </style>
@@ -105,7 +110,10 @@ body{
   <b>②連漲/連跌天數</b>（新增，直接回答「持續多久了」）、<b>③法人連買 badge</b>（外資/投信連買
   天數，新增）、<b>④量能異常</b>（量比 &gge;1.5x 才顯示，新增）、<b>⑤上週→本週原始數字</b>
   （保留但降到最下面當輔助佐證）。卡片因此變大（168px→224px 起跳），一頁能看到的族群數變少，
-  這是資訊量增加的必然取捨。
+  這是資訊量增加的必然取捨。<br>
+  <b>校對修正：</b>族群名加防截斷（`text-overflow:ellipsis` + `title` 屬性 fallback）、字重字級
+  加強對比；連漲/連跌天數改照漲跌色系上色（原本是死板灰字，跟卡片其他數據的色彩語言不一致）；
+  上週→本週那組數字也拆成兩個各自照自己正負號上色（原本整組都是同一種灰色，看不出哪個是漲哪個跌）。
 </details>
 
 <div class="section-head"><h2>族群排行</h2><span class="count">今日漲跌% ・41 個族群（真實漲跌%/家數/週資料，法人+量能為示範數值）</span></div>
@@ -190,7 +198,11 @@ const TIER_COLOR = {super:'var(--tier-super)', strong:'var(--tier-strong)', mid:
 
 document.getElementById('heatgrid').innerHTML = GROUPS.map(([name,pct,up,down,lw,tw,streak,fstreak,tstreak,vol],i)=>{
   const tier = classifyTier(streak, lw, tw);
-  const streakTxt = streak > 0 ? `連漲 <b>${streak}</b> 日` : (streak < 0 ? `連跌 <b>${Math.abs(streak)}</b> 日` : `持平`);
+  // 連漲/連跌方向也照漲跌色系上色，不再是死板灰字——跟卡片其他數據的色彩語言一致
+  const streakColor = streak > 0 ? 'var(--up)' : (streak < 0 ? 'var(--down)' : 'var(--ink-3)');
+  const streakTxt = streak > 0
+    ? `連漲 <span class="n" style="color:${streakColor}">${streak}</span> 日`
+    : (streak < 0 ? `連跌 <span class="n" style="color:${streakColor}">${Math.abs(streak)}</span> 日` : `持平`);
   const badges = [];
   if(fstreak >= 2) badges.push(`<span class="badge foreign">外資連買${fstreak}日</span>`);
   if(tstreak >= 2) badges.push(`<span class="badge trust">投信連買${tstreak}日</span>`);
@@ -199,17 +211,21 @@ document.getElementById('heatgrid').innerHTML = GROUPS.map(([name,pct,up,down,lw
   <div class="heat-tile" style="background:${heatBg(pct)};border-top-color:${TIER_COLOR[tier.key]}">
     <div class="ht-top">
       <span class="ht-rank tabular">#${i+1}</span>
-      <span class="ht-name">${name}</span>
+      <span class="ht-name" title="${name}">${name}</span>
       <span class="ht-pct tabular" style="color:${pct>=0?'#fff':'var(--ink)'}">${fmtPct(pct)}</span>
     </div>
     <div class="ht-tier" style="background:${TIER_COLOR[tier.key]}22;color:${TIER_COLOR[tier.key]}">
       <span class="dot" style="background:${TIER_COLOR[tier.key]}"></span>${tier.label}
     </div>
-    <div class="ht-streak">${streakTxt}　▲${up}檔 ▼${down}檔</div>
+    <div class="ht-streak">${streakTxt}<span class="cnt">　▲${up}檔 ▼${down}檔</span></div>
     ${badges.length ? `<div class="ht-badges">${badges.join('')}</div>` : ''}
     <div class="ht-week">
-      <span>上週→本週</span>
-      <span class="now tabular">${fmtPct(lw)} → ${fmtPct(tw)}</span>
+      <span class="lbl">上週→本週</span>
+      <span class="vals tabular">
+        <span style="color:${lw>=0?'var(--up)':'var(--down)'}">${fmtPct(lw)}</span>
+        <span class="lbl">→</span>
+        <span style="color:${tw>=0?'var(--up)':'var(--down)'}">${fmtPct(tw)}</span>
+      </span>
     </div>
   </div>`;
 }).join('');

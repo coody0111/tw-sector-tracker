@@ -1575,12 +1575,10 @@ def print_accumulation_calibration(df: pd.DataFrame, cache: dict, horizons=(5, 1
         return
 
     df = df.copy()
-    df["score"] = df.apply(
-        lambda r: cache.get((r["signal_date"], r["stock_id"]), {}).get("score"), axis=1)
-    df["weakening"] = df.apply(
-        lambda r: cache.get((r["signal_date"], r["stock_id"]), {}).get("weakening"), axis=1)
-    df["holder_net_lots"] = df.apply(
-        lambda r: cache.get((r["signal_date"], r["stock_id"]), {}).get("holder_net_lots"), axis=1)
+    lookups = [cache.get((d, s), {}) for d, s in zip(df["signal_date"], df["stock_id"])]
+    df["score"] = [c.get("score") for c in lookups]
+    df["weakening"] = [c.get("weakening") for c in lookups]
+    df["holder_net_lots"] = [c.get("holder_net_lots") for c in lookups]
 
     used = df[~df["no_fill"]] if "no_fill" in df.columns else df
 

@@ -336,6 +336,14 @@ def recompute_all_history(db_path: str = _DB_PATH) -> int:
     """
     import pandas as pd
     con = duckdb.connect(db_path)
+    # 清洗步驟（#8，Debugger 建議「把清洗寫進 code」）：先就地把離群值 lv12_15_pct(>=99%,
+    # TDCC 當週解析異常，例 2380 06-26=100.0) 清成 NULL——不只計算時略過，髒值本身也清掉，
+    # 換機重跑 recompute 就自動洗乾淨、不用人工下 SQL 記在腦子裡。清成 NULL 後下面讀回是 NaN，
+    # 由既有 NaN guard 一併處理（本筆與下一週的 week_chg 都會是 NULL、不算出假訊號）。
+    con.execute(
+        "UPDATE shareholder SET lv12_15_pct = NULL WHERE lv12_15_pct >= ?",
+        [_MAX_VALID_HOLDER_PCT],
+    )
     df = con.execute("""
         SELECT stock_id, date, lv12_15_pct
         FROM shareholder
@@ -354,14 +362,9 @@ def recompute_all_history(db_path: str = _DB_PATH) -> int:
             # streak 歸 0。prev_* 照常前進，讓缺口後相鄰的下一週能正常比較（缺口不傳染）。
             gapped = prev_date is not None and (row["date"] - prev_date).days > _MAX_WEEK_GAP_DAYS
             cur_pct = row["lv12_15_pct"]
-            # 離群值防護(#8)：pct >= 99% 幾乎不可能（TDCC 當週解析異常，例 2380 06-26=100.0），
-            # 視為當週不可信、比照 NULL——本筆不算 week_chg、也不當下一週的比較基準（設成 nan
-            # 讓下面的 NaN guard 一併處理，且 prev_pct 帶著 nan 傳下去、下一週也擋掉）。
-            if not pd.isna(cur_pct) and cur_pct >= _MAX_VALID_HOLDER_PCT:
-                cur_pct = float("nan")
-            # NaN guard：DB 的 SQL NULL 經 DuckDB→pandas 讀回是 NaN、不是 None，
-            # 原本只判斷 `prev_pct is None` 抓不到，會讓 nan 混進 round() 算出 nan
-            # （不是 None）寫回 DB，NaN != SQL NULL，下游 WHERE week_chg IS NULL 抓不到。
+            # NaN guard：DB 的 SQL NULL 經 DuckDB→pandas 讀回是 NaN、不是 None（含上面剛清掉的
+            # 離群值）；prev/cur 任一為 NaN 或缺週 → 無法比較，week_chg 記 None（不是 NaN，
+            # 下游 WHERE week_chg IS NULL 才抓得到）、streak 歸 0。
             if prev_pct is None or pd.isna(prev_pct) or pd.isna(cur_pct) or gapped:
                 chg = None
                 streak = 0
@@ -388,3 +391,24 @@ def get_available_dates() -> list[str]:
     warnings.filterwarnings("ignore")
     _, _, _, dates = _get_session_tokens()
     return dates
+
+
+def get_existing_shareholder_dates(db_path: str = _DB_PATH) -> set:
+    """回傳 shareholder 表已有的週別日期（YYYYMMDD 字串集合），供 backfill 比對缺哪幾週。"""
+    con = duckdb.connect(db_path, read_only=True)
+    try:
+        rows = con.execute("SELECT DISTINCT date FROM shareholder").fetchall()
+    finally:
+        con.close()
+    return {r[0].strftime("%Y%m%d") for r in rows}
+
+
+def plan_backfill_dates(available: list, existing: set, weeks: int) -> list:
+    """#7：在最近 weeks 個 TDCC 可查週的視窗內，回傳 DB 還缺、需回補的週（由舊到新）。
+
+    取代舊的「固定往回數 N 週、連 DB 已有的也重抓」——只補真正缺的那幾週；中間缺的一週
+    （例 06-18）只要落在視窗內就會被抓回，不會因為它不在最新 N 週而漏掉。由舊到新排序，
+    因為 save_to_db 的 week_chg/streak 是拿「DB 現有最新一筆」當基準，必須依序寫入。
+    """
+    window = available[:weeks]
+    return sorted(d for d in window if d not in existing)

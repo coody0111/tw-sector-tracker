@@ -449,7 +449,7 @@ def test_recompute_all_history_outlier_pct_treated_as_null(tmp_path):
 
     con = duckdb.connect(str(db_path))
     df = con.execute(
-        "SELECT date, week_chg, streak FROM shareholder WHERE stock_id='2380' ORDER BY date"
+        "SELECT date, lv12_15_pct, week_chg, streak FROM shareholder WHERE stock_id='2380' ORDER BY date"
     ).df()
     big = con.execute("SELECT COUNT(*) FROM shareholder WHERE ABS(week_chg) > 20").fetchone()[0]
     con.close()
@@ -459,6 +459,8 @@ def test_recompute_all_history_outlier_pct_treated_as_null(tmp_path):
     assert df.iloc[2]["streak"] == 0
     assert pd.isna(df.iloc[3]["week_chg"]), "07-03 不該拿 100.0 當基準算出 -63.59 假訊號"
     assert big == 0, "全表不該再有 |week_chg|>20 的假大戶減持訊號（#8 驗收）"
+    # Debugger 建議：清洗步驟寫進 code——recompute 也把離群值 pct 本身就地清成 NULL（不只略過計算）
+    assert pd.isna(df.iloc[2]["lv12_15_pct"]), "離群值 100.0 應被就地清成 NULL、髒值不留在 DB"
 
 
 def test_recompute_all_history_handles_single_week_stock(tmp_path):
@@ -582,3 +584,30 @@ def test_add_week_change_streak_handles_null_prev(tmp_path, monkeypatch):
     con.close()
     assert a[0] is None, "前一週 pct NULL → 本週 week_chg None"
     assert round(b[0], 2) == 2.0 and b[1] == 1, "前一週 streak NULL 應當 0 起算、不 crash"
+
+
+def test_plan_backfill_dates_only_missing_weeks_in_window():
+    """#7：backfill 應補「視窗內 DB 還缺的那幾週」，不是固定往回數 N 週重抓已有的；
+    中間缺的一週（例 06-18）也要被抓回。回傳由舊到新（save_to_db 需依序寫）。"""
+    from scrapers.shareholder import plan_backfill_dates
+    available = ["20260703", "20260626", "20260618", "20260612", "20260605"]  # 新→舊
+    existing = {"20260703", "20260626", "20260612", "20260605"}               # 缺 06-18
+    assert plan_backfill_dates(available, existing, weeks=5) == ["20260618"]
+    # 視窗太小抓不到更舊的 06-18 → 使用者需放大 N（維持可控）
+    assert plan_backfill_dates(available, existing, weeks=2) == []
+    # 視窗內都在 DB → 無需補（不再重抓已有的）
+    assert plan_backfill_dates(available, existing | {"20260618"}, weeks=5) == []
+    # 全新 DB → 視窗內全補、由舊到新
+    assert plan_backfill_dates(available, set(), weeks=3) == ["20260618", "20260626", "20260703"]
+
+
+def test_get_existing_shareholder_dates(tmp_path):
+    """回傳 DB shareholder 表已有的週別日期（YYYYMMDD 集合），供 backfill 比對缺哪幾週。"""
+    import scrapers.shareholder as sh
+    db_path = str(tmp_path / "t.db")
+    con = duckdb.connect(db_path)
+    _make_table(con)
+    _insert(con, "2330", "2026-06-12", 40.0, 0)
+    _insert(con, "2330", "2026-06-26", 42.0, 0)
+    con.close()
+    assert sh.get_existing_shareholder_dates(db_path) == {"20260612", "20260626"}

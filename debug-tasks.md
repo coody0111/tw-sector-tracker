@@ -1,3 +1,32 @@
+## [2026-07-14] ✅ #7 缺週回補根治 + #8 清洗步驟寫進 code（Developer，收 Debugger 建議）
+
+### #7：`--backfill-shareholder` 改成「只補視窗內缺的那幾週」
+- 異動：`scrapers/shareholder.py`（新增 `get_existing_shareholder_dates()`、`plan_backfill_dates()`）、
+  `main.py::_backfill_shareholder()`。
+- 舊：`list(reversed(available[:weeks]))` 固定往回數 N 週、連 DB 已有的也重抓，中間缺的一週
+  （06-18）不在最新 N 週內就漏。新：`plan_backfill_dates(available, existing, weeks)` 只回傳
+  「視窗內 DB 還缺的那幾週」（由舊到新），06-18 只要落在視窗內就會被抓回、已有的不重抓。
+- 收尾改用 `recompute_all_history()`（原本只 `recompute_latest_streak`）——因為填的是**中間缺口**，
+  缺口後那週（06-26）要重新對到新補的 06-18，只重算最新週修不到它。
+- 新增測試 `test_plan_backfill_dates_only_missing_weeks_in_window`、`test_get_existing_shareholder_dates`。
+
+### 收 Debugger 建議（bug-reports.md）：清洗步驟寫進 code，不靠人工 SQL
+- `recompute_all_history()` **開頭先就地清髒值**：`UPDATE shareholder SET lv12_15_pct=NULL WHERE
+  lv12_15_pct >= _MAX_VALID_HOLDER_PCT`——不只計算時略過，**離群值本身也清成 NULL**。換機重跑
+  recompute 就自動洗乾淨、不用記得人工下 SQL。#8 測試加驗「100.0 那筆的 lv12_15_pct 被清成 NULL」。
+- 順帶移除迴圈裡多餘的 `>=99` guard（清洗後讀回是 NaN，既有 NaN guard 已涵蓋）。
+
+### 驗證 / 全專案
+- **全專案 195 passed**（+#7 兩個測試；#8 測試多一條清洗斷言）。純 code、機器無關。
+- ⚠️ 真正把 production DB 的 06-18 補回、假訊號洗掉，仍需在**有真實 DB 的那台**跑
+  `--backfill-shareholder 8`（現在會只補缺的、收尾自動全表重算＋清髒值）。
+
+### 大戶持倉待修清單全數收斂
+#1 缺週防護 ✅、#2/#4 NaN/離群值防護 ✅、#5 ✅、#6 ✅、Task5/6 ✅、**#7 ✅、#8 ✅（含清洗）**。
+剩下純資料操作（在有 DB 的那台跑 backfill/recompute）不是 code 問題。
+
+---
+
 ## [2026-07-14] ✅ #8 離群值 code 根治完成（Developer）
 
 - 異動：`scrapers/shareholder.py` + `tests/test_shareholder.py`

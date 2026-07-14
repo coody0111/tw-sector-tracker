@@ -311,26 +311,32 @@ def _update_insider_holdings() -> None:
 
 
 def _backfill_shareholder(weeks: int = 4) -> None:
-    """補齊過去 N 週的集保持股分散表。"""
-    from scrapers.shareholder import fetch_shareholder_weekly, save_to_db as sh_save, get_available_dates, recompute_latest_streak
+    """補齊最近 N 週視窗內、DB 還缺的集保持股分散表（只補缺的那幾週，不重抓已有的）。"""
+    from scrapers.shareholder import (
+        fetch_shareholder_weekly, save_to_db as sh_save, get_available_dates,
+        get_existing_shareholder_dates, plan_backfill_dates, recompute_all_history,
+    )
     init_db()
     stock_ids = pd.read_csv(UNIVERSE_PATH, dtype=str)["stock_id"].tolist()
     available = get_available_dates()
-    # available[0] 是最新週；save_to_db 內的週變化/連增減週數計算是拿「DB 裡目前最新一筆」
-    # 當作上一週比較基準，所以這裡務必由舊到新依序寫入，否則會拿較新的週去對較舊的週算出
-    # 方向相反、毫無意義的 week_chg/streak。
-    target_dates = list(reversed(available[:weeks]))
-    logger.info("=== 集保補齊 %d 週（由舊到新）：%s ===", len(target_dates), target_dates)
+    existing = get_existing_shareholder_dates()
+    # #7：只補「最近 weeks 週視窗內 DB 還缺的那幾週」，不再固定往回數 N 週重抓已有的；
+    # 中間缺的一週（例 06-18）只要落在視窗內就會被抓回。由舊到新寫入（save_to_db 的
+    # week_chg/streak 拿「DB 現有最新一筆」當基準，順序不能反）。
+    target_dates = plan_backfill_dates(available, existing, weeks)
+    if not target_dates:
+        logger.info("=== 集保：最近 %d 週視窗內無缺週，無需回補 ===", weeks)
+        return
+    logger.info("=== 集保回補缺週（由舊到新）：%s ===", target_dates)
     for d_str in target_dates:
         logger.info("  抓 %s ...", d_str)
         rows = fetch_shareholder_weekly(stock_ids, date_str=d_str)
         n = sh_save(rows)
         logger.info("  %s 寫入 %d 筆", d_str, n)
-    # 如果之前已經有更新的一週先寫入（--update-shareholder 抓最新週跟這裡補歷史是
-    # 分開跑的兩條路徑），那一週當初可能找不到更舊的週當基準，week_chg/streak 被
-    # 記成 NULL/0；現在歷史補齊了，回頭重算一次讓它們接上正確的基準。
-    updated = recompute_latest_streak()
-    logger.info("=== 集保補齊完成，回補後重算最新週 streak：%d 檔 ===", updated)
+    # 填的是中間缺口（例 06-18），缺口後那週（06-26）原本對到更舊的週、且被缺週防護標成
+    # NULL；現在缺口補上了，全表重算一次讓每筆 week_chg/streak 接回正確的相鄰週基準。
+    updated = recompute_all_history()
+    logger.info("=== 集保回補完成，全表重算 week_chg/streak：%d 筆 ===", updated)
 
 
 def _full_rebuild(months: int = 19, workers: int = 3) -> None:

@@ -1,3 +1,61 @@
+## [2026-07-14] ✅ 回測框架 Task 4/5/6：扣成本 + regime 分段 + print_summary 升級（plan: docs/superpowers/plans/2026-07-14-backtest-framework.md Task 4-6）
+
+一次做完剩下三個 Task（都是小改動、彼此接續，分開三個 commit 但一起送驗）：
+
+- **Task 4**：`run_backtest(..., cost_pct: float = 0.6)`——`ret_H` 算完後扣一次來回成本（四捨五入到小數2位），
+  `excess_H` 用「已扣成本的 ret」再減 `bench_H`。
+- **Task 5**：新增 `_regime_at(idx_map, sorted_dates, d_ts, lookback=20, up=3.0, down=-3.0)`，用大盤等權指數
+  回看 20 個交易日的累積報酬分「多頭/盤整/空頭」（資料不足回 `"?"`）；`run_backtest` 每列多一個 `regime` 欄位。
+- **Task 6**：整個重寫 `print_summary()`——舊版是綁死「巨量換手」單一 scanner 的欄位（`vol_days`/`vol_multiple`/
+  `entry_close`/`change_pct`/`ret_d1`...），新版改吃 Task 1-5 產出的通用欄位（`ret_H`/`excess_H`/`no_fill`/
+  `regime`），預設 `skip_no_fill=True` 會先剔除漲停買不到的訊號再統計，並依 `多頭/盤整/空頭` 分段各印一次
+  勝率(超額>0)/平均超額/平均報酬/期望值。空 DataFrame 安全處理，不 crash。
+
+三個 Task 全部照 plan 裡已經寫好的程式碼實作，沒有偏離設計。
+
+### 範圍
+- **plan 到此全部做完**（Task 1-6 都已落地），剩下的是「實跑驗收」（plan 文件最後一節，拿
+  `scan_volume_turnover` 包成 scanner 對真實 `data/screener.db` 實際跑一次，看巨量換手在各 regime 的
+  超額報酬），這不是 Task、是驗收步驟，而且**牽涉真的跑資料**——照 CLAUDE.md「不要自己執行程式跑資料」，
+  這步留給 Cody 自己開 terminal 跑。
+- `screener/backtest.py` 頂部 `from screener.signals import scan_volume_turnover` 這行 import 目前在檔案內
+  沒有任何地方使用（是 Task 1 就留著、給「實跑驗收」示範用的），是刻意保留、不是遺漏，plan 裡有明講。
+
+### 測試
+沒有自己跑 pytest（照專案規則留給 Debugger）。三個 Task 各自對應的測試邏輯有手動過一次：
+- Task 4：`test_run_backtest_deducts_cost`——2330 D+1→D+1+5 原始報酬 10.0%，扣 0.6% 成本後應為 9.4%，
+  跟斷言一致。也確認了既有的 `test_run_backtest_excess_return_vs_market`（Task 2 的測試，只驗相對關係
+  不驗絕對數值）在預設 `cost_pct=0.6` 下**仍然成立**，不會因為這次改動而回歸。
+- Task 5：`test_regime_at_classifies_market_trend`——大盤連續 25 天每天 +0.5%，回看 20 日累積約 +10.5%
+  ≥ up(3.0) 門檻，應判「多頭」，跟斷言一致。
+- Task 6：`test_print_summary_runs_with_new_columns`——兩筆訊號（一筆 no_fill=True 應被預設剔除），輸出
+  應含「超額」字樣與「多頭」分段字樣；空 df 呼叫不噴例外。手動推演過整個資料流，兩個 assert 跟空 df case
+  都對得上。
+
+### 請 Debugger 驗證
+- [ ] `python -m pytest tests/test_backtest.py -q` 全過（累計到這裡整個檔案應該有 9 個測試）
+- [ ] 全專案 `pytest -q` 沒有其他消費端因為 `run_backtest`/`print_summary` 簽章變動而壞掉（目前搜尋沒有其他
+  程式碼呼叫這兩個函式，應該無影響，但麻煩複查，尤其 `print_summary` 是**整個重寫**、舊呼叫端如果假設
+  `vol_days`/`vol_multiple` 等舊欄位會直接壞）
+- [ ] `cost_pct` 扣成本的時機是否合理：目前是「先扣成本得到最終 `ret_H`，`excess_H` 用扣完成本的 `ret_H` 減
+  `bench_H`」，即 bench（大盤基準）本身不扣成本——這是 plan 裡的既定設計（「注意：ret 先扣成本，excess = 已扣
+  成本的 ret − bench」），如果覺得不合理麻煩提出來討論，不要當 bug 直接回報
+- [ ] `_regime_at` 的 `lookback=20`/`up=3.0`/`down=-3.0` 是草案切點（跟大盤分級儀表板的邏輯類似但獨立一份），
+  尚未跟 `screener/patterns.py` 或既有的 `classify_market_regime`（如果有的話）比對是否該共用同一套門檻，
+  這點值得跟 Cody 確認要不要統一，不算本次範圍內的 bug
+
+### 特別注意
+- `print_summary` 是**破壞性改寫**（不是加欄位）：舊版用的欄位（`vol_days`/`entry_close`/`change_pct`/
+  `ret_d1`/`ret_d3`/`ret_d5`/`win_d1`...）新版完全不認得。如果現在或未來有其他程式碼手動組 DataFrame 塞給
+  `print_summary()` 用舊欄位格式，會直接壞掉或印不出東西（`_block()` 對缺欄位是靜默 `continue`，不會噴例外，
+  但也不會印出任何東西，容易誤以為「沒訊號」）。目前搜尋全專案沒有其他呼叫端，風險應該只存在於之後手動跑
+  `print_summary` 時要記得餵新格式。
+- Task 4-6 完成後，`docs/superpowers/plans/2026-07-14-backtest-framework.md` 的 Task 1-6 checkbox 都還是
+  `[ ]` 未勾（跟 Task 1/2/3 之前的慣例一致，這個專案沒有回頭勾 plan 文件裡的 checkbox 的習慣，純粹用
+  `debug-tasks.md` 追蹤，不是漏勾）。
+
+---
+
 ## [2026-07-14] ✅ 回測框架 Task 3：漲停買不到剔除 no_fill（plan: docs/superpowers/plans/2026-07-14-backtest-framework.md Task 3）
 
 `run_backtest()` 新增 `limit_up_skip: bool = True` 參數，每列多一個 `no_fill` bool 欄位：

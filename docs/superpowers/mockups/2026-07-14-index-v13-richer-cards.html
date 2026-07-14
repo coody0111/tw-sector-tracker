@@ -129,7 +129,7 @@ body{
   <span><span class="dot" style="background:var(--tier-superweak)"></span>超弱＝轉弱+連跌</span>
 </div>
 <div class="heatgrid" id="heatgrid"></div>
-<div class="legend-note">⚠️ 法人連買天數／量比是這版示範用的合理範例數值，還沒接真實 `institutional`/`daily_prices` 查詢，正式版才會是真實資料。動能狀態標籤的判斷規則也是這次先訂的草案，跟 `scan_momentum_health` 的五級分類邏輯呼應但沒有直接共用程式碼，之後要接線時應該讓族群層級的分類重用同一套規則常數，不要各寫一份。</div>
+<div class="legend-note">⚠️ 法人連買天數／量比是這版示範用的合理範例數值，還沒接真實 `institutional`/`daily_prices` 查詢，正式版才會是真實資料。動能狀態標籤的判斷規則也是這次先訂的草案，跟 `scan_momentum_health` 的五級分類邏輯呼應但沒有直接共用程式碼，之後要接線時應該讓族群層級的分類重用同一套規則常數，不要各寫一份。<br>⚠️ 「上週→本週」是<b>滾動 5 個交易日</b>的複利累積漲跌幅，不是自然週一到週五（例如今天週三，「本週」會往前吃到上上週四、五，不是只算這週一到週三）——跟現有 `get_rolling_returns`/`cum5` 的窗口慣例一致。標籤字面容易被誤讀成日曆週，正式版可能需要改標籤文字或加 tooltip 說明。</div>
 
 <script>
 // name, today_pct, up, down, last_week, this_week, streak(連漲+/連跌-天數), foreign_streak, trust_streak, vol_ratio
@@ -219,7 +219,7 @@ document.getElementById('heatgrid').innerHTML = GROUPS.map(([name,pct,up,down,lw
     <div class="ht-tier" style="background:${TIER_COLOR[tier.key]}22;color:${TIER_COLOR[tier.key]}">
       <span class="dot" style="background:${TIER_COLOR[tier.key]}"></span>${tier.label}
     </div>
-    <div class="ht-streak">${streakTxt}<span class="cnt">　▲${up}檔 ▼${down}檔</span></div>
+    <div class="ht-streak">${streakTxt}<span class="cnt">　<span style="color:var(--up)">▲${up}檔</span> <span style="color:var(--down)">▼${down}檔</span></span></div>
     ${badges.length ? `<div class="ht-badges">${badges.join('')}</div>` : ''}
     <div class="ht-week">
       <span class="lbl">上週→本週</span>

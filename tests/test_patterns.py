@@ -659,3 +659,71 @@ def test_calc_accumulation_score_handles_none_holder_net_lots():
     assert result["weakening"] is False
     assert result["holder_net_lots"] is None
     assert result["score"] > 0, "holder_net_lots=None 不該讓 holder_pts 被歸零，sh_streak 仍要計分"
+
+
+from screener.patterns import (
+    _shareholder_history_index, _shareholder_as_of,
+    _recent_return_index, _recent_return_as_of,
+)
+
+
+def _make_shareholder_db(tmp_path, rows):
+    """rows: list of (stock_id, 'YYYY-MM-DD', streak, lv12_shares, lv15_shares)"""
+    db = str(tmp_path / "sh.db")
+    con = duckdb.connect(db)
+    con.execute("""
+        CREATE TABLE shareholder (
+            stock_id VARCHAR, date DATE, lv12_15_pct DOUBLE, lv12_15_cnt INTEGER,
+            lv12_15_shares BIGINT, total_shares BIGINT, week_chg DOUBLE, streak INTEGER,
+            lv12_shares BIGINT, lv12_pct DOUBLE, lv15_shares BIGINT, lv15_pct DOUBLE
+        )
+    """)
+    con.executemany(
+        "INSERT INTO shareholder (stock_id, date, streak, lv12_shares, lv15_shares) VALUES (?, ?, ?, ?, ?)",
+        [(s, pd.to_datetime(d).date(), streak, lv12, lv15) for (s, d, streak, lv12, lv15) in rows],
+    )
+    con.close()
+    return db
+
+
+def test_shareholder_as_of_uses_historical_week_not_latest(tmp_path):
+    """驗證「as of 某日」查的是那天當下最新的一週資料，不是資料庫裡整體最新一筆
+    （最容易犯的 bug：forward-fill 方向抓錯，見設計 spec 測試策略#2）。"""
+    rows = [
+        ("2330", "2026-05-01", 1, 100000, 50000),   # 第1週
+        ("2330", "2026-05-08", 2, 120000, 55000),   # 第2週：lv12_chg=+20000, lv15_chg=+5000
+        ("2330", "2026-05-15", 3, 150000, 40000),   # 第3週：lv12_chg=+30000, lv15_chg=-15000
+    ]
+    db = _make_shareholder_db(tmp_path, rows)
+    index = _shareholder_history_index(db)
+
+    streak, holder_net_lots = _shareholder_as_of(index, "2330", pd.Timestamp("2026-05-10"))
+    assert streak == 2
+    assert holder_net_lots == 25000  # 用第2週的變化，不是第3週的 15000
+
+    streak1, holder1 = _shareholder_as_of(index, "2330", pd.Timestamp("2026-05-03"))
+    assert streak1 == 1
+    assert holder1 is None  # 第1週沒有前一週可比
+
+    streak0, holder0 = _shareholder_as_of(index, "2330", pd.Timestamp("2026-04-01"))
+    assert streak0 is None
+    assert holder0 is None  # 所有資料之前，查無資料
+
+
+def test_recent_return_as_of_uses_only_past_data(tmp_path):
+    """近5日報酬「as of d_ts」只能用 <= d_ts 的收盤價，不能偷看未來
+    （回測最基本的 no-lookahead 要求，見設計 spec 資料索引細節段落）。"""
+    db = str(tmp_path / "px.db")
+    con = duckdb.connect(db)
+    con.execute("CREATE TABLE daily_prices (stock_id VARCHAR, date DATE, close DOUBLE)")
+    rows = [("2330", f"2026-05-{d:02d}", 100.0 + d) for d in range(1, 11)]
+    con.executemany("INSERT INTO daily_prices VALUES (?, ?, ?)",
+                     [(s, pd.to_datetime(d).date(), c) for (s, d, c) in rows])
+    con.close()
+
+    index = _recent_return_index(db)
+    ret = _recent_return_as_of(index, "2330", pd.Timestamp("2026-05-06"), days=5)
+    assert ret == round((106.0 - 101.0) / 101.0 * 100, 2)
+
+    ret_insufficient = _recent_return_as_of(index, "2330", pd.Timestamp("2026-05-03"), days=5)
+    assert ret_insufficient is None

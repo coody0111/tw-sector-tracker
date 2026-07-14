@@ -1444,6 +1444,86 @@ def _accumulation_label(score: int, price_confirmed: bool, weakening: bool) -> s
     return "整理"
 
 
+def _shareholder_history_index(db_path: str) -> dict:
+    """
+    讀一次 shareholder 全表，依 stock_id 分組、按 date 排序，計算每筆的
+    lv12_chg/lv15_chg（跟同股前一筆比較，用 pandas diff，不逐股查 DB），
+    回傳 {stock_id: [{"date":..., "streak":..., "lv12_chg":..., "lv15_chg":...}, ...]}。
+    """
+    con = duckdb.connect(db_path, read_only=True)
+    df = con.execute(
+        "SELECT stock_id, date, streak, lv12_shares, lv15_shares FROM shareholder ORDER BY stock_id, date"
+    ).df()
+    con.close()
+
+    df["date"] = pd.to_datetime(df["date"])
+    index = {}
+    for sid, grp in df.groupby("stock_id"):
+        grp = grp.sort_values("date").reset_index(drop=True)
+        grp["lv12_chg"] = grp["lv12_shares"].diff()
+        grp["lv15_chg"] = grp["lv15_shares"].diff()
+        rows = []
+        for r in grp.itertuples():
+            rows.append({
+                "date": r.date,
+                "streak": None if pd.isna(r.streak) else int(r.streak),
+                "lv12_chg": None if pd.isna(r.lv12_chg) else int(r.lv12_chg),
+                "lv15_chg": None if pd.isna(r.lv15_chg) else int(r.lv15_chg),
+            })
+        index[str(sid)] = rows
+    return index
+
+
+def _shareholder_as_of(index: dict, stock_id: str, d_ts) -> tuple:
+    """回傳 <= d_ts 的最新一筆大戶資料 (streak, holder_net_lots)；查無資料回 (None, None)。"""
+    rows = index.get(stock_id, [])
+    candidates = [r for r in rows if r["date"] <= d_ts]
+    if not candidates:
+        return None, None
+    latest = candidates[-1]
+    streak = latest["streak"]
+    if latest["lv12_chg"] is None or latest["lv15_chg"] is None:
+        holder_net_lots = None
+    else:
+        holder_net_lots = latest["lv12_chg"] + latest["lv15_chg"]
+    return streak, holder_net_lots
+
+
+def _recent_return_index(db_path: str) -> dict:
+    """
+    讀一次 daily_prices 全表，依 stock_id 分組、按 date 排序，回傳
+    {stock_id: [(date, close), ...]}，供 _recent_return_as_of() 查詢。
+    """
+    con = duckdb.connect(db_path, read_only=True)
+    df = con.execute(
+        "SELECT stock_id, date, close FROM daily_prices ORDER BY stock_id, date"
+    ).df()
+    con.close()
+
+    df["date"] = pd.to_datetime(df["date"])
+    index = {}
+    for sid, grp in df.groupby("stock_id"):
+        grp = grp.sort_values("date")
+        index[str(sid)] = list(zip(grp["date"], grp["close"]))
+    return index
+
+
+def _recent_return_as_of(index: dict, stock_id: str, d_ts, days: int = 5):
+    """
+    回傳 <= d_ts 的最近 days 個交易日累積報酬%（收盤價比值法，跟
+    screener/database.py::get_rolling_returns() 同公式，但支援任意歷史日期）。
+    資料不足或除零回 None。
+    """
+    rows = [(d, c) for d, c in index.get(stock_id, []) if d <= d_ts]
+    if len(rows) < days + 1:
+        return None
+    c0 = rows[-1][1]
+    cn = rows[-1 - days][1]
+    if c0 is None or cn is None or pd.isna(c0) or pd.isna(cn) or cn == 0:
+        return None
+    return round((c0 - cn) / cn * 100, 2)
+
+
 def backtest_patterns(days: int = 120, db_path: str = _DB_PATH) -> None:
     """
     跑過去 N 個交易日的形態掃描，輸出各形態 3/5/10 日勝率 + 平均報酬。

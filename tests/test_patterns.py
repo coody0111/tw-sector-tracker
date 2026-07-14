@@ -426,6 +426,7 @@ def test_scan_patterns_returns_list():
 
 import duckdb
 from screener.patterns import calc_composite_score, scan_and_track
+from screener.patterns import calc_accumulation_score
 
 
 def _base_score_kwargs(**overrides):
@@ -459,6 +460,23 @@ def test_calc_composite_score_margin_divergence_overrides_alert_pct_branch():
     score = calc_composite_score(**_base_score_kwargs(margin_divergence=True, margin_alert_pct=20.0))
     baseline = calc_composite_score(**_base_score_kwargs())
     assert score == baseline - 15
+
+
+def _base_acc_kwargs(**overrides):
+    kwargs = dict(
+        foreign_streak=0, trust_streak=0, sh_streak=0,
+        holder_net_lots=0, recent_return=1.0,
+    )
+    kwargs.update(overrides)
+    return kwargs
+
+
+def test_calc_accumulation_score_only_counts_buying_not_selling():
+    """只算進貨、不猜出貨：連賣（streak<0）不倒扣分，foreign_pts 應為 0（不是負數）。"""
+    selling = calc_accumulation_score(**_base_acc_kwargs(foreign_streak=-5))
+    baseline = calc_accumulation_score(**_base_acc_kwargs(foreign_streak=0))
+    assert selling["score"] == baseline["score"], "連賣(-5)跟不買(0)的外資貢獻應該一樣，都是 0 分，不倒扣"
+    assert selling["foreign_buy_days"] == 0
 
 
 def _seed_scan_and_track_db(db_path):

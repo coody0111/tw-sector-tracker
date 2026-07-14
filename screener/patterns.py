@@ -1361,6 +1361,65 @@ def calc_composite_score(
     return max(0, min(100, score))
 
 
+def calc_accumulation_score(
+    foreign_streak: int,
+    trust_streak: int,
+    sh_streak: int | None,
+    holder_net_lots: int | None,
+    recent_return: float | None,
+) -> dict:
+    """
+    進貨分（法人進貨強度綜合分）0-100，只算進貨、不猜出貨（連賣不倒扣分）。
+    價格閘門：法人在買但價格沒動 = 外強中乾，分數打對折（籌碼是配角，見設計 spec
+    docs/superpowers/specs/2026-07-14-accumulation-score-design.md）。
+
+    純函式：不連 DB、不依賴 UI，呼叫端已從 DB 撈好純量餵進來。
+
+    回傳 dict：
+        score            進貨分 0-100
+        foreign_buy_days 外資連買日數（max(foreign_streak, 0)）
+        trust_buy_days   投信連買日數（max(trust_streak, 0)）
+        holder_net_lots  大戶當週淨增減張數（可負，原樣回傳供消費端顯示）
+        price_confirmed  bool，價格是否 confirm 進貨
+        weakening        bool，進貨轉弱訊號
+        label            '進貨'/'整理'/'轉弱'，導出規則見 _accumulation_label()
+    """
+    foreign_buy_days = max(foreign_streak, 0)
+    trust_buy_days = max(trust_streak, 0)
+    sh_buy_weeks = max(sh_streak, 0) if sh_streak is not None else 0
+
+    foreign_pts = min(foreign_buy_days * 8, 40)
+    trust_pts = min(trust_buy_days * 6, 30)
+    holder_pts = min(sh_buy_weeks * 7, 20)
+
+    weakening = (foreign_streak <= 0 and trust_streak <= 0) or (
+        holder_net_lots is not None and holder_net_lots < 0
+    )
+    if weakening:
+        holder_pts = 0
+
+    accumulation = foreign_pts + trust_pts + holder_pts
+
+    price_confirmed = recent_return is not None and recent_return > 0
+    gate = 1.0 if price_confirmed else 0.5
+
+    score = round(min(accumulation, 100) * gate)
+
+    return {
+        "score": score,
+        "foreign_buy_days": foreign_buy_days,
+        "trust_buy_days": trust_buy_days,
+        "holder_net_lots": holder_net_lots,
+        "price_confirmed": price_confirmed,
+        "weakening": weakening,
+        "label": _accumulation_label(score, price_confirmed, weakening),
+    }
+
+
+def _accumulation_label(score: int, price_confirmed: bool, weakening: bool) -> str:
+    return "整理"  # 暫時 stub，Task 3 補完整導出規則
+
+
 def backtest_patterns(days: int = 120, db_path: str = _DB_PATH) -> None:
     """
     跑過去 N 個交易日的形態掃描，輸出各形態 3/5/10 日勝率 + 平均報酬。

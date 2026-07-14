@@ -168,40 +168,25 @@ master 與 debug 曾各自長出獨立 commit → 分岔成 Y 形，要手動解
 
 ---
 
-## 🖥️ 換平台開工鐵律（筆電 ⇄ 桌電，2026-07-14 定）
+## 🖥️ 換平台開工（照跑，別想）
 
-換到另一台機器開工，**第一件事就是強制把 code 同步到 origin 最新**，不要客氣：
+先確認 debug 沒有未 push 的 commit（有就先同步回 master + push），然後：
 
 ```bash
-git -C <master worktree> fetch origin
-git -C <master worktree> reset --hard origin/master   # 本地若只有 cron 產出 commit，直接丟
-git merge --ff-only master                            # debug worktree 跟上
-cp CLAUDE-debugger.md CLAUDE.md                       # 重建本地身分檔（gitignored、不會自己來）
+D=~/Desktop/tw-sector-tracker          # master worktree
+git -C $D fetch origin
+git -C $D reset --hard origin/master   # cron 的 update: sector performance 產出 commit 直接丟
+git merge --ff-only master             # 在 debug worktree 跑，跟上 master
+cp CLAUDE-debugger.md CLAUDE.md        # 重建身分檔（gitignored，不會自己來）
 ```
 
-- 本地 master 常會有 cron 自動長出來的 `update: sector performance` commit（純 `docs/*.html`
-  產出檔），它會擋掉 `pull --ff-only`。那些 HTML 下次跑 `main.py` 就重生，**沒有保留價值 →
-  直接 reset 丟掉**（保險起見先 `git branch backup-xxx <sha>` 留個 ref）。
+- 只 reset debug 不夠——master worktree 也要一起，否則 cron 從舊點長 commit 又分岔。
+- debug 資料夾**不能** `git checkout master`（被另一個 worktree 佔用）；要動 master 一律 `git -C $D`。
 
-**在 debug 資料夾直接強制 reset 可不可以？可以，但兩個前提：**
-1. **先確認 debug 沒有還沒同步回 master 的 commit**。在 debug 資料夾下
-   `git reset --hard origin/master` 動到的是 **`debug` 分支**——你剛寫還沒 push 的
-   `bug-reports.md` commit 會直接消失。順序永遠是：**先把報告 commit 同步回 master + push，
-   再強制對齊**。
-2. **master worktree 那邊也要一起同步**。只 reset debug 的話，master worktree 的本地 master
-   還停在舊 commit，cron 會繼續從那個舊點長 commit → 下次又分岔。
-- 硬限制：**debug 資料夾裡不能 `git checkout master`**（master 已被另一個 worktree 佔用，git 會拒絕）。
-  要動 master 一律用 `git -C <master worktree 路徑>`。
-
-### ⚠️ 但 `git pull` **拉不到資料** —— 最容易搞錯的一點
-- **`data/`（含 `screener.db`、`daily_prices/`）是 gitignored、不在 git 裡。**
-- 所以「桌電已經把資料修好了」**不代表**筆電的資料是對的，反之亦然。
-  **程式碼修好 ≠ 資料修好**，這是兩件獨立的事。
-- 一次性的資料修復（例如 `recompute_all_history()`、清洗髒值的 UPDATE）**每台都要各自跑一次**。
-- 驗「資料類」修復時，一定要在**當下這台**實查 DB，不能只信 `debug-tasks.md` 的「已修」勾選，
-  也不能因為另一台驗過就當作過了。
-- 實例（2026-07-14 踩到）：Developer 在桌電修好 `week_chg` 邏輯並跑了 recompute，筆電 `git pull`
-  之後 DB **完全沒變**——3724 筆基準錯、2380 假訊號仍掛在大戶減持榜首。
+### ⚠️ `git pull` 拉不到 `data/`（gitignored）
+**程式碼修好 ≠ 資料修好。** 另一台跑過的資料修復（`recompute_all_history()`、清洗髒值的 UPDATE）
+**這台要再跑一次**。驗資料類修復，一律實查**當下這台**的 DB，不採信 `debug-tasks.md` 的勾選、
+也不因另一台驗過就放行。（踩雷實例見 `bug-reports.md` 2026-07-14。）
 
 ---
 

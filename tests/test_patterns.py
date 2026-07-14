@@ -479,6 +479,32 @@ def test_calc_accumulation_score_only_counts_buying_not_selling():
     assert selling["foreign_buy_days"] == 0
 
 
+def test_calc_accumulation_score_price_gate_halves_score_when_not_confirmed():
+    """同樣的進貨強度，recent_return<=0（未 confirm）分數應是 confirm 時的一半，
+    price_confirmed 旗標要對應正確。"""
+    confirmed = calc_accumulation_score(**_base_acc_kwargs(foreign_streak=5, recent_return=1.0))
+    not_confirmed = calc_accumulation_score(**_base_acc_kwargs(foreign_streak=5, recent_return=-1.0))
+
+    assert confirmed["price_confirmed"] is True
+    assert not_confirmed["price_confirmed"] is False
+    assert not_confirmed["score"] == round(confirmed["score"] / 2)
+
+
+def test_calc_accumulation_score_recent_return_none_is_not_confirmed():
+    """recent_return 為 None（新股/資料不足）要視為未 confirm，不是當作 confirmed。"""
+    result = calc_accumulation_score(**_base_acc_kwargs(foreign_streak=5, recent_return=None))
+    assert result["price_confirmed"] is False
+
+
+def test_calc_accumulation_score_caps_foreign_trust_holder_points():
+    """封頂：foreign_streak=10 時 foreign_pts 應封頂在 40（不是 10*8=80）。
+    用 foreign_streak=5(40分,封頂) vs foreign_streak=10(仍40分,封頂) 比較分數相同來驗證。"""
+    at_cap = calc_accumulation_score(**_base_acc_kwargs(foreign_streak=5, recent_return=1.0))
+    over_cap = calc_accumulation_score(**_base_acc_kwargs(foreign_streak=10, recent_return=1.0))
+    assert at_cap["score"] == over_cap["score"], "foreign_streak 超過封頂對應的日數，分數不該再增加"
+    assert over_cap["foreign_buy_days"] == 10, "foreign_buy_days 本身如實回傳，只有算分時封頂"
+
+
 def _seed_scan_and_track_db(db_path):
     """建立 scan_and_track() 需要的最小 schema，並預先塞一筆 'active' 的
     pattern_signals 訊號（繞過真的觸發形態偵測器的複雜度），讓 stock_id

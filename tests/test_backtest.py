@@ -45,6 +45,44 @@ def test_run_backtest_accepts_any_scanner(tmp_path):
     assert "ret_5" in df.columns
 
 
+def _make_prices_with_change(tmp_path, rows):
+    db = str(tmp_path / "bt2.db")
+    con = duckdb.connect(db)
+    con.execute("CREATE TABLE daily_prices (stock_id VARCHAR, date DATE, open DOUBLE, close DOUBLE, change_pct DOUBLE)")
+    prev = {}
+    ins = []
+    for (s, d, o, c) in rows:
+        chg = 0.0 if s not in prev else round((c/prev[s]-1)*100, 4)
+        prev[s] = c
+        ins.append((s, pd.to_datetime(d).date(), o, c, chg))
+    con.executemany("INSERT INTO daily_prices VALUES (?,?,?,?,?)", ins)
+    con.close()
+    return db
+
+
+def test_run_backtest_excess_return_vs_market(tmp_path):
+    # 2330 D+1→D+1+5 漲 10%；同期大盤(這裡只有 2330 一檔→大盤=它自己)→ excess≈0
+    # 再加一檔 9999 全程不動，把大盤拉低，讓 2330 有正 excess
+    rows = []
+    for d in range(1, 10):
+        rows.append(("2330", f"2026-05-{d:02d}", 100.0, 100.0))
+        rows.append(("9999", f"2026-05-{d:02d}", 50.0, 50.0))
+    # 2330 進場日(05-02)開盤100、出場日(05-07)收110
+    rows = [r for r in rows if not (r[0]=="2330" and r[1] in ("2026-05-02","2026-05-07"))]
+    rows += [("2330","2026-05-02",100.0,100.0), ("2330","2026-05-07",100.0,110.0)]
+    # change_pct：給 2330 出場日 +10、其餘 0，讓大盤等權指數只被 2330 的 +10 稍微拉抬
+    db = _make_prices_with_change(tmp_path, rows)
+
+    def scanner(ds, dbp):
+        return [{"stock_id":"2330","close":100.0}] if ds=="2026-05-01" else []
+
+    df = run_backtest(scanner, db_path=db, horizons=(5,))
+    r = df.iloc[0]
+    assert r["bench_5"] > 0                 # 大盤同期>0(2330 自己的漲幅也拉抬等權指數)
+    assert r["excess_5"] < r["ret_5"]      # 扣掉大盤後 < 原始報酬
+    assert abs(r["excess_5"] - (r["ret_5"] - r["bench_5"])) < 1e-6  # cost 之後仍成立
+
+
 def test_run_backtest_preserves_entry_price_when_later_horizon_lacks_data(tmp_path):
     """回歸：entry_price 不該被『資料不夠導致某天期算不出來』的 horizon 覆蓋成 None。
     只給 8 個交易日（05-01 訊號日 + 7 天），horizons=(5,14) 時 h=5 資料夠、h=14 不夠——

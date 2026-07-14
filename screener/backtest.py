@@ -54,6 +54,32 @@ def _forward_return(close_map, open_map, stock_dates, sid, d_ts, horizon):
     return entry, round((exit_close - entry) / entry * 100, 2)
 
 
+def _market_index(db_path: str) -> dict:
+    """
+    大盤等權指數：daily_prices.change_pct 逐日平均、(1+avg/100) 連乘出指數 level。
+    """
+    con = duckdb.connect(db_path, read_only=True)
+    df = con.execute(
+        "SELECT date, AVG(change_pct) AS c FROM daily_prices GROUP BY date ORDER BY date"
+    ).df()
+    con.close()
+    df["date"] = pd.to_datetime(df["date"])
+    df["idx"] = (1 + df["c"].fillna(0) / 100).cumprod()
+    return dict(zip(df["date"], df["idx"]))
+
+
+def _bench_return(idx_map, stock_dates, sid, d_ts, horizon):
+    """大盤等權指數在該股 D+1→D+1+horizon 同一進出日的報酬%。"""
+    future = [t for t in stock_dates.get(sid, []) if t > d_ts]
+    if len(future) < horizon + 1:
+        return None
+    e, x = future[0], future[horizon]
+    ie, ix = idx_map.get(e), idx_map.get(x)
+    if ie is None or ix is None or ie == 0:
+        return None
+    return round((ix / ie - 1) * 100, 2)
+
+
 def run_backtest(
     scanner: Callable[[str, str], List[Dict[str, Any]]],
     db_path: str = _DB_PATH,
@@ -71,9 +97,12 @@ def run_backtest(
     Returns
     -------
     DataFrame，每列一個訊號，含：
-        signal_date, stock_id, entry_price, ret_5, ret_10, ret_14 (依 horizons 而定)
+        signal_date, stock_id, entry_price,
+        ret_5/bench_5/excess_5, ret_10/..., ret_14/...（依 horizons 而定）
+        bench_H 為大盤等權指數同進出區間報酬%，excess_H = ret_H - bench_H
     """
     close_map, open_map, stock_dates = _build_price_index(db_path)
+    idx_map = _market_index(db_path)
     con = duckdb.connect(db_path, read_only=True)
     dates = [str(r[0])[:10] for r in con.execute(
         "SELECT DISTINCT date FROM daily_prices ORDER BY date").fetchall()]
@@ -93,6 +122,10 @@ def run_backtest(
                 if entry is not None:
                     row["entry_price"] = entry
                 row[f"ret_{h}"] = ret
+                bench = _bench_return(idx_map, stock_dates, sid, d_ts, h)
+                row[f"bench_{h}"] = bench
+                row[f"excess_{h}"] = (round(ret - bench, 2)
+                                      if ret is not None and bench is not None else None)
             rows.append(row)
     return pd.DataFrame(rows)
 

@@ -1,3 +1,37 @@
+## [2026-07-14] 📋 回家接續清單（籌碼面重構 / 回測）— Cody 回家照這個做
+
+> 今天下班前的完整交接。回家：`git pull`（強制版：`git fetch && git reset --hard origin/master`），
+> `data/` 拉不到（gitignored、在原本那台）。所有 spec/plan 都已 push、在 git 裡看得到。
+
+### ✅ 今天已完成（都在 origin，可放心）
+- **大戶持倉待修 #1–#8 全數完成**（缺週防護 / 離群值 / NaN guard / 缺週回補 / recompute 開頭清髒值），全專案 **195 passed**。
+- **籌碼面重構 brainstorming → 產出設計文件**（見下）。
+
+### 📄 新產出的 spec / plan（回家先 review）
+1. `docs/superpowers/specs/2026-07-14-accumulation-score-design.md` — **進貨分**（含三族群實證校準 + 大盤 regime caveat）
+2. `docs/superpowers/specs/2026-07-14-backtest-framework-design.md` — **回測地基**（含 regime 分段）
+3. `docs/superpowers/plans/2026-07-14-backtest-framework.md` — **回測地基 plan（6 Task，待執行）**
+
+### 🎯 回家開工順序（建議）
+1. **review 上面 3 份文件**（有要改先改）。
+2. **執行「回測地基」plan**（6 Task，`docs/superpowers/plans/2026-07-14-backtest-framework.md`）：
+   Task1 一般化 scanner+D+1進場 → Task2 大盤等權指數+超額報酬 → Task3 漲停剔除 → Task4 扣成本 →
+   Task5 regime 標記 → Task6 print_summary 升級。建議 **subagent 驅動**（每 Task 一個）。
+   - 做完「實跑驗收」：拿真實 8 年 `data/screener.db` 跑巨量換手，看各 regime 有沒有 edge。
+3. **拆「進貨分」plan**（accumulation-score spec 還沒拆 plan）→ 再實作。
+
+### 🧠 今天釘死的關鍵洞見（實證，影響設計）
+- **籌碼 = 配角（逆轟 50 分）**：三族群個案（功率/被動/載板）報酬龍頭（統懋+149/華容+81/百容+114）**法人籌碼幾乎全 0**；投信重壓的反而平庸；大戶補到部分法人漏的（富鼎）但抓不到最猛的。
+- **→ 進貨分絕不單獨選股/亮燈**，價格/動能為主、籌碼加分確認；三來源都留；不倒扣連賣；多邊同買加權（待回測）。
+- **⚠️ 但這是單一 regime**（5/26→7/14 全市場+0.8% 輪動市、無空頭樣本）→ 籌碼在空頭可能更值錢；回測要按 regime 分段。
+
+### ❓ 待決定 / 未查
+- `momentum-health-signal`（07-02 spec+plan）**到底做了沒**？那是筆記 B2「出場三原則」（CP 值最高的保命側），待查。
+- 逆轟藍圖**個股層 B1–B5**（均線 5/10/60、出場、RS、連續漲停）整片還沒動。
+- `open` 開盤價還被 import 丟掉（`screener/database.py:179` `NULL::DOUBLE AS open`）→ 回測 D+1 開盤進場暫用收盤退路；要真實開盤需 `CAST(open AS DOUBLE)` + reimport。
+
+---
+
 ## [2026-07-14] ✅ #7 缺週回補根治 + #8 清洗步驟寫進 code（Developer，收 Debugger 建議）
 
 ### #7：`--backfill-shareholder` 改成「只補視窗內缺的那幾週」

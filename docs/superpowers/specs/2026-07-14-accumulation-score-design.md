@@ -1,0 +1,153 @@
+# 進貨分（法人進貨強度綜合分）設計
+
+**日期**：2026-07-14
+**作者**：Developer（與 Cody brainstorming 後）
+**狀態**：草案，待 Cody review
+
+---
+
+## 背景與痛點
+
+Cody 反映籌碼面「太亂」，三個具體痛點：
+1. **資訊過載、看不到重點**（chips.html 現有 7 個 tab、~10 張表，同一批法人買賣被切成好幾種視角）。
+2. **低價值數據佔版面**（賣超/出貨榜、融資花式明細）。
+3. **有數字但沒結論**（看得到外資買多少、大戶增減，但沒有「所以這檔算不算籌碼進貨確認」的綜合判斷，還要自己心算）。
+
+**文獻依據（逆轟動能派筆記，`notes/動能派學習筆記.md`）**：
+- 二十、籌碼面「進貨準，出貨不準」——「大股東籌碼可以參考，但千萬不要盡信（**籌碼只給 50 分**）」；**出貨訊號不準**（大股東出貨原因複雜）；**觀察「進貨」比觀察出貨有參考性**；核心「**趨勢的力量 > 任何主力的意志**」。
+- 五、主力分析：別被表象騙——分點大量賣超不代表看空；虛買/虛賣製造假象。
+
+**翻成設計原則**：籌碼是**配角、只算進貨、要價格 confirm 才算數**，把散落的籌碼數字**綜合成一個結論**。
+
+---
+
+## 目標
+
+新增一個 **per-stock 純函式 `calc_accumulation_score()`**，把現有的法人/大戶/量價資料綜合成：
+- 一個 **`進貨分`（0–100）**：法人進貨強度。
+- 一組**狀態旗標**（連買日數、大戶增減張數、價格是否 confirm、進貨是否轉弱），讓消費端不用再自己判讀原始數字。
+
+這是**資料/邏輯核心，UI 無關**：算出來的 payload 餵給任何前端（個股卡片、籌碼排行）。本 spec **不含**視覺版面設計。
+
+## 非目標（本 spec 不做，另開）
+
+- **族群強度**（首頁突顯強勢族群的排序分）——之後另談。
+- **UI／視覺**（個股卡片版面、籌碼頁瘦身排版、首頁族群框選）——用 `ui-ux-pro-max` 在現有靜態 HTML 上另設計。
+- **持股清單**、**Telegram 推播**——後續 follow-up，兩者都直接吃這個進貨分。
+- 不改抓取端；只消費 DB 裡已有的資料。
+
+---
+
+## 進貨分定義
+
+### 兩條鐵律（照文獻）
+
+1. **只算進貨、不猜出貨**：連賣（streak < 0）**不倒扣分**，只在旗標裡標「轉弱」灰階提示。出貨不準，不當可靠賣訊。
+2. **價格閘門**：法人在買、但**價格沒動** = 外強中乾／主力騙（筆記五）→ 進貨分**打折**並標「價格未 confirm」，不讓純籌碼獨自亮燈（籌碼配角 50 分）。
+
+### 材料（DB 已有，不需新抓）
+
+| 來源 | 欄位 | 出處 |
+|---|---|---|
+| 外資連買 | `foreign_streak`（連買日數，正數）| `institutional` / `calc_meta_chips_signals` 系列 |
+| 投信連買 | `trust_streak` | 同上 |
+| 大戶進貨 | `lv12_chg` / `lv15_chg`（400/1000 張大戶週張數變化）、`sh_streak`（大戶持股連增週）| `get_shareholder_top()` |
+| 價格 confirm | 近 5 日報酬 | `get_rolling_returns()`（已現成）|
+
+### 公式（**草案，數字待 `backtest.py` 回測校準**）
+
+```
+# 1. 進貨原始分（只取進貨側，連賣不倒扣）
+foreign_pts = min(max(foreign_streak, 0) * 8, 40)   # 外資：連買封頂 40（約 5 日）
+trust_pts   = min(max(trust_streak,   0) * 6, 30)   # 投信：封頂 30
+holder_pts  = min(max(sh_streak,      0) * 7, 20)   # 大戶：連增週封頂 20
+#   大戶當週張數（lv12_chg + lv15_chg）由增轉減時 holder_pts 記 0（見旗標 weakening）
+accumulation = foreign_pts + trust_pts + holder_pts   # 0 ~ 90
+
+# 2. 價格閘門
+price_confirmed = (近5日報酬 is not None) and (近5日報酬 > 0)
+gate = 1.0 if price_confirmed else 0.5
+
+# 3. 進貨分
+score = round(min(accumulation, 100) * gate)          # 0 ~ 100
+```
+
+> 8/6/7、封頂 40/30/20、閘門 0.5 都是**草案切點**，跟大盤分級儀表板一樣：先落地、之後用
+> `screener/backtest.py` 對真實歷史驗「進貨分高的股票後續表現是否真的好」再校準，不當真理。
+
+### 輸出 payload
+
+`calc_accumulation_score(...)` 回傳 dict：
+
+| key | 意義 |
+|---|---|
+| `score` | 進貨分 0–100 |
+| `foreign_buy_days` | 外資連買日數（`max(foreign_streak, 0)`）|
+| `trust_buy_days` | 投信連買日數 |
+| `holder_net_lots` | 大戶當週淨增減張數（`lv12_chg + lv15_chg`，可負）|
+| `price_confirmed` | bool，價格是否 confirm 進貨 |
+| `weakening` | bool，進貨轉弱：外資與投信 streak 皆 ≤ 0，或大戶當週由增轉減 |
+| `label` | 由 score/flags 導出的分級字串：`進貨`／`整理`／`轉弱`（給前端當徽章用，純資料不含樣式）|
+
+**`label` 導出規則（明確優先序，避免多解）：**
+1. `weakening` 為真 → **`轉弱`**
+2. 否則 `price_confirmed` 為假 → **`整理`**（有進貨動作但價格沒 confirm，可能外強中乾）
+3. 否則 `score >= 40`（草案切點，待回測）→ **`進貨`**
+4. 否則 → **`整理`**
+
+---
+
+## 架構與介面
+
+### 單元：`calc_accumulation_score()`（純函式）
+
+- **位置**：`screener/patterns.py`（跟既有 `calc_composite_score` 同檔、同「純函式吃值回分」慣例）。
+- **簽章**：
+  ```python
+  def calc_accumulation_score(
+      foreign_streak: int,
+      trust_streak: int,
+      sh_streak: int | None,
+      holder_net_lots: int | None,   # lv12_chg + lv15_chg，可 None
+      recent_return: float | None,   # 近5日報酬 %，可 None
+  ) -> dict:
+  ```
+- **Consumes**：純量（呼叫端已從 DB 撈好），不自己連 DB → 好測、機器無關。
+- **Produces**：上面的 payload dict。
+- **不依賴** UI、不依賴 `data/` 真實資料（單元測試用合成值即可涵蓋）。
+
+### 消費端（本 spec 只定「資料怎麼餵」，視覺另設計）
+
+- 個股卡片 payload（`export/html_generator.py` 組 modal 資料時）多帶這個 dict。
+- 籌碼進貨排行（`chips_generator`）用 `score` 排序。
+- **視覺呈現（徽章長怎樣、版面）** = `ui-ux-pro-max` 那關，不在此。
+
+### 資料完整性（專案老雷，明列防呆）
+
+- 任何 streak/報酬可能是 `None` 或 DuckDB NULL→NaN：函式內一律 `pd.isna` / `is None` 檢查，缺值當 0 貢獻（不 crash、不算出 NaN 分數）。
+- `recent_return` 為 None（新股/資料不足）→ 視為**未 confirm**（`gate=0.5`），不是當作 confirmed。
+- `holder_net_lots` 為 None（還沒有兩週大戶資料）→ `holder_pts` 走 `sh_streak`，`weakening` 的大戶條件略過。
+
+---
+
+## 測試策略
+
+`tests/test_patterns.py`（或既有對應檔）加 `calc_accumulation_score` 單元測試，用合成值涵蓋：
+1. **只算進貨**：`foreign_streak=-5`（連賣）→ 不倒扣、foreign_pts=0。
+2. **價格閘門**：同樣進貨強度，`recent_return>0` vs `<0` → 後者分數約半、`price_confirmed=False`。
+3. **封頂**：`foreign_streak=10` → foreign_pts=40（不超）。
+4. **缺值不 crash**：streak/report 為 None/NaN → 回合理分數、對應旗標，不例外。
+5. **weakening 旗標**：外資投信皆 ≤0 或大戶由增轉減 → `weakening=True`。
+6. **label 導出**：高分+confirmed→「進貨」；未 confirm→「整理」；weakening→「轉弱」。
+
+（消費端如何組資料、渲染留給各自的 plan／UI 設計時再測。）
+
+---
+
+## 後續 follow-up（本 spec 落地後）
+
+1. **族群強度**（首頁突顯強勢族群）：近N日報酬 + 加速度 + 進貨分 rollup。
+2. **UI/視覺**（`ui-ux-pro-max`）：個股卡片加料版面、籌碼頁 7 tab→2 瘦身（砍出貨/融資噪音）、首頁強勢族群框選。
+3. **持股健檢**：點/搜任一檔 → 看它的進貨分狀態（不用維護持股清單）。
+4. **Telegram 推播**：把進貨分摘要（今日進貨分 Top N／持股轉弱警示）每日推播。
+5. **回測校準**：`backtest.py` 驗進貨分切點。

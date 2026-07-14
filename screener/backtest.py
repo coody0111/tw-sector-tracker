@@ -84,6 +84,7 @@ def run_backtest(
     scanner: Callable[[str, str], List[Dict[str, Any]]],
     db_path: str = _DB_PATH,
     horizons=(5, 10, 14),
+    limit_up_skip: bool = True,
 ) -> pd.DataFrame:
     """
     對 DuckDB 中所有交易日逐日呼叫 scanner(date_str, db_path)，
@@ -93,13 +94,16 @@ def run_backtest(
     ----------
     scanner : Callable[[str, str], list[dict]]
         (date_str, db_path) -> [{"stock_id": ..., "close": ...}, ...]
+    limit_up_skip : bool
+        True 時標記 no_fill（D+1 開盤 ≥ D 收盤 ×1.095，代表一開盤就鎖漲停買不到）。
 
     Returns
     -------
     DataFrame，每列一個訊號，含：
-        signal_date, stock_id, entry_price,
+        signal_date, stock_id, entry_price, no_fill,
         ret_5/bench_5/excess_5, ret_10/..., ret_14/...（依 horizons 而定）
         bench_H 為大盤等權指數同進出區間報酬%，excess_H = ret_H - bench_H
+        no_fill 為 True 代表 D+1 開盤即漲停鎖死，實際上買不到，主結果可用這欄剔除
     """
     close_map, open_map, stock_dates = _build_price_index(db_path)
     idx_map = _market_index(db_path)
@@ -116,7 +120,15 @@ def run_backtest(
         d_ts = pd.Timestamp(d_str)
         for sig in picks:
             sid = sig["stock_id"]
-            row = {"signal_date": d_str, "stock_id": sid, "entry_price": None}
+            d_close = close_map.get((sid, d_ts))
+            future = [t for t in stock_dates.get(sid, []) if t > d_ts]
+            d1_open = open_map.get((sid, future[0])) if future else None
+            if d1_open is None or pd.isna(d1_open):
+                d1_open = close_map.get((sid, future[0])) if future else None
+            no_fill = bool(limit_up_skip and d_close and d1_open
+                           and d1_open >= d_close * 1.095)
+            row = {"signal_date": d_str, "stock_id": sid,
+                   "entry_price": None, "no_fill": no_fill}
             for h in horizons:
                 entry, ret = _forward_return(close_map, open_map, stock_dates, sid, d_ts, h)
                 if entry is not None:

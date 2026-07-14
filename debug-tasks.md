@@ -1,3 +1,29 @@
+## [2026-07-14] ✅ 回測框架 Task 3：漲停買不到剔除 no_fill（plan: docs/superpowers/plans/2026-07-14-backtest-framework.md Task 3）
+
+`run_backtest()` 新增 `limit_up_skip: bool = True` 參數，每列多一個 `no_fill` bool 欄位：
+訊號日 D 收盤 → D+1 開盤若 ≥ D 收盤 ×1.095（代表一開盤就鎖漲停，實際上根本買不到），
+標記 `no_fill=True`，主結果統計時可以用這欄剔除，避免回測把「看得到但買不到」的漲停鎖死
+股當成真實可執行的訊號。完全照 plan 裡 Task 3 已寫好的程式碼實作，未偏離設計。
+
+### 範圍
+- 只做 Task 3。Task 4（扣交易成本）、Task 5（regime 分段）、Task 6（`print_summary` 升級）都還沒動工。
+- `no_fill` 只是**標記**，`run_backtest()` 本身**不會**自動把這些列從 DataFrame 濾掉——濾除邏輯留給呼叫端（未來 Task 6 `print_summary` 或實際校準時）決定要不要排除。
+
+### 測試
+沒有自己跑 pytest（照專案規則留給 Debugger）。手動推演測試案例：訊號日 05-01 收盤100、
+D+1(05-02) 開盤110（110 ≥ 100×1.095=109.5）→ `no_fill=True`，跟 `test_run_backtest_flags_limit_up_no_fill`
+的斷言一致。
+
+### 請 Debugger 驗證
+- [ ] `python -m pytest tests/test_backtest.py -q` 全過，尤其新增的 `test_run_backtest_flags_limit_up_no_fill`
+- [ ] `no_fill` 判斷用的是 D 收盤（訊號日當天），不是訊號日以外的日期，跟 `_forward_return` 的 D+1 進場邏輯一致，沒有 off-by-one
+- [ ] 1.095 這個漲停門檻切點是否合理（台股現制普通股漲停 10%，這裡抓 9.5% 當「幾乎鎖死」的保守門檻，plan 裡是既定切點，非本次新增判斷，如需調整麻煩另外提出不要當 bug）
+
+### 特別注意
+- `d_close`/`d1_open` 若缺值（`None`/`NaN`/新股剛掛牌），`no_fill` 直接短路成 `False`（`bool(limit_up_skip and d_close and d1_open and ...)`，任一個 falsy 就整體 False），跟既有「缺資料不 crash」慣例一致，不會誤判成鎖漲停。
+
+---
+
 ## [2026-07-14] ✅ 回測框架 Task 2：大盤等權指數 + 超額報酬（plan: docs/superpowers/plans/2026-07-14-backtest-framework.md Task 2）
 
 `screener/backtest.py` 新增 `_market_index()`（`daily_prices.change_pct` 逐日平均、`(1+avg/100)` 連乘出等權指數）與

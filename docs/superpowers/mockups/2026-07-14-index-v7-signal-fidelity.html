@@ -1,0 +1,287 @@
+<title>族群總覽頁 — v7 訊號保真度校正 Mockup</title>
+<style>
+:root{
+  --bg:#F3EDE1; --panel:#FBF7EE; --panel-2:#EDE4D0; --border:#DDD0B8; --border-2:#C9B896;
+  --ink:#211C13; --ink-2:#6B5D45; --ink-3:#9C8F73;
+  --up:#A8321F; --down:#2F6B3F;
+  --accent:#1F3A5F;
+  --burst:#B8721E; --trend:#6B3F6B;
+  --serif: Georgia,"Iowan Old Style","Source Serif 4","Noto Serif TC",serif;
+  --sans: "Public Sans",-apple-system,"PingFang TC","Microsoft JhengHei","Segoe UI",sans-serif;
+  --mono: ui-monospace,"IBM Plex Mono","Cascadia Code","Roboto Mono",monospace;
+  --shadow-1: 0 1px 2px rgba(60,45,20,.06);
+  --shadow-2: 0 6px 20px rgba(60,45,20,.14), 0 1px 3px rgba(60,45,20,.08);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#1A140D; --panel:#241C12; --panel-2:#2E2418; --border:#3D3122; --border-2:#4D3F2C;
+    --ink:#F2E9D8; --ink-2:#C4B392; --ink-3:#8C7E63;
+    --up:#E17055; --down:#6FBF7A; --accent:#7DA9D8;
+    --burst:#E0A040; --trend:#C494C4;
+    --shadow-1: 0 1px 2px rgba(0,0,0,.3); --shadow-2: 0 6px 20px rgba(0,0,0,.45);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#1A140D; --panel:#241C12; --panel-2:#2E2418; --border:#3D3122; --border-2:#4D3F2C;
+  --ink:#F2E9D8; --ink-2:#C4B392; --ink-3:#8C7E63;
+  --up:#E17055; --down:#6FBF7A; --accent:#7DA9D8;
+  --burst:#E0A040; --trend:#C494C4;
+  --shadow-1: 0 1px 2px rgba(0,0,0,.3); --shadow-2: 0 6px 20px rgba(0,0,0,.45);
+}
+*{box-sizing:border-box}
+body{
+  margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.55;padding:0 0 60px;
+  background-image:
+    radial-gradient(ellipse at top left, rgba(255,255,255,.5), transparent 60%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.025'/%3E%3C/svg%3E");
+}
+.tabular{font-family:var(--mono);font-variant-numeric:tabular-nums}
+
+.topbar{display:flex;align-items:baseline;gap:16px;padding:22px 26px 18px;border-bottom:2px solid var(--ink)}
+.topbar h1{font-family:var(--serif);font-size:1.34rem;font-weight:600;color:var(--ink);letter-spacing:.01em;margin:0}
+.topbar .kicker{font-size:.64rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3)}
+.topbar .updated{font-size:.72rem;color:var(--ink-3);margin-left:auto;font-family:var(--mono)}
+
+.changelog{margin:14px 26px 0;padding:12px 16px;background:var(--panel);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:3px;font-size:.72rem;color:var(--ink-2);line-height:1.7}
+.changelog b{color:var(--ink);font-weight:600}
+.changelog summary{cursor:pointer;font-weight:600;color:var(--ink);font-size:.74rem}
+
+.section-head{display:flex;align-items:baseline;gap:12px;padding:30px 26px 8px}
+.section-head h2{font-family:var(--serif);font-size:1.05rem;font-weight:600;color:var(--ink);margin:0}
+.section-head .count{font-family:var(--mono);font-size:.7rem;color:var(--ink-3)}
+.section-rule{height:1px;background:linear-gradient(to right,var(--ink) 0%,var(--border) 45%,transparent 100%);margin:0 26px 4px}
+.section-sub{padding:0 26px 16px;font-size:.76rem;color:var(--ink-2);max-width:680px}
+
+.legend{display:flex;gap:22px;padding:0 26px 18px;font-size:.72rem;color:var(--ink-2);flex-wrap:wrap}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend .dot{width:7px;height:7px;border-radius:50%}
+.legend .dot.burst{background:var(--burst)} .legend .dot.trend{background:var(--trend)}
+.legend .slope-demo{display:inline-flex;align-items:center;gap:3px}
+
+/* ── 異動族群：新增可滑動提示（v7） ── */
+.anomaly-wrap{position:relative;margin:0 26px}
+.anomaly-strip{display:flex;gap:14px;overflow-x:auto;padding:2px 2px 6px;scroll-padding-left:2px}
+.anomaly-wrap::after{
+  content:"";position:absolute;top:0;right:0;bottom:6px;width:44px;pointer-events:none;
+  background:linear-gradient(to right, transparent, var(--bg) 88%);
+}
+.anomaly-hint{
+  font-family:var(--mono);font-size:.6rem;color:var(--ink-3);text-align:right;
+  padding:2px 26px 0;letter-spacing:.03em;
+}
+.anomaly-card{flex:0 0 240px;background:var(--panel);border:1px solid var(--border);border-radius:4px;padding:15px 17px;position:relative;cursor:pointer;transition:box-shadow .25s cubic-bezier(.2,.8,.2,1),transform .25s cubic-bezier(.2,.8,.2,1),border-color .2s;box-shadow:var(--shadow-1)}
+.anomaly-card:hover{border-color:var(--border-2);box-shadow:var(--shadow-2);transform:translateY(-2px)}
+.anomaly-card::before{content:"";position:absolute;left:0;top:15px;bottom:15px;width:2px;border-radius:2px}
+.anomaly-card.burst::before{background:var(--burst)} .anomaly-card.trend::before{background:var(--trend)}
+.anomaly-kind{display:inline-block;font-size:.6rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;margin-bottom:10px}
+.anomaly-kind.burst{color:var(--burst)} .anomaly-kind.trend{color:var(--trend)}
+.anomaly-name{font-family:var(--serif);font-weight:600;font-size:1.02rem;margin-bottom:4px;color:var(--ink)}
+.anomaly-pct{font-family:var(--mono);font-weight:600;font-size:1.08rem}
+.anomaly-pct.up{color:var(--up)} .anomaly-pct.down{color:var(--down)}
+.anomaly-reason{margin-top:11px;font-size:.72rem;color:var(--ink-2);line-height:1.65;padding-top:10px;border-top:1px solid var(--border)}
+.anomaly-reason b{color:var(--ink);font-family:var(--mono);font-weight:600}
+.anomaly-rank-shift{margin-top:8px;font-size:.7rem;color:var(--ink-3)}
+.rank-arrow{color:var(--accent);font-weight:700}
+
+.view-switch{display:flex;gap:2px;margin:0 26px 4px;background:var(--panel-2);border:1px solid var(--border);border-radius:6px;padding:3px;width:fit-content}
+.view-switch button{font-family:var(--sans);font-size:.74rem;font-weight:600;color:var(--ink-2);background:none;border:none;padding:7px 16px;border-radius:4px;cursor:pointer;transition:background .15s,color .15s}
+.view-switch button.active{background:var(--panel);color:var(--ink);box-shadow:var(--shadow-1)}
+.view{display:none} .view.active{display:block}
+
+/* ── A. Heatmap 熱區格（v7：加判讀說明條 + 每格排名角標） ── */
+.heat-key{
+  display:flex;align-items:center;gap:6px;padding:16px 26px 0;font-size:.66rem;color:var(--ink-3);
+  font-family:var(--mono);
+}
+.heat-key .k-item{display:inline-flex;align-items:center;gap:4px}
+.heat-key .k-swatch{width:9px;height:9px;border-radius:2px;background:linear-gradient(135deg,var(--up),color-mix(in srgb,var(--up) 40%,var(--panel)))}
+.heatgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:6px;padding:10px 26px 0}
+.heat-tile{border-radius:4px;padding:11px 12px;cursor:pointer;transition:transform .18s,box-shadow .18s;position:relative;border:1px solid rgba(33,28,19,.06)}
+.heat-tile:hover{transform:scale(1.035);box-shadow:var(--shadow-2);z-index:2}
+.heat-rank{position:absolute;top:6px;right:8px;font-family:var(--mono);font-size:.58rem;color:var(--ink-3);opacity:.7}
+.heat-name{font-family:var(--serif);font-weight:600;font-size:.82rem;margin-bottom:5px;line-height:1.25;padding-right:20px}
+.heat-pct{font-family:var(--mono);font-weight:700;font-size:.92rem}
+.heat-n{font-size:.62rem;font-family:var(--mono);opacity:.75;margin-top:3px}
+.heat-week{display:flex;align-items:center;gap:5px;margin-top:7px;padding-top:6px;border-top:1px solid rgba(33,28,19,.10)}
+.heat-week .accel-val{font-family:var(--mono);font-size:.66rem;font-weight:700}
+
+/* ── B. 發散長條排行（v7：欄名更寬避免截斷、sticky 表頭） ── */
+.barlist{padding:18px 26px 0}
+.bar-head{
+  display:flex;align-items:center;gap:10px;padding:8px 0 6px;font-size:.62rem;font-weight:700;
+  letter-spacing:.05em;text-transform:uppercase;color:var(--ink-3);border-bottom:1px solid var(--ink);
+  position:sticky;top:0;background:var(--bg);z-index:3;
+}
+.bar-head .bar-rank{width:20px} .bar-head .bar-name{width:132px} .bar-head .bar-track{flex:1;min-width:60px}
+.bar-head .bar-val{width:58px;text-align:right} .bar-head .bar-cnt{width:64px;text-align:right} .bar-head .bar-week{width:118px;text-align:right}
+.bar-row{display:flex;align-items:center;gap:10px;padding:5px 0;border-bottom:1px solid var(--border)}
+.bar-rank{font-family:var(--mono);font-size:.68rem;color:var(--ink-3);width:20px;flex-shrink:0;text-align:right}
+.bar-name{font-family:var(--serif);font-size:.8rem;font-weight:600;width:132px;flex-shrink:0;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bar-track{flex:1;height:20px;position:relative;display:flex;align-items:center;min-width:60px}
+.bar-zero{position:absolute;left:50%;top:0;bottom:0;width:1px;background:var(--border-2)}
+.bar-fill{position:absolute;top:2px;bottom:2px;border-radius:2px}
+.bar-fill.up{background:color-mix(in srgb, var(--up) 78%, var(--panel));left:50%}
+.bar-fill.down{background:color-mix(in srgb, var(--down) 78%, var(--panel));right:50%}
+.bar-val{font-family:var(--mono);font-weight:600;font-size:.76rem;width:58px;text-align:right;flex-shrink:0}
+.bar-val.up{color:var(--up)} .bar-val.down{color:var(--down)}
+.bar-cnt{font-family:var(--mono);font-size:.64rem;color:var(--ink-3);width:64px;text-align:right;flex-shrink:0}
+.bar-week{display:flex;align-items:center;gap:6px;width:118px;flex-shrink:0;justify-content:flex-end}
+.bar-week .accel-val{font-family:var(--mono);font-size:.7rem;font-weight:700;width:52px;text-align:right}
+
+/* 週級加速 slopegraph（v7：中性線色，不跟今日漲跌紅綠搶語意；固定刻度不被離群值拉平） */
+.slopegraph{flex-shrink:0}
+</style>
+
+<div class="topbar">
+  <div><div class="kicker">台股電子半導體族群追蹤</div><h1>族群總覽</h1></div>
+  <div class="updated">2026-07-08 更新</div>
+</div>
+
+<details class="changelog" open>
+  <summary>v7 改了什麼（點收合）</summary>
+  <b>1.</b> Slopegraph 改用固定 ±8pt 刻度（原本用全部族群的最大/最小值當刻度，功率半導體 +21.9pt 這種極端值把其他族群的線全拉成平線，看不出真的有沒有加速）。<br>
+  <b>2.</b> Slopegraph 線條改中性色（原本紅/綠跟上面熱區格「今日漲跌」的紅/綠撞語意——同一個 tile 可能今日下跌但本週比上週加速，兩組紅綠同時出現會誤讀）；方向改由旁邊的 <span class="accel-val" style="color:var(--up)">+pt</span> 數字顏色表達就好。<br>
+  <b>3.</b> 熱區格加判讀說明條 + 每格右上角排名角標（熱區格原本沒有任何欄位標題，也看不出排名，只能看色塊深淺）。<br>
+  <b>4.</b> 長條排行族群名欄位加寬（112px→132px）+ 表頭改 sticky（原本捲動到後段看不到欄名，也有名字被截斷風險）。<br>
+  <b>5.</b> 異動族群卡片加右側漸層遮罩 + 「可左右滑動」提示文字（原本橫向捲動沒有任何視覺暗示）。
+</details>
+
+<div class="section-head"><h2>⚡ 異動族群</h2><span class="count">2 種訊號・5 檔符合</span></div>
+<div class="section-rule"></div>
+<div class="section-sub">同時符合「爆量+排名暴衝」或「連續穩步噴出」規則的族群，跟下方例行排名分開陳列。</div>
+<div class="legend">
+  <span><span class="dot burst"></span>爆量暴衝：今日量能≥5日均量1.5倍　且　排名比昨日進步≥10名</span>
+  <span><span class="dot trend"></span>連續噴出：連漲≥5日　且　本週複利報酬 &gt; 上週複利報酬（動能持續加速）</span>
+</div>
+<div class="anomaly-wrap">
+  <div class="anomaly-strip">
+    <div class="anomaly-card burst"><div class="anomaly-kind burst">爆量暴衝</div><div class="anomaly-name">網通設備</div><div class="anomaly-pct up">▲ +1.79%</div><div class="anomaly-rank-shift">昨日 #21 <span class="rank-arrow">→</span> 今日 #2</div><div class="anomaly-reason">今日量能 <b>1.1x</b> 於5日均量</div></div>
+    <div class="anomaly-card burst"><div class="anomaly-kind burst">爆量暴衝</div><div class="anomaly-name">晶圓代工</div><div class="anomaly-pct up">▲ +1.74%</div><div class="anomaly-rank-shift">昨日 #15 <span class="rank-arrow">→</span> 今日 #3</div><div class="anomaly-reason">今日量能 <b>1.8x</b> 於5日均量</div></div>
+    <div class="anomaly-card trend"><div class="anomaly-kind trend">連續噴出</div><div class="anomaly-name">功率半導體</div><div class="anomaly-pct up">▲ +2.03%</div><div class="anomaly-reason">上週 <b>-4.2%</b> → 本週 <b>+17.8%</b>　加速 <b>+21.9pt</b></div></div>
+    <div class="anomaly-card trend"><div class="anomaly-kind trend">連續噴出</div><div class="anomaly-name">機器人/自動化</div><div class="anomaly-pct up">▲ +1.58%</div><div class="anomaly-reason">上週 <b>-0.4%</b> → 本週 <b>+12.4%</b>　加速 <b>+12.8pt</b></div></div>
+    <div class="anomaly-card trend"><div class="anomaly-kind trend">連續噴出</div><div class="anomaly-name">半導體材料</div><div class="anomaly-pct up">▲ +1.01%</div><div class="anomaly-reason">上週 <b>-1.1%</b> → 本週 <b>+10.2%</b>　加速 <b>+11.3pt</b></div></div>
+  </div>
+</div>
+<div class="anomaly-hint">← 可左右滑動看更多 →</div>
+
+<div class="section-head"><h2>族群排行</h2><span class="count">今日漲跌% ・41 個族群（真實資料）</span></div>
+<div class="section-rule"></div>
+<div class="section-sub">「本週 vs 上週」欄：小型雙點折線＝上週複利報酬→本週複利報酬，線本身用固定刻度（±8pt 封頂），旁邊數字才是實際加速度（百分點），紅字=加速、綠字=減速。</div>
+
+<div class="legend">
+  <span class="slope-demo"><svg width="26" height="16"><line x1="3" y1="12" x2="23" y2="4" stroke="var(--ink-3)" stroke-width="1.4"/><circle cx="3" cy="12" r="2" fill="var(--ink-3)"/><circle cx="23" cy="4" r="2" fill="var(--ink-3)"/></svg>本週比上週高（線只表示形狀，方向看旁邊數字顏色）</span>
+</div>
+
+<div class="view-switch">
+  <button class="active" onclick="showView('heat')">熱區格</button>
+  <button onclick="showView('bar')">發散長條</button>
+</div>
+
+<div class="view active" id="view-heat">
+  <div class="heat-key">
+    <span class="k-item"><span class="k-swatch"></span>色塊深淺＝今日漲跌幅度</span>
+    <span class="k-item">右上角數字＝今日排名</span>
+    <span class="k-item">底部小折線＝本週 vs 上週加速度</span>
+  </div>
+  <div class="heatgrid" id="heatgrid"></div>
+</div>
+<div class="view" id="view-bar">
+  <div class="barlist">
+    <div class="bar-head">
+      <span class="bar-rank">名次</span><span class="bar-name">族群</span><span class="bar-track">今日漲跌%</span>
+      <span class="bar-val"></span><span class="bar-cnt">漲跌家數</span><span class="bar-week">上週→本週</span>
+    </div>
+    <div id="barlist"></div>
+  </div>
+</div>
+
+<script>
+// meta, today_pct, up, down, last_week, this_week, accel — 全部真實資料（2026-07-08）
+const DATA = [
+["功率半導體",2.03,9,6,-4.17,17.76,21.93],["網通設備",1.79,26,13,-0.43,3.16,3.59],
+["晶圓代工",1.74,13,5,-4.42,1.13,5.55],["機器人/自動化",1.58,4,3,-0.37,12.41,12.78],
+["通訊IC",1.43,5,4,-3.13,2.41,5.54],["AI晶片",1.37,12,5,-2.94,2.18,5.12],
+["銅箔基板",1.36,9,5,1.51,1.70,0.19],["光通訊",1.17,10,6,-5.81,1.38,7.19],
+["半導體材料",1.01,9,8,-1.13,10.21,11.34],["光學/相機",0.63,9,12,-2.81,1.16,3.97],
+["LED",0.47,10,13,1.34,4.55,3.21],["行動通訊",0.37,2,1,-0.44,0.76,1.20],
+["電腦周邊",0.37,25,36,-0.16,4.36,4.52],["AI伺服器",0.26,21,20,-1.00,2.91,3.91],
+["載板",0.23,6,9,3.34,2.59,-0.75],["生物辨識",0.17,2,0,-1.31,2.55,3.86],
+["MCU/嵌入式",0.02,9,17,-3.40,3.74,7.14],["電源供應器",0.01,7,15,-1.99,4.03,6.02],
+["太陽能",0.01,6,9,2.94,1.39,-1.55],["被動元件",-0.12,16,22,3.37,1.65,-1.72],
+["IC封裝",-0.15,18,17,-3.43,6.09,9.52],["PCB",-0.20,13,16,-0.34,-0.08,0.26],
+["面板",-0.34,19,38,-0.61,0.58,1.19],["軟體/雲端",-0.36,19,53,-0.62,0.97,1.59],
+["連接器",-0.44,18,27,-2.39,2.57,4.96],["軟板/FPC",-0.51,2,6,-4.16,-1.23,2.93],
+["電池",-0.54,4,11,-3.58,4.65,8.23],["音響/耳機",-0.70,1,9,1.15,1.28,0.13],
+["消費電子",-0.70,2,10,-1.16,3.50,4.66],["遊戲/電競",-0.72,5,12,-0.79,-0.53,0.26],
+["PMIC",-0.72,9,18,-2.90,4.45,7.35],["電動車",-0.73,5,10,-1.45,3.53,4.98],
+["感測/影像IC",-0.77,2,7,-0.86,1.29,2.15],["半導體設備",-0.98,22,62,-0.68,0.92,1.60],
+["電子製造服務",-1.00,9,23,-0.12,1.10,1.22],["電子通路",-1.10,3,23,-0.69,-0.42,0.27],
+["其他電子",-1.22,3,13,-1.77,1.18,2.95],["散熱",-1.35,2,12,-0.63,0.05,0.68],
+["記憶體",-2.12,2,19,-4.98,-4.37,0.61],["電信",-2.81,0,4,-2.37,-2.83,-0.46],
+["先進封裝設備",-2.93,0,8,-0.86,-1.12,-0.26],
+];
+
+const maxAbs = Math.max(...DATA.map(d => Math.abs(d[1])));
+// v7：固定刻度，不再用資料自己的 min/max（會被離群值拉平其他列）。
+// ±8pt 涵蓋這批資料裡除了功率半導體之外的所有加速度，超過就視覺封頂。
+const ACCEL_CLAMP = 8;
+
+function heatBg(pct){
+  const t = Math.min(Math.abs(pct)/maxAbs, 1);
+  const alpha = 0.10 + t*0.34;
+  return pct >= 0
+    ? `color-mix(in srgb, var(--up) ${(alpha*100).toFixed(0)}%, var(--panel))`
+    : `color-mix(in srgb, var(--down) ${(alpha*100).toFixed(0)}%, var(--panel))`;
+}
+function fmtPct(v){ const s = v>0?'+':''; return `${s}${v.toFixed(2)}%`; }
+function fmtAccel(v){ const s = v>0?'+':''; return `${s}${v.toFixed(1)}pt`; }
+
+function slopeSvg(lw, tw, w=30, h=18){
+  // v7：固定 clamp 刻度（不是 weekMin/weekMax），中點=0，超過 ±ACCEL_CLAMP 視覺封頂但保留方向。
+  const norm = v => {
+    const c = Math.max(-ACCEL_CLAMP, Math.min(ACCEL_CLAMP, v));
+    return h/2 - (c/ACCEL_CLAMP) * (h/2 - 2);
+  };
+  const y1 = norm(lw), y2 = norm(tw);
+  // v7：線條固定用中性墨色，不再用 up/down 紅綠（避免跟 tile 自己的今日漲跌色相撞）。
+  return `<svg class="slopegraph" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true">
+    <line x1="3" y1="${y1.toFixed(1)}" x2="${w-3}" y2="${y2.toFixed(1)}" stroke="var(--ink-3)" stroke-width="1.3" opacity=".8"/>
+    <circle cx="3" cy="${y1.toFixed(1)}" r="1.6" fill="var(--ink-3)" opacity=".5"/>
+    <circle cx="${w-3}" cy="${y2.toFixed(1)}" r="2" fill="var(--ink-3)"/>
+  </svg>`;
+}
+
+document.getElementById('heatgrid').innerHTML = DATA.map(([name,pct,up,down,lw,tw,accel], i) => `
+  <div class="heat-tile" style="background:${heatBg(pct)}">
+    <div class="heat-rank">#${i+1}</div>
+    <div class="heat-name">${name}</div>
+    <div class="heat-pct" style="color:${pct>=0?'var(--up)':'var(--down)'}">${fmtPct(pct)}</div>
+    <div class="heat-n">▲${up}檔 ▼${down}檔</div>
+    <div class="heat-week">
+      ${slopeSvg(lw, tw)}
+      <span class="accel-val" style="color:${accel>=0?'var(--up)':'var(--down)'}">${fmtAccel(accel)}</span>
+    </div>
+  </div>`).join('');
+
+document.getElementById('barlist').innerHTML = DATA.map(([name,pct,up,down,lw,tw,accel], i) => {
+  const w = (Math.abs(pct)/maxAbs*40).toFixed(1);
+  const fill = pct >= 0
+    ? `<div class="bar-fill up" style="width:${w}%"></div>`
+    : `<div class="bar-fill down" style="width:${w}%"></div>`;
+  return `<div class="bar-row">
+    <span class="bar-rank tabular">${i+1}</span>
+    <span class="bar-name" title="${name}">${name}</span>
+    <span class="bar-track"><span class="bar-zero"></span>${fill}</span>
+    <span class="bar-val ${pct>=0?'up':'down'} tabular">${fmtPct(pct)}</span>
+    <span class="bar-cnt">▲${up}檔 ▼${down}檔</span>
+    <span class="bar-week">${slopeSvg(lw, tw, 34, 18)}<span class="accel-val" style="color:${accel>=0?'var(--up)':'var(--down)'}">${fmtAccel(accel)}</span></span>
+  </div>`;
+}).join('');
+
+function showView(v){
+  document.querySelectorAll('.view').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.view-switch button').forEach(el => el.classList.remove('active'));
+  document.getElementById('view-'+v).classList.add('active');
+  event.target.classList.add('active');
+}
+</script>

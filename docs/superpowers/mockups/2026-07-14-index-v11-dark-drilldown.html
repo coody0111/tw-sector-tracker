@@ -14,18 +14,9 @@
   --shadow-1: 0 1px 2px rgba(0,0,0,.35);
   --shadow-2: 0 10px 28px rgba(0,0,0,.5), 0 2px 6px rgba(0,0,0,.35);
 }
-@media (prefers-color-scheme: light){
-  :root:not([data-theme="dark"]){
-    --bg:#EFE8D8; --panel:#F8F3E6; --panel-2:#EAE1CB; --panel-3:#E0D5B8;
-    --border:#D6C9A3; --border-2:#C3B387;
-    --ink:#241C10; --ink-2:#6B5B3D; --ink-3:#93825E;
-    --up:#A8432C; --down:#3D7048;
-    --accent:#93701E; --accent-dim:#C4A24E;
-    --burst:#93701E; --trend:#7A4E6E;
-    --shadow-1: 0 1px 2px rgba(60,45,10,.1);
-    --shadow-2: 0 10px 28px rgba(60,45,10,.16), 0 2px 6px rgba(60,45,10,.1);
-  }
-}
+/* v11 刻意固定深色為預設，不跟系統 prefers-color-scheme 自動切換——上一版把亮色也調成
+   接近米色（#EFE8D8 跟舊米色 #F3EDE1 幾乎同色），大多數瀏覽器預設亮色模式時會自動套用
+   那個亮色版，深色主線反而看不到。這版拿掉自動偵測，只留手動 data-theme="light" 可切換。 */
 :root[data-theme="dark"]{
   --bg:#17130E; --panel:#201A13; --panel-2:#2A2118; --panel-3:#332818;
   --border:#3D3224; --border-2:#4F4130;
@@ -144,6 +135,7 @@ body{
 
 <div class="topbar">
   <div><div class="kicker">台股電子半導體族群追蹤</div><h1>族群總覽</h1></div>
+  <button id="themeToggle" onclick="toggleTheme()" style="font-family:var(--mono);font-size:.68rem;background:var(--panel-2);border:1px solid var(--border);color:var(--ink-2);padding:5px 12px;border-radius:4px;cursor:pointer">切換亮色預覽</button>
   <div class="updated">2026-07-08 更新</div>
 </div>
 
@@ -153,7 +145,9 @@ body{
   dashboard，維持財經編輯感但換底色）。<b>2.</b> 版面改三欄：<b>左＝精簡排行清單</b>（由上到下，只留
   名次/族群/今日%，不像熱區格塞那麼多資訊）、<b>中＝異動族群</b>（改直向堆疊，取代原本橫向捲動＋
   補一段本週要點）、<b>右＝個股明細面板</b>（點左側任一族群，右邊即時換成該族群的個股清單——這是
-  v1~v10 都沒畫過的「兩層點擊」缺口，這版第一次補上）。點左邊清單試試看。
+  v1~v10 都沒畫過的「兩層點擊」缺口，這版第一次補上）。點左邊清單試試看。<br>
+  <b>修正：</b>拿掉自動跟系統亮暗模式切換的邏輯（原本亮色版調得太接近舊米色，多數瀏覽器預設亮色
+  模式時深色主線根本沒被看到）。現在固定顯示深色，右上角「切換亮色預覽」按鈕可手動看亮色版。
 </details>
 
 <div class="triptych">
@@ -294,4 +288,11 @@ function selectGroupByName(name){
 
 // 預設展開排名第一的族群
 selectGroupByName(GROUPS[0][0]);
+
+function toggleTheme(){
+  const root = document.documentElement;
+  const isLight = root.getAttribute('data-theme') === 'light';
+  root.setAttribute('data-theme', isLight ? 'dark' : 'light');
+  document.getElementById('themeToggle').textContent = isLight ? '切換亮色預覽' : '切換深色預覽';
+}
 </script>

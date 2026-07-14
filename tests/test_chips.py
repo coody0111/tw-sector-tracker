@@ -1,5 +1,5 @@
 # tests/test_chips.py
-from scrapers.chips import _parse_num, _parse_num_opt
+from scrapers.chips import _parse_num, _parse_num_opt, _parse_pct
 
 
 def test_parse_num_returns_zero_on_failure():
@@ -40,3 +40,20 @@ def test_margin_balance_parse_failure_would_not_fake_a_drop():
     old_margin_bal = _parse_num("--")  # 舊版回 0
     fake_change = old_margin_bal - 1_000_000
     assert fake_change == -1_000_000  # 這就是舊版會寫進 DB 的假訊號（本測試證明它存在、故需跳列）
+
+
+def test_parse_pct_handles_plain_and_percent_sign_formats():
+    """外資持股% 資料源：TWSE MI_QFIIS 回傳純數字字串（'69.59'），
+    TPEx tpex_3insti_qfii 回傳帶 % 字串（'87.85%'），兩種格式都要能解析。"""
+    assert _parse_pct("69.59") == 69.59
+    assert _parse_pct("87.85%") == 87.85
+    assert _parse_pct("0.00") == 0.0
+    assert _parse_pct("1,234.5") == 1234.5
+
+
+def test_parse_pct_returns_none_on_failure():
+    """解析失敗不能回 0——0% 是合法值，不能拿來代表『缺值』。"""
+    assert _parse_pct("--") is None
+    assert _parse_pct("") is None
+    assert _parse_pct("N/A") is None
+    assert _parse_pct(None) is None

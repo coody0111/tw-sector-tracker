@@ -430,7 +430,7 @@ def get_stock_chips_ranking(
     """
     取個股今日籌碼排行，供 chips.html 使用。
     回傳 {
-        "foreign_top_buy":  [{stock_id, stock_name, meta_sector, foreign_net, trust_net}, ...],
+        "foreign_top_buy":  [{stock_id, stock_name, meta_sector, foreign_net, trust_net, foreign_pct}, ...],
         "foreign_top_sell": [...],
         "margin_alerts":    [{..., margin_balance, margin_change, pct}, ...],
         "chips_date":       "YYYY-MM-DD",
@@ -460,6 +460,17 @@ def get_stock_chips_ranking(
             SELECT stock_id, close, change_pct FROM daily_prices
             QUALIFY ROW_NUMBER() OVER (PARTITION BY stock_id ORDER BY date DESC) = 1
         """).fetchdf()
+        # 外資持股%（存量資料，跟 foreign_net 買賣超流量是不同資料源/更新頻率，per-stock 取
+        # 最新一筆即可，不用跟 institutional 的 date 嚴格對齊）。獨立包一層 try：這是新資料源
+        # （foreign_holdings 表可能還沒建立，例如尚未跑過任何一次 _update_chips_db），缺這張表
+        # 不該讓整個籌碼排行連 institutional/margin 都一起壞掉。
+        try:
+            fh_df = con.execute("""
+                SELECT stock_id, foreign_pct FROM foreign_holdings
+                QUALIFY ROW_NUMBER() OVER (PARTITION BY stock_id ORDER BY date DESC) = 1
+            """).fetchdf()
+        except Exception:
+            fh_df = pd.DataFrame()
         con.close()
     except Exception:
         return {}
@@ -476,6 +487,12 @@ def get_stock_chips_ranking(
         price_map: Dict[str, dict] = _pc.where(_pc.notna(), None).to_dict("index")
     else:
         price_map = {}
+
+    if not fh_df.empty:
+        fh_df["stock_id"] = fh_df["stock_id"].astype(str)
+        foreign_pct_map: Dict[str, float] = fh_df.set_index("stock_id")["foreign_pct"].to_dict()
+    else:
+        foreign_pct_map = {}
 
     import re as _re
 
@@ -501,6 +518,7 @@ def get_stock_chips_ranking(
                 "close":       px.get("close"),
                 "change_pct":  px.get("change_pct"),
                 "data_date":   str(r["date"])[:10],  # Timestamp→純日期(YYYY-MM-DD)
+                "foreign_pct": foreign_pct_map.get(r["stock_id"]),
             }
 
         foreign_top_buy = [_row(r) for _, r in sorted_df.head(10).iterrows()]

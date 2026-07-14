@@ -1,3 +1,50 @@
+## [2026-07-14] ✅ 籌碼分頁三指標定義修正 + 外資持股% 新資料源（spec: `docs/superpowers/specs/2026-07-14-chips-metric-definitions-design.md`）
+
+Cody 看完新版「大戶籌碼」tab 覺得數字奇怪（許多股票 80-90%），調查後發現是排序 bug + 指標
+定義跟 Cody 心中的標準定義有落差，一起修正。
+
+### 1. 排序 bug：大戶連增/連減榜改比 |week_chg|
+`_build_section8()` 原本 `(-streak, -lv12_15_pct)`——同樣連增/連減週數時比「持倉百分比絕對
+值」，因為現況資料才剛修復兩週幾乎每檔 streak 都打平在 2，導致整個榜單被絕對百分比主宰，
+外資保管銀行持股天生就高的股票（如台積電 87.77%）沖到榜首，即使當週實際變動只有 0.01-0.03%
+這種無意義雜訊。改成 `(-streak, -abs(week_chg))`，同樣週數下優先顯示變動幅度最大的。
+
+### 2. 大戶籌碼表兩層指標修正：400張以上（累計）+ 1000張以上（單獨）
+調查中發現既有「400張大戶」欄位（Task 5/6 做的）是錯的——用 `lv12_shares`/`lv12_pct`，那其實
+只是 TDCC level 12 單一級距（400,001~600,000股窄band），不是累計≥400張。真正「≥400張大戶」
+累計是 `lv12_15_pct`（level 12-15 合計），也就是原本顯示成主指標「大戶持倉%」的那個欄位。
+修法：拿掉錯誤的窄band欄位，主指標改名「400張以上大戶%」（資料不變，仍是 `lv12_15_pct`，
+streak/週變化/連增週都維持這個基礎不動），保留「1000張大戶」不變（`lv15_pct`，這個原本就對）。
+
+### 3. 新增外資籌碼%資料源（TWSE MI_QFIIS + TPEx tpex_3insti_qfii）
+現有「外資籌碼」tab 原本只有三大法人「今日買賣超」（流量），沒有「外資總共持有多少%」
+（存量）。已用真實請求驗證新資料源格式（TSMC 2330 在 TWSE 端測得 69.59%）：
+- `scrapers/chips.py` 新增 `fetch_foreign_holding_twse()`/`fetch_foreign_holding_tpex()` +
+  `_parse_pct()`（處理 TWSE 純數字字串跟 TPEx 帶 % 字串兩種格式）
+- 新表 `foreign_holdings(stock_id, date, foreign_pct)`（`screener/database.py::init_db()`）
+- `main.py::_update_chips_db()` 新增兩段抓取，套用既有 `_retry_fetch()`（#6 建的重試機制）
+- `processors/performance.py::get_stock_chips_ranking()` 合併 `foreign_pct` 進
+  `foreign_top_buy`/`foreign_top_sell` 每一列；**這張新表獨立包一層 try/except**——
+  `foreign_holdings` 表可能還沒建立（例如尚未跑過任何一次 `_update_chips_db`），缺這張表
+  不該讓整個籌碼排行連 institutional/margin 都一起壞掉，已補回歸測試驗證這個情境。
+- `export/chips_generator.py::_stock_rank_table()` 新增「外資持股%」欄，缺值顯示「─」
+
+### 已知限制（誠實揭露，spec 已記載）
+「400張以上大戶%」「1000張以上大戶%」對外資持股極重的股票仍然會顯示偏高數字（TDCC 集保
+分層資料源本身不分帳戶屬性，外資保管銀行的巨額集保帳戶本來就會落在這些高級距）——Cody 已
+確認接受，不做「扣除外資」的近似計算（會引入日期對齊的複雜度跟精確度爭議）。外資籌碼%（新
+資料源）跟三大法人買賣超是兩個獨立資料源/更新頻率，不互相校驗一致性，並排顯示。
+
+### 測試
+新增/調整測試涵蓋：大戶籌碼表兩層指標顯示、缺值處理、`_parse_pct` 格式解析、外資持股%欄位
+顯示與缺值、`foreign_holdings` 表缺失時的降級（不連累其他既有資料）。全專案 **204 passed**。
+
+未 push（等 Debugger ✅）。**這批需要 Cody 實際跑一次 `python main.py` 才會有 `foreign_holdings`
+真實資料**（純程式碼修正不會生資料，`init_db()` 是 `CREATE TABLE IF NOT EXISTS`，正常跑一次
+就會建表+開始累積資料）。
+
+---
+
 ## [2026-07-14] ✅ #7/#8/#9 全部修好（根治方案，比照 Debugger 建議的選項 2）
 
 ### #7：`_backfill_shareholder` 改成只補 DB 實際缺的那幾週

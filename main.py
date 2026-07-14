@@ -12,7 +12,7 @@ from pathlib import Path
 from scrapers.moneydj import scrape_industry_sectors
 from scrapers.daily_prices import fetch_prices_for_stocks
 from scrapers.realtime import fetch_realtime_prices
-from scrapers.chips import fetch_institutional, fetch_institutional_tpex, fetch_margin_all_twse, fetch_margin_all_tpex, TWSEBlockedError
+from scrapers.chips import fetch_institutional, fetch_institutional_tpex, fetch_margin_all_twse, fetch_margin_all_tpex, fetch_foreign_holding_twse, fetch_foreign_holding_tpex, TWSEBlockedError
 from scrapers.taiex import fetch_taiex_index
 from scrapers.backfill import backfill_twse_monthly, backfill_institutional, backfill_margin, backfill_yfinance
 from processors.changes import detect_changes
@@ -173,6 +173,51 @@ def _update_chips_db(trade_date: date, stock_ids: list) -> None:
             logger.info("TPEx 融資融券寫入 %d 筆（%s）", len(margin_tpex_df), resp_date)
     except Exception as exc:
         logger.warning("TPEx 融資融券寫入失敗: %s", exc)
+
+    try:
+        fh_date = trade_date
+        try:
+            fh_df = _retry_fetch(fetch_foreign_holding_twse, fh_date,
+                                  retry_on=(TWSEBlockedError, requests.exceptions.RequestException))
+        except TWSEBlockedError as exc:
+            logger.warning("外資持股%%抓取失敗（非『尚未發布』）：%s，本次跳過", exc)
+            fh_df = pd.DataFrame()
+        except ValueError:
+            fh_date = _prev_trading_day(trade_date)
+            logger.info("外資持股%%今日尚未發布，改抓前一交易日 %s", fh_date)
+            fh_df = _retry_fetch(fetch_foreign_holding_twse, fh_date,
+                                  retry_on=(TWSEBlockedError, requests.exceptions.RequestException))
+        if not fh_df.empty:
+            import duckdb
+            con = duckdb.connect("data/screener.db")
+            con.execute("DELETE FROM foreign_holdings WHERE date = ?", [fh_date.isoformat()])
+            con.execute("INSERT INTO foreign_holdings SELECT * FROM fh_df")
+            con.close()
+            logger.info("外資持股%% 寫入 %d 筆（%s）", len(fh_df), fh_date)
+    except Exception as exc:
+        logger.warning("外資持股%% 寫入失敗: %s", exc)
+
+    try:
+        # TPEx 沒有日期參數，只回傳「當下」的排行表；用回應自己的 date 為準，不強套 trade_date。
+        # DELETE 只刪這批 TPEx stock_id，避免誤刪上面剛寫入的 TWSE 同日資料。
+        fh_tpex_df = _retry_fetch(fetch_foreign_holding_tpex)
+        if not fh_tpex_df.empty:
+            resp_dates = fh_tpex_df["date"].unique().tolist()
+            if len(resp_dates) > 1:
+                logger.warning("TPEx 外資持股%% 回應包含多個日期 %s，只留最新一天", resp_dates)
+                fh_tpex_df = fh_tpex_df[fh_tpex_df["date"] == max(resp_dates)]
+            resp_date = fh_tpex_df["date"].iloc[0]
+            import duckdb
+            con = duckdb.connect("data/screener.db")
+            con.execute(
+                "DELETE FROM foreign_holdings WHERE date = ? AND stock_id IN (SELECT stock_id FROM fh_tpex_df)",
+                [resp_date],
+            )
+            con.execute("INSERT INTO foreign_holdings SELECT * FROM fh_tpex_df")
+            con.close()
+            logger.info("TPEx 外資持股%% 寫入 %d 筆（%s）", len(fh_tpex_df), resp_date)
+    except Exception as exc:
+        logger.warning("TPEx 外資持股%% 寫入失敗: %s", exc)
 
 
 def _push_html(trade_date: date) -> None:

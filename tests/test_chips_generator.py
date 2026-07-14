@@ -34,6 +34,28 @@ def test_stock_rank_table_escapes_malicious_stock_name():
     assert '&lt;script&gt;alert(1)&lt;/script&gt;' in html
 
 
+def test_stock_rank_table_shows_foreign_pct_column():
+    """外資持股%（存量，TWSE MI_QFIIS/TPEx tpex_3insti_qfii）跟既有買賣超（流量）是不同
+    資料源、不同欄位，兩者並存顯示。"""
+    stocks = [{
+        "stock_id": "2330", "stock_name": "台積電", "meta_sector": "半導體",
+        "foreign_net": 1000, "trust_net": 500, "foreign_pct": 69.59,
+    }]
+    html = _stock_rank_table(stocks, header="外資買超")
+    assert "外資持股%" in html
+    assert "69.6%" in html
+
+
+def test_stock_rank_table_foreign_pct_missing_shows_dash():
+    """沒有外資持股%資料的股票（TPEx 排行表沒上榜/新股）顯示「─」，不能報錯。"""
+    stocks = [{
+        "stock_id": "9999", "stock_name": "無資料股", "meta_sector": "測試",
+        "foreign_net": 100, "trust_net": 50, "foreign_pct": None,
+    }]
+    html = _stock_rank_table(stocks, header="外資買超")
+    assert "─" in html
+
+
 def test_generate_returns_false_and_skips_write_when_no_chips_data(tmp_path):
     """meta_chips/stock_chips 兩者皆空時（例如當天資料源抓取失敗），
     generate() 不該寫檔，且要讓呼叫端能區分「真的產生成功」跟「靜默跳過」，
@@ -102,22 +124,22 @@ _SAMPLE_SH_ROW = {
 }
 
 
-def test_shareholder_table_includes_lv12_and_lv15_columns():
+def test_shareholder_table_shows_400_and_1000_tier_columns():
+    """大戶籌碼表要顯示兩層：400張以上（累計 lv12_15_pct，包含1000張以上那層）跟
+    1000張以上（單獨 lv15_pct）。舊版「400張大戶」欄位曾誤用 lv12_shares（只算
+    TDCC level 12 單一級距 400,001~600,000股窄band，不是累計≥400張），已拿掉。"""
     html = _shareholder_table([_SAMPLE_SH_ROW])
-    assert "400張大戶" in html
-    assert "1000張大戶" in html
-    assert "1,600" in html   # lv12_shares / 1000 = 1,600 張
+    assert "400張以上大戶" in html
+    assert "1000張以上大戶" in html
+    assert "1,600" not in html, "lv12_shares 窄band 數字不該再出現（已拿掉這欄）"
     assert "2,900" in html   # lv15_shares / 1000 = 2,900 張
-    assert "6.4" in html     # lv12_pct
-    assert "11.6" in html    # lv15_pct
+    assert "20.0" in html    # lv12_15_pct（400張以上大戶%，主指標）
+    assert "11.6" in html    # lv15_pct（1000張以上大戶%）
 
 
-def test_shareholder_table_handles_missing_lv12_lv15_data():
-    """沒有分層資料的股票（舊資料，尚未跑過新版 --update-shareholder）要顯示「─」，不能報錯。"""
+def test_shareholder_table_handles_missing_lv15_data():
+    """沒有 lv15 分層資料的股票（舊資料，尚未跑過新版 --update-shareholder）要顯示「─」，不能報錯。"""
     row = dict(_SAMPLE_SH_ROW)
-    row["lv12_shares"] = None
-    row["lv12_pct"] = None
-    row["lv12_chg"] = None
     row["lv15_shares"] = None
     row["lv15_pct"] = None
     row["lv15_chg"] = None

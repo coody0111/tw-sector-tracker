@@ -205,13 +205,21 @@ def _section_date_suffix(rows: list) -> str:
 
 
 def _stock_rank_table(stocks: list, header: str, net_key: str = "foreign_net") -> str:
-    """外資籌碼個股排行——只看外資（獨立區塊，不混投信，見 debug-tasks.md 外資/法人拆分）。"""
+    """外資籌碼個股排行——只看外資（獨立區塊，不混投信，見 debug-tasks.md 外資/法人拆分）。
+    「外資持股%」欄位是存量資料（TWSE MI_QFIIS/TPEx tpex_3insti_qfii，全體外資持有股數/
+    總發行股數），跟 {header} 欄（三大法人今日買賣超，流量資料）是不同維度、不同資料源，
+    缺值（新股/未上榜)顯示「─」不報錯。"""
     if not stocks:
         return "<div class='no-data'>無資料</div>"
     latest_dd = _latest_data_date(stocks)
-    html = f"<table class='ct'><thead><tr><th>#</th><th>股票</th><th>族群</th><th>收盤</th><th>{header}</th></tr></thead><tbody>"
+    html = (
+        f"<table class='ct'><thead><tr><th>#</th><th>股票</th><th>族群</th><th>收盤</th>"
+        f"<th>{header}</th><th>外資持股%</th></tr></thead><tbody>"
+    )
     for i, s in enumerate(stocks, 1):
         net = s.get(net_key, 0)
+        foreign_pct = s.get("foreign_pct")
+        foreign_pct_html = "<span style='color:#475569'>─</span>" if foreign_pct is None else f"{foreign_pct:.1f}%"
         html += (
             f"<tr>"
             f"<td class='ct-rank'>{i}</td>"
@@ -219,6 +227,7 @@ def _stock_rank_table(stocks: list, header: str, net_key: str = "foreign_net") -
             f"<td class='ct-meta'>{_meta_link(s['meta_sector'])}</td>"
             f"{_price_cell(s.get('close'), s.get('change_pct'))}"
             f"<td>{_fmt_net(net)}</td>"
+            f"<td>{foreign_pct_html}</td>"
             f"</tr>"
         )
     html += "</tbody></table>"
@@ -389,9 +398,17 @@ def _concentration_table(meta_chips: dict) -> str:
 
 
 def _shareholder_table(rows: list) -> str:
-    """大戶籌碼排行表（集保 TDCC ≥400張分層）。rows: list of dicts with stock_id,
+    """大戶籌碼排行表（集保 TDCC 分層）。rows: list of dicts with stock_id,
     stock_name, meta_sector, lv12_15_pct, lv12_15_shares, share_chg, week_chg, streak,
-    lv12_shares, lv12_pct, lv12_chg, lv15_shares, lv15_pct, lv15_chg。
+    lv15_shares, lv15_pct, lv15_chg。
+
+    兩層大戶指標：
+    - 400張以上大戶%＝lv12_15_pct（TDCC level 12+13+14+15 累計，≥400,001股，包含1000張以上
+      那層），也是本表主指標，streak/週變化/連增週都是以這個累計值為基礎追蹤。
+    - 1000張以上大戶%＝lv15_pct（level 15 單獨，≥1,000,001股）。
+    （曾經有過的「400張大戶」窄 band 欄位用 lv12_shares，那其實只算 level 12 單一級距
+    400,001~600,000股，不是累計≥400張，命名跟數字對不上，已拿掉。）
+
     董監持股（company_shares/major_holder_shares 等）獨立在 _insider_holdings_table()，
     跟大戶籌碼是不同資料源（TDCC 集保 vs 公開觀測站董監申報），拆開避免混為一談。"""
     if not rows:
@@ -400,8 +417,8 @@ def _shareholder_table(rows: list) -> str:
         "<table class='ct'><thead><tr>"
         "<th>#</th><th>股票</th><th>族群</th><th>收盤(週漲跌)</th>"
         "<th>近5日</th><th>近7日</th><th>近10日</th><th>近14日</th>"
-        "<th>大戶持倉%</th><th>週變化</th><th>大戶張數變化</th><th>連增週</th>"
-        "<th>400張大戶</th><th>1000張大戶</th>"
+        "<th>400張以上大戶%</th><th>週變化</th><th>大戶張數變化</th><th>連增週</th>"
+        "<th>1000張以上大戶</th>"
         "</tr></thead><tbody>"
     )
     for i, s in enumerate(rows, 1):
@@ -434,7 +451,6 @@ def _shareholder_table(rows: list) -> str:
 
         pct_color = "#f87171" if pct >= 70 else ("#fbbf24" if pct >= 50 else "#94a3b8")
 
-        lv12_html = _insider_cell(s.get("lv12_shares"), s.get("lv12_chg"), s.get("lv12_pct"), pct_label="持股")
         lv15_html = _insider_cell(s.get("lv15_shares"), s.get("lv15_chg"), s.get("lv15_pct"), pct_label="持股")
 
         html += (
@@ -451,7 +467,6 @@ def _shareholder_table(rows: list) -> str:
             f"<td>{chg_html}</td>"
             f"<td>{share_chg_html}</td>"
             f"<td>{streak_html}</td>"
-            f"{lv12_html}"
             f"{lv15_html}"
             f"</tr>"
         )
@@ -886,8 +901,12 @@ def _build_section8(shareholder_data: list) -> tuple[str, str, str]:
         )
     sh_increasing = [r for r in shareholder_data if (r.get("streak") or 0) > 0]
     sh_decreasing = [r for r in shareholder_data if (r.get("streak") or 0) < 0]
-    sh_increasing.sort(key=lambda x: (-(x.get("streak") or 0), -(x.get("lv12_15_pct") or 0)))
-    sh_decreasing.sort(key=lambda x: ((x.get("streak") or 0), -(x.get("lv12_15_pct") or 0)))
+    # 排序 bug 修正：同樣連增/連減週數時，原本比「持倉百分比絕對值」高低，會把外資保管銀行
+    # 持股天生就高的股票（例如台積電 87.77%）沖到榜首，即使當週實際變動只有 0.01-0.03%
+    # 這種無意義的雜訊。改比「當週實際變動幅度」（|week_chg|）大小，才會優先顯示真正有意義
+    # 的籌碼變動，不是絕對持倉位置。
+    sh_increasing.sort(key=lambda x: (-(x.get("streak") or 0), -abs(x.get("week_chg") or 0)))
+    sh_decreasing.sort(key=lambda x: ((x.get("streak") or 0), -abs(x.get("week_chg") or 0)))
     top_increasing, top_decreasing = sh_increasing[:30], sh_decreasing[:20]
 
     s8_html = f"""

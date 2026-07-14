@@ -321,6 +321,23 @@ def test_get_stock_chips_ranking_carries_per_row_data_date(tmp_path):
     assert fd["6488"] == "2026-07-09"
 
 
+def test_get_stock_chips_ranking_survives_missing_foreign_holdings_table(tmp_path):
+    """外資持股%（foreign_holdings）是新資料源，這張表可能還沒建立（例如尚未跑過任何一次
+    _update_chips_db）。缺這張表不該讓整個籌碼排行連 institutional/margin 都一起壞掉——
+    只有 foreign_pct 那個欄位缺值（None），其他既有資料照常回傳。"""
+    db_path = tmp_path / "test.db"
+    universe = pd.DataFrame([("2330", "台積電", "半導體")], columns=["stock_id", "stock_name", "meta_sector"])
+    _seed_ranking_db(
+        db_path,
+        inst_rows=[("2330", "2026-07-07", 1000, 100)],
+        margin_rows=[("2330", "2026-07-07", 100000, 8000)],
+        price_rows=[("2330", "2026-07-07", 950.0, 1.5)],
+    )
+    result = get_stock_chips_ranking(universe, db_path=str(db_path))
+    assert len(result["foreign_top_buy"]) == 1, "缺 foreign_holdings 表不該讓整個籌碼排行回空"
+    assert result["foreign_top_buy"][0]["foreign_pct"] is None
+
+
 # ── 大盤分級儀表板（Market Regime Dashboard）───────────────────────────
 from processors.performance import (
     calc_market_breadth,

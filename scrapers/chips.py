@@ -56,6 +56,16 @@ def _parse_num_opt(val: str):
         return None
 
 
+def _parse_pct(val: str):
+    """把 '69.59' 或 '87.85%' 這類百分比字串轉 float，無法解析回 None。
+    用於外資持股比率——解析失敗代表格式跳掉，不該假設成 0%（0% 是合法值，不能用來
+    代表『缺值』）。"""
+    try:
+        return float(str(val).replace(",", "").replace("%", "").strip())
+    except (ValueError, AttributeError):
+        return None
+
+
 def fetch_institutional(trade_date: date) -> pd.DataFrame:
     """
     抓 TWSE 三大法人資料，回傳 DataFrame。
@@ -247,6 +257,87 @@ def fetch_margin_all_tpex() -> pd.DataFrame:
             "margin_change":  margin_bal - prev_margin,
             "short_balance":  short_bal,
             "short_change":   short_bal - prev_short,
+        })
+
+    return pd.DataFrame(rows)
+
+
+_TWSE_QFIIS_URL = "https://www.twse.com.tw/rwd/zh/fund/MI_QFIIS"
+
+
+def fetch_foreign_holding_twse(trade_date: date) -> pd.DataFrame:
+    """
+    TWSE 外資及陸資投資持股統計（MI_QFIIS）——一次取得全部上市股票的外資持股比率。
+    欄位：stock_id, date, foreign_pct（全體外資及陸資持股比率，"全體外資持有股數/總發行股數"）
+
+    這是「外資籌碼%」的資料來源，跟 fetch_institutional()（三大法人「今日買賣超」流量）
+    是不同維度：這支是外資「目前總共持有多少%」的存量資料。
+    """
+    date_str = trade_date.strftime("%Y%m%d")
+    resp = requests.get(
+        _TWSE_QFIIS_URL,
+        params={"response": "json", "date": date_str, "selectType": "ALLBUT0999"},
+        headers=_HEADERS_TWSE,
+        timeout=30,
+        verify=False,
+    )
+    _check_twse_response(resp)
+    data = resp.json()
+
+    if data.get("stat") != "OK" or not data.get("data"):
+        raise ValueError(f"TWSE MI_QFIIS returned stat={data.get('stat')} for {trade_date}")
+
+    rows = []
+    for row in data["data"]:
+        if len(row) < 8:  # 欄位不足的列直接跳過（同 T86 慣例）
+            continue
+        sid = str(row[0]).strip()
+        if not sid:
+            continue
+        pct = _parse_pct(row[7])  # 「全體外資及陸資持股比率」
+        if pct is None:
+            continue
+        rows.append({
+            "stock_id":    sid,
+            "date":        trade_date.isoformat(),
+            "foreign_pct": pct,
+        })
+
+    return pd.DataFrame(rows)
+
+
+_TPEX_QFII_URL = "https://www.tpex.org.tw/openapi/v1/tpex_3insti_qfii"
+
+
+def fetch_foreign_holding_tpex() -> pd.DataFrame:
+    """
+    TPEx 上櫃外資及陸資持股比例排行（tpex_3insti_qfii，只回傳當下，無法查歷史日期）。
+    欄位跟 fetch_foreign_holding_twse() 一致：stock_id, date, foreign_pct
+
+    注意：這是「排行表」，只列出目前有外資/陸資持股的股票（實測約 290 檔），沒上榜的
+    股票視為缺資料（不是 0%）——沒有明確信號能區分「真的 0%」跟「未列入排行」，
+    寧可缺資料也不要亂猜成 0。
+    """
+    resp = requests.get(_TPEX_QFII_URL, headers=_HEADERS_TPEX, timeout=30, verify=False)
+    resp.raise_for_status()
+    data = resp.json()
+
+    if not data:
+        raise ValueError("TPEx 外資及陸資持股 API 回傳空資料")
+
+    rows = []
+    for row in data:
+        date_str = row.get("Date", "")
+        sid = str(row.get("SecuritiesCompanyCode", "")).strip()
+        if not date_str or not sid:
+            continue
+        pct = _parse_pct(row.get("PercentageOfSharesOC/FMIHeld", ""))
+        if pct is None:
+            continue
+        rows.append({
+            "stock_id":    sid,
+            "date":        _roc_date_to_iso(date_str),
+            "foreign_pct": pct,
         })
 
     return pd.DataFrame(rows)

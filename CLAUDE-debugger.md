@@ -168,6 +168,28 @@ master 與 debug 曾各自長出獨立 commit → 分岔成 Y 形，要手動解
 
 ---
 
+## 🖥️ 換平台開工（照跑，別想）
+
+先確認 debug 沒有未 push 的 commit（有就先同步回 master + push），然後：
+
+```bash
+D=~/Desktop/tw-sector-tracker          # master worktree
+git -C $D fetch origin
+git -C $D reset --hard origin/master   # cron 的 update: sector performance 產出 commit 直接丟
+git merge --ff-only master             # 在 debug worktree 跑，跟上 master
+cp CLAUDE-debugger.md CLAUDE.md        # 重建身分檔（gitignored，不會自己來）
+```
+
+- 只 reset debug 不夠——master worktree 也要一起，否則 cron 從舊點長 commit 又分岔。
+- debug 資料夾**不能** `git checkout master`（被另一個 worktree 佔用）；要動 master 一律 `git -C $D`。
+
+### ⚠️ `git pull` 拉不到 `data/`（gitignored）
+**程式碼修好 ≠ 資料修好。** 另一台跑過的資料修復（`recompute_all_history()`、清洗髒值的 UPDATE）
+**這台要再跑一次**。驗資料類修復，一律實查**當下這台**的 DB，不採信 `debug-tasks.md` 的勾選、
+也不因另一台驗過就放行。（踩雷實例見 `bug-reports.md` 2026-07-14。）
+
+---
+
 ## 原則
 
 數據的錯誤比程式 crash 更危險，因為它不會報錯，但會給出錯誤的掃盤結果。

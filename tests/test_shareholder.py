@@ -424,7 +424,7 @@ def test_recompute_all_history_outlier_week_does_not_contaminate_next_week(tmp_p
     """#8：真實案例——2380 2026-06-26 lv12_15_pct=100.0（TDCC 解析異常離群值），跟下一週
     07-03（正常間隔 7 天、無缺週）算出 week_chg=-63.59 的假訊號。離群值防護只在寫入端
     （_fetch_one_stock）擋未來新抓的資料，DB 裡這種舊離群值從沒被追溯清掉。
-    recompute_all_history 現在要把 >=_OUTLIER_PCT_THRESHOLD 的歷史列本身視同 NaN：
+    recompute_all_history 現在要把 >=_MAX_VALID_HOLDER_PCT 的歷史列本身視同 NaN：
     該筆自己 week_chg 為 NULL，且不能被下一筆拿去當 prev_pct 算出假差值。"""
     db_path = tmp_path / "t.db"
     con = duckdb.connect(str(db_path))
@@ -492,6 +492,46 @@ def test_recompute_all_history_gap_week_gives_null_not_multiweek_chg(tmp_path):
     assert df.iloc[2]["streak"] == 0                               # 缺週 streak 歸 0
     assert round(df.iloc[3]["week_chg"], 2) == 1.0, "缺口後相鄰週要恢復正常比較"
     assert df.iloc[3]["streak"] == 1
+
+
+def test_recompute_all_history_outlier_pct_treated_as_null(tmp_path):
+    """離群值根治(#8)：lv12_15_pct >= 99%（TDCC 解析異常，例 2380 06-26=100.0）視為當週不可信，
+    比照 NULL——該筆 week_chg=NULL、streak=0，且不當下一週的比較基準（不會再算出 -63.59 那種
+    假的『大戶大減持』訊號）。歷史髒值不用人工追殺，重跑 recompute 就自動消。"""
+    db_path = tmp_path / "t.db"
+    con = duckdb.connect(str(db_path))
+    _make_table(con)
+    rows = [
+        ("2380", "2026-06-12", 43.0),
+        ("2380", "2026-06-19", 44.0),    # +1 正常
+        ("2380", "2026-06-26", 100.0),   # 離群值（TDCC 解析異常）
+        ("2380", "2026-07-03", 36.41),   # 沒 #8 的話會算出 36.41-100=-63.59 假訊號
+    ]
+    for sid, d, pct in rows:
+        con.execute(
+            "INSERT INTO shareholder "
+            "(stock_id, date, lv12_15_pct, lv12_15_cnt, lv12_15_shares, total_shares, week_chg, streak) "
+            "VALUES (?, ?, ?, 0, 0, 0, ?, ?)",
+            [sid, pd.to_datetime(d).date(), pct, -999.0, 9],
+        )
+    con.close()
+
+    recompute_all_history(str(db_path))
+
+    con = duckdb.connect(str(db_path))
+    df = con.execute(
+        "SELECT date, lv12_15_pct, week_chg, streak FROM shareholder WHERE stock_id='2380' ORDER BY date"
+    ).df()
+    big = con.execute("SELECT COUNT(*) FROM shareholder WHERE ABS(week_chg) > 20").fetchone()[0]
+    con.close()
+
+    assert round(df.iloc[1]["week_chg"], 2) == 1.0                 # 06-19 正常
+    assert pd.isna(df.iloc[2]["week_chg"]), "離群值 06-26 那筆 week_chg 應 NULL"
+    assert df.iloc[2]["streak"] == 0
+    assert pd.isna(df.iloc[3]["week_chg"]), "07-03 不該拿 100.0 當基準算出 -63.59 假訊號"
+    assert big == 0, "全表不該再有 |week_chg|>20 的假大戶減持訊號（#8 驗收）"
+    # Debugger 建議：清洗步驟寫進 code——recompute 也把離群值 pct 本身就地清成 NULL（不只略過計算）
+    assert pd.isna(df.iloc[2]["lv12_15_pct"]), "離群值 100.0 應被就地清成 NULL、髒值不留在 DB"
 
 
 def test_recompute_all_history_handles_single_week_stock(tmp_path):
@@ -615,3 +655,30 @@ def test_add_week_change_streak_handles_null_prev(tmp_path, monkeypatch):
     con.close()
     assert a[0] is None, "前一週 pct NULL → 本週 week_chg None"
     assert round(b[0], 2) == 2.0 and b[1] == 1, "前一週 streak NULL 應當 0 起算、不 crash"
+
+
+def test_plan_backfill_dates_only_missing_weeks_in_window():
+    """#7：backfill 應補「視窗內 DB 還缺的那幾週」，不是固定往回數 N 週重抓已有的；
+    中間缺的一週（例 06-18）也要被抓回。回傳由舊到新（save_to_db 需依序寫）。"""
+    from scrapers.shareholder import plan_backfill_dates
+    available = ["20260703", "20260626", "20260618", "20260612", "20260605"]  # 新→舊
+    existing = {"20260703", "20260626", "20260612", "20260605"}               # 缺 06-18
+    assert plan_backfill_dates(available, existing, weeks=5) == ["20260618"]
+    # 視窗太小抓不到更舊的 06-18 → 使用者需放大 N（維持可控）
+    assert plan_backfill_dates(available, existing, weeks=2) == []
+    # 視窗內都在 DB → 無需補（不再重抓已有的）
+    assert plan_backfill_dates(available, existing | {"20260618"}, weeks=5) == []
+    # 全新 DB → 視窗內全補、由舊到新
+    assert plan_backfill_dates(available, set(), weeks=3) == ["20260618", "20260626", "20260703"]
+
+
+def test_get_existing_shareholder_dates(tmp_path):
+    """回傳 DB shareholder 表已有的週別日期（YYYYMMDD 集合），供 backfill 比對缺哪幾週。"""
+    import scrapers.shareholder as sh
+    db_path = str(tmp_path / "t.db")
+    con = duckdb.connect(db_path)
+    _make_table(con)
+    _insert(con, "2330", "2026-06-12", 40.0, 0)
+    _insert(con, "2330", "2026-06-26", 42.0, 0)
+    con.close()
+    assert sh.get_existing_shareholder_dates(db_path) == {"20260612", "20260626"}

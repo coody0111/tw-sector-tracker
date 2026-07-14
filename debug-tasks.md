@@ -1,3 +1,18 @@
+## [2026-07-14] 🔀 Merge 說明：#7/#8/#9 兩邊各自獨立修過，衝突已收斂
+
+master 分支跟 origin 各自獨立修了下面這兩則 #7/#8/#9（不同機器/session，換機沒同步到）。
+Merge 時逐項比對兩邊差異後決定：**scrapers/shareholder.py 整體採用 origin 版本**（它的 #8
+清洗步驟更徹底——`recompute_all_history()` 開頭直接 `UPDATE...SET NULL` 把 DB 裡的歷史離群值
+永久洗掉，不只是計算時略過），**但把本地版本 `recompute_latest_streak()` 裡的 #9 缺週/離群值
+防護移植回去**（origin 版本把這段連同對應測試一起刪掉了，只靠 `recompute_all_history()` 的
+上游清洗防護，但 `recompute_latest_streak()` 也可能被單獨呼叫，需要獨立防護，defense in depth）。
+main.py 採用 origin 版本（`plan_backfill_dates`/`get_existing_shareholder_dates`），本地版本
+新增的 `_missing_shareholder_dates`（main.py 本地私有函式）功能重複，已移除，測試一併移除。
+
+以下兩則是兩邊各自的原始記錄，保留供歷史對照：
+
+---
+
 ## [2026-07-14] ✅ 籌碼分頁三指標定義修正 + 外資持股% 新資料源（spec: `docs/superpowers/specs/2026-07-14-chips-metric-definitions-design.md`）
 
 Cody 看完新版「大戶籌碼」tab 覺得數字奇怪（許多股票 80-90%），調查後發現是排序 bug + 指標
@@ -81,6 +96,54 @@ SQL 查詢加回 `prev.date`，跟 `recompute_all_history` 一樣判斷「次新
 全專案 **199 passed**。
 
 未 push（等 Debugger ✅）。
+
+---
+
+## [2026-07-14] ✅ #7 缺週回補根治 + #8 清洗步驟寫進 code（Developer，收 Debugger 建議）
+
+### #7：`--backfill-shareholder` 改成「只補視窗內缺的那幾週」
+- 異動：`scrapers/shareholder.py`（新增 `get_existing_shareholder_dates()`、`plan_backfill_dates()`）、
+  `main.py::_backfill_shareholder()`。
+- 舊：`list(reversed(available[:weeks]))` 固定往回數 N 週、連 DB 已有的也重抓，中間缺的一週
+  （06-18）不在最新 N 週內就漏。新：`plan_backfill_dates(available, existing, weeks)` 只回傳
+  「視窗內 DB 還缺的那幾週」（由舊到新），06-18 只要落在視窗內就會被抓回、已有的不重抓。
+- 收尾改用 `recompute_all_history()`（原本只 `recompute_latest_streak`）——因為填的是**中間缺口**，
+  缺口後那週（06-26）要重新對到新補的 06-18，只重算最新週修不到它。
+- 新增測試 `test_plan_backfill_dates_only_missing_weeks_in_window`、`test_get_existing_shareholder_dates`。
+
+### 收 Debugger 建議（bug-reports.md）：清洗步驟寫進 code，不靠人工 SQL
+- `recompute_all_history()` **開頭先就地清髒值**：`UPDATE shareholder SET lv12_15_pct=NULL WHERE
+  lv12_15_pct >= _MAX_VALID_HOLDER_PCT`——不只計算時略過，**離群值本身也清成 NULL**。換機重跑
+  recompute 就自動洗乾淨、不用記得人工下 SQL。#8 測試加驗「100.0 那筆的 lv12_15_pct 被清成 NULL」。
+- 順帶移除迴圈裡多餘的 `>=99` guard（清洗後讀回是 NaN，既有 NaN guard 已涵蓋）。
+
+### 驗證 / 全專案
+- **全專案 195 passed**（+#7 兩個測試；#8 測試多一條清洗斷言）。純 code、機器無關。
+- ⚠️ 真正把 production DB 的 06-18 補回、假訊號洗掉，仍需在**有真實 DB 的那台**跑
+  `--backfill-shareholder 8`（現在會只補缺的、收尾自動全表重算＋清髒值）。
+
+### 大戶持倉待修清單全數收斂
+#1 缺週防護 ✅、#2/#4 NaN/離群值防護 ✅、#5 ✅、#6 ✅、Task5/6 ✅、**#7 ✅、#8 ✅（含清洗）**。
+剩下純資料操作（在有 DB 的那台跑 backfill/recompute）不是 code 問題。
+
+---
+
+## [2026-07-14] ✅ #8 離群值 code 根治完成（Developer）
+
+- 異動：`scrapers/shareholder.py` + `tests/test_shareholder.py`
+- 做法：`recompute_all_history()` 迴圈加離群值 guard——`lv12_15_pct >= _MAX_VALID_HOLDER_PCT`(99)
+  視為當週不可信、比照 NULL（本筆 week_chg=NULL、streak=0，也不當下一週比較基準）。抽共用常數
+  `_MAX_VALID_HOLDER_PCT`，寫入端 `_fetch_one_stock`(#2) 與重算端(#8) 共用，避免兩個魔術數 99 漂移。
+- 效果：**2380 06-26=100.0 這類歷史髒值不用人工追殺**——任何一台重跑 `recompute_all_history()`，
+  它的 week_chg 自動變 NULL、07-03 那筆假 -63.59% 假訊號連帶消失。
+- 新增測試 `test_recompute_all_history_outlier_pct_treated_as_null`（驗收：全表 `|week_chg|>20` = 0）。
+  **全專案 193 passed**。
+- ⚠️ 這是 **code 修復**，機器無關（單元測試驗）。真正把 production DB 的假訊號洗掉，仍需在**有真實
+  DB 的那台**重跑一次 `recompute_all_history()`（本機沒跑法人/集保資料，不在這台跑）。
+
+### 還開著：#7（06-18 缺週補抓）
+`--backfill-shareholder N` 是往回數 N 週、不是補缺的那幾週，06-18 缺口未解。短期你在有 DB 的那台
+跑 `--backfill-shareholder 8` 蓋過去；根治要改 `_backfill_shareholder` 成「比對缺哪幾週補哪幾週」。
 
 ---
 

@@ -625,3 +625,32 @@ def test_scan_and_track_defaults_to_no_divergence_when_data_not_passed(tmp_path)
     results = scan_and_track("2026-07-03", db_path=str(db_path))
 
     assert len(results) == 1
+
+
+import math
+
+
+def test_calc_accumulation_score_handles_none_sh_streak_without_crash():
+    """sh_streak 為 None（新股，集保資料還沒有這檔）不該 crash，holder_pts 當 0 貢獻。"""
+    result = calc_accumulation_score(**_base_acc_kwargs(sh_streak=None, recent_return=1.0))
+    assert result["score"] is not None
+    assert not (isinstance(result["score"], float) and math.isnan(result["score"]))
+
+
+def test_calc_accumulation_score_handles_nan_sh_streak_without_crash():
+    """sh_streak 為 NaN（DuckDB NULL 經 pandas 讀回）不該 crash，等同 None 處理。"""
+    result = calc_accumulation_score(**_base_acc_kwargs(sh_streak=float("nan"), recent_return=1.0))
+    assert result["score"] is not None
+    assert not (isinstance(result["score"], float) and math.isnan(result["score"]))
+
+
+def test_calc_accumulation_score_handles_none_holder_net_lots():
+    """holder_net_lots 為 None（還沒有兩週大戶資料可比較）：holder_pts 仍走 sh_streak
+    正常計算，但 weakening 的『大戶由增轉減』判斷略過（不因為 None 就觸發或跳過整體 weakening，
+    只是那個 OR 分支不成立）。"""
+    result = calc_accumulation_score(**_base_acc_kwargs(
+        foreign_streak=3, trust_streak=3, sh_streak=2, holder_net_lots=None, recent_return=1.0,
+    ))
+    assert result["weakening"] is False
+    assert result["holder_net_lots"] is None
+    assert result["score"] > 0, "holder_net_lots=None 不該讓 holder_pts 被歸零，sh_streak 仍要計分"

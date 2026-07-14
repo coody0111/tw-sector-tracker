@@ -1375,6 +1375,11 @@ def calc_accumulation_score(
 
     純函式：不連 DB、不依賴 UI，呼叫端已從 DB 撈好純量餵進來。
 
+    NaN guard：sh_streak/holder_net_lots/recent_return 從 DB 撈出時可能是 Python None，
+    也可能是 DuckDB NULL 經 pandas 讀回變成 float('nan')（本專案已知模式，見
+    scrapers/shareholder.py 的 pd.isna 防呆）。兩者都視為缺值處理，不能讓 nan 混進
+    max()/min() 算出 nan 分數卻不報錯。
+
     回傳 dict：
         score            進貨分 0-100
         foreign_buy_days 外資連買日數（max(foreign_streak, 0)）
@@ -1384,6 +1389,13 @@ def calc_accumulation_score(
         weakening        bool，進貨轉弱訊號
         label            '進貨'/'整理'/'轉弱'，導出規則見 _accumulation_label()
     """
+    if sh_streak is None or pd.isna(sh_streak):
+        sh_streak = None
+    if holder_net_lots is None or pd.isna(holder_net_lots):
+        holder_net_lots = None
+    if recent_return is None or pd.isna(recent_return):
+        recent_return = None
+
     foreign_buy_days = max(foreign_streak, 0)
     trust_buy_days = max(trust_streak, 0)
     sh_buy_weeks = max(sh_streak, 0) if sh_streak is not None else 0

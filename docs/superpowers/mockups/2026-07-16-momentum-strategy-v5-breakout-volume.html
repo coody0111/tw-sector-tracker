@@ -1,0 +1,525 @@
+<title>逆轟策略 — 頁面 Mockup v5</title>
+<style>
+:root{
+  --bg:#080B12; --panel:#0F1420; --panel-2:#161D2C; --panel-3:#1E2738;
+  --border:#293346; --border-2:#37435C;
+  --ink:#DADFE8; --ink-2:#98A0B4; --ink-3:#636B80;
+  --up:#E6432F; --down:#37B25C;
+  --accent:#F0BB55; --accent-dim:#B98A3A;
+  --tier-super:#F0BB55; --tier-strong:#4FC46A; --tier-mid:#8B94AC; --tier-weak:#E08A3E; --tier-superweak:#E6432F;
+  --serif: Georgia,"Iowan Old Style","Source Serif 4","Noto Serif TC",serif;
+  --sans: "Public Sans",-apple-system,"PingFang TC","Microsoft JhengHei","Segoe UI",sans-serif;
+  --mono: ui-monospace,"IBM Plex Mono","Cascadia Code","Roboto Mono",monospace;
+  --shadow-1: 0 1px 2px rgba(0,0,0,.35);
+  --shadow-2: 0 10px 28px rgba(0,0,0,.5), 0 2px 6px rgba(0,0,0,.35);
+}
+:root[data-theme="light"]{
+  --bg:#EFE8D8; --panel:#F8F3E6; --panel-2:#EAE1CB; --panel-3:#E0D5B8;
+  --border:#D6C9A3; --border-2:#C3B387;
+  --ink:#241C10; --ink-2:#6B5B3D; --ink-3:#93825E;
+  --up:#A8432C; --down:#3D7048;
+  --accent:#93701E; --accent-dim:#C4A24E;
+  --tier-super:#93701E; --tier-strong:#3D7048; --tier-mid:#7A7260; --tier-weak:#9A5A24; --tier-superweak:#A8432C;
+  --shadow-1: 0 1px 2px rgba(60,45,10,.1);
+  --shadow-2: 0 10px 28px rgba(60,45,10,.16), 0 2px 6px rgba(60,45,10,.1);
+}
+@media (prefers-color-scheme: dark){:root{}}
+
+*{box-sizing:border-box}
+body{
+  margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.55;padding:0 0 100px;
+  background-image:radial-gradient(ellipse at top left, rgba(255,255,255,.04), transparent 55%);
+}
+.tabular{font-family:var(--mono);font-variant-numeric:tabular-nums}
+
+/* ── topbar ── */
+.topbar{display:flex;align-items:baseline;gap:16px;padding:20px 28px;border-bottom:1px solid var(--border)}
+.topbar h1{font-family:var(--serif);font-size:1.32rem;font-weight:600;color:var(--ink);letter-spacing:.01em;margin:0}
+.topbar .kicker{font-size:.6rem;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--accent)}
+.topbar .sub{font-size:.72rem;color:var(--ink-3);margin-left:4px}
+.topbar .updated{font-size:.72rem;color:var(--ink-3);margin-left:auto;font-family:var(--mono)}
+.topbar .theme-btn{font-family:var(--mono);font-size:.66rem;background:var(--panel-2);border:1px solid var(--border);color:var(--ink-2);padding:5px 11px;border-radius:4px;cursor:pointer}
+
+/* ── 大盤狀態橫幅 ── */
+.regime-banner{margin:16px 28px 0;border-radius:6px;border:1px solid var(--border);overflow:hidden;transition:border-color .2s}
+.regime-banner.mode-calm{border-left:3px solid var(--tier-strong)}
+.regime-banner.mode-selloff{border-left:3px solid var(--tier-superweak)}
+.regime-head{display:flex;align-items:center;gap:14px;padding:14px 18px;background:var(--panel)}
+.regime-tier{font-family:var(--serif);font-size:1.05rem;font-weight:700}
+.regime-tier.up{color:var(--up)}
+.regime-tier.down{color:var(--down)}
+.regime-tier.flat{color:var(--ink-2)}
+.regime-meta{font-family:var(--mono);font-size:.72rem;color:var(--ink-3)}
+.regime-concentration{font-size:.72rem;color:var(--ink-2);margin-left:auto;padding:3px 9px;border:1px solid var(--border);border-radius:4px;background:var(--panel-2)}
+.regime-advice{padding:12px 18px 15px;font-size:.8rem;color:var(--ink-2);line-height:1.65;background:var(--panel-2);border-top:1px solid var(--border)}
+.regime-advice b{color:var(--ink);font-weight:700}
+.regime-advice .src{display:block;margin-top:5px;font-size:.66rem;color:var(--ink-3);font-family:var(--mono)}
+
+/* ── 停利停損哲學提示 ── */
+.philosophy-note{margin:10px 28px 0;padding:10px 16px;font-size:.72rem;color:var(--ink-3);line-height:1.6;border-left:2px solid var(--border-2)}
+.philosophy-note b{color:var(--ink-2)}
+
+/* ── legend strip: 五級=動作，不是狀態 ── */
+.legend{margin:16px 28px 0;padding:13px 18px;background:var(--panel);border:1px solid var(--border);border-radius:5px;display:flex;flex-wrap:wrap;gap:18px;align-items:center}
+.legend .lg-title{font-size:.68rem;font-weight:700;color:var(--ink-2);letter-spacing:.04em}
+.legend .lg-item{display:flex;align-items:center;gap:6px;font-size:.72rem;color:var(--ink-2);white-space:nowrap}
+.legend .dot{width:8px;height:8px;border-radius:50%;flex:none}
+.legend .lg-item b{color:var(--ink);font-weight:700}
+.legend .lg-arrow{color:var(--ink-3)}
+
+/* ── section shell ── */
+.section-head{display:flex;align-items:baseline;gap:12px;padding:30px 28px 6px}
+.section-head .num{font-family:var(--serif);font-size:1.5rem;font-weight:600;color:var(--accent-dim);line-height:1}
+.section-head h2{font-family:var(--serif);font-size:1.1rem;font-weight:600;color:var(--ink);margin:0}
+.section-head .count{font-family:var(--mono);font-size:.7rem;color:var(--ink-3);margin-left:auto}
+.section-rule{height:1px;background:linear-gradient(to right,var(--ink) 0%,var(--border) 45%,transparent 100%);margin:0 28px 4px}
+.section-sub{padding:0 28px 16px;font-size:.78rem;color:var(--ink-2);max-width:680px}
+
+/* ── section A: 主流族群 ── */
+.sector-strip{display:flex;gap:10px;overflow-x:auto;padding:2px 28px 4px}
+.sector-pill{flex:0 0 auto;display:flex;flex-direction:column;gap:4px;background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:11px 16px;cursor:pointer;transition:border-color .15s,background .15s;min-width:120px}
+.sector-pill:hover{border-color:var(--border-2)}
+.sector-pill.active{border-color:var(--accent);background:var(--panel-2);box-shadow:0 0 0 1px var(--accent) inset}
+.sector-pill .sp-rank{font-family:var(--mono);font-size:.6rem;color:var(--ink-3);font-weight:700}
+.sector-pill .sp-name{font-family:var(--serif);font-size:.94rem;font-weight:600;color:var(--ink)}
+.sector-pill .sp-pct{font-family:var(--mono);font-size:.86rem;font-weight:700}
+.sector-pill .sp-note{font-size:.62rem;color:var(--ink-3)}
+
+/* ── section B: 個股清單（族群→個股→動作，主表） ── */
+.stock-table-wrap{margin:0 28px;border:1px solid var(--border);border-radius:6px;overflow:hidden;background:var(--panel)}
+.stock-table-wrap{overflow-x:auto}
+.stock-table{width:100%;border-collapse:collapse;min-width:860px}
+.stock-table thead th{text-align:left;font-size:.62rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);padding:10px 14px;border-bottom:1px solid var(--border);background:var(--panel-2);white-space:nowrap}
+.stock-table thead th.num{text-align:right}
+.stock-row{border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s}
+.stock-row:hover{background:var(--panel-2)}
+.stock-row:last-child{border-bottom:none}
+.stock-row td{padding:11px 14px;vertical-align:middle}
+.sr-name{display:flex;flex-direction:column;gap:1px}
+.sr-name .id{font-family:var(--mono);font-size:.66rem;color:var(--ink-3)}
+.sr-name .nm{font-family:var(--serif);font-size:.94rem;font-weight:600;color:var(--ink)}
+.sr-price{font-family:var(--mono);font-weight:700;font-size:.92rem;text-align:right}
+.sr-pct{font-family:var(--mono);font-weight:700;font-size:.82rem;text-align:right;white-space:nowrap}
+.sr-rank{font-family:var(--mono);font-size:.76rem;color:var(--ink-2);text-align:right;white-space:nowrap}
+.sr-rank .bar-wrap{display:inline-block;width:44px;height:4px;background:var(--panel-3);border-radius:2px;margin-left:7px;vertical-align:middle;overflow:hidden}
+.sr-rank .bar-fill{height:100%;background:var(--accent-dim);border-radius:2px}
+.tier-chip{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:.7rem;font-weight:700;padding:4px 10px;border-radius:4px;white-space:nowrap}
+.tier-chip .dot{width:7px;height:7px;border-radius:50%;flex:none}
+.tier-super{background:color-mix(in srgb, var(--tier-super) 15%, var(--panel));color:var(--tier-super)}
+.tier-super .dot{background:var(--tier-super)}
+.tier-strong{background:color-mix(in srgb, var(--tier-strong) 15%, var(--panel));color:var(--tier-strong)}
+.tier-strong .dot{background:var(--tier-strong)}
+.tier-mid{background:color-mix(in srgb, var(--tier-mid) 15%, var(--panel));color:var(--tier-mid)}
+.tier-mid .dot{background:var(--tier-mid)}
+.tier-weak{background:color-mix(in srgb, var(--tier-weak) 15%, var(--panel));color:var(--tier-weak)}
+.tier-weak .dot{background:var(--tier-weak)}
+.tier-superweak{background:color-mix(in srgb, var(--tier-superweak) 15%, var(--panel));color:var(--tier-superweak)}
+.tier-superweak .dot{background:var(--tier-superweak)}
+.sr-action{font-size:.78rem;color:var(--ink-2)}
+.sr-chevron{color:var(--ink-3);font-size:.7rem;text-align:center;transition:transform .15s}
+.stock-row.expanded .sr-chevron{transform:rotate(90deg);color:var(--accent)}
+
+/* expandable detail row */
+.detail-row{display:none}
+.detail-row.open{display:table-row}
+.detail-row td{padding:0;border-bottom:1px solid var(--border)}
+.detail-inner{padding:16px 18px 18px 46px;background:var(--panel-2);display:grid;grid-template-columns:1fr 1fr 1fr;gap:22px}
+.detail-block h4{margin:0 0 9px;font-size:.68rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-3)}
+.cond-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:7px}
+.cond-list li{display:flex;align-items:flex-start;gap:8px;font-size:.78rem;color:var(--ink-2);line-height:1.5}
+.cond-icon{flex:none;width:15px;height:15px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.6rem;font-weight:800;margin-top:1px}
+.cond-icon.met{background:color-mix(in srgb, var(--down) 18%, var(--panel));color:var(--down)}
+.cond-icon.unmet{background:var(--panel-3);color:var(--ink-3)}
+.cond-list li.met-text{color:var(--ink)}
+
+.ma-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.ma-list li{display:flex;justify-content:space-between;align-items:baseline;font-size:.78rem;color:var(--ink-2)}
+.ma-list .ma-label{font-family:var(--mono);font-size:.68rem;color:var(--ink-3)}
+.ma-list .ma-val{font-family:var(--mono);font-weight:700;color:var(--ink)}
+.ma-list li.price-row{padding-top:6px;margin-top:2px;border-top:1px solid var(--border)}
+.ma-list li.price-row .ma-val{font-size:.9rem;color:var(--accent)}
+.ma-note{margin-top:8px;font-size:.68rem;color:var(--ink-3);line-height:1.5}
+
+.rs-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:9px}
+.rs-list li{display:flex;flex-direction:column;gap:2px}
+.rs-list .rs-label{font-size:.72rem;color:var(--ink-3)}
+.rs-list .rs-val{font-family:var(--mono);font-weight:700;font-size:.9rem}
+.rs-list .rs-val.pos{color:var(--up)}
+.rs-list .rs-val.neg{color:var(--down)}
+
+/* ── 大跌時才出現：弱中透強換股 ── */
+.selloff-section{display:none}
+.selloff-section.show{display:block}
+.resilience-table-wrap{margin:0 28px;border:1px solid var(--border);border-radius:6px;overflow:hidden;background:var(--panel);overflow-x:auto}
+.resilience-table{width:100%;border-collapse:collapse;min-width:640px}
+.resilience-table thead th{text-align:left;font-size:.62rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);padding:10px 14px;border-bottom:1px solid var(--border);background:var(--panel-2);white-space:nowrap}
+.resilience-table thead th.num{text-align:right}
+.resilience-table tbody tr{border-bottom:1px solid var(--border)}
+.resilience-table tbody tr:last-child{border-bottom:none}
+.resilience-table td{padding:10px 14px;vertical-align:middle}
+.res-verdict{font-size:.74rem;color:var(--tier-strong);font-weight:600}
+.action-row{display:flex;flex-wrap:wrap;gap:10px;margin:0 28px;padding:12px 16px;background:var(--panel);border:1px solid var(--border);border-left:3px solid var(--tier-superweak);border-radius:5px;font-size:.78rem;color:var(--ink-2);line-height:1.6}
+.action-row b{color:var(--ink)}
+
+/* ── section C: 最強型態（連續漲停） ── */
+.streak-strip{display:flex;gap:14px;overflow-x:auto;padding:2px 28px 6px}
+.streak-card{flex:0 0 200px;background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:14px 16px;position:relative;overflow:hidden}
+.streak-card::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--tier-super)}
+.streak-card .sc-name{font-family:var(--serif);font-weight:600;font-size:.96rem;color:var(--ink)}
+.streak-card .sc-id{font-family:var(--mono);font-size:.62rem;color:var(--ink-3);margin-left:6px}
+.streak-card .sc-streak{font-family:var(--mono);font-size:1.5rem;font-weight:800;color:var(--tier-super);margin-top:6px}
+.streak-card .sc-streak span{font-size:.7rem;font-weight:600;color:var(--ink-3);margin-left:3px}
+.streak-card .sc-vol{font-size:.66rem;color:var(--ink-3);margin-top:5px}
+.streak-card .sc-vol b{color:var(--down)}
+.sc-breakout{display:inline-block;font-family:var(--mono);font-size:.6rem;font-weight:700;padding:2px 7px;border-radius:3px;margin-top:8px}
+.sc-breakout.confirmed{background:color-mix(in srgb, var(--tier-strong) 15%, var(--panel));color:var(--tier-strong)}
+.sc-breakout.warn{background:color-mix(in srgb, var(--tier-superweak) 15%, var(--panel));color:var(--tier-superweak)}
+
+footer{padding:30px 28px 0;font-size:.68rem;color:var(--ink-3);font-family:var(--mono)}
+
+@media (max-width:900px){
+  .detail-inner{grid-template-columns:1fr}
+}
+</style>
+
+<div class="topbar">
+  <h1>逆轟策略</h1>
+  <span class="kicker">MOMENTUM</span>
+  <span class="sub">動能派選股決策</span>
+  <span class="updated tabular">資料日 2026-07-15 14:05</span>
+  <button class="theme-btn" onclick="toggleRegime()">切換大盤情境（示範用）</button>
+  <button class="theme-btn" onclick="toggleTheme()">切換主題</button>
+</div>
+
+<!-- 大盤狀態橫幅：讀既有 classify_market_regime()，決定整頁姿態 -->
+<div class="regime-banner mode-selloff" id="regime-banner">
+  <div class="regime-head">
+    <span class="regime-tier down" id="regime-tier-text">大跌</span>
+    <span class="regime-meta tabular" id="regime-meta-text">加權 -1.82% · 上漲家數比 28%</span>
+    <span class="regime-concentration" id="regime-concentration-text">資金集中：中小型輪動</span>
+  </div>
+  <div class="regime-advice" id="regime-advice-text">
+    大盤急殺，<b>不是清倉不動的時候</b>——先看還在紅盤、跌得比大盤少的個股，把弱勢股（尤其跌停鎖死）換到最強的1～2檔，資金集中不分散。急殺撬開最後那幾檔鎖漲停時是換股的黃金時間，不是逃跑時機。
+    <span class="src">依據：筆記一(買紅不買綠)、二十三(換股實戰)、十四(大殺盤情緒點抓法) · 大盤分級來源：processors/performance.py::classify_market_regime()</span>
+  </div>
+</div>
+
+<!-- 停利/停損哲學：明講這裡故意沒有固定%欄位 -->
+<div class="philosophy-note">
+  <b>本頁沒有停利/停損百分比欄位</b>——動能派不用固定%，出場三原則本身就是停損機制（跌破五日線+五日線下彎+重挫長黑，三者同時成立才出，不是價格跌到某%才砍）。倉位紀律取代停利：分批進場、往上加碼、絕不往下攤平，賺的時候讓它繼續跑，直到出場三原則觸發為止。
+</div>
+
+<div class="legend">
+  <span class="lg-title">五級判斷＝動作，不是狀態標籤</span>
+  <span class="lg-item"><span class="dot" style="background:var(--tier-super)"></span><b>超強</b><span class="lg-arrow">→</span>隨時加碼</span>
+  <span class="lg-item"><span class="dot" style="background:var(--tier-strong)"></span><b>強</b><span class="lg-arrow">→</span>續抱</span>
+  <span class="lg-item"><span class="dot" style="background:var(--tier-mid)"></span><b>整理</b><span class="lg-arrow">→</span>反彈可出</span>
+  <span class="lg-item"><span class="dot" style="background:var(--tier-weak)"></span><b>弱</b><span class="lg-arrow">→</span>直接出清</span>
+  <span class="lg-item"><span class="dot" style="background:var(--tier-superweak)"></span><b>超弱</b><span class="lg-arrow">→</span>跌停才放空*</span>
+</div>
+<div class="philosophy-note" style="margin-top:6px">
+  *放空範圍比空頭排列窄：筆記三十四明講「不空漲停的股票，只空跌停的股票」——超弱不等於自動放空，頁面只在該股<b>當日實際跌停</b>時才會把「反手放空」列進動作文字，其餘超弱僅顯示「直接出清、觀望」。
+</div>
+
+<!-- ① 主流族群：範圍篩選，不是結論 -->
+<div class="section-head"><span class="num">①</span><h2>今天資金在哪？</h2><span class="count">點選族群篩選下方個股</span></div>
+<div class="section-rule"></div>
+<div class="section-sub">族群強度排名——先決定看哪個籃子，不分散，買最強的那一籃。</div>
+<div class="sector-strip">
+  <div class="sector-pill active" onclick="selectSector(this,'記憶體')">
+    <span class="sp-rank tabular">#1</span>
+    <span class="sp-name">記憶體</span>
+    <span class="sp-pct tabular" style="color:var(--up)">+4.82%</span>
+    <span class="sp-note">18檔 · 連3日主流</span>
+  </div>
+  <div class="sector-pill" onclick="selectSector(this,'航運')">
+    <span class="sp-rank tabular">#2</span>
+    <span class="sp-name">航運</span>
+    <span class="sp-pct tabular" style="color:var(--up)">+3.10%</span>
+    <span class="sp-note">9檔 · 今日轉強</span>
+  </div>
+  <div class="sector-pill" onclick="selectSector(this,'被動元件')">
+    <span class="sp-rank tabular">#3</span>
+    <span class="sp-name">被動元件</span>
+    <span class="sp-pct tabular" style="color:var(--up)">+2.44%</span>
+    <span class="sp-note">14檔</span>
+  </div>
+  <div class="sector-pill" onclick="selectSector(this,'生技')">
+    <span class="sp-rank tabular">#4</span>
+    <span class="sp-name">生技</span>
+    <span class="sp-pct tabular" style="color:var(--ink-2)">+0.62%</span>
+    <span class="sp-note">22檔</span>
+  </div>
+  <div class="sector-pill" onclick="selectSector(this,'金融')">
+    <span class="sp-rank tabular">#11</span>
+    <span class="sp-name">金融</span>
+    <span class="sp-pct tabular" style="color:var(--down)">-1.28%</span>
+    <span class="sp-note">16檔 · 轉弱</span>
+  </div>
+</div>
+
+<!-- 大跌才出現：弱中透強換股區塊 -->
+<div class="selloff-section show" id="selloff-section">
+  <div class="section-head"><span class="num">⚠</span><h2>大盤急殺，換股到哪？</h2><span class="count">僅大盤小跌/大跌時顯示</span></div>
+  <div class="section-rule"></div>
+  <div class="section-sub">相對大盤跌得更少＝真強勢。找抗跌的換進去，鎖跌停的立刻砍出——不是清倉不動，是資金重新集中。</div>
+  <div class="resilience-table-wrap">
+  <table class="resilience-table">
+  <thead><tr><th>股票</th><th class="num">今日</th><th class="num">vs 大盤</th><th>判斷</th></tr></thead>
+  <tbody>
+    <tr><td><div class="sr-name"><span class="id tabular">2609</span><span class="nm">陽明</span></div></td>
+        <td class="sr-pct tabular" style="color:var(--up)">+1.2%</td>
+        <td class="sr-pct tabular" style="color:var(--tier-strong)">+3.02pp</td>
+        <td class="res-verdict">弱中透強·可換入</td></tr>
+    <tr><td><div class="sr-name"><span class="id tabular">2617</span><span class="nm">台航</span></div></td>
+        <td class="sr-pct tabular" style="color:var(--down)">-0.4%</td>
+        <td class="sr-pct tabular" style="color:var(--tier-strong)">+1.42pp</td>
+        <td class="res-verdict">弱中透強·可換入</td></tr>
+    <tr><td><div class="sr-name"><span class="id tabular">2023</span><span class="nm">燁輝</span></div></td>
+        <td class="sr-pct tabular" style="color:var(--down)">-9.7%</td>
+        <td class="sr-pct tabular" style="color:var(--tier-superweak)">-7.88pp</td>
+        <td class="res-verdict" style="color:var(--tier-superweak)">跌停鎖死·立刻砍</td></tr>
+  </tbody>
+  </table>
+  </div>
+  <div class="action-row"><b>換股邏輯：</b>賣出「跌停鎖死·立刻砍」的持股，資金集中換進「弱中透強·可換入」——同天執行，不分批猶豫。<span style="color:var(--ink-3);font-size:.72rem">（依據：筆記二十三換股實戰、三十三弱中透強接刀法）</span></div>
+</div>
+
+<!-- ②③④ 合一：族群內個股，每列一個五級判斷+動作 -->
+<div class="section-head"><span class="num">②③④</span><h2 id="stock-sec-title">記憶體族群 — 誰最強？能不能進？該不該出？</h2><span class="count tabular" id="stock-count">6 檔</span></div>
+<div class="section-rule"></div>
+<div class="section-sub">同族群裡只選最強那一檔——次強買不到才考慮二軍。點列展開看命中哪幾條進出場條件。</div>
+
+<div class="stock-table-wrap">
+<table class="stock-table">
+<thead>
+<tr>
+  <th>股票</th>
+  <th class="num">現價</th>
+  <th class="num">漲跌</th>
+  <th class="num">族群內排名</th>
+  <th>判斷 → 動作</th>
+  <th></th>
+</tr>
+</thead>
+<tbody id="stock-tbody">
+<!-- rows injected by JS -->
+</tbody>
+</table>
+</div>
+
+<!-- ⑤ 最強型態 -->
+<div class="section-head"><span class="num">⑤</span><h2>有沒有最強型態？</h2><span class="count">連續鎖漲停榜</span></div>
+<div class="section-rule"></div>
+<div class="section-sub">量縮鎖死＝最強型態，隔日大概率延續。不限於上面選中的族群，全市場掃描。<br>
+起漲那天有沒有真的出量，決定這是真突破還是假突破——兩者是不同階段的量能訊號，分開標示。</div>
+<div class="streak-strip">
+  <div class="streak-card">
+    <span class="sc-name">力積電</span><span class="sc-id">6770</span>
+    <div class="sc-streak">4<span>連板</span></div>
+    <div class="sc-vol">量縮鎖死 · <b>量縮 68%</b></div>
+    <span class="sc-breakout confirmed">起漲出量 ✓</span>
+  </div>
+  <div class="streak-card">
+    <span class="sc-name">長榮</span><span class="sc-id">2603</span>
+    <div class="sc-streak">3<span>連板</span></div>
+    <div class="sc-vol">量縮鎖死 · <b>量縮 41%</b></div>
+    <span class="sc-breakout confirmed">起漲出量 ✓</span>
+  </div>
+  <div class="streak-card">
+    <span class="sc-name">華邦電</span><span class="sc-id">2344</span>
+    <div class="sc-streak">2<span>連板</span></div>
+    <div class="sc-vol">今日剛鎖 · 出量中</div>
+    <span class="sc-breakout confirmed">起漲出量 ✓</span>
+  </div>
+  <div class="streak-card">
+    <span class="sc-name">中砂</span><span class="sc-id">1560</span>
+    <div class="sc-streak">3<span>連板</span></div>
+    <div class="sc-vol">量縮鎖死 · <b>量縮 52%</b></div>
+    <span class="sc-breakout warn">量沒跟上 ⚠ 疑似假突破</span>
+  </div>
+</div>
+
+<footer>Mockup v1 · 資料層已完成(screener/signals.py) · 本頁純視覺稿，數字為示意樣本非真實資料</footer>
+
+<script>
+const SECTORS = {
+  '記憶體': [
+    {id:'2408',name:'南亞科',price:68.4,pct:6.8,rank:1,total:18,tier:'super',
+     ma:{ma5:64.2,ma10:60.1,ma20:55.8,ma60:48.3},
+     rs:{score:5.9,rank:0.94,market:6.7},
+     entry:[['多頭排列＋創新高（B3清單內）',true],['動能確認：MA5/MA10皆上揚',true]],
+     exit:[['跌破五日線',false],['五日線下彎',false],['重挫長黑',false]]},
+    {id:'6770',name:'力積電',price:44.9,pct:9.85,rank:2,total:18,tier:'super',
+     ma:{ma5:40.8,ma10:38.5,ma20:35.2,ma60:30.1},
+     rs:{score:7.2,rank:0.89,market:8.0},
+     entry:[['多頭排列＋創新高（B3清單內）',true],['動能確認：MA5/MA10皆上揚',true]],
+     exit:[['跌破五日線',false],['五日線下彎',false],['重挫長黑',false]]},
+    {id:'2344',name:'華邦電',price:27.3,pct:4.2,rank:3,total:18,tier:'strong',
+     ma:{ma5:26.4,ma10:25.6,ma20:24.1,ma60:22.0},
+     rs:{score:2.1,rank:0.78,market:2.9},
+     entry:[['多頭排列＋創新高（B3清單內）',false],['動能確認：MA5/MA10皆上揚',true]],
+     exit:[['跌破五日線',false],['五日線下彎',false],['重挫長黑',false]]},
+    {id:'3260',name:'威剛',price:82.1,pct:0.3,rank:9,total:18,tier:'mid',
+     ma:{ma5:82.6,ma10:81.9,ma20:83.4,ma60:80.2},
+     rs:{score:-1.4,rank:0.47,market:-0.6},
+     entry:[['多頭排列＋創新高（B3清單內）',false],['動能確認：MA5/MA10皆上揚',false]],
+     exit:[['跌破五日線',false],['五日線下彎',true],['重挫長黑',false]]},
+    {id:'2337',name:'旺宏',price:31.6,pct:-2.1,rank:14,total:18,tier:'weak',
+     ma:{ma5:33.1,ma10:34.0,ma20:33.5,ma60:31.9},
+     rs:{score:-4.2,rank:0.22,market:-3.4},
+     entry:[['多頭排列＋創新高（B3清單內）',false],['動能確認：MA5/MA10皆上揚',false]],
+     exit:[['跌破五日線',true],['五日線下彎',true],['重挫長黑',false]]},
+    {id:'2408b',name:'鈺創',price:58.2,pct:-6.4,rank:18,total:18,tier:'superweak',limitDown:false,
+     ma:{ma5:63.0,ma10:65.8,ma20:66.9,ma60:64.1},
+     rs:{score:-9.8,rank:0.06,market:-8.9},
+     entry:[['多頭排列＋創新高（B3清單內）',false],['動能確認：MA5/MA10皆上揚',false]],
+     exit:[['跌破五日線',true],['五日線下彎',true],['重挫長黑',true]]},
+    {id:'2337b',name:'力晶',price:19.8,pct:-9.85,rank:17,total:18,tier:'superweak',limitDown:true,
+     ma:{ma5:22.6,ma10:24.1,ma20:24.8,ma60:23.2},
+     rs:{score:-11.2,rank:0.03,market:-10.4},
+     entry:[['多頭排列＋創新高（B3清單內）',false],['動能確認：MA5/MA10皆上揚',false]],
+     exit:[['跌破五日線',true],['五日線下彎',true],['重挫長黑',true]]},
+  ],
+  '航運': [
+    {id:'2603',name:'長榮',price:198.0,pct:9.5,rank:1,total:9,tier:'super',
+     ma:{ma5:178.2,ma10:165.0,ma20:150.4,ma60:120.8},
+     rs:{score:6.4,rank:0.96,market:7.2},
+     entry:[['多頭排列＋創新高（B3清單內）',true],['動能確認：MA5/MA10皆上揚',true]],
+     exit:[['跌破五日線',false],['五日線下彎',false],['重挫長黑',false]]},
+    {id:'2609',name:'陽明',price:91.2,pct:5.1,rank:2,total:9,tier:'strong',
+     ma:{ma5:85.6,ma10:80.2,ma20:73.9,ma60:60.5},
+     rs:{score:2.0,rank:0.82,market:2.8},
+     entry:[['多頭排列＋創新高（B3清單內）',false],['動能確認：MA5/MA10皆上揚',true]],
+     exit:[['跌破五日線',false],['五日線下彎',false],['重挫長黑',false]]},
+    {id:'2615',name:'萬海',price:76.8,pct:1.2,rank:4,total:9,tier:'mid',
+     ma:{ma5:76.0,ma10:74.8,ma20:75.5,ma60:70.2},
+     rs:{score:-0.9,rank:0.51,market:-0.1},
+     entry:[['多頭排列＋創新高（B3清單內）',false],['動能確認：MA5/MA10皆上揚',false]],
+     exit:[['跌破五日線',false],['五日線下彎',false],['重挫長黑',false]]},
+  ],
+};
+
+let currentSector = '記憶體';
+
+function tierLabel(t){
+  return {super:'超強',strong:'強',mid:'整理',weak:'弱',superweak:'超弱'}[t];
+}
+
+function actionText(s){
+  if(s.action) return s.action;
+  if(s.tier === 'superweak'){
+    return s.limitDown ? '超弱·跌停可反手放空' : '超弱·直接出清觀望';
+  }
+  return tierLabel(s.tier);
+}
+
+function renderStocks(sector){
+  const list = SECTORS[sector] || [];
+  document.getElementById('stock-sec-title').textContent = sector + '族群 — 誰最強？能不能進？該不該出？';
+  document.getElementById('stock-count').textContent = list.length + ' 檔';
+  const tbody = document.getElementById('stock-tbody');
+  tbody.innerHTML = '';
+  list.forEach((s,i)=>{
+    const pctColor = s.pct>=0 ? 'var(--up)' : 'var(--down)';
+    const barPct = Math.round((1 - (s.rank-1)/s.total)*100);
+    const tr = document.createElement('tr');
+    tr.className = 'stock-row';
+    tr.innerHTML = `
+      <td><div class="sr-name"><span class="id tabular">${s.id}</span><span class="nm">${s.name}</span></div></td>
+      <td class="sr-price tabular">${s.price.toFixed(1)}</td>
+      <td class="sr-pct tabular" style="color:${pctColor}">${s.pct>=0?'+':''}${s.pct.toFixed(2)}%</td>
+      <td class="sr-rank tabular">#${s.rank}/${s.total}<span class="bar-wrap"><span class="bar-fill" style="width:${barPct}%"></span></span></td>
+      <td><span class="tier-chip tier-${s.tier}"><span class="dot"></span>${actionText(s)}</span></td>
+      <td class="sr-chevron">▸</td>
+    `;
+    const ma = s.ma || {};
+    const rs = s.rs || {};
+    const aboveMA = (v)=> s.price >= v;
+    const detailTr = document.createElement('tr');
+    detailTr.className = 'detail-row';
+    detailTr.innerHTML = `<td colspan="6"><div class="detail-inner">
+      <div class="detail-block"><h4>進場訊號</h4><ul class="cond-list">
+        ${s.entry.map(([txt,met])=>`<li class="${met?'met-text':''}"><span class="cond-icon ${met?'met':'unmet'}">${met?'✓':'—'}</span>${txt}</li>`).join('')}
+      </ul>
+      <h4 style="margin-top:14px">出場三原則</h4><ul class="cond-list">
+        ${s.exit.map(([txt,met])=>`<li class="${met?'met-text':''}"><span class="cond-icon ${met?'met':'unmet'}">${met?'✓':'—'}</span>${txt}</li>`).join('')}
+      </ul></div>
+
+      <div class="detail-block"><h4>均線數值（今日）</h4><ul class="ma-list">
+        <li class="price-row"><span class="ma-label">收盤價</span><span class="ma-val tabular">${s.price.toFixed(1)}</span></li>
+        <li><span class="ma-label">MA5</span><span class="ma-val tabular" style="color:${aboveMA(ma.ma5)?'var(--up)':'var(--down)'}">${ma.ma5?.toFixed(1)}</span></li>
+        <li><span class="ma-label">MA10</span><span class="ma-val tabular" style="color:${aboveMA(ma.ma10)?'var(--up)':'var(--down)'}">${ma.ma10?.toFixed(1)}</span></li>
+        <li><span class="ma-label">MA20</span><span class="ma-val tabular" style="color:${aboveMA(ma.ma20)?'var(--up)':'var(--down)'}">${ma.ma20?.toFixed(1)}</span></li>
+        <li><span class="ma-label">MA60</span><span class="ma-val tabular" style="color:${aboveMA(ma.ma60)?'var(--up)':'var(--down)'}">${ma.ma60?.toFixed(1)}</span></li>
+      </ul>
+      <div class="ma-note">紅＝價在均線之上、綠＝價在均線之下（沿用漲跌色）。MA20 純參考，不參與多頭/空頭排列判斷。</div></div>
+
+      <div class="detail-block"><h4>相對強弱（近5日）</h4><ul class="rs-list">
+        <li><span class="rs-label">vs 族群平均</span><span class="rs-val ${rs.score>=0?'pos':'neg'} tabular">${rs.score>=0?'+':''}${rs.score?.toFixed(1)}pp</span></li>
+        <li><span class="rs-label">族群內百分位</span><span class="rs-val tabular">${Math.round((rs.rank||0)*100)}%（1.0＝最強）</span></li>
+        <li><span class="rs-label">vs 大盤等權</span><span class="rs-val ${rs.market>=0?'pos':'neg'} tabular">${rs.market>=0?'+':''}${rs.market?.toFixed(1)}pp</span></li>
+      </ul></div>
+    </div></td>`;
+    tr.onclick = ()=>{
+      const open = detailTr.classList.toggle('open');
+      tr.classList.toggle('expanded', open);
+      tr.querySelector('.sr-chevron').textContent = open ? '▾' : '▸';
+    };
+    tbody.appendChild(tr);
+    tbody.appendChild(detailTr);
+  });
+}
+
+function selectSector(el, name){
+  document.querySelectorAll('.sector-pill').forEach(p=>p.classList.remove('active'));
+  el.classList.add('active');
+  currentSector = name;
+  renderStocks(name);
+}
+
+function toggleTheme(){
+  const root = document.documentElement;
+  const cur = root.getAttribute('data-theme');
+  root.setAttribute('data-theme', cur==='light' ? 'dark' : 'light');
+}
+
+const REGIMES = {
+  selloff: {
+    tier:'大跌', tierClass:'down', meta:'加權 -1.82% · 上漲家數比 28%',
+    concentration:'資金集中：中小型輪動',
+    advice:`大盤急殺，<b>不是清倉不動的時候</b>——先看還在紅盤、跌得比大盤少的個股，把弱勢股（尤其跌停鎖死）換到最強的1～2檔，資金集中不分散。急殺撬開最後那幾檔鎖漲停時是換股的黃金時間，不是逃跑時機。
+      <span class="src">依據：筆記一(買紅不買綠)、二十三(換股實戰)、十四(大殺盤情緒點抓法) · 大盤分級來源：processors/performance.py::classify_market_regime()</span>`,
+    bannerClass:'mode-selloff', showSelloff:true,
+  },
+  calm: {
+    tier:'小漲', tierClass:'up', meta:'加權 +0.68% · 上漲家數比 61%',
+    concentration:'資金集中：中小型輪動',
+    advice:`盤面平穩偏多，照正常流程走：先看①主流族群、②族群內誰最強，③符合多頭排列+創新高才進，④出場三原則觸發就出，不用啟動換股警戒。
+      <span class="src">大盤分級來源：processors/performance.py::classify_market_regime()</span>`,
+    bannerClass:'mode-calm', showSelloff:false,
+  },
+};
+let currentRegime = 'selloff';
+
+function applyRegime(key){
+  const r = REGIMES[key];
+  const banner = document.getElementById('regime-banner');
+  banner.className = 'regime-banner ' + r.bannerClass;
+  const tierEl = document.getElementById('regime-tier-text');
+  tierEl.textContent = r.tier;
+  tierEl.className = 'regime-tier ' + r.tierClass;
+  document.getElementById('regime-meta-text').textContent = r.meta;
+  document.getElementById('regime-concentration-text').textContent = r.concentration;
+  document.getElementById('regime-advice-text').innerHTML = r.advice;
+  document.getElementById('selloff-section').classList.toggle('show', r.showSelloff);
+}
+
+function toggleRegime(){
+  currentRegime = currentRegime === 'selloff' ? 'calm' : 'selloff';
+  applyRegime(currentRegime);
+}
+
+applyRegime(currentRegime);
+renderStocks(currentSector);
+</script>

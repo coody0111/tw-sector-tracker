@@ -165,6 +165,22 @@ master 與 debug 曾各自長出獨立 commit → 分岔成 Y 形，要手動解
 - **真的分岔了**：先確認另一個 session 停手，再在**一台**上 `git merge`，衝突大多在 append 型檔
   （`bug-reports.md`／`debug-tasks.md`）→ **兩段都留**即可，不要取捨內容。
 
+### 🧬 `codex` 開發分支（2026-07-15 補；Cody 用它另開一條線開發）
+
+共用 `.git` 現在不只 master(Developer)／debug(Debugger)，Cody 還會用一個 **`codex` 分支**（搭一個
+codex CLI session）另外開發功能。它跟 master worktree **共用同一個 working tree**，所以：
+
+- **⚠️ HEAD 會被切走**：codex session 一 `git checkout codex`，master worktree 的 HEAD 就跟著變 codex
+  → 你以為在 master、commit 卻落到 codex。**每次 commit 前後都 `git branch --show-current` 確認在 master**。
+- **落錯分支救法**：`git checkout master` → `git cherry-pick <落到 codex 的 hash>`（append 檔通常無衝突）；
+  codex 上重複那筆留著不管，別去改別的 session 的分支。
+- **codex 的 feature 收回 master**：照「master 唯一整合點」。先 `git status -sb` 確認工作區乾淨、codex
+  session 停手，再挑 codex 上**真正的 feature commit** `git cherry-pick` 進 master（cron 的
+  `update: sector performance` docs commit 是雜訊、不用帶，重跑 `main.py` 會重產）。cherry-pick 完
+  `git diff --stat master codex -- . ':(exclude)docs/*.html'` 應為空 = 實質內容已一致。
+- **⚠️ 別在 working tree 還有未 commit 變更時放著不管**：codex session 的 checkout/reset 可能把它沖掉
+  （2026-07-15 就有一批 `main.py`/`backfill.py` 未 commit 改動這樣消失）。要嘛先 commit、要嘛先問 Cody。
+
 ## 🔄 CLAUDE 檔跨機同步（筆電 ⇄ 桌電）
 
 - **`CLAUDE.md` 是本地檔、被 gitignore、不會同步**（每台各自一份，給 Claude 讀）。

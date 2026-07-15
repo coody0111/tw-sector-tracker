@@ -54,12 +54,8 @@ def _meta_link(name: str) -> str:
 def _coverage_flag(data: dict) -> str:
     """族群當天橫跨的交易所有一邊資料缺失（例如 TPEx 抓取失敗）時顯示警示 icon，
     提醒這一列的 foreign_net_today/streak/margin 數字可能只反映部分成分股。"""
-    if not data.get("partial_coverage"):
-        return ""
-    return (
-        " <span style='color:#fb923c;font-size:.68rem;cursor:help' "
-        "title='今日部分交易所（TWSE/TPEx）資料缺失，此數字可能只反映部分成分股'>⚠</span>"
-    )
+    # icon 已依 Cody 要求移除（籌碼頁不再顯示任何 icon）；保留 helper 讓呼叫端不用全改。
+    return ""
 
 
 def _net_color(n: int) -> str:
@@ -129,7 +125,7 @@ def _ratio_bar(ratio: float) -> str:
 def _section(title: str, body: str, icon: str = "") -> str:
     return f"""
 <div class="chips-section">
-  <div class="cs-title">{icon} {title}</div>
+  <div class="cs-title">{title}</div>
   {body}
 </div>"""
 
@@ -182,7 +178,7 @@ def _data_date_badge(data_date, latest) -> str:
     md = data_date[5:].replace("-", "/") if len(str(data_date)) >= 10 else str(data_date)
     return (f" <span style='color:#fbbf24;font-size:.6rem;font-weight:700;"
             f"border:1px solid #fbbf2455;border-radius:3px;padding:0 3px' "
-            f"title='此列資料日期為 {data_date}，落後榜上其他列'>📅{md}</span>")
+            f"title='此列資料日期為 {data_date}，落後榜上其他列'>{md}</span>")
 
 
 def _latest_data_date(rows: list):
@@ -578,7 +574,7 @@ function switchTab(id){
   document.getElementById(id).classList.add('active');
   history.replaceState(null,'','#'+id);
 }
-const _tabs=['tab-signal','tab-inst','tab-foreign','tab-trust','tab-margin','tab-holder','tab-insider'];
+const _tabs=['tab-signal','tab-dipbuy','tab-inst','tab-foreign','tab-trust','tab-margin','tab-holder','tab-insider'];
 const _h=location.hash.slice(1);
 switchTab(_tabs.includes(_h)?_h:'tab-signal');
 </script>
@@ -639,11 +635,11 @@ def _build_section1(meta_chips: dict, cum_ranks: dict) -> str:
     return f"""
 <div class="chips-grid">
   <div class="chips-section-half">
-    <div class="cs-title">▲ 外資連買族群</div>
+    <div class="cs-title">外資連買族群</div>
     <table class="ct">{thead}<tbody>{buy_tbody}</tbody></table>
   </div>
   <div class="chips-section-half">
-    <div class="cs-title">▼ 外資連賣族群</div>
+    <div class="cs-title">外資連賣族群</div>
     <table class="ct">{thead}<tbody>{sell_tbody}</tbody></table>
   </div>
 </div>"""
@@ -656,11 +652,11 @@ def _build_section2(stock_chips: dict) -> str:
     return f"""
 <div class="chips-grid">
   <div class="chips-section-half">
-    <div class="cs-title">▲ 外資大買個股 Top 10{_section_date_suffix(buy_stocks)}</div>
+    <div class="cs-title">外資大買個股 Top 10{_section_date_suffix(buy_stocks)}</div>
     {_stock_rank_table(buy_stocks, "外資買超")}
   </div>
   <div class="chips-section-half">
-    <div class="cs-title">▼ 外資大賣個股 Top 10{_section_date_suffix(sell_stocks)}</div>
+    <div class="cs-title">外資大賣個股 Top 10{_section_date_suffix(sell_stocks)}</div>
     {_stock_rank_table(sell_stocks, "外資賣超")}
   </div>
 </div>"""
@@ -731,7 +727,11 @@ def _build_section35(meta_chips: dict, cum_ranks: dict) -> str:
         )
 
     if not dip_buy_rows:
-        return ""
+        # 沒符合的族群時，仍顯示區塊 + 提示（別整段消失，避免使用者以為功能不見了）。
+        return ('<div class="chips-section">'
+                '<div class="cs-title">越跌越買 — 5日跌逾 1% 但法人仍連買</div>'
+                '<div style="color:#475569;font-size:.8rem;padding:8px 0">'
+                '今日沒有族群同時符合「5日跌逾 1%」且「外資或投信仍連買」。</div></div>')
 
     dip_tbody = "".join(_dip_buy_row(*r) for r in dip_buy_rows)
     dip_thead = ("<thead><tr>"
@@ -745,7 +745,7 @@ def _build_section35(meta_chips: dict, cum_ranks: dict) -> str:
                  "</tr></thead>")
     return f"""
 <div class="chips-section">
-  <div class="cs-title">📉 越跌越買 — 5日跌逾 1% 但法人仍連買</div>
+  <div class="cs-title">越跌越買 — 5日跌逾 1% 但法人仍連買</div>
   <table class="ct">{dip_thead}<tbody>{dip_tbody}</tbody></table>
 </div>"""
 
@@ -844,7 +844,7 @@ def _build_section6(inst_scan: list) -> tuple[str, str, str]:
 
     s6a_html = f"""
 <div class="chips-section">
-  <div class="cs-title">🔥 強力訊號 — 外資+投信同步連買 &ge;2 日</div>
+  <div class="cs-title">強力訊號 — 外資+投信同步連買 &ge;2 日</div>
   {_inst_strong_table(strong)}
 </div>"""
 
@@ -877,11 +877,11 @@ def _build_section7(margin_divergence: dict) -> str:
     return f"""
 <div class="chips-grid">
   <div class="chips-section-half">
-    <div class="cs-title">⚠ 看空背離 — 融資增 + 股價跌 {days_label}</div>
+    <div class="cs-title">看空背離 — 融資增 + 股價跌 {days_label}</div>
     {_margin_divergence_table(bearish, "bearish")}
   </div>
   <div class="chips-section-half">
-    <div class="cs-title">✦ 融資鬆動 — 融資減 + 股價漲 {days_label}</div>
+    <div class="cs-title">融資鬆動 — 融資減 + 股價漲 {days_label}</div>
     {_margin_divergence_table(bullish, "bullish")}
   </div>
 </div>"""
@@ -912,11 +912,11 @@ def _build_section8(shareholder_data: list) -> tuple[str, str, str]:
     s8_html = f"""
 <div class="chips-grid">
   <div class="chips-section-half">
-    <div class="cs-title">📈 大戶連增倉 Top 30（≥400張，集保）</div>
+    <div class="cs-title">大戶連增倉 Top 30（≥400張，集保）</div>
     {_shareholder_table(top_increasing)}
   </div>
   <div class="chips-section-half">
-    <div class="cs-title">📉 大戶連減倉 Top 20</div>
+    <div class="cs-title">大戶連減倉 Top 20</div>
     {_shareholder_table(top_decreasing)}
   </div>
 </div>"""
@@ -983,7 +983,7 @@ def generate(
   <div class="header">
     <h1>台股電子半導體族群追蹤</h1>
     <div class="mkt-bar">
-      <span class="mkt-date">📅 籌碼資料：{chips_date}（週{weekday}）</span>
+      <span class="mkt-date">籌碼資料：{chips_date}（週{weekday}）</span>
     </div>
     <div class="nav-links">
       <a class="nav-link" href="index.html">族群績效</a>
@@ -991,19 +991,24 @@ def generate(
       <a class="nav-link" href="patterns.html">形態掃描</a>
     </div>
     <div class="tab-bar">
-      <button class="tab-btn" data-tab="tab-signal" onclick="switchTab('tab-signal')">🔥 強力訊號</button>
-      <button class="tab-btn" data-tab="tab-inst" onclick="switchTab('tab-inst')">📊 法人買賣</button>
-      <button class="tab-btn" data-tab="tab-foreign" onclick="switchTab('tab-foreign')">🌍 外資籌碼</button>
-      <button class="tab-btn" data-tab="tab-trust" onclick="switchTab('tab-trust')">🏢 投信籌碼</button>
-      <button class="tab-btn" data-tab="tab-margin" onclick="switchTab('tab-margin')">⚠ 融資警示</button>
-      <button class="tab-btn" data-tab="tab-holder" onclick="switchTab('tab-holder')">🐋 大戶籌碼</button>
-      <button class="tab-btn" data-tab="tab-insider" onclick="switchTab('tab-insider')">👔 董監持股</button>
+      <button class="tab-btn" data-tab="tab-signal" onclick="switchTab('tab-signal')">強力訊號</button>
+      <button class="tab-btn" data-tab="tab-dipbuy" onclick="switchTab('tab-dipbuy')">越跌越買</button>
+      <button class="tab-btn" data-tab="tab-inst" onclick="switchTab('tab-inst')">法人買賣</button>
+      <button class="tab-btn" data-tab="tab-foreign" onclick="switchTab('tab-foreign')">外資籌碼</button>
+      <button class="tab-btn" data-tab="tab-trust" onclick="switchTab('tab-trust')">投信籌碼</button>
+      <button class="tab-btn" data-tab="tab-margin" onclick="switchTab('tab-margin')">融資警示</button>
+      <button class="tab-btn" data-tab="tab-holder" onclick="switchTab('tab-holder')">大戶籌碼</button>
+      <button class="tab-btn" data-tab="tab-insider" onclick="switchTab('tab-insider')">董監持股</button>
     </div>
   </div>
   {exch_filter_btns}
 
   <div class="tab-panel" id="tab-signal">
     {s6a_html}
+  </div>
+
+  <div class="tab-panel" id="tab-dipbuy">
+    {s35_html}
   </div>
 
   <div class="tab-panel" id="tab-inst">
@@ -1019,7 +1024,6 @@ def generate(
   <div class="tab-panel" id="tab-trust">
     {s6_trust_html}
     {s3_html}
-    {s35_html}
   </div>
 
   <div class="tab-panel" id="tab-margin">

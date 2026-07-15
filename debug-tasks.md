@@ -81,6 +81,37 @@ implementer subagent，做完各跑一輪 spec compliance review + code quality 
 
 ---
 
+## [2026-07-15] 搜尋族群「點了沒反應」修復（export/html_generator.py）
+
+### 改了什麼
+- 異動檔案：`export/html_generator.py`（`selectSearchMeta` JS）、`tests/test_html_generator.py`（新增回歸測試）
+- 邏輯說明：搜尋下拉點「族群」項目 → `selectSearchMeta(name)`，`name` 是 **meta_sector 名稱**（來自 `META_INDEX`）。
+  舊 handler 卻去查 `details.group-block[data-gname="..."]`，但 `data-gname` 存的是 **SECTOR_GROUPS 大分類**名稱
+  （不同 DOM 層級）→ selector 永遠命中不到 → `block=null` → 點了沒反應。
+  改成委派給同檔**已驗證可用**的 `openMetaByName(name)`（鎖 `.mc-card[data-meta-name]`），跟 chips.html 連結／
+  URL hash 進來走同一條路：展開該族群面板、標記 active、捲動置中。順帶清掉搜尋框＋收下拉。
+- 根因跟 2026-07-09「chips.html 連買/連賣族群連結靜默失敗」同源（openMetaByName 找不到卡片），當時只修了
+  連結路徑、**漏改搜尋框的 selectSearchMeta**，這次補上。
+
+### 資料來源相關
+- 無（純前端 JS handler，與 TWSE/TPEx/FinMind 資料流無關）。
+
+### 請 Debugger 驗證
+- [ ] 搜尋股票代號/名稱 → 點「族群」項目，能正確展開該族群面板並捲動定位（真瀏覽器點一次）
+- [ ] 搜尋點「個股」項目仍正常開個股 modal（沒被我改壞）
+- [ ] `pytest tests/test_html_generator.py`：新測試 `test_search_select_meta_selector_matches_mc_card` 通過，
+      既有測試（selectSearchStock、每族群都有卡片等）不回歸
+- [ ] 我**沒跑 pytest**（照專案規則留給你）；上面測試邏輯是照既有 `test_search_select_stock_selector_matches_st_row` 對稱寫的
+
+### 特別注意
+- ⚠️ **git 現況（重要）**：commit `a013e8a` 只含我這 2 個檔。工作區還有**一批不是我的、未 commit 的原始碼變更**
+  （`main.py` logging 容錯、`scrapers/backfill.py`、`screener/backtest.py` scanner 可選、`processors/performance.py`、
+  刪 `fix_2321.py` + 一堆 LF/CRLF 行尾雜訊）——Cody 說那是你/Debugger 的在製工作，我**完全沒動**，原封留在工作區。
+- ⚠️ 期間偵測到 **main.py 自動 commit 持續在跑**（parent 從 b6e60d1→1bf4941 一直變），共用 `.git` 有並發寫入。
+  我**沒 push**（等你回報 ✅ 再推）；也**沒同步 debug worktree**（避免跟你的 session 撞 git）。
+
+---
+
 ## [2026-07-14] ✅ 回測框架 Task 4/5/6：扣成本 + regime 分段 + print_summary 升級（plan: docs/superpowers/plans/2026-07-14-backtest-framework.md Task 4-6）
 
 一次做完剩下三個 Task（都是小改動、彼此接續，分開三個 commit 但一起送驗）：

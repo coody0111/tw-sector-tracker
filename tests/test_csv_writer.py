@@ -1,6 +1,5 @@
 import pandas as pd
 import pytest
-from pathlib import Path
 from datetime import date
 from storage.csv_writer import CsvWriter
 

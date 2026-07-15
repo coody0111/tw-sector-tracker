@@ -1,6 +1,5 @@
 # tests/test_patterns_generator.py
 from datetime import date
-from pathlib import Path
 from export.patterns_generator import generate
 
 _SAMPLE = [

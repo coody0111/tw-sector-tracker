@@ -1,6 +1,7 @@
 import duckdb
 import pandas as pd
-from screener.backtest import run_backtest, _build_price_index, _forward_return
+import screener.backtest as backtest_module
+from screener.backtest import run_backtest, scan_chips_rule, make_chips_rule_scanner, _build_price_index, _forward_return
 
 
 def _make_prices(tmp_path, rows):
@@ -43,6 +44,70 @@ def test_run_backtest_accepts_any_scanner(tmp_path):
     assert df.iloc[0]["signal_date"] == "2026-05-01"
     assert df.iloc[0]["stock_id"] == "2330"
     assert "ret_5" in df.columns
+
+
+def test_run_backtest_uses_volume_turnover_scanner_by_default(tmp_path, monkeypatch):
+    rows = [("2330", f"2026-05-{d:02d}", 100.0, 100.0 + d) for d in range(1, 10)]
+    db = _make_prices(tmp_path, rows)
+
+    def fake_scanner(date_str, db_path):
+        return [{"stock_id": "2330"}] if date_str == "2026-05-01" else []
+
+    monkeypatch.setattr(backtest_module, "scan_volume_turnover", fake_scanner)
+    df = run_backtest(db_path=db, horizons=(5,))
+
+    assert len(df) == 1
+    assert df.iloc[0]["stock_id"] == "2330"
+
+
+def test_joint_buy_rule_uses_normalized_flow_and_liquidity(monkeypatch):
+    rows = [
+        {"stock_id": "2330", "date": "2026-07-01", "meta_sector": "晶圓代工", "both_streak": 2,
+         "price_cum_pct": 1.0, "volume": 1000, "institutional_flow_ratio_pct": 0.2},
+        {"stock_id": "1111", "date": "2026-07-01", "meta_sector": "測試", "both_streak": 4,
+         "price_cum_pct": 5.0, "volume": 1000, "institutional_flow_ratio_pct": 0.01},
+    ]
+    monkeypatch.setattr(backtest_module, "scan_institutional", lambda *args, **kwargs: rows)
+    picks = make_chips_rule_scanner("joint_buy")("2026-07-01", "ignored.db")
+    assert [p["stock_id"] for p in picks] == ["2330"]
+    assert make_chips_rule_scanner("joint_buy")("2026-07-02", "ignored.db") == [], \
+        "法人資料尚未發布時的 fallback 不該把前一天訊號重複計數"
+
+
+def test_foreign_continuation_backtest_matches_ui_top15(monkeypatch):
+    rows = [
+        {"stock_id": f"{2000+i}", "date": "2026-07-01", "meta_sector": "測試",
+         "foreign_streak": 3 + i, "price_cum_pct": 5.0 + i}
+        for i in range(20)
+    ]
+    monkeypatch.setattr(backtest_module, "scan_institutional", lambda *args, **kwargs: rows)
+    picks = make_chips_rule_scanner("foreign_continuation")("2026-07-01", "top15-ignored.db")
+    assert len(picks) == 15
+    assert picks[0]["stock_id"] == "2019"
+
+
+def test_tdcc_rule_only_emits_on_weekly_report_date(tmp_path):
+    db = str(tmp_path / "tdcc.db")
+    con = duckdb.connect(db)
+    con.execute("CREATE TABLE shareholder (stock_id VARCHAR, date DATE, streak INTEGER, week_chg DOUBLE)")
+    con.execute("INSERT INTO shareholder VALUES ('2330','2026-07-03',2,1.5)")
+    con.close()
+    assert scan_chips_rule("2026-07-03", db, "tdcc_accumulation")
+    assert scan_chips_rule("2026-07-04", db, "tdcc_accumulation") == []
+
+
+def test_chips_rule_skips_dates_before_institutional_history(tmp_path, monkeypatch):
+    db = str(tmp_path / "inst_range.db")
+    con = duckdb.connect(db)
+    con.execute("CREATE TABLE institutional (stock_id VARCHAR, date DATE)")
+    con.execute("INSERT INTO institutional VALUES ('2330','2026-04-27')")
+    con.close()
+
+    def should_not_run(*args, **kwargs):
+        raise AssertionError("資料源開始前不應呼叫 scan_institutional")
+
+    monkeypatch.setattr(backtest_module, "scan_institutional", should_not_run)
+    assert scan_chips_rule("2026-04-26", db, "joint_buy") == []
 
 
 def _make_prices_with_change(tmp_path, rows):
@@ -123,7 +188,7 @@ def test_regime_at_classifies_market_trend(tmp_path):
     assert reg == "多頭"
 
 
-def test_print_summary_runs_with_new_columns(capsys, tmp_path):
+def test_print_summary_runs_with_new_columns(capsys):
     from screener.backtest import print_summary
     df = pd.DataFrame([
         {"signal_date":"2026-05-01","stock_id":"2330","entry_price":100.0,"no_fill":False,
@@ -134,9 +199,50 @@ def test_print_summary_runs_with_new_columns(capsys, tmp_path):
     print_summary(df, horizons=(5,))
     out = capsys.readouterr().out
     assert "超額" in out
+    assert "中位數" in out
+    assert "P25/P75" in out
+    assert "期望值" not in out
+    assert "訊號日 1 個" in out
+    assert "股票 1 檔" in out
+    assert "樣本期偏短" in out
+    assert "訊號日不足" in out
     assert "多頭" in out or "regime" in out.lower()
     # 空 df 不 crash
     print_summary(pd.DataFrame(), horizons=(5,))
+
+
+def test_print_summary_bearish_uses_negative_excess_and_keeps_limit_up(capsys):
+    from screener.backtest import print_summary
+    df = pd.DataFrame([
+        {"signal_date":"2026-05-01","stock_id":"2330","entry_price":100.0,"no_fill":False,
+         "regime":"盤整","ret_5":-3.0,"bench_5":0.0,"excess_5":-3.0},
+        {"signal_date":"2026-05-02","stock_id":"2454","entry_price":50.0,"no_fill":True,
+         "regime":"盤整","ret_5":5.0,"bench_5":0.0,"excess_5":5.0},
+    ])
+
+    print_summary(
+        df, horizons=(5,), skip_no_fill=False, success_direction="negative",
+    )
+    out = capsys.readouterr().out
+    assert "避險命中(超額<0)" in out
+    assert "  50%" in out
+    assert "訊號 2 筆" in out
+    assert "風險警示不剔除漲停 1" in out
+
+
+def test_margin_bearish_backtest_uses_observation_semantics(monkeypatch):
+    calls = []
+
+    def fake_run_backtest(*args, **kwargs):
+        calls.append(kwargs)
+        return pd.DataFrame()
+
+    monkeypatch.setattr(backtest_module, "run_backtest", fake_run_backtest)
+    backtest_module.run_chips_rule_backtests("margin_bearish", db_path="ignored.db")
+
+    assert calls[0]["cost_pct"] == 0.0
+    assert backtest_module.CHIPS_RULE_CONFIG["margin_bearish"]["success_direction"] == "negative"
+    assert backtest_module.CHIPS_RULE_CONFIG["margin_bearish"]["skip_no_fill"] is False
 
 
 def test_run_backtest_preserves_entry_price_when_later_horizon_lacks_data(tmp_path):

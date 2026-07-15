@@ -32,7 +32,7 @@ def _cum_cell(meta_name: str, cum_ranks: dict, period: str, key: str, val_key: s
         return "<td class='cum-cell'>─</td>"
     val = cum_ranks.get("v", {}).get(meta_name, {}).get(val_key)
     if val is None:
-        return "<td class='cum-cell' style='color:#334155'>─</td>"
+        return "<td class='cum-cell' style='color:var(--subtle)'>─</td>"
     sign = "+" if val > 0 else ""
     color = "#f87171" if val > 0 else "#4ade80"
     return f"<td class='cum-cell' style='color:{color}'>{sign}{val:.1f}%</td>"
@@ -57,23 +57,23 @@ def _coverage_flag(data: dict) -> str:
     if not data.get("partial_coverage"):
         return ""
     return (
-        " <span style='color:#fb923c;font-size:.68rem;cursor:help' "
-        "title='今日部分交易所（TWSE/TPEx）資料缺失，此數字可能只反映部分成分股'>⚠</span>"
+        " <span class='coverage-flag' "
+        "title='今日部分交易所（TWSE/TPEx）資料缺失，此數字可能只反映部分成分股'>資料不完整</span>"
     )
 
 
 def _net_color(n: int) -> str:
-    return "#f87171" if n > 0 else ("#4ade80" if n < 0 else "#64748b")
+    return "#f87171" if n > 0 else ("#4ade80" if n < 0 else "var(--muted)")
 
 
 def _price_cell(close, change_pct) -> str:
     # close 可能是 NULL→NaN（停牌/全額交割），NaN 不是 None → 要一起擋，否則 int(nan) crash
     if close is None or (isinstance(close, float) and close != close):
-        return "<td style='color:#334155'>─</td>"
+        return "<td style='color:var(--subtle)'>─</td>"
     price_str = f"{close:.2f}" if close < 10 else (f"{close:.1f}" if close < 100 else f"{int(close)}")
     if change_pct is not None:
         sign = "+" if change_pct > 0 else ""
-        color = "#f87171" if change_pct > 0 else ("#4ade80" if change_pct < 0 else "#64748b")
+        color = "#f87171" if change_pct > 0 else ("#4ade80" if change_pct < 0 else "var(--muted)")
         return (f"<td><span style='color:#e2e8f0;font-weight:600'>{price_str}</span>"
                 f"<br><span style='color:{color};font-size:.68rem'>{sign}{change_pct:.1f}%</span></td>")
     return f"<td style='color:#e2e8f0;font-weight:600'>{price_str}</td>"
@@ -82,7 +82,7 @@ def _price_cell(close, change_pct) -> str:
 def _fmt_net(n: int) -> str:
     """顯示法人買賣超張數（原始單位：股，除以 1000 = 張）。"""
     if n == 0:
-        return "<span style='color:#475569'>─</span>"
+        return "<span style='color:var(--subtle)'>─</span>"
     zhang = n // 1000
     sign = "+" if n > 0 else ""
     color = _net_color(n)
@@ -115,7 +115,7 @@ def _trust_streak_badge(s: int) -> str:
 
 def _ratio_bar(ratio: float) -> str:
     w = int(ratio * 100)
-    color = "#f87171" if ratio >= 0.6 else ("#fb923c" if ratio >= 0.4 else "#475569")
+    color = "#f87171" if ratio >= 0.6 else ("#fb923c" if ratio >= 0.4 else "var(--subtle)")
     pct_txt = f"{ratio*100:.0f}%"
     return (
         f"<div style='display:flex;align-items:center;gap:6px'>"
@@ -129,7 +129,7 @@ def _ratio_bar(ratio: float) -> str:
 def _section(title: str, body: str, icon: str = "") -> str:
     return f"""
 <div class="chips-section">
-  <div class="cs-title">{icon} {title}</div>
+  <div class="cs-title">{title}</div>
   {body}
 </div>"""
 
@@ -182,7 +182,7 @@ def _data_date_badge(data_date, latest) -> str:
     md = data_date[5:].replace("-", "/") if len(str(data_date)) >= 10 else str(data_date)
     return (f" <span style='color:#fbbf24;font-size:.6rem;font-weight:700;"
             f"border:1px solid #fbbf2455;border-radius:3px;padding:0 3px' "
-            f"title='此列資料日期為 {data_date}，落後榜上其他列'>📅{md}</span>")
+            f"title='此列資料日期為 {data_date}，落後榜上其他列'>資料日 {md}</span>")
 
 
 def _latest_data_date(rows: list):
@@ -219,7 +219,7 @@ def _stock_rank_table(stocks: list, header: str, net_key: str = "foreign_net") -
     for i, s in enumerate(stocks, 1):
         net = s.get(net_key, 0)
         foreign_pct = s.get("foreign_pct")
-        foreign_pct_html = "<span style='color:#475569'>─</span>" if foreign_pct is None else f"{foreign_pct:.1f}%"
+        foreign_pct_html = "<span style='color:var(--subtle)'>─</span>" if foreign_pct is None else f"{foreign_pct:.1f}%"
         html += (
             f"<tr>"
             f"<td class='ct-rank'>{i}</td>"
@@ -255,11 +255,15 @@ def _inst_strong_table(rows: list) -> str:
     html = (
         "<table class='ct'><thead><tr>"
         f"<th>#</th><th>股票</th><th>族群</th><th>收盤</th>{comp_th}<th>外資</th><th>投信</th>"
-        "<th>外資今日</th><th>投信今日</th><th>合計</th>"
+        "<th>外資今日</th><th>投信今日</th><th>合計</th><th>買超占量</th><th>10日</th>"
         "</tr></thead><tbody>"
     )
     for i, s in enumerate(rows, 1):
         comp_td = f"<td>{_composite_mini(s.get('composite_score'))}</td>" if has_comp else ""
+        flow_ratio = s.get("institutional_flow_ratio_pct")
+        flow_html = "─" if flow_ratio is None else f"{flow_ratio:.2f}%"
+        price_cum = s.get("price_cum_pct")
+        price_html = "─" if price_cum is None else f"{price_cum:+.1f}%"
         html += (
             f"<tr>"
             f"<td class='ct-rank'>{i}</td>"
@@ -272,6 +276,8 @@ def _inst_strong_table(rows: list) -> str:
             f"<td>{_fmt_net(s.get('foreign_net') or 0)}</td>"
             f"<td>{_fmt_net(s.get('trust_net') or 0)}</td>"
             f"<td>{_fmt_net(s.get('total_net') or 0)}</td>"
+            f"<td><strong>{flow_html}</strong></td>"
+            f"<td>{price_html}</td>"
             f"</tr>"
         )
     html += "</tbody></table>"
@@ -294,7 +300,7 @@ def _inst_streak_table(rows: list, streak_key: str, net_key: str, cum_key: str, 
         price_cum = s.get("price_cum_pct")
         badge = _streak_badge(streak, '外資') if streak_key == 'foreign_streak' else _trust_streak_badge(streak)
         if price_cum is None:
-            price_cum_html = "<span style='color:#475569'>─</span>"
+            price_cum_html = "<span style='color:var(--subtle)'>─</span>"
         else:
             p_color = "#f87171" if price_cum >= 0 else "#4ade80"
             p_sign = "+" if price_cum >= 0 else ""
@@ -364,7 +370,7 @@ def _margin_divergence_table(rows: list, divergence_type: str) -> str:
             f"{_price_cell(s.get('close'), s.get('change_pct'))}"
             f"<td>{m_html}</td>"
             f"<td>{p_html}</td>"
-            f"<td style='color:#475569;font-size:.72rem'>{s['days']}日</td>"
+            f"<td style='color:var(--muted);font-size:.75rem'>{s['days']}日</td>"
             f"</tr>"
         )
     html += "</tbody></table>"
@@ -389,7 +395,7 @@ def _concentration_table(meta_chips: dict) -> str:
         html += (
             f"<tr>"
             f"<td class='ct-name'>{_meta_link(name)}{_coverage_flag(data)}</td>"
-            f"<td style='min-width:160px'>{bar} <span style='color:#475569;font-size:.72rem'>{buy_count}/{total}</span></td>"
+            f"<td style='min-width:160px'>{bar} <span style='color:var(--muted);font-size:.75rem'>{buy_count}/{total}</span></td>"
             f"<td>{_fmt_net(f_net)}</td>"
             f"</tr>"
         )
@@ -426,18 +432,18 @@ def _shareholder_table(rows: list) -> str:
         chg = s.get("week_chg")
         streak = int(s.get("streak") or 0)
 
-        chg_html = "<span style='color:#475569'>─</span>"
+        chg_html = "<span style='color:var(--subtle)'>─</span>"
         if chg is not None:
             sign = "+" if chg > 0 else ""
-            chg_color = "#f87171" if chg > 0 else ("#4ade80" if chg < 0 else "#64748b")
+            chg_color = "#f87171" if chg > 0 else ("#4ade80" if chg < 0 else "var(--muted)")
             chg_html = f"<span style='color:{chg_color};font-weight:700'>{sign}{chg:.2f}%</span>"
 
         share_chg = s.get("share_chg")
-        share_chg_html = "<span style='color:#475569'>─</span>"
+        share_chg_html = "<span style='color:var(--subtle)'>─</span>"
         if share_chg is not None:
             lots = share_chg / 1000  # 股數 → 張數
             sign = "+" if lots > 0 else ""
-            color = "#f87171" if lots > 0 else ("#4ade80" if lots < 0 else "#64748b")
+            color = "#f87171" if lots > 0 else ("#4ade80" if lots < 0 else "var(--muted)")
             share_chg_html = f"<span style='color:{color};font-weight:700'>{sign}{lots:,.0f}張</span>"
 
         if streak > 0:
@@ -447,7 +453,7 @@ def _shareholder_table(rows: list) -> str:
             streak_html = (f"<span style='color:#4ade80;background:rgba(6,78,59,.2);border:1px solid rgba(6,78,59,.4);"
                            f"border-radius:4px;padding:1px 7px;font-size:.7rem;font-weight:700'>↓{abs(streak)}週</span>")
         else:
-            streak_html = "<span style='color:#475569'>─</span>"
+            streak_html = "<span style='color:var(--subtle)'>─</span>"
 
         pct_color = "#f87171" if pct >= 70 else ("#fbbf24" if pct >= 50 else "#94a3b8")
 
@@ -508,16 +514,16 @@ def _insider_cell(shares, chg, pct, pct_label: str = "質押") -> str:
     """內部人/大戶分層持股欄位：張數（第一行）＋ 週/月變化張數（第二行）＋ 第三行百分比
     （預設當「質押%」用，大戶分層欄位改傳 pct_label='持股' 顯示「持股%」）。缺值顯示「─」。"""
     if shares is None:
-        return "<td style='color:#334155'>─</td>"
+        return "<td style='color:var(--subtle)'>─</td>"
     lots = shares / 1000
     lines = [f"<span style='color:#e2e8f0;font-weight:600'>{lots:,.0f}張</span>"]
     if chg is not None:
         chg_lots = chg / 1000
         sign = "+" if chg_lots > 0 else ""
-        color = "#f87171" if chg_lots > 0 else ("#4ade80" if chg_lots < 0 else "#64748b")
+        color = "#f87171" if chg_lots > 0 else ("#4ade80" if chg_lots < 0 else "var(--muted)")
         lines.append(f"<span style='color:{color};font-size:.68rem'>{sign}{chg_lots:,.0f}張</span>")
     if pct is not None:
-        lines.append(f"<span style='color:#64748b;font-size:.64rem'>{pct_label}{pct:.1f}%</span>")
+        lines.append(f"<span style='color:var(--muted);font-size:.75rem'>{pct_label}{pct:.1f}%</span>")
     return f"<td>{'<br>'.join(lines)}</td>"
 
 
@@ -525,60 +531,126 @@ def _chg_cell(pct) -> str:
     """累積漲跌%欄（近5日／近7日）：紅漲綠跌，缺值「─」。回傳完整 <td>（與 _price_cell 一致，
     呼叫端不要再外包 <td>）。"""
     if pct is None:
-        return "<td style='color:#334155'>─</td>"
+        return "<td style='color:var(--subtle)'>─</td>"
     sign = "+" if pct > 0 else ""
-    color = "#f87171" if pct > 0 else ("#4ade80" if pct < 0 else "#64748b")
+    color = "#f87171" if pct > 0 else ("#4ade80" if pct < 0 else "var(--muted)")
     return (f"<td><span style='color:{color};font-weight:600;font-size:.72rem'>"
             f"{sign}{pct:.2f}%</span></td>")
 
 
 _CSS = """
-  *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:-apple-system,"Segoe UI",sans-serif;background:#0b0f18;color:#e2e8f0;padding:12px 20px}
-  .header{margin-bottom:16px}
-  h1{font-size:1.1rem;font-weight:600;color:#94a3b8;letter-spacing:.05em;text-transform:uppercase}
-  .mkt-bar{display:flex;align-items:center;gap:16px;margin-top:8px;padding:12px 16px;background:#141c2e;border-radius:10px;flex-wrap:wrap}
-  .mkt-date{font-size:1rem;font-weight:600;color:#f1f5f9}
-  .nav-links{display:flex;gap:8px;margin-top:10px}
-  .nav-link{font-size:.78rem;padding:5px 14px;border-radius:6px;border:1px solid #1e293b;color:#64748b;text-decoration:none;transition:all .15s}
-  .nav-link:hover{border-color:#475569;color:#94a3b8}
-  .nav-link.active{border-color:#475569;color:#e2e8f0;background:#141c2e}
-  .tab-bar{display:flex;gap:2px;margin:16px 0 0;border-bottom:1px solid #1e293b}
-  .tab-btn{font-size:.8rem;padding:9px 18px;border:none;border-bottom:2px solid transparent;margin-bottom:-1px;background:none;color:#64748b;cursor:pointer;font-weight:600;letter-spacing:.02em;transition:all .15s;border-radius:4px 4px 0 0}
-  .tab-btn:hover{color:#94a3b8;background:#0f1624}
-  .tab-btn.active{color:#e2e8f0;border-bottom-color:#60a5fa;background:#0f1624}
-  .tab-panel{display:none;padding-top:16px}
-  .tab-panel.active{display:block}
-  .chips-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
-  @media(max-width:900px){.chips-grid{grid-template-columns:1fr}}
-  .chips-section{background:#0f1624;border:1px solid #1e293b;border-radius:10px;padding:14px 16px;margin-bottom:16px}
-  .chips-section-half{background:#0f1624;border:1px solid #1e293b;border-radius:10px;padding:14px 16px}
-  .cs-title{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#475569;margin-bottom:10px}
-  .ct{width:100%;border-collapse:collapse}
-  .ct th{text-align:left;padding:5px 10px;font-size:.65rem;color:#334155;text-transform:uppercase;border-bottom:1px solid #1e293b}
-  .ct td{padding:7px 10px;border-bottom:1px solid #0b0f18;font-size:.8rem}
-  .ct tr:last-child td{border-bottom:none}
-  .ct tr:hover td{background:#141c2e}
-  .ct-name{font-weight:600;color:#e2e8f0;min-width:90px}
-  .ct-meta{color:#94a3b8;font-size:.72rem}
-  .ct-rank{color:#334155;font-size:.72rem;font-weight:700;text-align:center;width:24px}
-  .sid{color:#475569;font-size:.72rem;font-weight:600}
-  .no-data{color:#334155;font-size:.8rem;padding:12px 0;text-align:center}
-  .footer{margin-top:28px;font-size:.7rem;color:#1e293b;text-align:center;padding-bottom:20px}
-  .cum-cell{font-size:.85rem;font-weight:700;text-align:center;white-space:nowrap;padding:4px 10px}
-  @media(max-width:540px){body{padding:12px}.chips-grid{grid-template-columns:1fr}.tab-btn{padding:8px 10px;font-size:.72rem}}
+  :root{--bg:#08101c;--surface:#0e1827;--surface-2:#142238;--surface-3:#192a43;--border:#263a55;--border-strong:#3c5575;--text:#e8eef7;--muted:#a8b6c9;--subtle:#7f91a8;--accent:#62a5ff;--accent-soft:#142e50;--focus:#f6c85f;--up:#ff747d;--down:#45c690;--radius:8px}
+  *{box-sizing:border-box}
+  html{background:var(--bg);overflow-x:hidden}
+  body{margin:0;min-width:320px;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans TC",sans-serif;background:var(--bg);color:var(--text);line-height:1.5;overflow-x:hidden}
+  button,input{font:inherit}button{touch-action:manipulation}
+  a:focus-visible,button:focus-visible,input:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+  .skip-link{position:fixed;left:12px;top:8px;z-index:1000;transform:translateY(-160%);padding:9px 13px;background:var(--text);color:var(--bg);border-radius:6px;font-weight:750}
+  .skip-link:focus{transform:translateY(0)}
+  .app-shell{min-height:100dvh}
+  .topbar{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:28px;min-height:64px;padding:0 24px;border-bottom:1px solid var(--border);background:rgba(8,16,28,.96);backdrop-filter:blur(12px)}
+  .brand-lockup{display:flex;align-items:baseline;gap:12px;min-width:max-content}
+  h1{margin:0;font-size:1rem;font-weight:760;color:var(--text);letter-spacing:.015em}
+  .page-name{font-size:.75rem;color:var(--accent);font-weight:750;padding-left:12px;border-left:1px solid var(--border-strong)}
+  .nav-links{display:flex;align-items:stretch;gap:2px;align-self:stretch;white-space:nowrap}
+  .nav-link{display:inline-flex;align-items:center;padding:0 13px;border-bottom:2px solid transparent;color:var(--muted);text-decoration:none;font-size:.8125rem;font-weight:650;transition:color .16s,background .16s,border-color .16s}
+  .nav-link:hover{color:var(--text);background:var(--surface)}
+  .nav-link.active{color:var(--text);border-bottom-color:var(--accent);background:var(--surface)}
+  .data-status{margin-left:auto;display:grid;grid-template-columns:auto auto;column-gap:10px;align-items:baseline;white-space:nowrap}
+  .data-status span{color:var(--subtle);font-size:.6875rem;font-weight:700}
+  .data-status strong{font-size:.8125rem;font-weight:720;font-variant-numeric:tabular-nums;color:var(--text)}
+  .workspace{display:grid;grid-template-columns:216px minmax(0,1fr);max-width:1840px;margin:0 auto;min-height:calc(100dvh - 64px)}
+  .section-nav{border-right:1px solid var(--border);background:#0a1422;padding:20px 14px}
+  .section-nav-inner{position:sticky;top:84px}
+  .section-nav-label{padding:0 10px 9px;color:var(--subtle);font-size:.6875rem;font-weight:800;letter-spacing:.08em}
+  .tab-bar{display:flex;flex-direction:column;gap:3px}
+  .tab-btn{width:100%;min-height:44px;padding:9px 11px;border:0;border-left:3px solid transparent;border-radius:6px;background:transparent;color:var(--muted);text-align:left;cursor:pointer;font-size:.8125rem;font-weight:680;transition:background .16s,color .16s,border-color .16s}
+  .tab-btn:hover{color:var(--text);background:var(--surface)}
+  .tab-btn:active{background:var(--surface-3)}
+  .tab-btn.active{color:var(--text);border-left-color:var(--accent);background:var(--accent-soft)}
+  .section-nav-note{margin:18px 10px 0;padding-top:14px;border-top:1px solid var(--border);color:var(--subtle);font-size:.6875rem;line-height:1.65}
+  .main-content{min-width:0;padding:20px 24px 32px}
+  .chips-toolbar{position:sticky;top:76px;z-index:10;display:flex;align-items:end;gap:12px;margin:0 0 16px;padding:10px 12px;background:rgba(14,24,39,.97);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 8px 24px rgba(3,8,15,.24)}
+  .search-field{display:grid;grid-template-columns:auto minmax(220px,320px);align-items:center;gap:9px;color:var(--muted);font-size:.75rem;font-weight:700}
+  .search-field input{width:100%;height:40px;padding:8px 11px;color:var(--text);background:var(--bg);border:1px solid var(--border-strong);border-radius:6px}
+  .search-field input::placeholder{color:var(--subtle)}
+  .exchange-filter{display:flex;border:1px solid var(--border-strong);border-radius:6px;overflow:hidden}
+  .exch-btn{min-width:62px;height:40px;padding:7px 13px;background:transparent;color:var(--muted);border:0;border-right:1px solid var(--border-strong);cursor:pointer;font-size:.8125rem;font-weight:650}
+  .exch-btn:last-child{border-right:0}.exch-btn:hover{color:var(--text);background:var(--surface-2)}
+  .exch-btn.active{color:#dceaff;background:var(--accent-soft);box-shadow:inset 0 -2px 0 var(--accent)}
+  .filter-result{margin-left:auto;min-height:20px;color:var(--muted);font-size:.75rem;font-variant-numeric:tabular-nums}
+  .tab-panel{display:none;min-width:0}.tab-panel.active{display:block}
+  .chips-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;margin-bottom:14px}
+  .chips-section,.chips-section-half{min-width:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:13px 14px;overflow:hidden}
+  .chips-section{margin-bottom:14px}
+  .cs-title{font-size:.8125rem;font-weight:780;color:#c7d3e2;margin-bottom:8px}
+  .cs-description,.data-note{margin:0 0 11px;color:var(--muted);font-size:.75rem;max-width:90ch}
+  .cs-date{color:var(--subtle);font-weight:600}.coverage-flag{display:inline-block;margin-left:5px;padding:1px 5px;border:1px solid #b77935;border-radius:4px;color:#ffc37d;font-size:.625rem;font-weight:750;cursor:help}
+  .table-shell{max-width:100%;overflow-x:auto;overscroll-behavior-x:contain;border:1px solid #20314a;border-radius:6px;scrollbar-width:thin;scrollbar-color:var(--border-strong) transparent}
+  .ct{width:100%;min-width:max-content;border-collapse:collapse;font-variant-numeric:tabular-nums}
+  .ct th{position:sticky;top:0;z-index:1;text-align:left;padding:7px 9px;font-size:.6875rem;color:var(--muted);background:#122036;border-bottom:1px solid var(--border);white-space:nowrap}
+  .ct td{padding:7px 9px;border-bottom:1px solid #1b2a40;font-size:.8125rem;white-space:nowrap}
+  .ct tbody tr:nth-child(even) td{background:rgba(20,34,56,.2)}
+  .ct tr:last-child td{border-bottom:none}.ct tr:hover td{background:var(--surface-3)}
+  .sort-button{display:inline-flex;align-items:center;gap:5px;min-height:32px;padding:3px 4px;border:0;background:transparent;color:inherit;font-weight:inherit;cursor:pointer}
+  .sort-button::after{content:"↕";color:var(--subtle);font-size:.6875rem}
+  th[aria-sort="ascending"] .sort-button::after{content:"↑";color:var(--accent)}
+  th[aria-sort="descending"] .sort-button::after{content:"↓";color:var(--accent)}
+  .table-toggle{display:none;width:100%;min-height:44px;margin-top:8px;border:1px solid var(--border-strong);border-radius:6px;background:var(--surface-2);color:var(--text);cursor:pointer}
+  [hidden]{display:none!important}
+  .market-badge{display:inline-block;margin-left:5px;padding:0 4px;border:1px solid var(--border-strong);border-radius:3px;color:var(--muted);font-size:.625rem}
+  .market-badge.twse{border-color:#416d9f;color:#9bc7ff}.market-badge.tpex{border-color:#6e5999;color:#cabaff}
+  .ct-name{font-weight:700;color:var(--text);min-width:90px}.ct-meta{color:var(--muted);font-size:.75rem}
+  .ct-rank{color:var(--subtle);font-size:.75rem;font-weight:700;text-align:center;width:32px}.sid{color:#b9c7d8;font-size:.75rem;font-weight:720}
+  .no-data{color:var(--muted);font-size:.8125rem;padding:18px 8px;text-align:center;border:1px dashed var(--border);border-radius:6px;background:rgba(8,16,28,.35)}
+  .footer{margin:28px 0 0;font-size:.6875rem;color:var(--subtle);text-align:center;padding-bottom:8px}
+  .cum-cell{font-size:.8125rem;font-weight:700;text-align:center;white-space:nowrap;padding:6px 9px}
+  @media(max-width:1100px){
+    .topbar{gap:16px}.workspace{display:block}.section-nav{position:sticky;top:64px;z-index:15;padding:8px 16px;border-right:0;border-bottom:1px solid var(--border)}
+    .section-nav-inner{position:static}.section-nav-label,.section-nav-note{display:none}.tab-bar{flex-direction:row;gap:4px;overflow-x:auto;scrollbar-width:thin}
+    .tab-btn{flex:0 0 auto;width:auto;padding:8px 13px;border-left:0;border-bottom:2px solid transparent;border-radius:6px 6px 0 0;text-align:center;white-space:nowrap}
+    .tab-btn.active{border-left-color:transparent;border-bottom-color:var(--accent)}.chips-toolbar{top:124px}
+  }
+  @media(max-width:760px){
+    .topbar{position:static;min-height:auto;padding:12px 14px;flex-wrap:wrap;gap:10px 16px}.brand-lockup{width:100%}.nav-links{height:42px;order:3;width:100%;overflow-x:auto;border-top:1px solid var(--border)}
+    .nav-link{padding:0 12px}.data-status{margin-left:0}.section-nav{position:static}.main-content{padding:12px}
+    .chips-toolbar{position:static;align-items:stretch;flex-wrap:wrap}.search-field{grid-template-columns:1fr;width:100%;gap:4px}.search-field input{min-width:0}
+    .exchange-filter{flex:1}.exch-btn{flex:1}.filter-result{margin-left:0;width:100%}.chips-grid{grid-template-columns:minmax(0,1fr)}
+  }
+  @media(max-width:540px){
+    .page-name{display:none}.main-content{padding:10px}.chips-section,.chips-section-half{padding:11px}.tab-btn{min-height:44px}
+    .ct td{font-size:.75rem}.ct th{font-size:.6875rem}.table-toggle{display:block}
+  }
+  @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
 """
 
 _TAB_JS = """
 <script>
-function switchTab(id){
-  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
-  document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
-  document.querySelector('.tab-btn[data-tab="'+id+'"]').classList.add('active');
-  document.getElementById(id).classList.add('active');
+function switchTab(id, focusTab=false){
+  document.querySelectorAll('.tab-btn').forEach(b=>{
+    const selected=b.dataset.tab===id;
+    b.classList.toggle('active',selected);
+    b.setAttribute('aria-selected',String(selected));
+    b.tabIndex=selected?0:-1;
+    if(selected&&focusTab)b.focus();
+  });
+  document.querySelectorAll('.tab-panel').forEach(p=>{
+    const selected=p.id===id;
+    p.classList.toggle('active',selected);
+    p.hidden=!selected;
+  });
   history.replaceState(null,'','#'+id);
+  if(typeof applyFilters==='function')applyFilters();
 }
-const _tabs=['tab-signal','tab-inst','tab-foreign','tab-trust','tab-margin','tab-holder','tab-insider'];
+const _tabs=['tab-signal','tab-dipbuy','tab-inst','tab-foreign','tab-trust','tab-margin','tab-holder','tab-insider'];
+document.querySelector('.tab-bar').addEventListener('keydown',e=>{
+  if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;
+  e.preventDefault();
+  const current=_tabs.indexOf(document.activeElement.dataset.tab);
+  const next=e.key==='Home'?0:e.key==='End'?_tabs.length-1:
+    (current+(e.key==='ArrowRight'?1:-1)+_tabs.length)%_tabs.length;
+  switchTab(_tabs[next],true);
+});
 const _h=location.hash.slice(1);
 switchTab(_tabs.includes(_h)?_h:'tab-signal');
 </script>
@@ -596,17 +668,14 @@ def _build_exchange_ui() -> tuple[str, str]:
         pass
     exch_js_var = f"const EXCH={json.dumps(exch_map, ensure_ascii=False)};"
     exch_filter_btns = (
-        "<div style='margin:8px 0 4px;display:flex;gap:6px'>"
-        "<button class='exch-btn active' data-exch='' onclick='filterExch(this)'"
-        " style='background:#1e293b;color:#e2e8f0;border:1px solid #475569;border-radius:6px;"
-        "padding:3px 12px;cursor:pointer;font-size:.72rem'>全部</button>"
-        "<button class='exch-btn' data-exch='TWSE' onclick='filterExch(this)'"
-        " style='background:transparent;color:#94a3b8;border:1px solid #334155;border-radius:6px;"
-        "padding:3px 12px;cursor:pointer;font-size:.72rem'>🏛 上市</button>"
-        "<button class='exch-btn' data-exch='TPEx' onclick='filterExch(this)'"
-        " style='background:transparent;color:#94a3b8;border:1px solid #334155;border-radius:6px;"
-        "padding:3px 12px;cursor:pointer;font-size:.72rem'>🏪 上櫃</button>"
-        "</div>"
+        "<div class='chips-toolbar' aria-label='籌碼表格篩選'>"
+        "<label class='search-field' for='stock-search'><span>搜尋股票</span>"
+        "<input id='stock-search' type='search' inputmode='search' placeholder='代號或名稱' autocomplete='off'></label>"
+        "<div class='exchange-filter' role='group' aria-label='交易市場'>"
+        "<button type='button' class='exch-btn active' data-exch='' aria-pressed='true'>全部</button>"
+        "<button type='button' class='exch-btn' data-exch='TWSE' aria-pressed='false'>上市</button>"
+        "<button type='button' class='exch-btn' data-exch='TPEx' aria-pressed='false'>上櫃</button>"
+        "</div><span id='filter-result' class='filter-result' aria-live='polite'></span></div>"
     )
     return exch_js_var, exch_filter_btns
 
@@ -639,11 +708,11 @@ def _build_section1(meta_chips: dict, cum_ranks: dict) -> str:
     return f"""
 <div class="chips-grid">
   <div class="chips-section-half">
-    <div class="cs-title">▲ 外資連買族群</div>
+    <div class="cs-title">外資連買族群</div>
     <table class="ct">{thead}<tbody>{buy_tbody}</tbody></table>
   </div>
   <div class="chips-section-half">
-    <div class="cs-title">▼ 外資連賣族群</div>
+    <div class="cs-title">外資連賣族群</div>
     <table class="ct">{thead}<tbody>{sell_tbody}</tbody></table>
   </div>
 </div>"""
@@ -656,11 +725,11 @@ def _build_section2(stock_chips: dict) -> str:
     return f"""
 <div class="chips-grid">
   <div class="chips-section-half">
-    <div class="cs-title">▲ 外資大買個股 Top 10{_section_date_suffix(buy_stocks)}</div>
+    <div class="cs-title">外資大買個股 Top 10{_section_date_suffix(buy_stocks)}</div>
     {_stock_rank_table(buy_stocks, "外資買超")}
   </div>
   <div class="chips-section-half">
-    <div class="cs-title">▼ 外資大賣個股 Top 10{_section_date_suffix(sell_stocks)}</div>
+    <div class="cs-title">外資大賣個股 Top 10{_section_date_suffix(sell_stocks)}</div>
     {_stock_rank_table(sell_stocks, "外資賣超")}
   </div>
 </div>"""
@@ -697,9 +766,9 @@ def _build_section35(meta_chips: dict, cum_ranks: dict) -> str:
     """Section 3.5: 越跌越買 — 族群近期下跌但法人仍持續買進"""
     def _pct_cell(val, neutral_zero: bool = False) -> str:
         if val is None:
-            return "<td style='text-align:center;color:#334155'>─</td>"
+            return "<td style='text-align:center;color:var(--subtle)'>─</td>"
         sign = "+" if val > 0 else ""
-        color = "#f87171" if val > 0 else ("#4ade80" if val < 0 else "#64748b")
+        color = "#f87171" if val > 0 else ("#4ade80" if val < 0 else "var(--muted)")
         return f"<td style='text-align:center;color:{color};font-weight:700'>{sign}{val:.1f}%</td>"
 
     dip_buy_rows = []
@@ -731,7 +800,11 @@ def _build_section35(meta_chips: dict, cum_ranks: dict) -> str:
         )
 
     if not dip_buy_rows:
-        return ""
+        return """
+<div class="chips-section">
+  <div class="cs-title">越跌越買：5日跌逾 1% 但法人仍連買</div>
+  <div class="no-data">今日沒有族群同時符合「5日跌逾 1%」且「外資或投信仍連買」。</div>
+</div>"""
 
     dip_tbody = "".join(_dip_buy_row(*r) for r in dip_buy_rows)
     dip_thead = ("<thead><tr>"
@@ -745,7 +818,7 @@ def _build_section35(meta_chips: dict, cum_ranks: dict) -> str:
                  "</tr></thead>")
     return f"""
 <div class="chips-section">
-  <div class="cs-title">📉 越跌越買 — 5日跌逾 1% 但法人仍連買</div>
+  <div class="cs-title">越跌越買：5日跌逾 1% 但法人仍連買</div>
   <table class="ct">{dip_thead}<tbody>{dip_tbody}</tbody></table>
 </div>"""
 
@@ -770,23 +843,9 @@ def _build_section5(meta_chips: dict) -> str:
 
 
 def _percentile_ranks(values: list) -> list:
-    """回傳每個值對應的百分位排名（0~1，最大值→1.0，最小值→0.0，同值取平均名次）。
-    只有 1 個值時直接給 1.0（沒有比較對象，視為滿分，避免除以 0）。"""
-    n = len(values)
-    if n <= 1:
-        return [1.0] * n
-    order = sorted(range(n), key=lambda i: values[i])
-    ranks = [0.0] * n
-    i = 0
-    while i < n:
-        j = i
-        while j + 1 < n and values[order[j + 1]] == values[order[i]]:
-            j += 1
-        avg_rank = (i + j) / 2
-        for k in range(i, j + 1):
-            ranks[order[k]] = avg_rank
-        i = j + 1
-    return [r / (n - 1) for r in ranks]
+    """相容既有呼叫；百分位算法集中在 screener.institutional。"""
+    from screener.institutional import percentile_ranks
+    return percentile_ranks(values)
 
 
 def _composite_sort(candidates: list, streak_key: str) -> list:
@@ -795,15 +854,8 @@ def _composite_sort(candidates: list, streak_key: str) -> list:
     避免像百容（漲幅大但連買天數短）跟長連買但漲幅普通的股票互相排擠掉對方——純用
     漲幅排序，長連買、股價還沒噴出來的個股會被完全擠出榜單；純用連買天數排序，
     絕對股數小的中小型股又會被大型股壓過去（2026-07-09 Cody 討論後採用此法）。"""
-    if not candidates:
-        return []
-    streak_vals = [c.get(streak_key, 0) for c in candidates]
-    price_vals = [c.get("price_cum_pct") or 0 for c in candidates]
-    streak_ranks = _percentile_ranks(streak_vals)
-    price_ranks = _percentile_ranks(price_vals)
-    scored = list(zip(candidates, (s + p for s, p in zip(streak_ranks, price_ranks))))
-    scored.sort(key=lambda x: -x[1])
-    return [c for c, _score in scored]
+    from screener.institutional import rank_continuation_candidates
+    return rank_continuation_candidates(candidates, streak_key)
 
 
 def _build_section6(inst_scan: list) -> tuple[str, str, str]:
@@ -811,6 +863,7 @@ def _build_section6(inst_scan: list) -> tuple[str, str, str]:
     回傳 (強力訊號, 外資持續買進, 投信持續買進) 三塊獨立 html——外資/投信各自要放進
     「外資籌碼」「投信籌碼」獨立 tab，不能再綁成同一個 grid（見 chips.html tab 改版）。"""
     import re as _re
+    from screener.institutional import rank_joint_buy_candidates
     def _is_stock(sid: str) -> bool:
         return bool(_re.match(r'^[1-9]\d{3}$', str(sid)))
 
@@ -818,11 +871,11 @@ def _build_section6(inst_scan: list) -> tuple[str, str, str]:
     # 資料（institutional 表），不限於 stock_universe.csv 的 41 個電子科技族群，金融/鋼鐵/
     # 傳產股（從未被收錄進 stock_universe.csv，meta_sector 對它們永遠是空字串）也會混進來，
     # 跟這個 App「電子科技供應鏈掃盤」的追蹤範圍不符（Cody 實測看到兆豐金/東和鋼鐵混在裡面）。
-    strong = sorted(
-        [x for x in inst_scan if x.get("both_streak", 0) >= 2 and _is_stock(x.get("stock_id", ""))
-         and x.get("meta_sector")],
-        key=lambda x: -x["both_streak"]
+    strong = rank_joint_buy_candidates(
+        [x for x in inst_scan if _is_stock(x.get("stock_id", "")) and x.get("meta_sector")],
+        limit=30,
     )
+    strong_date = max((x.get("date") for x in strong if x.get("date")), default="")
     # 排序改用「連買天數 + 股價累積漲幅」的 Composite Score（見 _composite_sort），不是
     # 單純累積買超股數或單純漲幅：純用絕對股數排名會被大型股/高股本股主宰前段班，把
     # 「外資買超雖然股數不多、但確實推動股價」的中小型股擠出榜單（2026-07-09 實測案例：
@@ -831,32 +884,37 @@ def _build_section6(inst_scan: list) -> tuple[str, str, str]:
     # 濾掉外資買超但股價完全沒動的雜訊（可能是被動式資金流入，不是有效訊號）。
     top_foreign = _composite_sort(
         [x for x in inst_scan if x.get("foreign_streak", 0) >= 3 and _is_stock(x.get("stock_id", ""))
+         and x.get("meta_sector")
          and (x.get("price_cum_pct") or 0) >= 5],
         "foreign_streak"
     )[:15]
+    foreign_date = max((x.get("date") for x in top_foreign if x.get("date")), default="")
     # 投信榜比照外資榜（2026-07-09 Cody 要求一致）：同樣加 price_cum_pct>=5% 篩選、
     # 排序改用 Composite Score。
     top_trust = _composite_sort(
         [x for x in inst_scan if x.get("trust_streak", 0) >= 5 and _is_stock(x.get("stock_id", ""))
+         and x.get("meta_sector")
          and (x.get("price_cum_pct") or 0) >= 5],
         "trust_streak"
     )[:15]
+    trust_date = max((x.get("date") for x in top_trust if x.get("date")), default="")
 
     s6a_html = f"""
 <div class="chips-section">
-  <div class="cs-title">🔥 強力訊號 — 外資+投信同步連買 &ge;2 日</div>
+  <div class="cs-title">法人同步買超觀察{f' · 資料日 {strong_date}' if strong_date else ''}</div>
+  <p class="cs-description">同步連買 &ge;2 日、成交量 &ge;500 張、買超占量 &ge;0.1%、10 日價格不弱於 0%。此為籌碼確認條件，不代表買進建議。</p>
   {_inst_strong_table(strong)}
 </div>"""
 
     s6_foreign_html = f"""
 <div class="chips-section">
-  <div class="cs-title">外資持續買進 Top 15（連買 &ge;3 日 + 10日漲幅 &ge;5%，綜合排序）</div>
+  <div class="cs-title">外資持續買進 Top 15（連買 &ge;3 日 + 10日漲幅 &ge;5%，綜合排序）{f' · 資料日 {foreign_date}' if foreign_date else ''}</div>
   {_inst_streak_table(top_foreign, 'foreign_streak', 'foreign_net', 'cum_foreign', '外資')}
 </div>"""
 
     s6_trust_html = f"""
 <div class="chips-section">
-  <div class="cs-title">投信持續買進 Top 15（連買 &ge;5 日 + 10日漲幅 &ge;5%，綜合排序）</div>
+  <div class="cs-title">投信持續買進 Top 15（連買 &ge;5 日 + 10日漲幅 &ge;5%，綜合排序）{f' · 資料日 {trust_date}' if trust_date else ''}</div>
   {_inst_streak_table(top_trust, 'trust_streak', 'trust_net', 'cum_trust', '投信')}
 </div>"""
     return s6a_html, s6_foreign_html, s6_trust_html
@@ -877,56 +935,62 @@ def _build_section7(margin_divergence: dict) -> str:
     return f"""
 <div class="chips-grid">
   <div class="chips-section-half">
-    <div class="cs-title">⚠ 看空背離 — 融資增 + 股價跌 {days_label}</div>
+    <div class="cs-title">短線風險：融資增 + 股價跌 {days_label}</div>
     {_margin_divergence_table(bearish, "bearish")}
   </div>
   <div class="chips-section-half">
-    <div class="cs-title">✦ 融資鬆動 — 融資減 + 股價漲 {days_label}</div>
+    <div class="cs-title">融資改善：融資減 + 股價漲 {days_label}</div>
     {_margin_divergence_table(bullish, "bullish")}
   </div>
 </div>"""
 
 
-def _build_section8(shareholder_data: list) -> tuple[str, str, str]:
+def _build_section8(shareholder_data: list, insider_data: list | None = None) -> tuple[str, str, str]:
     """Section 8: 大戶籌碼（集保 TDCC ≥400張）+ 董監持股。回傳 (大戶籌碼html, 資料日期note, 董監持股html)——
     兩者是不同資料源（TDCC 集保 vs 公開觀測站董監申報），拆成獨立 tab（見 chips.html 改版）。
-    董監持股表沿用大戶籌碼同一批「連增Top30+連減Top20」精選股票，不另外設計排序，避免
-    無謂的範圍擴張——這批本來就是本頁挑出的重點觀察股。"""
+    董監持股採公開觀測站資料獨立排序，不受 TDCC 名單限制。"""
+    insider_data = insider_data or []
     if not shareholder_data:
         empty = "<div class='no-data'>無資料（請執行 python main.py --update-shareholder）</div>"
-        return (
-            f"<div class='chips-section'><div class='cs-title'>大戶籌碼</div>{empty}</div>",
-            "",
-            f"<div class='chips-section'><div class='cs-title'>董監持股</div>{empty}</div>",
-        )
-    sh_increasing = [r for r in shareholder_data if (r.get("streak") or 0) > 0]
-    sh_decreasing = [r for r in shareholder_data if (r.get("streak") or 0) < 0]
+        s8_html = f"<div class='chips-section'><div class='cs-title'>大戶籌碼</div>{empty}</div>"
+        s8_note = ""
+        top_increasing, top_decreasing = [], []
+    else:
+        sh_increasing = [r for r in shareholder_data if (r.get("streak") or 0) > 0]
+        sh_decreasing = [r for r in shareholder_data if (r.get("streak") or 0) < 0]
     # 排序 bug 修正：同樣連增/連減週數時，原本比「持倉百分比絕對值」高低，會把外資保管銀行
     # 持股天生就高的股票（例如台積電 87.77%）沖到榜首，即使當週實際變動只有 0.01-0.03%
     # 這種無意義的雜訊。改比「當週實際變動幅度」（|week_chg|）大小，才會優先顯示真正有意義
     # 的籌碼變動，不是絕對持倉位置。
-    sh_increasing.sort(key=lambda x: (-(x.get("streak") or 0), -abs(x.get("week_chg") or 0)))
-    sh_decreasing.sort(key=lambda x: ((x.get("streak") or 0), -abs(x.get("week_chg") or 0)))
-    top_increasing, top_decreasing = sh_increasing[:30], sh_decreasing[:20]
+        sh_increasing.sort(key=lambda x: (-(x.get("streak") or 0), -abs(x.get("week_chg") or 0)))
+        sh_decreasing.sort(key=lambda x: ((x.get("streak") or 0), -abs(x.get("week_chg") or 0)))
+        top_increasing, top_decreasing = sh_increasing[:30], sh_decreasing[:20]
 
-    s8_html = f"""
+        s8_html = f"""
 <div class="chips-grid">
   <div class="chips-section-half">
-    <div class="cs-title">📈 大戶連增倉 Top 30（≥400張，集保）</div>
+    <div class="cs-title">大戶連增倉 Top 30（≥400張，集保）</div>
     {_shareholder_table(top_increasing)}
   </div>
   <div class="chips-section-half">
-    <div class="cs-title">📉 大戶連減倉 Top 20</div>
+    <div class="cs-title">大戶連減倉 Top 20</div>
     {_shareholder_table(top_decreasing)}
   </div>
 </div>"""
-    sh_date = shareholder_data[0].get("date", "")
-    s8_note = f"<p style='color:#475569;font-size:.72rem;margin:4px 0 12px'>集保資料日期：{sh_date}｜共 {len(shareholder_data)} 支股票</p>"
+        sh_date = shareholder_data[0].get("date", "")
+        s8_note = f"<p class='data-note'>集保資料日期：{sh_date}｜共 {len(shareholder_data)} 支股票</p>"
 
+    ranked_insiders = sorted(
+        [r for r in insider_data if r.get("company_chg") is not None or r.get("major_holder_chg") is not None],
+        key=lambda r: -max(abs(r.get("company_chg") or 0), abs(r.get("major_holder_chg") or 0)),
+    )[:50]
+    insider_date = max((r.get("report_date") for r in ranked_insiders if r.get("report_date")), default="")
+    insider_date_note = f" · 資料日 {insider_date}" if insider_date else ""
     s_insider_html = f"""
 <div class="chips-section">
-  <div class="cs-title">董監持股（同大戶連增/連減榜精選股）</div>
-  {_insider_holdings_table(top_increasing + top_decreasing)}
+  <div class="cs-title">董監持股變化 Top 50{insider_date_note}</div>
+  <p class="cs-description">依公司派或大股東月持股變化絕對值排序，與集保大戶榜獨立計算。</p>
+  {_insider_holdings_table(ranked_insiders)}
 </div>"""
     return s8_html, s8_note, s_insider_html
 
@@ -940,6 +1004,7 @@ def generate(
     cum_data: list = None,
     meta_signals: dict = None,
     shareholder_data: list = None,
+    insider_data: list = None,
     output_path: str = "docs/chips.html",
 ) -> bool:
     """回傳是否實際寫入了 output_path；meta_chips/stock_chips 兩者皆空時不寫檔、回傳 False，
@@ -948,14 +1013,19 @@ def generate(
         return False
     inst_scan = inst_scan or []
     shareholder_data = shareholder_data or []
+    insider_data = insider_data or []
     cum_ranks = _make_cum_ranks(cum_data or [])
     margin_divergence = margin_divergence or {}
 
     exch_js_var, exch_filter_btns = _build_exchange_ui()
 
     date_str = trade_date.strftime("%Y-%m-%d")
-    weekday = ["一", "二", "三", "四", "五", "六", "日"][trade_date.weekday()]
     chips_date = stock_chips.get("chips_date", date_str)
+    try:
+        chips_weekday = date.fromisoformat(str(chips_date)[:10]).weekday()
+    except (TypeError, ValueError):
+        chips_weekday = trade_date.weekday()
+    weekday = ["一", "二", "三", "四", "五", "六", "日"][chips_weekday]
 
     s1_html = _build_section1(meta_chips, cum_ranks)
     s2_html = _build_section2(stock_chips)
@@ -965,7 +1035,7 @@ def generate(
     s5_html = _build_section5(meta_chips)
     s6a_html, s6_foreign_html, s6_trust_html = _build_section6(inst_scan)
     s7_html = _build_section7(margin_divergence)
-    s8_html, s8_note, s_insider_html = _build_section8(shareholder_data)
+    s8_html, s8_note, s_insider_html = _build_section8(shareholder_data, insider_data)
 
     html = f"""<!DOCTYPE html>
 <html lang="zh-TW">
@@ -980,83 +1050,198 @@ def generate(
   <style>{_CSS}</style>
 </head>
 <body>
-  <div class="header">
-    <h1>台股電子半導體族群追蹤</h1>
-    <div class="mkt-bar">
-      <span class="mkt-date">📅 籌碼資料：{chips_date}（週{weekday}）</span>
+  <a class="skip-link" href="#main-content">跳到籌碼內容</a>
+  <div class="app-shell">
+  <header class="topbar">
+    <div class="brand-lockup">
+      <h1>台股電子半導體族群追蹤</h1>
+      <span class="page-name">籌碼分析</span>
     </div>
-    <div class="nav-links">
+    <nav class="nav-links" aria-label="主要功能">
       <a class="nav-link" href="index.html">族群績效</a>
-      <a class="nav-link active" href="chips.html">籌碼分析</a>
+      <a class="nav-link active" href="chips.html" aria-current="page">籌碼分析</a>
       <a class="nav-link" href="patterns.html">形態掃描</a>
+    </nav>
+    <div class="data-status" aria-label="籌碼資料日期">
+      <span>資料日期</span>
+      <strong>{chips_date}（週{weekday}）</strong>
     </div>
-    <div class="tab-bar">
-      <button class="tab-btn" data-tab="tab-signal" onclick="switchTab('tab-signal')">🔥 強力訊號</button>
-      <button class="tab-btn" data-tab="tab-inst" onclick="switchTab('tab-inst')">📊 法人買賣</button>
-      <button class="tab-btn" data-tab="tab-foreign" onclick="switchTab('tab-foreign')">🌍 外資籌碼</button>
-      <button class="tab-btn" data-tab="tab-trust" onclick="switchTab('tab-trust')">🏢 投信籌碼</button>
-      <button class="tab-btn" data-tab="tab-margin" onclick="switchTab('tab-margin')">⚠ 融資警示</button>
-      <button class="tab-btn" data-tab="tab-holder" onclick="switchTab('tab-holder')">🐋 大戶籌碼</button>
-      <button class="tab-btn" data-tab="tab-insider" onclick="switchTab('tab-insider')">👔 董監持股</button>
-    </div>
-  </div>
-  {exch_filter_btns}
+  </header>
+  <div class="workspace">
+    <aside class="section-nav" aria-label="籌碼分析視角">
+      <div class="section-nav-inner">
+        <div class="section-nav-label">分析視角</div>
+        <div class="tab-bar" role="tablist" aria-label="籌碼分析分類">
+          <button id="tab-btn-signal" type="button" role="tab" aria-controls="tab-signal" aria-selected="false" class="tab-btn" data-tab="tab-signal" onclick="switchTab('tab-signal')">法人同步觀察</button>
+          <button id="tab-btn-dipbuy" type="button" role="tab" aria-controls="tab-dipbuy" aria-selected="false" class="tab-btn" data-tab="tab-dipbuy" onclick="switchTab('tab-dipbuy')">越跌越買</button>
+          <button id="tab-btn-inst" type="button" role="tab" aria-controls="tab-inst" aria-selected="false" class="tab-btn" data-tab="tab-inst" onclick="switchTab('tab-inst')">法人買賣</button>
+          <button id="tab-btn-foreign" type="button" role="tab" aria-controls="tab-foreign" aria-selected="false" class="tab-btn" data-tab="tab-foreign" onclick="switchTab('tab-foreign')">外資籌碼</button>
+          <button id="tab-btn-trust" type="button" role="tab" aria-controls="tab-trust" aria-selected="false" class="tab-btn" data-tab="tab-trust" onclick="switchTab('tab-trust')">投信籌碼</button>
+          <button id="tab-btn-margin" type="button" role="tab" aria-controls="tab-margin" aria-selected="false" class="tab-btn" data-tab="tab-margin" onclick="switchTab('tab-margin')">融資警示</button>
+          <button id="tab-btn-holder" type="button" role="tab" aria-controls="tab-holder" aria-selected="false" class="tab-btn" data-tab="tab-holder" onclick="switchTab('tab-holder')">大戶籌碼</button>
+          <button id="tab-btn-insider" type="button" role="tab" aria-controls="tab-insider" aria-selected="false" class="tab-btn" data-tab="tab-insider" onclick="switchTab('tab-insider')">董監持股</button>
+        </div>
+        <p class="section-nav-note">可依股票代號或名稱搜尋。所有表格支援欄位排序，資料日期以各區塊標示為準。</p>
+      </div>
+    </aside>
+    <main id="main-content" class="main-content" tabindex="-1">
+      {exch_filter_btns}
 
-  <div class="tab-panel" id="tab-signal">
-    {s6a_html}
-  </div>
+      <div class="tab-panel" id="tab-signal" role="tabpanel" aria-labelledby="tab-btn-signal">
+        {s6a_html}
+      </div>
 
-  <div class="tab-panel" id="tab-inst">
-    {s1_html}
-  </div>
+      <div class="tab-panel" id="tab-dipbuy" role="tabpanel" aria-labelledby="tab-btn-dipbuy">
+        {s35_html}
+      </div>
 
-  <div class="tab-panel" id="tab-foreign">
-    {s6_foreign_html}
-    {s2_html}
-    {s5_html}
-  </div>
+      <div class="tab-panel" id="tab-inst" role="tabpanel" aria-labelledby="tab-btn-inst">
+        {s1_html}
+      </div>
 
-  <div class="tab-panel" id="tab-trust">
-    {s6_trust_html}
-    {s3_html}
-    {s35_html}
-  </div>
+      <div class="tab-panel" id="tab-foreign" role="tabpanel" aria-labelledby="tab-btn-foreign">
+        {s6_foreign_html}
+        {s2_html}
+        {s5_html}
+      </div>
 
-  <div class="tab-panel" id="tab-margin">
-    {s7_html}
-    {s4_html}
-  </div>
+      <div class="tab-panel" id="tab-trust" role="tabpanel" aria-labelledby="tab-btn-trust">
+        {s6_trust_html}
+        {s3_html}
+      </div>
 
-  <div class="tab-panel" id="tab-holder">
-    {s8_note}
-    {s8_html}
-  </div>
+      <div class="tab-panel" id="tab-margin" role="tabpanel" aria-labelledby="tab-btn-margin">
+        {s7_html}
+        {s4_html}
+      </div>
 
-  <div class="tab-panel" id="tab-insider">
-    {s_insider_html}
-  </div>
+      <div class="tab-panel" id="tab-holder" role="tabpanel" aria-labelledby="tab-btn-holder">
+        {s8_note}
+        {s8_html}
+      </div>
 
-  <div class="footer">資料來源：TWSE 三大法人 ｜ 台灣：漲紅跌綠 ｜ 外資正值=買超</div>
+      <div class="tab-panel" id="tab-insider" role="tabpanel" aria-labelledby="tab-btn-insider">
+        {s_insider_html}
+      </div>
+
+      <div class="footer">資料來源：TWSE、TPEx 三大法人與融資融券；TDCC 集保持股分散表；公開資訊觀測站內部人持股。資料日期依各區塊標示。</div>
+    </main>
+  </div>
+  </div>
   {_TAB_JS}
   <script>
   {exch_js_var}
   // 在個股代號旁加上市/上櫃 badge
   document.querySelectorAll('span.sid').forEach(function(span){{
     const exch=EXCH[span.textContent.trim()];
-    if(exch==='TWSE') span.insertAdjacentHTML('afterend','<span style="color:#60a5fa;font-size:.6rem;border:1px solid #1e3a5f;border-radius:3px;padding:0 4px;margin-left:4px">上市</span>');
-    else if(exch==='TPEx') span.insertAdjacentHTML('afterend','<span style="color:#a78bfa;font-size:.6rem;border:1px solid #3b1f6e;border-radius:3px;padding:0 4px;margin-left:4px">上櫃</span>');
+    if(exch==='TWSE') span.insertAdjacentHTML('afterend','<span class="market-badge twse">上市</span>');
+    else if(exch==='TPEx') span.insertAdjacentHTML('afterend','<span class="market-badge tpex">上櫃</span>');
   }});
-  function filterExch(btn){{
-    document.querySelectorAll('.exch-btn').forEach(b=>{{b.style.background='transparent';b.style.color='#94a3b8';b.style.borderColor='#334155';b.classList.remove('active')}});
-    btn.style.background='#1e293b';btn.style.color='#e2e8f0';btn.style.borderColor='#475569';btn.classList.add('active');
-    const exch=btn.dataset.exch;
-    document.querySelectorAll('table.ct tbody tr').forEach(tr=>{{
-      const sid=tr.querySelector('.sid');
-      if(!sid)return;
-      const ex=EXCH[sid.textContent.trim()]||'';
-      tr.style.display=(!exch||ex===exch)?'':'none';
-    }});
+  let activeExchange='';
+  const expandedTables=new Set();
+  const searchInput=document.getElementById('stock-search');
+  const mobileMedia=window.matchMedia('(max-width:540px)');
+  let searchTimer=0;
+
+  function sortValue(text){{
+    const clean=text.trim().replaceAll(',','');
+    const match=clean.match(/[+-]?[\\d.]+/);
+    if(!match)return clean.toLocaleLowerCase('zh-TW');
+    let value=Number(match[0]);
+    if(clean.includes('萬張'))value*=10000;
+    return value;
   }}
+
+  document.querySelectorAll('table.ct').forEach((table,index)=>{{
+    const key='chips-table-'+index;
+    table.dataset.tableKey=key;
+    const shell=document.createElement('div');
+    shell.className='table-shell';
+    table.parentNode.insertBefore(shell,table);
+    shell.appendChild(table);
+    const toggle=document.createElement('button');
+    toggle.type='button';toggle.className='table-toggle';toggle.dataset.tableKey=key;
+    toggle.addEventListener('click',()=>{{
+      if(expandedTables.has(key))expandedTables.delete(key);else expandedTables.add(key);
+      applyFilters();
+    }});
+    shell.insertAdjacentElement('afterend',toggle);
+
+    table.querySelectorAll('thead th').forEach((th,column)=>{{
+      const label=th.textContent.trim();
+      if(!label)return;
+      th.setAttribute('aria-sort','none');
+      th.textContent='';
+      const button=document.createElement('button');
+      button.type='button';button.className='sort-button';button.textContent=label;
+      button.setAttribute('aria-label',label+'，點擊排序');
+      button.addEventListener('click',()=>{{
+        const ascending=th.getAttribute('aria-sort')!=='ascending';
+        table.querySelectorAll('th').forEach(h=>h.setAttribute('aria-sort','none'));
+        th.setAttribute('aria-sort',ascending?'ascending':'descending');
+        const body=table.tBodies[0];
+        const rows=[...body.rows];
+        rows.sort((a,b)=>{{
+          const av=sortValue(a.cells[column]?.textContent||'');
+          const bv=sortValue(b.cells[column]?.textContent||'');
+          const compared=typeof av==='number'&&typeof bv==='number'?av-bv:String(av).localeCompare(String(bv),'zh-TW');
+          return ascending?compared:-compared;
+        }}).forEach(row=>body.appendChild(row));
+        applyFilters();
+      }});
+      th.appendChild(button);
+    }});
+  }});
+
+  function applyFilters(){{
+    const query=searchInput.value.trim().toLocaleLowerCase('zh-TW');
+    const isMobile=mobileMedia.matches;
+    document.querySelectorAll('table.ct').forEach(table=>{{
+      const key=table.dataset.tableKey;
+      let matched=0;
+      table.querySelectorAll('tbody tr').forEach(tr=>{{
+        const sid=tr.querySelector('.sid');
+        const ex=sid?(EXCH[sid.textContent.trim()]||''):'';
+        const searchable=tr.textContent.toLocaleLowerCase('zh-TW');
+        const matches=(!activeExchange||!sid||ex===activeExchange)&&(!query||searchable.includes(query));
+        const withinPreview=!isMobile||expandedTables.has(key)||matched<5;
+        tr.hidden=!(matches&&withinPreview);
+        if(matches)matched+=1;
+      }});
+      const toggle=document.querySelector('.table-toggle[data-table-key="'+key+'"]');
+      if(toggle){{
+        toggle.hidden=!isMobile||matched<=5;
+        toggle.textContent=expandedTables.has(key)?'收合，顯示前 5 筆':'查看全部 '+matched+' 筆';
+        toggle.setAttribute('aria-expanded',String(expandedTables.has(key)));
+      }}
+    }});
+    const panel=document.querySelector('.tab-panel.active');
+    const matchedKeys=new Set();
+    if(panel)panel.querySelectorAll('table.ct tbody tr').forEach(r=>{{
+      const sid=r.querySelector('.sid');const sidText=sid?sid.textContent.trim():'';
+      const ex=sidText?(EXCH[sidText]||''):'';
+      const matches=(!activeExchange||!sid||ex===activeExchange)&&(!query||r.textContent.toLocaleLowerCase('zh-TW').includes(query));
+      if(matches){{
+        const first=(r.cells[0]?.textContent||r.textContent).trim();
+        matchedKeys.add(sidText?'stock:'+sidText:'row:'+first);
+      }}
+    }});
+    document.getElementById('filter-result').textContent='本頁 '+matchedKeys.size+' 筆資料';
+  }}
+
+  document.querySelectorAll('.exch-btn').forEach(btn=>btn.addEventListener('click',()=>{{
+    activeExchange=btn.dataset.exch;
+    document.querySelectorAll('.exch-btn').forEach(b=>{{
+      const active=b===btn;b.classList.toggle('active',active);b.setAttribute('aria-pressed',String(active));
+    }});
+    applyFilters();
+  }}));
+  searchInput.addEventListener('input',()=>{{
+    window.clearTimeout(searchTimer);
+    searchTimer=window.setTimeout(applyFilters,120);
+  }});
+  mobileMedia.addEventListener('change',applyFilters);
+  applyFilters();
   </script>
 </body>
 </html>"""

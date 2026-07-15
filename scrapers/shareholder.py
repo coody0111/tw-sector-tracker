@@ -6,7 +6,6 @@ import logging
 import random
 import re
 import time
-from datetime import date, datetime
 from typing import Optional
 
 import duckdb

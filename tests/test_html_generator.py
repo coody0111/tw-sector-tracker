@@ -46,6 +46,46 @@ def test_stock_card_html_escapes_malicious_stock_name():
     assert '&lt;script&gt;alert(1)&lt;/script&gt;' in html
 
 
+def test_stock_card_html_shows_volume_ratio_and_modal_history_data():
+    prices = pd.DataFrame([{
+        "stock_id": "2330", "close": 950.0, "change_pct": 1.5, "volume": 30000,
+    }]).set_index("stock_id")
+    chips = pd.DataFrame(columns=["foreign_net", "trust_net", "margin_balance", "margin_change"])
+    chips.index.name = "stock_id"
+    history = {"2330": {
+        "pcts": [1.0, -0.5, 1.5],
+        "volumes": [10000, 20000, 30000],
+        "dates": ["07/13", "07/14", "07/15"],
+        "avg_volume": 15000,
+        "vol_ratio": 2.0,
+    }}
+
+    html = _stock_card_html("2330", "台積電", prices, chips, history)
+
+    assert "今日 30,000 張" in html
+    assert "量比 2.00x" in html
+    assert 'role="button" tabindex="0"' in html
+    assert "event.key==='Enter'" in html
+    assert "data-volume-history='[10000, 20000, 30000]'" in html
+    assert "data-volume-dates='[\"07/13\", \"07/14\", \"07/15\"]'" in html
+
+
+def test_stock_table_adds_sortable_volume_ratio_column():
+    sectors = pd.DataFrame([{"sector_name": "半導體", "stock_id": "2330", "stock_name": "台積電"}])
+    prices = pd.DataFrame([{"stock_id": "2330", "close": 950.0, "change_pct": 1.5, "volume": 30000}])
+    history = {"2330": {
+        "pcts": [1.0, 1.5], "volumes": [10000, 30000], "dates": ["07/14", "07/15"],
+        "avg_volume": 10000, "vol_ratio": 3.0,
+    }}
+
+    html = _stock_table("半導體", sectors, prices, stock_sparklines=history, as_row=False)
+
+    assert 'data-key="volratio">量比' in html
+    assert 'data-volratio="3.0"' in html
+    assert "量比 3.00x" in html
+    assert 'role="button" tabindex="0"' in html
+
+
 def test_meta_card_escapes_malicious_meta_name():
     """族群名稱同樣來自外部資料組合而成，卡片文字節點與 data-* 屬性都要跳脫。"""
     malicious_meta = '"><script>alert(1)</script>'
@@ -173,6 +213,42 @@ def test_search_select_stock_selector_matches_st_row(tmp_path):
     # 且要真的把個股資訊帶出來（呼叫 openStockModal）
     assert "openStockModal" in body.group(0), \
         "selectSearchStock 應呼叫 openStockModal 顯示個股資訊"
+
+
+def test_search_select_meta_selector_matches_mc_card(tmp_path):
+    """回歸：搜尋下拉點選「族群」（selectSearchMeta）用的 selector 必須對應實際渲染的
+    族群卡片。族群卡片是 .mc-card[data-meta-name]（meta_sector 層），但舊版 handler 卻去
+    找 details.group-block[data-gname]（SECTOR_GROUPS 大分類層）——兩者不同層級，
+    傳進來的 name 是 meta_sector 名稱，永遠命中不到 group-block → 點選族群無反應。
+    正解與 openMetaByName 一致，鎖 data-meta-name。"""
+    import re
+    output_path = tmp_path / "index.html"
+    universe_df = pd.DataFrame([
+        {"stock_id": "2330", "stock_name": "台積電", "meta_sector": "晶圓代工"},
+    ])
+    meta_perf = [{
+        "meta_name": "晶圓代工", "sub_names": ["晶圓代工"],
+        "avg_change_pct": 1.0, "up_count": 1, "down_count": 0, "flat_count": 0,
+        "stock_ids": ["2330"],
+    }]
+    generate(
+        trade_date=date(2026, 7, 15),
+        perf_df=pd.DataFrame(),
+        meta_perf=meta_perf,
+        universe_df=universe_df,
+        output_path=str(output_path),
+    )
+    html = output_path.read_text(encoding="utf-8")
+
+    body = re.search(r"function selectSearchMeta\(name\).*?\n    \}", html, re.DOTALL)
+    assert body, "找不到 selectSearchMeta 函式"
+    src = body.group(0)
+    # 必須鎖能命中族群卡片的 data-meta-name（或委派給 openMetaByName），
+    # 不能只靠命中不到的 group-block[data-gname]。
+    assert ("data-meta-name" in src) or ("openMetaByName" in src), \
+        "selectSearchMeta 必須用能命中族群卡片(.mc-card[data-meta-name])的 selector，否則點選族群無反應"
+    assert "group-block" not in src, \
+        "selectSearchMeta 不該再靠 group-block[data-gname]（大分類層，命中不到 meta_sector 名稱）"
 
 
 def test_generate_renders_card_for_every_meta_sector_not_just_top_bottom_10(tmp_path):

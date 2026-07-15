@@ -1,3 +1,66 @@
+## [2026-07-15] 驗證（桌電）- 3 個待驗任務：進貨分校準/regime拆分/搜尋族群修復 全數 ✅ 通過
+
+### 驗證方式
+`git fetch` 確認 master/debug/origin 三邊一致（`a2af1f2`，工作區乾淨），`python -m pytest tests/ -q`
+全專案跑一次，針對 debug-tasks.md 點名的三則待驗項目逐項深挖，不只信任 commit message。
+
+### ✅ 全專案測試：260 passed, 1 warning
+warning 是既有、跟本次改動無關的 `test_processors.py::test_calc_market_breadth_ignores_nan_change_pct`
+`FutureWarning`（pandas 版本相關，非本次新增）。
+
+---
+
+### ✅ #1（2aa80a4/a27f129）`print_accumulation_calibration()` 分數分桶依大盤 regime 拆分
+- **`test_print_accumulation_calibration_breaks_down_by_regime` 通過**，且手動重跑同一組測資，逐行核對
+  輸出：`[60-100分] n=2 平均超額 +1.00%`（聚合列，(+6.0 + -4.0)/2 = 1.0，數學正確）、
+  `[60-100分/多頭] n=1 +6.00%`、`[60-100分/空頭] n=1 -4.00%`——**聚合行邏輯確認沒被新的巢狀迴圈影響**，
+  這是這次特別被要求覆查的點。
+- **`regime` 可能是 `"?"`（資料不足，見 `backtest.py::_regime_at`）時的行為**：新程式碼只迭代
+  `["多頭","盤整","空頭"]`，`"?"` 的訊號不會出現在拆分列，但仍計入上方聚合列——追蹤確認這**跟
+  `backtest.py::print_summary()` 既有的 regime 拆分邏輯完全同一套模式**（同樣只列三個正式 regime），
+  不是這次新增的不一致，是沿用既有慣例。
+- **`if "regime" in sub.columns` 這個 guard 本身正確**：`sub` 是 `df` 的切片，欄位集合不會因為
+  `.loc`/布林過濾而改變，所以「df 沒有 regime 欄位時完全跳過」這個保證有效，既有呼叫端
+  （沒有 regime 欄位的舊測資）行為不受影響。
+
+### ✅ #2（4-Task 進貨分回測校準）
+- **`screener/backtest.py` 全程未被這批改動觸碰**：`git log --oneline -- screener/backtest.py`
+  最近一次改動是 `e01e1ad`（chips 儀表板重做，時間早於本批次、內容不相關），本批次的
+  `2aa80a4`/`a27f129` 及其餘 3 個 Task commit 都沒有出現在 `backtest.py` 的異動歷史裡，claim 屬實。
+- **`_shareholder_as_of`/`_recent_return_as_of` no-lookahead 邏輯覆查（這次被特別點名的地基）**：
+  兩者都是「篩 `date <= d_ts` → 取排序後最後一筆」的標準 as-of 查詢，`d_ts` 是呼叫端
+  `scan_accumulation_score()._scan()` 傳入的**訊號日**（= `run_backtest()` 逐日掃描的 `date_str`）。
+  對照 `run_backtest()` 本身的進出場時序（**D 收盤產生訊號 → D+1 開盤進場**，`backtest.py` 多處
+  docstring 明講），用「訊號日當天收盤（含）以前」的資料算分數，時序上完全站得住——分數用到 D
+  當天收盤價、進場卻是 D+1 開盤之後，不構成前瞻偏誤。
+  - ⚠️ **附帶發現（非本次改動引入，屬既有系統性限制，不列為本次 bug）**：`_shareholder_as_of`
+    用的「大戶持股」`date` 是 TDCC 集保庫存**快照日**（通常週五），但 TDCC 實際**公布**會晚幾天
+    （通常隔週三才查得到）——程式碼目前用「快照日 <= 訊號日」判斷資料是否可用，沒有扣掉這段
+    公布延遲，理論上訊號日落在快照日之後、公布日之前的那幾天，會用到「當下其實還查不到」的
+    大戶資料。**但這不是本次新增的問題**：追查後確認現行 production 路徑
+    `screener/database.py::get_shareholder_top()` 對「最新一筆」的認定用的也是同一套「無延遲」
+    邏輯，這次的 as-of 版本只是把既有慣例從「查最新」推廣到「查任意歷史日期」，沒有讓既有限制
+    變得更嚴重。值得記錄但不阻擋這批改動過關；如果之後要認真拿回測數字做決策，這個延遲量級建議
+    抓 TDCC 實際公布時間表確認一次。
+
+### ✅ #3（a013e8a）搜尋族群「點了沒反應」修復
+- `test_search_select_meta_selector_matches_mc_card` 通過，既有 `test_search_select_stock_selector_matches_st_row`
+  等測試未回歸。
+- `git merge-base --is-ancestor a013e8a HEAD` 確認該 commit 已在 master 歷史中，`git status` 確認
+  master worktree 工作區乾淨——**debug-tasks.md 裡記錄的「工作區有其他未 commit 變更／main.py
+  自動 commit 持續在跑」的並發狀況已經自然解決**，沒有殘留任何未預期的 staged/unstaged 變更。
+
+### 沒有驗證的部分（不在 Debugger 職責範圍，交還 Cody）
+- `python main.py --backtest-accumulation` 真的對 `data/screener.db` 跑一次——debug-tasks.md 已明確
+  標注這步留給 Cody 自己開 terminal 跑，這次沒有代跑。
+
+### 結論
+- [x] 可以繼續下一個任務
+- 三則待驗項目全數 ✅ 通過，唯一新發現（TDCC 公布延遲）是既有系統性限制、非本次改動引入，記錄
+  下來供之後參考，不影響這批 commit 的正確性判定。
+
+---
+
 ## [2026-07-14] 驗證（筆電）- week_chg 邏輯 ✅ 真的修好了，但 🔴 2380 假訊號還在（既有髒值沒清）
 
 ### TL;DR

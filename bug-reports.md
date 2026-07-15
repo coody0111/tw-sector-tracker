@@ -50,9 +50,35 @@
 - `entry_confirmed` 未誤呼叫/耦合 `patterns.py::detect_breakout_confirm`
 - 全專案 260 個既有測試持續通過
 
-### 結論
-- [x] 需要修改後再確認 —— `rs_score` 前瞻偏誤是目前唯一的資料正確性問題，因為還沒接進
-  `run_backtest()`，不是緊急阻斷級，但建議在真的要拿 B4 回測前先修，否則回測數字會悄悄全錯
+### 結論（2026-07-16 更新：Cody 授權直接修，已修完）
+- [x] 可以繼續下一個任務 —— 兩項問題都已修復並驗證，見下方「修復記錄」
+
+### 修復記錄（Cody 授權「認真嚴格來修」，Debugger 直接改+commit）
+
+**🔴 `rs_score` 前瞻偏誤 → 已修**
+- 改法：拿掉 `scan_momentum_health()` 對 `calc_cumulative_meta()` 的呼叫（該函式不吃
+  `trade_date`），改成用函式內已經 SQL `WHERE date<=trade_date` 裁切過的 `price_df`
+  現算族群基準（`groupby("meta_sector")` 逐族群算近5日等權平均累積報酬），手法跟原本就
+  正確的 `market_cum5`（vs 大盤那半）完全對稱。移除不再使用的 `calc_cumulative_meta` import。
+- TDD：先寫失敗測試 `test_scan_momentum_health_rs_score_ignores_future_data`
+  （在 `trade_date` 之後注入未來族群齊漲，驗證修復前會 RED：`rs_score` 從預期 `+5.0`
+  被污染成 `-29.55`，數字跟審查階段的手動重現腳本完全吻合），修完後轉 GREEN。
+- 額外驗證：拿審查階段那支獨立重現腳本（非 pytest，模擬真實情境）重新跑一次，修復前
+  `-29.55`、修復後 `+5.0`，確認不是只有測試資料湊巧過。
+
+**🟡 `scan_consecutive_limit_up()` 缺 `universe_path` → 已修**
+- 改法：函式簽章加 `universe_path: str = _UNIVERSE_PATH` 參數，內部 `_load_universe_map()`
+  呼叫改吃這個參數，跟兩支姊妹函式簽章一致。
+- TDD：先寫失敗測試 `test_scan_consecutive_limit_up_accepts_custom_universe_path`（修復前
+  RED：`TypeError: unexpected keyword argument 'universe_path'`），修完後轉 GREEN。
+
+**驗證**
+- `tests/test_signals.py`：21 個測試全過（含 2 個新增的 TDD 測試）。
+- 全專案 `pytest`（master worktree，有真實 `data/screener.db`）：**262 passed**，
+  沒有既有測試回歸；debug worktree 跑會少一個（`test_scan_patterns_returns_list`，
+  缺本機 DB 的既有已知限制，跟本次改動無關，已用真實 DB 的 master worktree 排除這個混淆
+  因素重新確認過）。
+- commit `272937e`（debug→master fast-forward，已 push）。
 
 ---
 

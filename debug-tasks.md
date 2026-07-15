@@ -1,3 +1,26 @@
+## [2026-07-15] ✅ 追加：`print_accumulation_calibration()` 分數分桶依大盤 regime 再拆分
+
+Cody 實跑 `python main.py --backtest-accumulation` 後看真實數字，分數分桶勝率/超額報酬幾乎打平、
+看不出「分數越高越好」——討論後認為這可能是把不同大盤 regime（多頭/盤整/空頭）的訊號攤在一起看，
+蓋掉了只在特定 regime 才成立的分數效應（呼應 2026-07-14 進貨分 spec「大盤 regime 相依」caveat）。
+`run_backtest()`（既有、未改動）本來就有輸出 `regime` 欄位，只是 `print_accumulation_calibration()`
+之前沒用到。這次補上：每個分數桶底下，若 df 有 `regime` 欄位，再依多頭/盤整/空頭各印一次。
+
+範圍小（`screener/patterns.py` 一個函式內加約20行、`tests/test_patterns.py` 加一個測試），沒有走
+完整 subagent-driven-development 流程（沒派 review subagent），只有我自己手動核對邏輯 + 語法檢查。
+新測試 `test_print_accumulation_calibration_breaks_down_by_regime` 驗證了兩筆不同 regime 的訊號會
+被拆成 `[60-100分/多頭]`／`[60-100分/空頭]` 分開印。既有測試（沒有 regime 欄位那筆）不受影響，
+因為 `"regime" in sub.columns` 這個 guard 會讓沒有 regime 欄位時完全跳過新邏輯，行為不變。
+
+### 請 Debugger 驗證
+- [ ] `python -m pytest tests/test_patterns.py -q` 全過，尤其新增的 `test_print_accumulation_calibration_breaks_down_by_regime`
+- [ ] 因為範圍小、沒走完整 review 流程，麻煩這次稍微多看一眼 `print_accumulation_calibration()` 改動的那段（分數分桶迴圈裡新增的 regime 巢狀迴圈），確認沒有把既有的「全部」彙總行邏輯弄壞
+
+### 特別注意
+- 這個改動不影響 `富鼎型邊界案例` 那段報告——只有分數分桶那段加了 regime 拆分，邊界案例維持原樣（現在因為大戶資料只有7-9週，n=0，跟這次改動無關，是資料量問題，見上面主要那則記錄）。
+
+---
+
 ## [2026-07-15] ✅ 進貨分回測校準（plan: docs/superpowers/plans/2026-07-15-accumulation-score-backtest-calibration.md，spec: docs/superpowers/specs/2026-07-15-accumulation-score-backtest-calibration-design.md）
 
 把 `screener/patterns.py::calc_accumulation_score()`（進貨分，2026-07-14 完成但從未被驗證過切點準不準）接進

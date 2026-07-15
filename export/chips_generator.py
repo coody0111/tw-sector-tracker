@@ -129,7 +129,7 @@ def _ratio_bar(ratio: float) -> str:
 def _section(title: str, body: str, icon: str = "") -> str:
     return f"""
 <div class="chips-section">
-  <div class="cs-title">{icon} {title}</div>
+  <div class="cs-title">{title}</div>
   {body}
 </div>"""
 
@@ -642,7 +642,7 @@ function switchTab(id, focusTab=false){
   history.replaceState(null,'','#'+id);
   if(typeof applyFilters==='function')applyFilters();
 }
-const _tabs=['tab-signal','tab-inst','tab-foreign','tab-trust','tab-margin','tab-holder','tab-insider'];
+const _tabs=['tab-signal','tab-dipbuy','tab-inst','tab-foreign','tab-trust','tab-margin','tab-holder','tab-insider'];
 document.querySelector('.tab-bar').addEventListener('keydown',e=>{
   if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;
   e.preventDefault();
@@ -708,11 +708,11 @@ def _build_section1(meta_chips: dict, cum_ranks: dict) -> str:
     return f"""
 <div class="chips-grid">
   <div class="chips-section-half">
-    <div class="cs-title">▲ 外資連買族群</div>
+    <div class="cs-title">外資連買族群</div>
     <table class="ct">{thead}<tbody>{buy_tbody}</tbody></table>
   </div>
   <div class="chips-section-half">
-    <div class="cs-title">▼ 外資連賣族群</div>
+    <div class="cs-title">外資連賣族群</div>
     <table class="ct">{thead}<tbody>{sell_tbody}</tbody></table>
   </div>
 </div>"""
@@ -725,11 +725,11 @@ def _build_section2(stock_chips: dict) -> str:
     return f"""
 <div class="chips-grid">
   <div class="chips-section-half">
-    <div class="cs-title">▲ 外資大買個股 Top 10{_section_date_suffix(buy_stocks)}</div>
+    <div class="cs-title">外資大買個股 Top 10{_section_date_suffix(buy_stocks)}</div>
     {_stock_rank_table(buy_stocks, "外資買超")}
   </div>
   <div class="chips-section-half">
-    <div class="cs-title">▼ 外資大賣個股 Top 10{_section_date_suffix(sell_stocks)}</div>
+    <div class="cs-title">外資大賣個股 Top 10{_section_date_suffix(sell_stocks)}</div>
     {_stock_rank_table(sell_stocks, "外資賣超")}
   </div>
 </div>"""
@@ -800,7 +800,11 @@ def _build_section35(meta_chips: dict, cum_ranks: dict) -> str:
         )
 
     if not dip_buy_rows:
-        return ""
+        return """
+<div class="chips-section">
+  <div class="cs-title">越跌越買：5日跌逾 1% 但法人仍連買</div>
+  <div class="no-data">今日沒有族群同時符合「5日跌逾 1%」且「外資或投信仍連買」。</div>
+</div>"""
 
     dip_tbody = "".join(_dip_buy_row(*r) for r in dip_buy_rows)
     dip_thead = ("<thead><tr>"
@@ -1069,6 +1073,7 @@ def generate(
         <div class="section-nav-label">分析視角</div>
         <div class="tab-bar" role="tablist" aria-label="籌碼分析分類">
           <button id="tab-btn-signal" type="button" role="tab" aria-controls="tab-signal" aria-selected="false" class="tab-btn" data-tab="tab-signal" onclick="switchTab('tab-signal')">法人同步觀察</button>
+          <button id="tab-btn-dipbuy" type="button" role="tab" aria-controls="tab-dipbuy" aria-selected="false" class="tab-btn" data-tab="tab-dipbuy" onclick="switchTab('tab-dipbuy')">越跌越買</button>
           <button id="tab-btn-inst" type="button" role="tab" aria-controls="tab-inst" aria-selected="false" class="tab-btn" data-tab="tab-inst" onclick="switchTab('tab-inst')">法人買賣</button>
           <button id="tab-btn-foreign" type="button" role="tab" aria-controls="tab-foreign" aria-selected="false" class="tab-btn" data-tab="tab-foreign" onclick="switchTab('tab-foreign')">外資籌碼</button>
           <button id="tab-btn-trust" type="button" role="tab" aria-controls="tab-trust" aria-selected="false" class="tab-btn" data-tab="tab-trust" onclick="switchTab('tab-trust')">投信籌碼</button>
@@ -1086,6 +1091,10 @@ def generate(
         {s6a_html}
       </div>
 
+      <div class="tab-panel" id="tab-dipbuy" role="tabpanel" aria-labelledby="tab-btn-dipbuy">
+        {s35_html}
+      </div>
+
       <div class="tab-panel" id="tab-inst" role="tabpanel" aria-labelledby="tab-btn-inst">
         {s1_html}
       </div>
@@ -1099,7 +1108,6 @@ def generate(
       <div class="tab-panel" id="tab-trust" role="tabpanel" aria-labelledby="tab-btn-trust">
         {s6_trust_html}
         {s3_html}
-        {s35_html}
       </div>
 
       <div class="tab-panel" id="tab-margin" role="tabpanel" aria-labelledby="tab-btn-margin">

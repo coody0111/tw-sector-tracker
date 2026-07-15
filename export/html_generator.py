@@ -1364,13 +1364,12 @@ def generate(
     }}
     function hideSearch() {{ document.getElementById('search-dropdown').style.display='none'; }}
     function selectSearchMeta(name) {{
-      const block = document.querySelector('details.group-block[data-gname="'+name+'"]');
-      if (block) {{
-        block.open = true;
-        setTimeout(()=>block.scrollIntoView({{behavior:'smooth',block:'start'}}),50);
-      }}
       document.getElementById('search-dropdown').style.display='none';
       document.getElementById('stock-search').value='';
+      // 族群項目的 name 是 meta_sector 名稱，對應的是 .mc-card[data-meta-name]（不是
+      // group-block 大分類層）。直接委派給 openMetaByName，跟 chips.html 連結／hash 進來
+      // 走同一條已驗證可用的路徑：展開該族群面板、標記 active、捲動置中。
+      openMetaByName(name);
     }}
     function selectSearchStock(sid) {{
       document.getElementById('search-dropdown').style.display='none';

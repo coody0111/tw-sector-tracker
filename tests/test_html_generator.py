@@ -175,6 +175,42 @@ def test_search_select_stock_selector_matches_st_row(tmp_path):
         "selectSearchStock 應呼叫 openStockModal 顯示個股資訊"
 
 
+def test_search_select_meta_selector_matches_mc_card(tmp_path):
+    """回歸：搜尋下拉點選「族群」（selectSearchMeta）用的 selector 必須對應實際渲染的
+    族群卡片。族群卡片是 .mc-card[data-meta-name]（meta_sector 層），但舊版 handler 卻去
+    找 details.group-block[data-gname]（SECTOR_GROUPS 大分類層）——兩者不同層級，
+    傳進來的 name 是 meta_sector 名稱，永遠命中不到 group-block → 點選族群無反應。
+    正解與 openMetaByName 一致，鎖 data-meta-name。"""
+    import re
+    output_path = tmp_path / "index.html"
+    universe_df = pd.DataFrame([
+        {"stock_id": "2330", "stock_name": "台積電", "meta_sector": "晶圓代工"},
+    ])
+    meta_perf = [{
+        "meta_name": "晶圓代工", "sub_names": ["晶圓代工"],
+        "avg_change_pct": 1.0, "up_count": 1, "down_count": 0, "flat_count": 0,
+        "stock_ids": ["2330"],
+    }]
+    generate(
+        trade_date=date(2026, 7, 15),
+        perf_df=pd.DataFrame(),
+        meta_perf=meta_perf,
+        universe_df=universe_df,
+        output_path=str(output_path),
+    )
+    html = output_path.read_text(encoding="utf-8")
+
+    body = re.search(r"function selectSearchMeta\(name\).*?\n    \}", html, re.DOTALL)
+    assert body, "找不到 selectSearchMeta 函式"
+    src = body.group(0)
+    # 必須鎖能命中族群卡片的 data-meta-name（或委派給 openMetaByName），
+    # 不能只靠命中不到的 group-block[data-gname]。
+    assert ("data-meta-name" in src) or ("openMetaByName" in src), \
+        "selectSearchMeta 必須用能命中族群卡片(.mc-card[data-meta-name])的 selector，否則點選族群無反應"
+    assert "group-block" not in src, \
+        "selectSearchMeta 不該再靠 group-block[data-gname]（大分類層，命中不到 meta_sector 名稱）"
+
+
 def test_generate_renders_card_for_every_meta_sector_not_just_top_bottom_10(tmp_path):
     """回歸（2026-07-09 Cody 回報）：舊版只 render meta_sorted[:10] + 後10名，中間表現
     平平的族群完全沒有 .mc-card/data-meta-name，導致 chips.html 的「外資連買/連賣族群」

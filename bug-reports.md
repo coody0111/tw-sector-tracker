@@ -1,3 +1,61 @@
+## [2026-07-16] Review - 動能派 B1~B5（commit faa54b8：scan_momentum_health/scan_consecutive_limit_up/scan_bullish_alignment_new_high）
+
+### 驗證方式
+逐項對照 `docs/superpowers/specs/2026-07-14-momentum-strategy-page-design.md` §3（B1~B5 資料層規格）
+手動追蹤 `screener/signals.py` 三支新函式的每個分支邏輯，並針對懷疑點寫最小重現腳本實跑驗證
+（不只信任程式碼看起來合理，B4 的 look-ahead 問題就是這樣抓到的——靜態讀 code 看不出來，
+要真的餵資料跑過一次才會發現數字不對）。
+
+### 🔴 程式問題（需立刻修）— `rs_score` 有前瞻偏誤（look-ahead bias）
+- 位置：`screener/signals.py:319`（`scan_momentum_health()` 呼叫 `calc_cumulative_meta()`）
+- 說明：`calc_cumulative_meta()`（`processors/performance.py:88`）完全不吃 `trade_date` 參數，
+  SQL 永遠抓「整張 `daily_prices` 表裡最新的 8 個日期」算族群 5 日累積報酬，不管呼叫端傳的
+  `trade_date` 是不是資料庫裡最新的一天。`scan_momentum_health()` 算 `rs_score`（族群內相對強弱）
+  時直接拿這個當族群基準，沒有做任何日期裁切——只要 `trade_date` 不是 DB 裡最新的一天，
+  `rs_score` 就會摻進 `trade_date` 之後才發生的未來資料。
+- 重現方式：寫最小重現腳本（兩檔股票在 `trade_date` 當天有真實漲跌差異，對照組手算
+  `rs_score=+5.0`，跟既有測試 `test_scan_momentum_health_computes_relative_strength` 一致），
+  在 `trade_date` 之後追加幾天「未來」的族群齊漲走勢——`rs_score` 從預期的 `+5.0` 整個翻成
+  `-29.55`，完全被 `trade_date` 之後才發生的資料污染。
+- 為什麼現有測試沒抓到：`test_scan_momentum_health_computes_relative_strength`/
+  `test_scan_momentum_health_computes_market_relative_strength` 兩個測試都用 `dates[-1]`
+  （資料庫最後一天）當 `trade_date`，這時「最新 8 個日期」剛好跟「`trade_date` 為終點的窗口」
+  重疊，bug 被巧合遮住，沒有任何測試真的餵過「歷史日期（非最新）」的 `trade_date`。
+- 為什麼現在沒事、以後會爆：目前 `scan_momentum_health()` 唯一呼叫路徑是即時/每日產頁
+  （`trade_date` 天然就是 DB 最新一天），線上還沒出過錯誤結果。但 spec §6「建置優先序」明講
+  「每一條實作後都可以用 `screener/backtest.py` 回測驗證」——`run_backtest()` 正是會逐日餵入
+  歷史 `trade_date`，這個 bug 會在第一次拿這支函式回測時，悄悄把每一天的
+  `rs_score`/`rs_rank_pct`/`strength_tier` 全部算錯，且不會報錯、不會 crash，只會給錯的排名。
+- 對照組：同一函式裡 `rs_market_score`（vs 大盤）那一半完全正確——用的是函式內已經用 SQL
+  `WHERE date <= trade_date` 裁切過的 `price_df` 現算，沒有這個問題。只有偷懶重用外部
+  `calc_cumulative_meta()` 的 `rs_score` 那一半中招。
+- 建議修法（擇一）：
+  1. 幫 `calc_cumulative_meta()` 加可選的 `as_of_date` 參數，SQL 加 `WHERE date <= ?`
+  2. 在 `scan_momentum_health()` 內部比照 `market_cum5` 的做法，直接用已裁切好的 `price_df`
+     現算族群基準，不呼叫外部的 `calc_cumulative_meta()`
+
+### 🟡 建議改善
+- `scan_consecutive_limit_up()` 少了 `universe_path` 參數（另外兩支姊妹函式 `scan_momentum_health`/
+  `scan_bullish_alignment_new_high` 都有），內部寫死呼叫 `_load_universe_map()`（預設路徑）。
+  目前沒有測試斷言 `stock_name`/`meta_sector`，不構成現在的 bug，但沒辦法在隔離環境測試這兩個
+  欄位，也跟另外兩支函式的簽章不一致，建議補上參數維持一致性。
+
+### ✅ 驗證通過
+- B1 均線排列（`close>MA5>MA10>MA60` 三線，MA20 已正確排除判斷式）
+- B2 出場三原則（三條件同時成立才觸發）+ `entry_confirmed`（多頭排列+MA5/MA10皆上揚）
+- B3 通用多頭排列+創新高（MA5/10/60、`lookback_days`「含今日」語意自洽，非 off-by-one）
+- B5 連續漲停鎖死（`limit_up_streak`/`volume_declining_streak` 邏輯正確）
+- 五級強弱分類（§3.7）六個分支手動追蹤全部正確，含容易漏掉的
+  「多頭排列但 `rank<0.5`→弱」fallback 分支
+- `entry_confirmed` 未誤呼叫/耦合 `patterns.py::detect_breakout_confirm`
+- 全專案 260 個既有測試持續通過
+
+### 結論
+- [x] 需要修改後再確認 —— `rs_score` 前瞻偏誤是目前唯一的資料正確性問題，因為還沒接進
+  `run_backtest()`，不是緊急阻斷級，但建議在真的要拿 B4 回測前先修，否則回測數字會悄悄全錯
+
+---
+
 ## [2026-07-15] 驗證（桌電）- 3 個待驗任務：進貨分校準/regime拆分/搜尋族群修復 全數 ✅ 通過
 
 ### 驗證方式

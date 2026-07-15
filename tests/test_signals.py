@@ -210,6 +210,46 @@ def test_scan_momentum_health_computes_relative_strength(tmp_path):
     assert weak["rs_rank_pct"] < strong["rs_rank_pct"]
 
 
+def test_scan_momentum_health_rs_score_ignores_future_data(tmp_path):
+    """rs_score 不該被 trade_date 之後才發生的資料污染（no-lookahead）。用跟
+    test_scan_momentum_health_computes_relative_strength 完全同一組歷史資料（65天，
+    trade_date=第65天，1101 最後一天+8%、1102 最後一天-2%，rs_score 應為 5.0），
+    但額外在 trade_date 之後追加 4 天「未來」的族群齊漲（兩檔都+7.5%/天），
+    傳的 trade_date 仍是原本第65天不變——rs_score 應該還是 5.0，不能因為 DB 裡
+    多了未來資料就被算成別的數字。"""
+    db_path = tmp_path / "test.db"
+    universe_path = tmp_path / "universe.csv"
+    universe_path.write_text(
+        "stock_id,stock_name,meta_sector\n"
+        "1101,測試強股,sectorA\n"
+        "1102,測試弱股,sectorA\n",
+        encoding="utf-8",
+    )
+
+    dates = pd.date_range("2026-01-01", periods=65, freq="D")
+    future_dates = pd.date_range("2026-01-01", periods=4, freq="D") + pd.Timedelta(days=65)
+    rows = []
+    for sid, last_day_pct in [("1101", 8.0), ("1102", -2.0)]:
+        close = 100.0
+        for i, d in enumerate(dates):
+            pct = 0.0 if i < 64 else last_day_pct
+            close = close * (1 + pct / 100)
+            rows.append((sid, d.strftime("%Y-%m-%d"), close, pct, 1000))
+        # trade_date 之後：兩檔齊漲同樣幅度，如果 look-ahead 洩漏進來會把 rs_score 帶偏
+        for d in future_dates:
+            close = close * (1 + 7.5 / 100)
+            rows.append((sid, d.strftime("%Y-%m-%d"), close, 7.5, 1000))
+    _seed_db(db_path, rows)
+
+    trade_date = dates[-1].strftime("%Y-%m-%d")
+    results = scan_momentum_health(trade_date, db_path=str(db_path), universe_path=str(universe_path))
+
+    strong = next(r for r in results if r["stock_id"] == "1101")
+    weak = next(r for r in results if r["stock_id"] == "1102")
+    assert strong["rs_score"] == 5.0
+    assert weak["rs_score"] == -5.0
+
+
 def test_scan_momentum_health_computes_market_relative_strength(tmp_path):
     """rs_market_score = 個股5日報酬 − universe 等權平均5日報酬。1101 最後5天每天+2%
     （cum5≈10.41%），1102 最後5天每天0%（cum5=0%），market（兩檔等權平均，每天
@@ -319,6 +359,30 @@ def test_scan_consecutive_limit_up_counts_streak(tmp_path):
     assert len(results) == 1
     assert results[0]["stock_id"] == "2330"
     assert results[0]["limit_up_streak"] == 3
+
+
+def test_scan_consecutive_limit_up_accepts_custom_universe_path(tmp_path):
+    """跟姊妹函式 scan_momentum_health/scan_bullish_alignment_new_high 一致，應該能注入
+    自訂 universe_path（不吃預設的 data/stock_universe.csv），才能在隔離環境測試
+    stock_name/meta_sector 有沒有正確帶出來。"""
+    db_path = tmp_path / "test.db"
+    universe_path = tmp_path / "universe.csv"
+    universe_path.write_text(
+        "stock_id,stock_name,meta_sector\n"
+        "2330,測試龍頭股,sectorA\n",
+        encoding="utf-8",
+    )
+    rows = [
+        ("2330", "2026-07-13", 122.2, 10.0, 3000),
+        ("2330", "2026-07-14", 134.4, 9.9, 2000),
+    ]
+    _seed_db(db_path, rows)
+
+    results = scan_consecutive_limit_up("2026-07-14", db_path=str(db_path), universe_path=str(universe_path))
+
+    assert len(results) == 1
+    assert results[0]["stock_name"] == "測試龍頭股"
+    assert results[0]["meta_sector"] == "sectorA"
 
 
 def test_scan_consecutive_limit_up_excludes_stock_without_todays_limit(tmp_path):

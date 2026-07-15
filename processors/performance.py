@@ -4,6 +4,10 @@ from typing import List, Dict, Any, Optional
 from config import META_SECTORS, get_meta_sector, META_PRIORITY_LIST
 from streak_utils import calc_streak as _streak
 
+_MARGIN_ALERT_MIN_PREV_BALANCE = 1000
+_MARGIN_ALERT_MIN_VOLUME_LOTS = 500
+_MARGIN_ALERT_RATIO = 0.05
+
 
 def calc_sector_performance(
     sectors_df: pd.DataFrame,
@@ -343,6 +347,7 @@ def get_margin_divergence(
     lookback: int = 10,
     margin_thresh: float = 3.0,
     price_thresh: float = 2.0,
+    as_of_date: str | None = None,
 ) -> Dict[str, Any]:
     """
     融資增減趨勢 vs 股價背離警示。
@@ -357,7 +362,8 @@ def get_margin_divergence(
     try:
         con = duckdb.connect(db_path, read_only=True)
         dates_row = con.execute(
-            "SELECT DISTINCT date FROM margin ORDER BY date DESC LIMIT ?", [lookback]
+            "SELECT DISTINCT date FROM margin WHERE (? IS NULL OR date <= ?) ORDER BY date DESC LIMIT ?",
+            [as_of_date, as_of_date, lookback],
         ).fetchdf()
         if dates_row.empty or len(dates_row) < 2:
             con.close()
@@ -367,12 +373,12 @@ def get_margin_divergence(
         min_date = dates[0]
 
         margin_df = con.execute(
-            "SELECT stock_id, date, margin_balance FROM margin WHERE date >= ? AND margin_balance > 0",
-            [min_date],
+            "SELECT stock_id, date, margin_balance FROM margin WHERE date >= ? AND (? IS NULL OR date <= ?) AND margin_balance > 0",
+            [min_date, as_of_date, as_of_date],
         ).fetchdf()
         price_df = con.execute(
-            "SELECT stock_id, date, close FROM daily_prices WHERE date >= ? AND close > 0",
-            [min_date],
+            "SELECT stock_id, date, close FROM daily_prices WHERE date >= ? AND (? IS NULL OR date <= ?) AND close > 0",
+            [min_date, as_of_date, as_of_date],
         ).fetchdf()
         con.close()
     except Exception:
@@ -475,10 +481,17 @@ def get_stock_chips_ranking(
             SELECT stock_id, margin_balance, margin_change, date FROM margin
             QUALIFY ROW_NUMBER() OVER (PARTITION BY stock_id ORDER BY date DESC) = 1
         """).fetchdf()
-        price_df = con.execute("""
-            SELECT stock_id, close, change_pct FROM daily_prices
-            QUALIFY ROW_NUMBER() OVER (PARTITION BY stock_id ORDER BY date DESC) = 1
-        """).fetchdf()
+        try:
+            price_df = con.execute("""
+                SELECT stock_id, close, change_pct, volume FROM daily_prices
+                QUALIFY ROW_NUMBER() OVER (PARTITION BY stock_id ORDER BY date DESC) = 1
+            """).fetchdf()
+        except Exception:
+            # 舊資料庫沒有 volume 欄時維持原有排行行為；正式 DB 有欄位才套流動性門檻。
+            price_df = con.execute("""
+                SELECT stock_id, close, change_pct, 1000000000::BIGINT AS volume FROM daily_prices
+                QUALIFY ROW_NUMBER() OVER (PARTITION BY stock_id ORDER BY date DESC) = 1
+            """).fetchdf()
         # 外資持股%（存量資料，跟 foreign_net 買賣超流量是不同資料源/更新頻率，per-stock 取
         # 最新一筆即可，不用跟 institutional 的 date 嚴格對齊）。獨立包一層 try：這是新資料源
         # （foreign_holdings 表可能還沒建立，例如尚未跑過任何一次 _update_chips_db），缺這張表
@@ -502,7 +515,7 @@ def get_stock_chips_ranking(
         # 洗掉 NaN（daily_prices.close 可能是 NULL→NaN，例：停牌/全額交割）→ 換成 None，
         # 否則 chips_generator._price_cell 的 int(nan) 會 ValueError、讓整個 chips.html 停更。
         # 注意：float 欄位的 .where(notna, None) 不會真的換成 None（NaN 留著），要先轉 object。
-        _pc = price_df.set_index("stock_id")[["close", "change_pct"]].astype(object)
+        _pc = price_df.set_index("stock_id")[["close", "change_pct", "volume"]].astype(object)
         price_map: Dict[str, dict] = _pc.where(_pc.notna(), None).to_dict("index")
     else:
         price_map = {}
@@ -551,11 +564,16 @@ def get_stock_chips_ranking(
         mm = mm.dropna(subset=["margin_balance", "margin_change"])
         mm["margin_balance"] = mm["margin_balance"].astype(int)
         mm["margin_change"] = mm["margin_change"].astype(int)
-        mask = (mm["margin_balance"] > 0) & (mm["margin_change"] > 0) & (
-            mm["margin_change"] / mm["margin_balance"] > 0.05
+        mm["prev_margin_balance"] = mm["margin_balance"] - mm["margin_change"]
+        mm["volume"] = mm["stock_id"].map(lambda sid: price_map.get(sid, {}).get("volume"))
+        mask = (
+            (mm["prev_margin_balance"] >= _MARGIN_ALERT_MIN_PREV_BALANCE)
+            & (mm["margin_change"] > 0)
+            & (mm["volume"].fillna(0) >= _MARGIN_ALERT_MIN_VOLUME_LOTS)
+            & (mm["margin_change"] / mm["prev_margin_balance"] > _MARGIN_ALERT_RATIO)
         )
         alerts = mm[mask].copy()
-        alerts["alert_pct"] = (alerts["margin_change"] / alerts["margin_balance"] * 100).round(2)
+        alerts["alert_pct"] = (alerts["margin_change"] / alerts["prev_margin_balance"] * 100).round(2)
         for _, r in alerts.sort_values("alert_pct", ascending=False).iterrows():
             px = price_map.get(r["stock_id"], {})
             margin_alerts.append({
@@ -564,6 +582,7 @@ def get_stock_chips_ranking(
                 "meta_sector":    r["meta_sector"],
                 "margin_balance": int(r["margin_balance"]),
                 "margin_change":  int(r["margin_change"]),
+                "prev_margin_balance": int(r["prev_margin_balance"]),
                 "alert_pct":      float(r["alert_pct"]),
                 "close":          px.get("close"),
                 "change_pct":     px.get("change_pct"),
@@ -655,10 +674,15 @@ def calc_meta_chips_signals(
             for meta_name, grp in today_margin.groupby("meta_sector"):
                 mc = int(grp["margin_change"].sum())
                 mb = int(grp["margin_balance"].sum())
+                prev_mb = mb - mc
                 margin_by_meta[meta_name] = {
                     "margin_change_today": mc,
                     "margin_balance_today": mb,
-                    "margin_alert": mb > 0 and mc / mb > 0.05,
+                    "margin_alert": (
+                        prev_mb >= _MARGIN_ALERT_MIN_PREV_BALANCE
+                        and mc > 0
+                        and mc / prev_mb > _MARGIN_ALERT_RATIO
+                    ),
                 }
                 margin_covered_by_meta[meta_name] = set(grp["exchange"].dropna().unique())
 

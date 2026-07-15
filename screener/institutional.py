@@ -19,6 +19,70 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
+# 「法人同步買超觀察」採用可解釋、可回測的固定門檻。volume 在 daily_prices 以張為單位，
+# institutional 買賣超則以股為單位，因此計算占量時需乘 1,000。
+JOINT_BUY_MIN_STREAK = 2
+JOINT_BUY_MIN_PRICE_CUM_PCT = 0.0
+JOINT_BUY_MIN_VOLUME_LOTS = 500
+JOINT_BUY_MIN_FLOW_RATIO_PCT = 0.1
+
+
+def is_joint_buy_signal(row: dict) -> bool:
+    """法人同步買超觀察：連買、價格、流動性與買超占量四項都通過。"""
+    return (
+        (row.get("both_streak") or 0) >= JOINT_BUY_MIN_STREAK
+        and row.get("price_cum_pct") is not None
+        and row["price_cum_pct"] >= JOINT_BUY_MIN_PRICE_CUM_PCT
+        and (row.get("volume") or 0) >= JOINT_BUY_MIN_VOLUME_LOTS
+        and (row.get("institutional_flow_ratio_pct") or 0) >= JOINT_BUY_MIN_FLOW_RATIO_PCT
+    )
+
+
+def percentile_ranks(values: list[float]) -> list[float]:
+    """0–1 百分位排名；同值使用平均排名，單一值回傳 1。"""
+    n = len(values)
+    if n == 0:
+        return []
+    if n == 1:
+        return [1.0]
+    order = sorted(range(n), key=lambda i: values[i])
+    ranks = [0.0] * n
+    i = 0
+    while i < n:
+        j = i
+        while j + 1 < n and values[order[j + 1]] == values[order[i]]:
+            j += 1
+        average_rank = (i + j) / 2
+        for k in range(i, j + 1):
+            ranks[order[k]] = average_rank
+        i = j + 1
+    return [rank / (n - 1) for rank in ranks]
+
+
+def rank_continuation_candidates(candidates: list[dict], streak_key: str, limit: int | None = None) -> list[dict]:
+    """連買天數與 10 日漲幅各占一半的共同排行，供頁面與回測使用。"""
+    if not candidates:
+        return []
+    streak_ranks = percentile_ranks([row.get(streak_key, 0) for row in candidates])
+    price_ranks = percentile_ranks([row.get("price_cum_pct") or 0 for row in candidates])
+    scored = list(zip(candidates, (s + p for s, p in zip(streak_ranks, price_ranks))))
+    scored.sort(key=lambda item: -item[1])
+    ranked = [row for row, _ in scored]
+    return ranked[:limit] if limit is not None else ranked
+
+
+def rank_joint_buy_candidates(candidates: list[dict], limit: int = 30) -> list[dict]:
+    """法人同步觀察共同排行，避免 UI 與回測各自維護不同排序。"""
+    ranked = sorted(
+        [row for row in candidates if is_joint_buy_signal(row)],
+        key=lambda row: (
+            -(row.get("both_streak") or 0),
+            -(row.get("institutional_flow_ratio_pct") or 0),
+            -(row.get("price_cum_pct") or 0),
+        ),
+    )
+    return ranked[:limit]
+
 _DB_PATH = "data/screener.db"
 _UNIVERSE_PATH = "data/stock_universe.csv"
 _ALL_NAMES_PATH = "data/stock_names.csv"
@@ -153,17 +217,32 @@ def scan_institutional(
     """).df()
 
     # 行情：優先用目標日，fallback 到最新法人日
-    price_df = con.execute(f"""
-        SELECT stock_id, close, change_pct
-        FROM daily_prices
-        WHERE date = '{trade_date}'
-    """).df()
-    if price_df.empty:
+    try:
         price_df = con.execute(f"""
-            SELECT stock_id, close, change_pct
+            SELECT stock_id, close, change_pct, volume
             FROM daily_prices
-            WHERE date = '{latest_inst_date}'
+            WHERE date = '{trade_date}'
         """).df()
+    except Exception:
+        # 舊測試資料庫可能尚未有 volume 欄；保留向後相容，但不會誤判成有效強訊號。
+        price_df = con.execute(f"""
+            SELECT stock_id, close, change_pct, NULL::BIGINT AS volume
+            FROM daily_prices
+            WHERE date = '{trade_date}'
+        """).df()
+    if price_df.empty:
+        try:
+            price_df = con.execute(f"""
+                SELECT stock_id, close, change_pct, volume
+                FROM daily_prices
+                WHERE date = '{latest_inst_date}'
+            """).df()
+        except Exception:
+            price_df = con.execute(f"""
+                SELECT stock_id, close, change_pct, NULL::BIGINT AS volume
+                FROM daily_prices
+                WHERE date = '{latest_inst_date}'
+            """).df()
 
     # 股價 price_window 天累積漲幅：每支股票各自最近 N 個交易日的 change_pct，
     # 用來算複利累積漲幅（不是連續上漲天數，見函式 docstring）。
@@ -191,7 +270,7 @@ def scan_institutional(
 
     price_map: dict = {}
     if not price_df.empty:
-        price_map = price_df.set_index("stock_id")[["close", "change_pct"]].to_dict("index")
+        price_map = price_df.set_index("stock_id")[["close", "change_pct", "volume"]].to_dict("index")
 
     price_cum_map: dict = {}
     if not price_window_df.empty:
@@ -266,6 +345,13 @@ def scan_institutional(
 
         # ── 整合行情 ─────────────────────────────────────────────
         px = price_map.get(str(sid), {})
+        volume = px.get("volume")
+        volume = None if volume is None or pd.isna(volume) else int(volume)
+        joint_net = max(0, int(f_net or 0) + int(t_net or 0))
+        flow_ratio_pct = (
+            round(joint_net / (volume * 1000) * 100, 4)
+            if volume and volume > 0 else None
+        )
 
         results.append({
             "stock_id":       str(sid),
@@ -284,6 +370,8 @@ def scan_institutional(
             "cum_trust":      cum_t,
             "close":          px.get("close"),
             "change_pct":     px.get("change_pct"),
+            "volume":         volume,
+            "institutional_flow_ratio_pct": flow_ratio_pct,
             "price_cum_pct":  price_cum_pct,
         })
 

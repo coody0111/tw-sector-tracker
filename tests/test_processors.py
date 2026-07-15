@@ -270,6 +270,22 @@ def test_get_stock_chips_ranking_margin_alert_survives_margin_lag(tmp_path):
     assert result["margin_alerts"][0]["stock_id"] == "2330"
 
 
+def test_margin_alert_uses_previous_balance_as_denominator(tmp_path):
+    """今日餘額 100,000、增加 5,000：以今日餘額算剛好 5% 不會觸發，
+    但以前一日 95,000 為分母是 5.26%，應正確觸發。"""
+    db_path = tmp_path / "test.db"
+    universe = pd.DataFrame([("2330", "台積電", "半導體")], columns=["stock_id", "stock_name", "meta_sector"])
+    _seed_ranking_db(
+        db_path,
+        inst_rows=[("2330", "2026-07-07", 1000, 100)],
+        margin_rows=[("2330", "2026-07-07", 100000, 5000)],
+        price_rows=[("2330", "2026-07-07", 950.0, 1.5)],
+    )
+    result = get_stock_chips_ranking(universe, db_path=str(db_path))
+    assert result["margin_alerts"][0]["alert_pct"] == 5.26
+    assert result["margin_alerts"][0]["prev_margin_balance"] == 95000
+
+
 def test_get_stock_chips_ranking_handles_null_close_without_crash(tmp_path):
     """回歸（#4）：某檔 close 為 NULL（停牌/全額交割）→ DuckDB→pandas 變 NaN。
     舊版 price_map 沒洗 NaN，chips_generator._price_cell 的 int(nan) 會 crash、整頁停更。
@@ -456,3 +472,35 @@ def test_classify_regime_concentration_directions():
     # divergence 為 None（無法比較）→ 不標記集中，不 crash
     r4 = classify_market_regime(0.1, 0.50, divergence=None)
     assert r4["is_concentrated"] is False
+
+
+def test_calc_stock_sparklines_includes_daily_volume_and_ratio(tmp_path):
+    import duckdb
+    from processors.performance import calc_stock_sparklines
+
+    db_path = str(tmp_path / "volume-history.db")
+    con = duckdb.connect(db_path)
+    con.execute("""
+        CREATE TABLE daily_prices (
+            stock_id VARCHAR, date DATE, change_pct DOUBLE, volume BIGINT
+        )
+    """)
+    con.executemany(
+        "INSERT INTO daily_prices VALUES (?, ?, ?, ?)",
+        [
+            ("2330", "2026-07-13", 1.0, 10000),
+            ("2330", "2026-07-14", -0.5, 20000),
+            ("2330", "2026-07-15", 1.5, 45000),
+        ],
+    )
+    con.close()
+
+    result = calc_stock_sparklines(
+        pd.DataFrame([{"stock_id": "2330"}]), db_path=db_path, lookback=3
+    )["2330"]
+
+    assert result["pcts"] == [1.0, -0.5, 1.5]
+    assert result["volumes"] == [10000, 20000, 45000]
+    assert result["dates"] == ["07/13", "07/14", "07/15"]
+    assert result["avg_volume"] == 15000
+    assert result["vol_ratio"] == 3.0

@@ -1,6 +1,6 @@
 from datetime import date
 
-from export.chips_generator import _build_section2, _build_section4, _build_section6, _composite_sort, _coverage_flag, _esc, _insider_holdings_table, _inst_streak_table, _margin_alert_table, _meta_link, _percentile_ranks, _shareholder_table, _stock_rank_table, generate
+from export.chips_generator import _build_section2, _build_section4, _build_section6, _build_section8, _composite_sort, _coverage_flag, _esc, _insider_holdings_table, _inst_streak_table, _margin_alert_table, _meta_link, _percentile_ranks, _shareholder_table, _stock_rank_table, generate
 
 
 def test_esc_escapes_html_special_characters():
@@ -78,6 +78,34 @@ def test_generate_returns_true_and_writes_when_data_present(tmp_path):
     assert output_path.exists()
 
 
+def test_generate_includes_responsive_filters_sorting_and_accessible_tabs(tmp_path):
+    output_path = tmp_path / "chips.html"
+    generate(date(2026, 7, 5), {"測試族群": {"foreign_net_today": 100}}, {}, output_path=str(output_path))
+    html = output_path.read_text(encoding="utf-8")
+    assert "role=\"tablist\"" in html
+    assert "aria-selected=\"false\"" in html
+    assert "id='stock-search'" in html
+    assert "table-shell" in html
+    assert "sort-button" in html
+    assert "查看全部" in html
+    assert "class=\"section-nav\"" in html
+    assert "aria-current=\"page\"" in html
+    assert "TWSE、TPEx" in html and "TDCC" in html and "公開資訊觀測站" in html
+
+
+def test_generate_uses_actual_chips_date_weekday(tmp_path):
+    """頁首星期要跟資料日一致，不能在週日重跑時把週五資料標成週日。"""
+    output_path = tmp_path / "chips.html"
+    generate(
+        date(2026, 7, 5),
+        {"測試族群": {"foreign_net_today": 100}},
+        {"chips_date": "2026-07-03"},
+        output_path=str(output_path),
+    )
+    html = output_path.read_text(encoding="utf-8")
+    assert "2026-07-03（週五）" in html
+
+
 def test_coverage_flag_empty_when_not_partial():
     assert _coverage_flag({"partial_coverage": False}) == ""
     assert _coverage_flag({}) == ""
@@ -85,7 +113,7 @@ def test_coverage_flag_empty_when_not_partial():
 
 def test_coverage_flag_renders_warning_when_partial():
     out = _coverage_flag({"partial_coverage": True})
-    assert "⚠" in out
+    assert "資料不完整" in out
     assert "部分交易所" in out
 
 
@@ -290,7 +318,8 @@ def test_build_section6_strong_signal_excludes_stocks_outside_tracked_universe()
     inst_scan = [
         {"stock_id": "2330", "stock_name": "台積電", "meta_sector": "晶圓代工", "exchange": "TWSE",
          "close": 950.0, "change_pct": 1.0, "foreign_streak": 3, "trust_streak": 3,
-         "both_streak": 3, "foreign_net": 1000, "trust_net": 500, "total_net": 1500},
+         "both_streak": 3, "foreign_net": 1_000_000, "trust_net": 500_000, "total_net": 1_500_000,
+         "volume": 1000, "institutional_flow_ratio_pct": 0.15, "price_cum_pct": 1.0},
         {"stock_id": "2886", "stock_name": "兆豐金", "meta_sector": "", "exchange": "TWSE",
          "close": 40.0, "change_pct": 0.5, "foreign_streak": 5, "trust_streak": 5,
          "both_streak": 5, "foreign_net": 2000, "trust_net": 800, "total_net": 2800},
@@ -299,6 +328,34 @@ def test_build_section6_strong_signal_excludes_stocks_outside_tracked_universe()
 
     assert "台積電" in s6a_html
     assert "兆豐金" not in s6a_html, "meta_sector 為空（不在追蹤的電子科技族群清單）應被排除"
+
+
+def test_build_section6_joint_buy_rejects_tiny_or_illiquid_flows():
+    base = {"stock_name": "測試股", "meta_sector": "半導體", "exchange": "TWSE",
+            "close": 50.0, "change_pct": 1.0, "foreign_streak": 3, "trust_streak": 3,
+            "both_streak": 3, "foreign_net": 1000, "trust_net": 500, "total_net": 1500,
+            "price_cum_pct": 2.0}
+    rows = [
+        {**base, "stock_id": "1111", "volume": 1000, "institutional_flow_ratio_pct": 0.01},
+        {**base, "stock_id": "2222", "volume": 100, "institutional_flow_ratio_pct": 0.5},
+        {**base, "stock_id": "3333", "volume": 1000, "institutional_flow_ratio_pct": 0.2,
+         "foreign_net": 1_500_000, "trust_net": 500_000, "total_net": 2_000_000},
+    ]
+    html, _, _ = _build_section6(rows)
+    assert "1111" not in html
+    assert "2222" not in html
+    assert "3333" in html
+    assert "買超占量" in html
+
+
+def test_build_section8_insider_ranking_is_independent_from_tdcc_rows():
+    tdcc = [{**_SAMPLE_SH_ROW, "stock_id": "1111", "stock_name": "集保股"}]
+    insiders = [{**_SAMPLE_SH_ROW, "stock_id": "2222", "stock_name": "內部人股",
+                 "company_chg": 2_000_000, "report_date": "2026-07-01"}]
+    _, _, insider_html = _build_section8(tdcc, insiders)
+    assert "內部人股" in insider_html
+    assert "集保股" not in insider_html
+    assert "與集保大戶榜獨立計算" in insider_html
 
 
 def test_build_section6_trust_table_filters_by_price_cum_pct_too():

@@ -11,7 +11,6 @@
   跑 backfill_institutional 補齊過去法人籌碼（建議 60 天）。
 """
 import logging
-import os
 import time
 import threading
 from collections import defaultdict
@@ -39,8 +38,6 @@ _HEADERS_TWSE = {
     ),
     "Referer": "https://www.twse.com.tw/",
 }
-
-_HEADERS = _HEADERS_TWSE  # backward compat
 
 # FinMind 連續失敗超過此數就視為 rate-limit 到上限，提早退出
 _CONSECUTIVE_FAIL_LIMIT = 30
@@ -89,6 +86,34 @@ def _merge_into_csv(path: Path, new_rows: list, overwrite: bool = False) -> bool
     return True
 
 
+def _collect_rows_by_date(day_rows: dict, rows: list) -> None:
+    """把逐股回傳資料按交易日收集，保留 row 供後續寫入。"""
+    for row in rows:
+        day_rows[row["_date"]].append(row)
+
+
+def _clear_price_csvs(output_path: Path) -> None:
+    """清除既有行情 CSV；被其他程式鎖定的檔案保留並記錄。"""
+    deleted = skipped = 0
+    for path in output_path.glob("*.csv"):
+        try:
+            path.unlink()
+            deleted += 1
+        except PermissionError:
+            skipped += 1
+    if deleted or skipped:
+        logger.info("清除舊 CSV：刪除 %d 個，跳過 %d 個（被鎖定）", deleted, skipped)
+
+
+def _write_price_rows(output_path: Path, day_rows: dict) -> tuple[int, int]:
+    """寫入按日期分組的行情，回傳（更新日數, 總筆數）。"""
+    written = 0
+    for date_str, rows in sorted(day_rows.items()):
+        if _merge_into_csv(output_path / f"{date_str}.csv", rows, overwrite=True):
+            written += 1
+    return written, sum(len(rows) for rows in day_rows.values())
+
+
 def _first_month_start(today: date, months: int) -> date:
     """Return the first day of the calendar-month window."""
     if months < 1:
@@ -131,7 +156,7 @@ def _fetch_stock_months(sid: str, month_starts: list, stop_event: threading.Even
                 resp = requests.get(
                     TWSE_STOCK_DAY_URL,
                     params={"stockNo": sid, "date": date_str, "response": "json"},
-                    headers=_HEADERS,
+                    headers=_HEADERS_TWSE,
                     timeout=15,
                     verify=False,
                 )
@@ -328,8 +353,7 @@ def backfill_yfinance(
             sid, rows = fut.result()
             done += 1
             if rows:
-                for r in rows:
-                    day_rows[r["_date"]].append(r)
+                _collect_rows_by_date(day_rows, rows)
                 ok += 1
             if done % 50 == 0 or done == total:
                 logger.info("  yfinance [%d/%d]  成功=%d", done, total, ok)
@@ -349,23 +373,9 @@ def backfill_yfinance(
         clean = False
 
     if clean:
-        old_csvs = list(output_path.glob("*.csv"))
-        if old_csvs:
-            deleted = skipped = 0
-            for f in old_csvs:
-                try:
-                    f.unlink()
-                    deleted += 1
-                except PermissionError:
-                    skipped += 1
-            logger.info("清除舊 CSV：刪除 %d 個，跳過 %d 個（被鎖定）", deleted, skipped)
+        _clear_price_csvs(output_path)
 
-    written = 0
-    for d_str, rows in sorted(day_rows.items()):
-        if _merge_into_csv(output_path / f"{d_str}.csv", rows, overwrite=True):
-            written += 1
-
-    total_records = sum(len(v) for v in day_rows.values())
+    written, total_records = _write_price_rows(output_path, day_rows)
     logger.info("補齊完成：寫入/更新 %d 日，共 %d 筆", written, total_records)
     return written
 
@@ -511,8 +521,7 @@ def backfill_twse_monthly(
             sid, rows = fut.result()
             done += 1
             if rows:
-                for r in rows:
-                    day_rows[r["_date"]].append(r)
+                _collect_rows_by_date(day_rows, rows)
                 twse_done += 1
             if done % 50 == 0 or done == len(twse_stocks):
                 total_so_far = sum(len(v) for v in day_rows.values())
@@ -541,23 +550,9 @@ def backfill_twse_monthly(
             )
 
     if clean and not twse_blocked:
-        old_csvs = list(output_path.glob("*.csv"))
-        if old_csvs:
-            deleted = skipped = 0
-            for f in old_csvs:
-                try:
-                    f.unlink()
-                    deleted += 1
-                except PermissionError:
-                    skipped += 1
-            logger.info("清除舊 CSV：刪除 %d 個，跳過 %d 個（被鎖定）", deleted, skipped)
+        _clear_price_csvs(output_path)
 
-    written = 0
-    for d_str, rows in sorted(day_rows.items()):
-        if _merge_into_csv(output_path / f"{d_str}.csv", rows, overwrite=True):
-            written += 1
-
-    total_records = sum(len(v) for v in day_rows.values())
+    written, total_records = _write_price_rows(output_path, day_rows)
     logger.info("補齊完成：寫入/更新 %d 日，共 %d 筆", written, total_records)
     return written
 

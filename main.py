@@ -59,15 +59,31 @@ def _retry_fetch(fn, *args, retries: int = 3, backoff: tuple = (1.0, 3.0), retry
     raise last_exc
 
 LOG_DIR = Path("logs")
-LOG_DIR.mkdir(exist_ok=True)
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    handlers=[
-        logging.FileHandler(LOG_DIR / "run.log", encoding="utf-8"),
-        logging.StreamHandler(sys.stdout),
-    ],
-)
+
+
+def _logging_handlers() -> list[logging.Handler]:
+    """建立 console handler，並在 log 檔可寫時額外啟用 file handler。"""
+    handlers: list[logging.Handler] = [logging.StreamHandler(sys.stdout)]
+    try:
+        LOG_DIR.mkdir(exist_ok=True)
+        handlers.insert(0, logging.FileHandler(LOG_DIR / "run.log", encoding="utf-8"))
+    except OSError as exc:
+        print(f"Warning: 無法寫入 {LOG_DIR / 'run.log'}，本次只輸出到終端：{exc}", file=sys.stderr)
+    return handlers
+
+
+def _configure_logging() -> None:
+    """只在應用程式尚未設定 logging 時建立 handler。"""
+    if logging.getLogger().handlers:
+        return
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        handlers=_logging_handlers(),
+    )
+
+
+_configure_logging()
 logger = logging.getLogger(__name__)
 
 
@@ -353,6 +369,63 @@ def _update_insider_holdings() -> None:
             "不要當成這批股票沒有內部人持股 ===",
             len(blocked_ids),
         )
+
+
+def _load_insider_ranking_rows(db_path: str = "data/screener.db") -> list[dict]:
+    """讀取每檔最新董監持股，獨立建立排行榜資料，不依賴 TDCC 入選名單。"""
+    import duckdb as _ddb
+
+    try:
+        con = _ddb.connect(db_path, read_only=True)
+        insider_df = con.execute("""
+            SELECT stock_id, report_date, company_shares, company_chg, company_pledge_pct,
+                   major_holder_shares, major_holder_chg, major_holder_pledge_pct
+            FROM insider_holdings
+            QUALIFY ROW_NUMBER() OVER (PARTITION BY stock_id ORDER BY report_date DESC) = 1
+        """).fetchdf()
+        price_df = con.execute("""
+            SELECT stock_id, close, change_pct
+            FROM daily_prices
+            QUALIFY ROW_NUMBER() OVER (PARTITION BY stock_id ORDER BY date DESC) = 1
+        """).fetchdf()
+        con.close()
+    except Exception as exc:
+        logger.warning("董監持股排行資料載入失敗: %s", exc)
+        return []
+
+    if insider_df.empty:
+        return []
+    universe = pd.read_csv(UNIVERSE_PATH, dtype=str, usecols=["stock_id", "stock_name", "meta_sector"])
+    info_map = universe.set_index("stock_id")[["stock_name", "meta_sector"]].to_dict("index")
+    names_path = Path("data/stock_names.csv")
+    if names_path.exists():
+        try:
+            for row in pd.read_csv(names_path, dtype=str).itertuples():
+                info_map.setdefault(str(row.stock_id), {"stock_name": row.stock_name, "meta_sector": ""})
+        except Exception:
+            pass
+    price_df["stock_id"] = price_df["stock_id"].astype(str)
+    price_map = price_df.set_index("stock_id")[["close", "change_pct"]].to_dict("index")
+
+    rows = []
+    for row in insider_df.itertuples():
+        sid = str(row.stock_id)
+        info, px = info_map.get(sid, {}), price_map.get(sid, {})
+        rows.append({
+            "stock_id": sid,
+            "stock_name": info.get("stock_name", ""),
+            "meta_sector": info.get("meta_sector", ""),
+            "report_date": str(row.report_date)[:10],
+            "close": None if pd.isna(px.get("close")) else px.get("close"),
+            "change_pct": None if pd.isna(px.get("change_pct")) else px.get("change_pct"),
+            "company_shares": None if pd.isna(row.company_shares) else int(row.company_shares),
+            "company_chg": None if pd.isna(row.company_chg) else int(row.company_chg),
+            "company_pledge_pct": None if pd.isna(row.company_pledge_pct) else float(row.company_pledge_pct),
+            "major_holder_shares": None if pd.isna(row.major_holder_shares) else int(row.major_holder_shares),
+            "major_holder_chg": None if pd.isna(row.major_holder_chg) else int(row.major_holder_chg),
+            "major_holder_pledge_pct": None if pd.isna(row.major_holder_pledge_pct) else float(row.major_holder_pledge_pct),
+        })
+    return rows
 
 
 def _backfill_shareholder(weeks: int = 4) -> None:
@@ -681,6 +754,7 @@ def run(trade_date: date = None, realtime: bool = False) -> None:
         except Exception as exc:
             logger.warning("法人篩選失敗: %s", exc)
             inst_results = []
+        insider_rows = _load_insider_ranking_rows()
         try:
             from screener.database import get_shareholder_top
             import duckdb as _ddb
@@ -776,7 +850,11 @@ def run(trade_date: date = None, realtime: bool = False) -> None:
         except Exception as exc:
             logger.warning("大戶持倉資料載入失敗: %s", exc)
             sh_rows = []
-        chips_html_written = generate_chips_html(trade_date, meta_chips, stock_chips, inst_scan=inst_results, margin_divergence=margin_div, cum_data=cum_data, meta_signals=meta_signals, shareholder_data=sh_rows)
+        chips_html_written = generate_chips_html(
+            trade_date, meta_chips, stock_chips,
+            inst_scan=inst_results, margin_divergence=margin_div, cum_data=cum_data,
+            meta_signals=meta_signals, shareholder_data=sh_rows, insider_data=insider_rows,
+        )
         if chips_html_written:
             logger.info("HTML generated → docs/chips.html")
         else:
@@ -820,6 +898,11 @@ if __name__ == "__main__":
                         help="TWSE MI_MARGN 補齊過去 N 個工作日融資融券資料（建議 60）")
     parser.add_argument("--backtest", action="store_true",
                         help="跑巨量換手回測，輸出勝率與期望值統計")
+    parser.add_argument(
+        "--backtest-chips", nargs="?", const="all", default=None,
+        choices=["all", "joint_buy", "foreign_continuation", "trust_continuation", "margin_bearish", "tdcc_accumulation"],
+        help="逐規則回測籌碼頁；可指定規則，省略值時回測全部",
+    )
     parser.add_argument("--realtime", action="store_true",
                         help="使用盤中即時行情（mis.twse.com.tw），適合 9:00~13:30 盤中使用")
     parser.add_argument("--backtest-patterns", type=int, default=0, metavar="DAYS",
@@ -859,6 +942,16 @@ if __name__ == "__main__":
     elif args.backtest:
         df = run_backtest()
         print_backtest_summary(df)
+    elif args.backtest_chips:
+        from screener.backtest import CHIPS_RULE_CONFIG, run_chips_rule_backtests
+        for rule_name, df in run_chips_rule_backtests(args.backtest_chips).items():
+            print(f"\n### 籌碼規則：{rule_name}")
+            config = CHIPS_RULE_CONFIG[rule_name]
+            print_backtest_summary(
+                df,
+                skip_no_fill=config["skip_no_fill"],
+                success_direction=config["success_direction"],
+            )
     elif args.backtest_patterns:
         from screener.patterns import backtest_patterns
         backtest_patterns(days=args.backtest_patterns)

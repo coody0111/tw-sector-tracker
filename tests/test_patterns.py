@@ -1,6 +1,5 @@
 import numpy as np
 import pandas as pd
-import pytest
 from screener.patterns import _calc_streak, _calc_vol_price_score, _calc_chips_score
 from screener.patterns import print_accumulation_calibration
 

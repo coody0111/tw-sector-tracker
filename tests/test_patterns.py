@@ -817,3 +817,24 @@ def test_print_accumulation_calibration_runs_with_buckets_and_boundary_case(caps
 
     # 空 df 不 crash
     print_accumulation_calibration(pd.DataFrame(), {}, horizons=(5,))
+
+
+def test_print_accumulation_calibration_breaks_down_by_regime():
+    """有 regime 欄位時，同一個分數桶要依多頭/盤整/空頭再拆開印一次，
+    讓「分數效應可能只在特定行情成立」這件事看得出來。"""
+    df = pd.DataFrame([
+        {"signal_date": "2026-05-01", "stock_id": "2330", "no_fill": False, "excess_5": 6.0, "regime": "多頭"},
+        {"signal_date": "2026-05-02", "stock_id": "2454", "no_fill": False, "excess_5": -4.0, "regime": "空頭"},
+    ])
+    cache = {
+        ("2026-05-01", "2330"): {"score": 72, "weakening": False, "holder_net_lots": 25000},
+        ("2026-05-02", "2454"): {"score": 75, "weakening": False, "holder_net_lots": 100},
+    }
+    import io
+    import contextlib
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        print_accumulation_calibration(df, cache, horizons=(5,))
+    out = buf.getvalue()
+    assert "60-100分/多頭" in out
+    assert "60-100分/空頭" in out

@@ -1565,7 +1565,10 @@ def print_accumulation_calibration(df: pd.DataFrame, cache: dict, horizons=(5, 1
     """
     印出進貨分校準報告：
     1. 依 score 分桶（0-19/20-39/40-59/60-100）看各桶平均超額報酬/勝率，回答
-       「分數越高，後續表現是否真的越好」。
+       「分數越高，後續表現是否真的越好」。若 df 有 run_backtest() 產出的 regime 欄位
+       （多頭/盤整/空頭），每個分數桶底下再依 regime 拆開印一次——「籌碼是配角」這個
+       結論可能只在特定行情成立（見 2026-07-14 spec「大盤 regime 相依」caveat），
+       總體攤平可能蓋掉某個 regime 下才看得出來的分數效應。
     2. weakening=True 但 holder_net_lots>0 的「富鼎型邊界案例」子集，跟其餘樣本對照，
        回答「純大戶進貨、法人沒動被判轉弱，是否真的該轉弱」。
     預設剔除 no_fill=True（漲停買不到）的訊號，比照 backtest.py::print_summary()。
@@ -1611,6 +1614,13 @@ def print_accumulation_calibration(df: pd.DataFrame, cache: dict, horizons=(5, 1
             continue
         for h in horizons:
             _block(sub, tag, h)
+        if "regime" in sub.columns:
+            for reg in ["多頭", "盤整", "空頭"]:
+                reg_sub = sub[sub["regime"] == reg]
+                if reg_sub.empty:
+                    continue
+                for h in horizons:
+                    _block(reg_sub, f"{tag}/{reg}", h)
 
     print("-" * 60)
     print("  富鼎型邊界案例（weakening=True 但大戶當週淨增 >0）vs 其餘樣本")

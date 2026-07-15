@@ -182,6 +182,18 @@
     `--ink` 對比反而越不夠。改成 `heatBg()` 回傳 `{bg, textColor}`，名稱跟漲跌% 共用同一套
     依「實際底色深淺」判斷的對比邏輯。`.ht-name` 字重也從 700 加到 800。
 
+21. **2026-07-16-index-v21-real-serif-webfont.html** — Cody 反饋「不」「這更醜」：v20 把
+    `--serif` 整批改成微軟正黑體，診斷沒錯（Noto Serif TC 沒被真的載入，只是寫在字型清單裡
+    碰運氣）但修法選錯方向——正黑體是 Windows 系統 UI 預設字，拿來當標題整頁像一般 Windows
+    應用程式，v6~v19 一路維持的 editorial serif 質感全部不見了，這才是「更醜」的真正原因。
+    這版**真的把 Noto Serif TC 載入進來**（頁首加 Google Fonts `<link>`，鎖定 600/700/800
+    三個字重對應頁面實際用到的字重，避免瀏覽器合成假粗體），`--serif` 順序改回
+    `Noto Serif TC → Microsoft JhengHei → Georgia → ...`，正黑體降回次要備援。v20 的顏色
+    對比修正（`heatBg()` 回傳 `{bg, textColor}`）完整保留，那部分沒被反饋說有問題。
+    **已知取捨**：這是這批 mockup 系列第一次引入外部網路請求（Google Fonts CDN），之前
+    v6~v20 全部自包含；之後這個字型方向若要接進 `export/html_generator.py` 正式站台，需要
+    另外決定自己 host 字型檔或接受 CDN 依賴，這次先不擋著討論。
+
 ## 尚未定案的部分
 
 - ~~點開個股清單的展開方式：v17（右側滑出）vs v18（卡片原地展開）還沒選定~~ → **2026-07-15

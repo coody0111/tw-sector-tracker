@@ -1,6 +1,5 @@
 import pandas as pd
 import duckdb
-from pathlib import Path
 from typing import List, Dict, Any, Optional
 from config import META_SECTORS, get_meta_sector, META_PRIORITY_LIST
 from streak_utils import calc_streak as _streak
@@ -285,15 +284,15 @@ def calc_stock_sparklines(
     universe_df: pd.DataFrame,
     db_path: str = "data/screener.db",
     lookback: int = 11,
-) -> Dict[str, list]:
-    """每支個股近 N 日漲跌幅 list，供 HTML 個股展開 sparkline 使用。"""
+) -> Dict[str, dict]:
+    """每支個股近 N 日漲跌與成交量歷史，供 HTML 個股卡片及 modal 使用。"""
     try:
         con = duckdb.connect(db_path, read_only=True)
         dates_df = con.execute(
             f"SELECT DISTINCT date FROM daily_prices ORDER BY date DESC LIMIT {lookback}"
         ).fetchdf()
         prices_df = con.execute(
-            "SELECT stock_id, date, change_pct FROM daily_prices"
+            "SELECT stock_id, date, change_pct, volume FROM daily_prices"
         ).fetchdf()
         con.close()
     except Exception:
@@ -307,15 +306,35 @@ def calc_stock_sparklines(
     prices_df["stock_id"] = prices_df["stock_id"].astype(str)
     prices_df = prices_df[prices_df["stock_id"].isin(stock_ids)]
 
-    pivot = (
+    pct_pivot = (
         prices_df.dropna(subset=["change_pct"])
         .groupby(["stock_id", "date"])["change_pct"].mean()
         .unstack(level="date")
         .reindex(columns=all_dates)
         .fillna(0)
     )
+    volume_pivot = (
+        prices_df.dropna(subset=["volume"])
+        .groupby(["stock_id", "date"])["volume"].sum()
+        .unstack(level="date")
+        .reindex(columns=all_dates)
+        .fillna(0)
+    )
 
-    return {sid: [round(float(pivot.loc[sid, d]), 2) for d in all_dates] for sid in pivot.index}
+    result: Dict[str, dict] = {}
+    for sid in pct_pivot.index:
+        volumes = [int(volume_pivot.loc[sid, d]) if sid in volume_pivot.index else 0 for d in all_dates]
+        prior_volumes = [v for v in volumes[:-1] if v > 0]
+        avg_volume = round(sum(prior_volumes) / len(prior_volumes)) if prior_volumes else 0
+        today_volume = volumes[-1] if volumes else 0
+        result[sid] = {
+            "pcts": [round(float(pct_pivot.loc[sid, d]), 2) for d in all_dates],
+            "volumes": volumes,
+            "dates": [pd.Timestamp(d).strftime("%m/%d") for d in all_dates],
+            "avg_volume": avg_volume,
+            "vol_ratio": round(today_volume / avg_volume, 2) if avg_volume > 0 else None,
+        }
+    return result
 
 
 def get_margin_divergence(
@@ -493,8 +512,6 @@ def get_stock_chips_ranking(
         foreign_pct_map: Dict[str, float] = fh_df.set_index("stock_id")["foreign_pct"].to_dict()
     else:
         foreign_pct_map = {}
-
-    import re as _re
 
     foreign_top_buy: list = []
     foreign_top_sell: list = []

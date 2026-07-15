@@ -46,6 +46,46 @@ def test_stock_card_html_escapes_malicious_stock_name():
     assert '&lt;script&gt;alert(1)&lt;/script&gt;' in html
 
 
+def test_stock_card_html_shows_volume_ratio_and_modal_history_data():
+    prices = pd.DataFrame([{
+        "stock_id": "2330", "close": 950.0, "change_pct": 1.5, "volume": 30000,
+    }]).set_index("stock_id")
+    chips = pd.DataFrame(columns=["foreign_net", "trust_net", "margin_balance", "margin_change"])
+    chips.index.name = "stock_id"
+    history = {"2330": {
+        "pcts": [1.0, -0.5, 1.5],
+        "volumes": [10000, 20000, 30000],
+        "dates": ["07/13", "07/14", "07/15"],
+        "avg_volume": 15000,
+        "vol_ratio": 2.0,
+    }}
+
+    html = _stock_card_html("2330", "台積電", prices, chips, history)
+
+    assert "今日 30,000 張" in html
+    assert "量比 2.00x" in html
+    assert 'role="button" tabindex="0"' in html
+    assert "event.key==='Enter'" in html
+    assert "data-volume-history='[10000, 20000, 30000]'" in html
+    assert "data-volume-dates='[\"07/13\", \"07/14\", \"07/15\"]'" in html
+
+
+def test_stock_table_adds_sortable_volume_ratio_column():
+    sectors = pd.DataFrame([{"sector_name": "半導體", "stock_id": "2330", "stock_name": "台積電"}])
+    prices = pd.DataFrame([{"stock_id": "2330", "close": 950.0, "change_pct": 1.5, "volume": 30000}])
+    history = {"2330": {
+        "pcts": [1.0, 1.5], "volumes": [10000, 30000], "dates": ["07/14", "07/15"],
+        "avg_volume": 10000, "vol_ratio": 3.0,
+    }}
+
+    html = _stock_table("半導體", sectors, prices, stock_sparklines=history, as_row=False)
+
+    assert 'data-key="volratio">量比' in html
+    assert 'data-volratio="3.0"' in html
+    assert "量比 3.00x" in html
+    assert 'role="button" tabindex="0"' in html
+
+
 def test_meta_card_escapes_malicious_meta_name():
     """族群名稱同樣來自外部資料組合而成，卡片文字節點與 data-* 屬性都要跳脫。"""
     malicious_meta = '"><script>alert(1)</script>'

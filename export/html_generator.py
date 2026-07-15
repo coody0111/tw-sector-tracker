@@ -155,6 +155,40 @@ def _weekly_pct(spark: list) -> float:
 _ROLLING_RETURNS: dict = {}
 
 
+def _stock_history(stock_sparklines: dict, sid: str) -> dict:
+    """正規化新舊個股歷史格式，讓既有 list sparkline 仍可正常渲染。"""
+    raw = (stock_sparklines or {}).get(sid, [])
+    if isinstance(raw, dict):
+        return {
+            "pcts": raw.get("pcts", []),
+            "volumes": raw.get("volumes", []),
+            "dates": raw.get("dates", []),
+            "avg_volume": raw.get("avg_volume") or 0,
+            "vol_ratio": raw.get("vol_ratio"),
+        }
+    return {"pcts": raw or [], "volumes": [], "dates": [], "avg_volume": 0, "vol_ratio": None}
+
+
+def _volume_ratio_html(vol_ratio) -> str:
+    """量比 badge；1.5 倍以上才用高對比強調。"""
+    if vol_ratio is None:
+        return '<span class="vol-ratio muted">量比 -</span>'
+    strong = float(vol_ratio) >= 1.5
+    cls = "vol-ratio strong" if strong else "vol-ratio"
+    return f'<span class="{cls}">量比 {float(vol_ratio):.2f}x</span>'
+
+
+def _stock_history_attrs(history: dict) -> str:
+    """輸出個股 modal 使用的安全數值型 data attributes。"""
+    return (
+        f" data-sparkline='{json.dumps(history['pcts'])}'"
+        f" data-volume-history='{json.dumps(history['volumes'])}'"
+        f" data-volume-dates='{json.dumps(history['dates'])}'"
+        f' data-avg-vol="{int(history["avg_volume"] or 0)}"'
+        f' data-vol-ratio="{history["vol_ratio"] if history["vol_ratio"] is not None else ""}"'
+    )
+
+
 def _chg_pct_cell(pct) -> str:
     """近N日累積漲跌 <td>：紅漲綠跌、缺值（資料不足/None）顯示「─」。"""
     if pct is None:
@@ -255,16 +289,17 @@ def _stock_card_html(sid: str, stock_name: str, prices_map, chips_map, stock_spa
                 f'</div>'
             )
 
-        spark = (stock_sparklines or {}).get(sid, [])
-        spark_json = _json.dumps(spark)
+        history = _stock_history(stock_sparklines, sid)
+        history_attrs = _stock_history_attrs(history)
         chips_json = _json.dumps(chips_data)
         name_safe = _esc(stock_name)
 
         return (
-            f'<div class="stock-card" data-sid="{sid}"'
+            f'<div class="stock-card" role="button" tabindex="0" data-sid="{sid}"'
             f' data-name="{name_safe}" data-close="{close}" data-pct="{pct}" data-vol="{vol}"'
-            f' data-sparkline=\'{spark_json}\' data-chips=\'{chips_json}\''
-            f' style="border-color:{color}33;cursor:pointer" onclick="openStockModal(this)">'
+            f'{history_attrs} data-chips=\'{chips_json}\''
+            f' style="border-color:{color}33;cursor:pointer" onclick="openStockModal(this)"'
+            f' onkeydown="if(event.key===\'Enter\'||event.key===\' \'){{event.preventDefault();openStockModal(this)}}">'
             f'<div class="sc-header">'
             f'<span class="sc-id">{sid}</span>'
             f'<span class="sc-name">{_esc(stock_name)}</span>'
@@ -273,7 +308,8 @@ def _stock_card_html(sid: str, stock_name: str, prices_map, chips_map, stock_spa
             f'<span class="sc-price">{_fmt_price(close)}</span>'
             f'<span class="sc-pct" style="color:{color}">{arrow} {sign}{pct:.2f}%</span>'
             f'</div>'
-            f'<div class="sc-vol">{vol:,} 張</div>'
+            f'<div class="sc-volume-row"><span class="sc-vol">今日 {vol:,} 張</span>'
+            f'{_volume_ratio_html(history["vol_ratio"])}</div>'
             f'{chips_html}'
             f'</div>'
         )
@@ -339,7 +375,7 @@ def _stock_table(sector_name: str, sectors_df: pd.DataFrame, prices_df: pd.DataF
                 f'<tr>'
                 f'<td style="color:#475569;font-size:.78rem">{sid}</td>'
                 f'<td style="color:#334155">{_esc(stock_name)}</td>'
-                f'<td colspan="9" style="color:#334155;font-size:.75rem">無行情</td>'
+                f'<td colspan="10" style="color:#334155;font-size:.75rem">無行情</td>'
                 f'</tr>'
             )
             continue
@@ -352,7 +388,7 @@ def _stock_table(sector_name: str, sectors_df: pd.DataFrame, prices_df: pd.DataF
         sign = "+" if pct >= 0 else ""
         arrow = "▲" if pct > 0 else ("▼" if pct < 0 else "─")
 
-        spark = (stock_sparklines or {}).get(sid, [])
+        history = _stock_history(stock_sparklines, sid)
         _rr = _ROLLING_RETURNS.get(sid, {})
         c5, c7, c10, c14 = _rr.get(5), _rr.get(7), _rr.get(10), _rr.get(14)
         _a5 = "" if c5 is None else c5
@@ -370,22 +406,24 @@ def _stock_table(sector_name: str, sectors_df: pd.DataFrame, prices_df: pd.DataF
             mc = int(_na(c.get("margin_change")))
             chips_data = {"foreign": fn, "trust": tn, "marginBal": mb, "marginChg": mc}
 
-        spark_json = json.dumps(spark)
+        history_attrs = _stock_history_attrs(history)
         chips_json = json.dumps(chips_data)
         name_safe = _esc(stock_name)
         margin_html = _fmt_margin(mb, mc) if mb > 0 else "<span style='color:#334155'>─</span>"
 
         rows_html.append(
-            f'<tr class="st-row" data-sid="{sid}" data-name="{name_safe}"'
+            f'<tr class="st-row" role="button" tabindex="0" data-sid="{sid}" data-name="{name_safe}"'
             f' data-close="{close}" data-pct="{pct}" data-vol="{vol}"'
-            f' data-sparkline=\'{spark_json}\' data-chips=\'{chips_json}\''
+            f'{history_attrs} data-chips=\'{chips_json}\''
             f' data-code="{sid}" data-wpct="{_a5}" data-chg7="{_a7}" data-chg10="{_a10}" data-chg14="{_a14}"'
+            f' data-volratio="{history["vol_ratio"] if history["vol_ratio"] is not None else ""}"'
             f' data-foreign="{fn}" data-trust="{tn}" data-margin="{mb}"'
-            f' onclick="openStockModal(this)" style="cursor:pointer">'
+            f' onclick="openStockModal(this)" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){{event.preventDefault();openStockModal(this)}}" style="cursor:pointer">'
             f'<td style="color:#64748b;font-size:.92rem;font-weight:600">{sid}</td>'
             f'<td style="color:#cbd5e1;font-size:1.1rem;font-weight:600">{_esc(stock_name)}</td>'
             f'<td style="color:#f1f5f9;font-weight:700;font-size:1.15rem">{_fmt_price(close)}</td>'
             f'<td><span style="color:{color};font-weight:700;font-size:1.1rem">{arrow} {sign}{pct:.2f}%</span></td>'
+            f'<td>{_volume_ratio_html(history["vol_ratio"])}</td>'
             f'{_chg_pct_cell(c5)}{_chg_pct_cell(c7)}{_chg_pct_cell(c10)}{_chg_pct_cell(c14)}'
             f'<td>{_fmt_chips_num(fn, _CHIPS_BADGE_MIN)}</td>'
             f'<td>{_fmt_chips_num(tn, _TRUST_BADGE_MIN)}</td>'
@@ -402,6 +440,7 @@ def _stock_table(sector_name: str, sectors_df: pd.DataFrame, prices_df: pd.DataF
         f'<th onclick="sortStockTable(this)" data-key="name">股名</th>'
         f'<th onclick="sortStockTable(this)" data-key="close">收盤</th>'
         f'<th onclick="sortStockTable(this)" data-key="pct">今日%</th>'
+        f'<th onclick="sortStockTable(this)" data-key="volratio">量比</th>'
         f'<th onclick="sortStockTable(this)" data-key="wpct">近5日</th>'
         f'<th onclick="sortStockTable(this)" data-key="chg7">近7日</th>'
         f'<th onclick="sortStockTable(this)" data-key="chg10">近10日</th>'
@@ -527,7 +566,7 @@ def _meta_stock_cards(sub_names: list, sectors_df, prices_df, chips_df=None,
             rows_html.append(
                 f'<tr><td style="color:#475569;font-size:.78rem">{sid}</td>'
                 f'<td style="color:#334155">{_esc(stock_name)}</td>'
-                f'<td colspan="6" style="color:#334155;font-size:.75rem">無行情</td></tr>'
+                f'<td colspan="10" style="color:#334155;font-size:.75rem">無行情</td></tr>'
             )
             continue
 
@@ -539,7 +578,7 @@ def _meta_stock_cards(sub_names: list, sectors_df, prices_df, chips_df=None,
         sign = "+" if pct >= 0 else ""
         arrow = "▲" if pct > 0 else ("▼" if pct < 0 else "─")
 
-        spark = (stock_sparklines or {}).get(sid, [])
+        history = _stock_history(stock_sparklines, sid)
         _rr = _ROLLING_RETURNS.get(sid, {})
         c5, c7, c10, c14 = _rr.get(5), _rr.get(7), _rr.get(10), _rr.get(14)
         _a5 = "" if c5 is None else c5
@@ -557,22 +596,24 @@ def _meta_stock_cards(sub_names: list, sectors_df, prices_df, chips_df=None,
             mc = int(_na(c.get("margin_change")))
             chips_data = {"foreign": fn, "trust": tn, "marginBal": mb, "marginChg": mc}
 
-        spark_json = json.dumps(spark)
+        history_attrs = _stock_history_attrs(history)
         chips_json = json.dumps(chips_data)
         name_safe = _esc(stock_name)
         margin_html = _fmt_margin(mb, mc) if mb > 0 else "<span style='color:#334155'>─</span>"
 
         rows_html.append(
-            f'<tr class="st-row" data-sid="{sid}" data-name="{name_safe}"'
+            f'<tr class="st-row" role="button" tabindex="0" data-sid="{sid}" data-name="{name_safe}"'
             f' data-close="{close}" data-pct="{pct}" data-vol="{vol}"'
-            f' data-sparkline=\'{spark_json}\' data-chips=\'{chips_json}\''
+            f'{history_attrs} data-chips=\'{chips_json}\''
             f' data-code="{sid}" data-wpct="{_a5}" data-chg7="{_a7}" data-chg10="{_a10}" data-chg14="{_a14}"'
+            f' data-volratio="{history["vol_ratio"] if history["vol_ratio"] is not None else ""}"'
             f' data-foreign="{fn}" data-trust="{tn}" data-margin="{mb}"'
-            f' onclick="openStockModal(this)" style="cursor:pointer">'
+            f' onclick="openStockModal(this)" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){{event.preventDefault();openStockModal(this)}}" style="cursor:pointer">'
             f'<td style="color:#64748b;font-size:.92rem;font-weight:600">{sid}</td>'
             f'<td style="color:#cbd5e1;font-size:1.1rem;font-weight:600">{_esc(stock_name)}</td>'
             f'<td style="color:#f1f5f9;font-weight:700;font-size:1.15rem">{_fmt_price(close)}</td>'
             f'<td><span style="color:{color};font-weight:700;font-size:1.1rem">{arrow} {sign}{pct:.2f}%</span></td>'
+            f'<td>{_volume_ratio_html(history["vol_ratio"])}</td>'
             f'{_chg_pct_cell(c5)}{_chg_pct_cell(c7)}{_chg_pct_cell(c10)}{_chg_pct_cell(c14)}'
             f'<td>{_fmt_chips_num(fn, _CHIPS_BADGE_MIN)}</td>'
             f'<td>{_fmt_chips_num(tn, _TRUST_BADGE_MIN)}</td>'
@@ -589,6 +630,7 @@ def _meta_stock_cards(sub_names: list, sectors_df, prices_df, chips_df=None,
         f'<th onclick="sortStockTable(this)" data-key="name">股名</th>'
         f'<th onclick="sortStockTable(this)" data-key="close">收盤</th>'
         f'<th onclick="sortStockTable(this)" data-key="pct">今日%</th>'
+        f'<th onclick="sortStockTable(this)" data-key="volratio">量比</th>'
         f'<th onclick="sortStockTable(this)" data-key="wpct">近5日</th>'
         f'<th onclick="sortStockTable(this)" data-key="chg7">近7日</th>'
         f'<th onclick="sortStockTable(this)" data-key="chg10">近10日</th>'
@@ -1163,6 +1205,10 @@ def generate(
     .sc-price{{font-family:"Fira Code",monospace;font-size:1rem;font-weight:700;color:#f1f5f9}}
     .sc-pct{{font-family:"Fira Code",monospace;font-size:.82rem;font-weight:700}}
     .sc-vol{{font-family:"Fira Code",monospace;font-size:.7rem;color:#475569}}
+    .sc-volume-row{{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:2px}}
+    .vol-ratio{{display:inline-block;font-family:"Fira Code",monospace;font-size:.68rem;font-weight:700;color:#94a3b8;background:#111827;border:1px solid #263247;border-radius:4px;padding:2px 5px;white-space:nowrap}}
+    .vol-ratio.strong{{color:#fbbf24;background:rgba(120,53,15,.22);border-color:rgba(217,119,6,.5)}}
+    .vol-ratio.muted{{color:#475569;background:transparent;border-color:#1a2436}}
     .sc-chips{{font-size:.72rem;color:#64748b;margin-top:4px;line-height:1.6}}
     .chip-label{{color:#334155;margin-right:2px}}
 
@@ -1173,6 +1219,7 @@ def generate(
     .stock-table td{{padding:10px 14px;border-bottom:1px solid #04070f}}
     .st-row{{cursor:pointer;transition:background .12s}}
     .st-row:hover>td{{background:#080c14}}
+    .st-row:focus-visible{{outline:2px solid #60a5fa;outline-offset:-2px}}
 
     /* Groups */
     .section-bar{{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}}
@@ -1255,13 +1302,20 @@ def generate(
     .smodal-hd{{display:flex;align-items:center;justify-content:space-between;padding:16px 18px 10px;border-bottom:1px solid #1a2436}}
     .smodal-sid{{font-family:"Fira Code",monospace;font-size:1.1rem;font-weight:700;color:#e2e8f0;margin-right:8px}}
     .smodal-name{{font-size:.9rem;color:#64748b}}
-    .smodal-close{{background:none;border:none;color:#475569;font-size:1.2rem;cursor:pointer;padding:2px 6px;border-radius:4px;line-height:1;transition:all .15s}}
+    .smodal-close{{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;background:none;border:none;color:#64748b;font-size:1.2rem;cursor:pointer;padding:0;border-radius:8px;line-height:1;transition:color .15s,background .15s}}
     .smodal-close:hover{{color:#94a3b8;background:#1a2436}}
+    .smodal-close:focus-visible{{outline:2px solid #60a5fa;outline-offset:2px}}
     .smodal-price{{display:flex;align-items:baseline;gap:12px;padding:12px 18px 8px}}
     .smodal-val{{font-family:"Fira Code",monospace;font-size:1.6rem;font-weight:800;color:#f1f5f9}}
     .smodal-pct{{font-family:"Fira Code",monospace;font-size:1rem;font-weight:700}}
     .smodal-vol{{font-family:"Fira Code",monospace;font-size:.78rem;color:#64748b;margin-left:auto}}
+    .smodal-section-title{{padding:8px 18px 2px;font-size:.68rem;font-weight:700;color:#64748b;text-transform:uppercase}}
     .smodal-spark{{padding:4px 18px 8px;overflow-x:auto}}
+    .smodal-volume-summary{{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:6px 18px 4px}}
+    .sm-volume-stat{{background:#0d1525;border:1px solid #1a2436;border-radius:6px;padding:7px 8px;min-width:0}}
+    .sm-volume-label{{display:block;color:#64748b;font-size:.64rem;margin-bottom:3px}}
+    .sm-volume-value{{display:block;color:#cbd5e1;font-family:"Fira Code",monospace;font-size:.76rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+    .smodal-volume{{padding:4px 18px 12px;overflow-x:auto;border-bottom:1px solid #1a2436}}
     .smodal-chips{{padding:10px 18px 18px}}
     .sm-chip-row{{display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid #04070f;font-size:.85rem}}
     .sm-chip-row:last-child{{border-bottom:none}}
@@ -1273,18 +1327,26 @@ def generate(
 </head>
 <body>
   <!-- Stock Detail Modal -->
-  <div id="stock-modal" class="smodal-overlay" style="display:none" onclick="closeModalBg(event)">
+  <div id="stock-modal" class="smodal-overlay" role="dialog" aria-modal="true" aria-labelledby="sm-sid sm-name" style="display:none" onclick="closeModalBg(event)">
     <div class="smodal">
       <div class="smodal-hd">
         <span><span id="sm-sid" class="smodal-sid"></span><span id="sm-name" class="smodal-name"></span></span>
-        <button class="smodal-close" onclick="closeStockModal()">✕</button>
+        <button class="smodal-close" aria-label="關閉個股資訊" onclick="closeStockModal()">✕</button>
       </div>
       <div class="smodal-price">
         <span id="sm-close" class="smodal-val"></span>
         <span id="sm-pct" class="smodal-pct"></span>
         <span id="sm-vol" class="smodal-vol"></span>
       </div>
+      <div class="smodal-section-title">近 11 日漲跌</div>
       <div id="sm-spark" class="smodal-spark"></div>
+      <div class="smodal-section-title">每日量能</div>
+      <div class="smodal-volume-summary">
+        <div class="sm-volume-stat"><span class="sm-volume-label">今日量</span><span id="sm-volume-today" class="sm-volume-value">-</span></div>
+        <div class="sm-volume-stat"><span class="sm-volume-label">10 日均量</span><span id="sm-volume-avg" class="sm-volume-value">-</span></div>
+        <div class="sm-volume-stat"><span class="sm-volume-label">量比</span><span id="sm-volume-ratio" class="sm-volume-value">-</span></div>
+      </div>
+      <div id="sm-volume" class="smodal-volume"></div>
       <div id="sm-chips" class="smodal-chips"></div>
     </div>
   </div>
@@ -1367,7 +1429,7 @@ def generate(
       document.getElementById('search-dropdown').style.display='none';
       document.getElementById('stock-search').value='';
       // 族群項目的 name 是 meta_sector 名稱，對應的是 .mc-card[data-meta-name]（不是
-      // group-block 大分類層）。直接委派給 openMetaByName，跟 chips.html 連結／hash 進來
+      // 外層大分類）。直接委派給 openMetaByName，跟 chips.html 連結／hash 進來
       // 走同一條已驗證可用的路徑：展開該族群面板、標記 active、捲動置中。
       openMetaByName(name);
     }}
@@ -1475,7 +1537,45 @@ def generate(
       return `<svg width="${{totalW}}" height="${{chartH}}" xmlns="http://www.w3.org/2000/svg">${{zero}}${{bars}}</svg>`;
     }}
 
+    function _formatVolumeLots(value) {{
+      const n = Number(value || 0);
+      if (!n) return '-';
+      return n >= 10000 ? `${{(n / 10000).toFixed(1)}} 萬張` : `${{Math.round(n).toLocaleString()}} 張`;
+    }}
+
+    function _modalVolumeSVG(volumes, dates, avgVolume) {{
+      if (!Array.isArray(volumes) || !volumes.length) return '<span class="sm-volume-label">無歷史量能資料</span>';
+      const n = volumes.length;
+      const chartH = 92;
+      const plotH = 66;
+      const maxVol = Math.max(...volumes, Number(avgVolume || 0), 1);
+      const barW = Math.max(9, Math.floor(360 / n) - 4);
+      const gap = 4;
+      const totalW = n * (barW + gap) - gap + 24;
+      let bars = '';
+      let labels = '';
+      volumes.forEach((value, i) => {{
+        const x = 12 + i * (barW + gap);
+        const h = Math.max(2, Math.round(Number(value || 0) / maxVol * plotH));
+        const y = plotH - h + 4;
+        const isToday = i === n - 1;
+        const color = isToday ? '#fbbf24' : '#475569';
+        const label = Array.isArray(dates) && dates[i] ? dates[i] : '';
+        bars += `<rect x="${{x}}" y="${{y}}" width="${{barW}}" height="${{h}}" fill="${{color}}" rx="2"><title>${{label}} ${{_formatVolumeLots(value)}}</title></rect>`;
+        labels += `<text x="${{x + barW / 2}}" y="${{chartH - 3}}" text-anchor="middle" fill="#64748b" font-size="8">${{label}}</text>`;
+      }});
+      let avgLine = '';
+      if (Number(avgVolume || 0) > 0) {{
+        const avgY = plotH - Math.round(Number(avgVolume) / maxVol * plotH) + 4;
+        avgLine = `<line x1="10" y1="${{avgY}}" x2="${{totalW - 10}}" y2="${{avgY}}" stroke="#60a5fa" stroke-width="1" stroke-dasharray="4 3"><title>10 日均量 ${{_formatVolumeLots(avgVolume)}}</title></line>`;
+      }}
+      return `<svg width="${{totalW}}" height="${{chartH}}" xmlns="http://www.w3.org/2000/svg">${{bars}}${{avgLine}}${{labels}}</svg>`;
+    }}
+
+    let stockModalTrigger = null;
+
     function openStockModal(el) {{
+      stockModalTrigger = el;
       const d = el.dataset;
       const pct = parseFloat(d.pct || 0);
       const col = pct > 0 ? '#ef4444' : (pct < 0 ? '#22c55e' : '#64748b');
@@ -1491,6 +1591,17 @@ def generate(
 
       const spark = d.sparkline ? JSON.parse(d.sparkline) : [];
       document.getElementById('sm-spark').innerHTML = _modalSparkSVG(spark);
+
+      const volumes = d.volumeHistory ? JSON.parse(d.volumeHistory) : [];
+      const volumeDates = d.volumeDates ? JSON.parse(d.volumeDates) : [];
+      const avgVolume = Number(d.avgVol || 0);
+      const volRatio = d.volRatio === '' || d.volRatio === undefined ? null : Number(d.volRatio);
+      document.getElementById('sm-volume-today').textContent = _formatVolumeLots(volumes.length ? volumes[volumes.length - 1] : vol);
+      document.getElementById('sm-volume-avg').textContent = _formatVolumeLots(avgVolume);
+      const ratioEl = document.getElementById('sm-volume-ratio');
+      ratioEl.textContent = volRatio === null ? '-' : `${{volRatio.toFixed(2)}}x`;
+      ratioEl.style.color = volRatio !== null && volRatio >= 1.5 ? '#fbbf24' : '#cbd5e1';
+      document.getElementById('sm-volume').innerHTML = _modalVolumeSVG(volumes, volumeDates, avgVolume);
 
       const chips = d.chips ? JSON.parse(d.chips) : {{}};
       let ch = '';
@@ -1515,10 +1626,13 @@ def generate(
 
       document.getElementById('stock-modal').style.display = 'flex';
       document.body.style.overflow = 'hidden';
+      document.querySelector('#stock-modal .smodal-close').focus();
     }}
     function closeStockModal() {{
       document.getElementById('stock-modal').style.display = 'none';
       document.body.style.overflow = '';
+      if (stockModalTrigger) stockModalTrigger.focus();
+      stockModalTrigger = null;
     }}
     function closeModalBg(e) {{
       if (e.target.id === 'stock-modal') closeStockModal();
@@ -1531,7 +1645,7 @@ def generate(
       const tbody = table.querySelector('tbody');
       const ths = Array.from(th.parentElement.children);
       const key = th.dataset.key;
-      const labels = {{'code':'代號','name':'股名','close':'收盤','pct':'今日%','wpct':'近5日','chg7':'近7日','chg10':'近10日','chg14':'近14日','foreign':'外資','trust':'投信','margin':'融資'}};
+      const labels = {{'code':'代號','name':'股名','close':'收盤','pct':'今日%','volratio':'量比','wpct':'近5日','chg7':'近7日','chg10':'近10日','chg14':'近14日','foreign':'外資','trust':'投信','margin':'融資'}};
       const asc = th.dataset.sort !== 'asc';
       ths.forEach(t => {{ t.dataset.sort = ''; t.textContent = labels[t.dataset.key] || ''; }});
       th.dataset.sort = asc ? 'asc' : 'desc';

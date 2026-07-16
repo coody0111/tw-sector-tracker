@@ -95,8 +95,21 @@ def test_scan_momentum_health_ma5_ma10_rising_true_when_uptrend(tmp_path):
 
 def test_scan_momentum_health_daily_excess_pct_uses_single_day_not_5day(tmp_path):
     """daily_excess_pct 必須用「今日」個股 change_pct 減「今日」universe 等權平均，
-    不能誤用 5 日累積報酬（v2 spec §3.1 要修正的那個問題）。"""
+    不能誤用 5 日累積報酬（v2 spec §3.1 要修正的那個問題）。
+
+    ⚠️ 必須自訂 universe_path：預設的 data/stock_universe.csv 是正式追蹤清單，
+    測試用的合成股號（1101/1102）不在裡面，若不覆寫 universe_path，market_df 會被
+    universe 過濾成空集合、market_today_avg_pct 永遠是 None，斷言會失敗
+    （這是 2026-07-16 subagent 實作時抓到的真實 bug，原始草案漏了這步，跟其他
+    姊妹測試如 test_scan_momentum_health_computes_market_relative_strength 的既有
+    寫法不一致，這裡補齊）。"""
     db_path = tmp_path / "test.db"
+    universe_path = tmp_path / "universe.csv"
+    universe_path.write_text(
+        "stock_id,stock_name,meta_sector\n"
+        "1101,測試A,sectorA\n1102,測試B,sectorA\n",
+        encoding="utf-8",
+    )
     dates = pd.date_range("2026-01-01", periods=65, freq="D")
     rows = []
     # 1101：前64天平淡(0.1%)，今日+3.0%（明顯跑贏大盤）
@@ -109,7 +122,9 @@ def test_scan_momentum_health_daily_excess_pct_uses_single_day_not_5day(tmp_path
     rows.append(("1102", dates[-1].strftime("%Y-%m-%d"), 49.5, -1.0, 1000))
     _seed_db(db_path, rows)
 
-    results = scan_momentum_health(dates[-1].strftime("%Y-%m-%d"), db_path=str(db_path))
+    results = scan_momentum_health(
+        dates[-1].strftime("%Y-%m-%d"), db_path=str(db_path), universe_path=str(universe_path)
+    )
     r1101 = next(r for r in results if r["stock_id"] == "1101")
 
     # universe 今日等權平均 = (3.0 + (-1.0)) / 2 = 1.0；daily_excess_pct = 3.0 - 1.0 = 2.0

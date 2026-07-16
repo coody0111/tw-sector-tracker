@@ -36,6 +36,8 @@ _LIMIT_UP_PCT = 9.5   # 漲停判定門檻，沿用 scan_volume_turnover 既有�
 
 # 通用多頭排列＋創新高掃描常數（動能派筆記十一/四十五；mapping spec B3）
 _DEFAULT_LOOKBACK_DAYS = 60  # 「創新高」比較窗口，約一季（波段新高，非歷史新高，理由見統整 spec）
+_B3_VOLUME_MULTIPLE = 1.5     # 量能確認門檻（v2 spec §3.4），沿用 scan_volume_turnover 既有慣例
+_B3_VOLUME_LOOKBACK_DAYS = 20  # 量能確認的均量比較窗口
 
 
 def _load_universe_map(universe_path: str = _UNIVERSE_PATH) -> dict:
@@ -556,11 +558,13 @@ def scan_bullish_alignment_new_high(
     -------
     list of dict，只回傳「多頭排列 且 創新高」都成立的股票，依 change_pct 降序：
         stock_id, stock_name, meta_sector, close, change_pct,
-        ma5, ma10, ma60, lookback_days
+        ma5, ma10, ma60, lookback_days,
+        volume_ratio_20d (float|None)，  ← 今日量/前20日均量，v2新增（不足20日回None）
+        volume_confirmed (bool|None)     ← volume_ratio_20d >= 1.5，v2新增，純標記不過濾清單
     """
     con = duckdb.connect(db_path, read_only=True)
     price_df = con.execute(f"""
-        SELECT stock_id, date, close, change_pct
+        SELECT stock_id, date, close, change_pct, volume
         FROM daily_prices
         WHERE date <= '{trade_date}'
         ORDER BY stock_id, date
@@ -607,19 +611,40 @@ def scan_bullish_alignment_new_high(
         if prior_window.empty or today_close <= prior_window.max():
             continue
 
+        volume = window["volume"]
+        # 注意：daily_prices.volume 是 BIGINT，DuckDB→pandas 若欄位有 NULL 會轉成
+        # nullable Int64 的 pd.NA（不是 float NaN），float(pd.NA) 會直接 raise
+        # TypeError，所以「先用 pd.isna 判斷、再轉 float」的順序不能反過來。
+        raw_today_volume = volume.iloc[-1]
+        prior_vol_window = volume.iloc[-(_B3_VOLUME_LOOKBACK_DAYS + 1):-1]
+        if len(prior_vol_window) < _B3_VOLUME_LOOKBACK_DAYS or pd.isna(raw_today_volume):
+            volume_ratio_20d = None
+            volume_confirmed = None
+        else:
+            today_volume = float(raw_today_volume)
+            avg_vol = prior_vol_window.mean()
+            if pd.notna(avg_vol) and avg_vol > 0:
+                volume_ratio_20d = round(today_volume / avg_vol, 2)
+                volume_confirmed = bool(volume_ratio_20d >= _B3_VOLUME_MULTIPLE)
+            else:
+                volume_ratio_20d = None
+                volume_confirmed = None
+
         today_row = window.iloc[-1]
         change_pct = today_row.get("change_pct")
         uinfo = universe_map.get(str(sid), {})
         results.append({
-            "stock_id":      sid,
-            "stock_name":    uinfo.get("stock_name", ""),
-            "meta_sector":   uinfo.get("meta_sector", ""),
-            "close":         today_close,
-            "change_pct":    float(change_pct) if pd.notna(change_pct) else None,
-            "ma5":           round(float(ma5), 2),
-            "ma10":          round(float(ma10), 2),
-            "ma60":          round(float(ma60), 2),
-            "lookback_days": lookback_days,
+            "stock_id":         sid,
+            "stock_name":       uinfo.get("stock_name", ""),
+            "meta_sector":      uinfo.get("meta_sector", ""),
+            "close":            today_close,
+            "change_pct":       float(change_pct) if pd.notna(change_pct) else None,
+            "ma5":              round(float(ma5), 2),
+            "ma10":             round(float(ma10), 2),
+            "ma60":             round(float(ma60), 2),
+            "lookback_days":    lookback_days,
+            "volume_ratio_20d": volume_ratio_20d,
+            "volume_confirmed": volume_confirmed,
         })
 
     results.sort(key=lambda x: -(x["change_pct"] or 0))

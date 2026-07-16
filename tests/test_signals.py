@@ -665,6 +665,78 @@ def test_scan_bullish_alignment_new_high_skips_insufficient_history(tmp_path):
     assert results == []
 
 
+def test_scan_bullish_alignment_new_high_flags_volume_confirmed(tmp_path):
+    """今日量 >= 前20日均量*1.5 時 volume_confirmed=True；量沒跟上時 False；
+    現有的多頭排列+創新高判斷完全不受影響（不從清單剔除量沒確認的股票）。"""
+    db_path = tmp_path / "test.db"
+    dates = pd.date_range("2026-01-01", periods=60, freq="D")
+
+    rows = []
+    # 1101：60天穩定上升，前20天(index 39-58)量都1000，今日(index59)量衝到2000（>=1500門檻）
+    close_1101 = [100 + i for i in range(60)]
+    for i, (d, c) in enumerate(zip(dates, close_1101)):
+        vol = 2000 if i == 59 else 1000
+        rows.append(("1101", d.strftime("%Y-%m-%d"), float(c), 0.5, vol))
+
+    # 1104：60天穩定上升(跟1101同型態，確保會被判多頭排列+創新高)，但今日量只有1100（<1500門檻）
+    close_1104 = [200 + i * 0.5 for i in range(60)]
+    for i, (d, c) in enumerate(zip(dates, close_1104)):
+        vol = 1100 if i == 59 else 1000
+        rows.append(("1104", d.strftime("%Y-%m-%d"), float(c), 0.3, vol))
+
+    _seed_db(db_path, rows)
+
+    results = scan_bullish_alignment_new_high(dates[-1].strftime("%Y-%m-%d"), db_path=str(db_path))
+    ids = [r["stock_id"] for r in results]
+
+    assert "1101" in ids and "1104" in ids, "量能標記不該影響既有的價格命中集合"
+    r1101 = next(r for r in results if r["stock_id"] == "1101")
+    r1104 = next(r for r in results if r["stock_id"] == "1104")
+    assert r1101["volume_ratio_20d"] == 2.0
+    assert r1101["volume_confirmed"] is True
+    assert r1104["volume_confirmed"] is False
+
+
+def test_scan_bullish_alignment_new_high_volume_confirmed_none_when_insufficient_history(tmp_path):
+    """理論上不會發生（min_history 已保證>=60天，遠超20天量能窗口），但仍驗證邊界防呆行為，
+    確認函式不會對『資料不足』的情況猜一個 True/False。"""
+    db_path = tmp_path / "test.db"
+    rows = [("1101", f"2026-01-{d:02d}", 100.0 + d, 0.1, 1000) for d in range(1, 30)]
+    _seed_db(db_path, rows)
+
+    results = scan_bullish_alignment_new_high("2026-01-29", db_path=str(db_path))
+
+    assert results == []  # 歷史不足60天，既有邏輯本來就會跳過，這裡確認沒有因為新增邏輯而 crash
+
+
+def test_scan_bullish_alignment_new_high_volume_confirmed_none_when_today_volume_is_nan(tmp_path):
+    """今日 volume 若是 NULL（DB 缺值 → pandas 讀出來變成 NaN），volume_ratio_20d/volume_confirmed
+    都必須是 None，不能讓 NaN 悄悄變成一個看起來合法的 float 或被判成 volume_confirmed=False
+    （『不知道』不該偽裝成『沒過』）。"""
+    db_path = tmp_path / "test.db"
+    dates = pd.date_range("2026-01-01", periods=60, freq="D")
+
+    rows = []
+    close_1101 = [100 + i for i in range(60)]
+    for i, (d, c) in enumerate(zip(dates, close_1101)):
+        rows.append(("1101", d.strftime("%Y-%m-%d"), float(c), 0.5, 1000))
+    _seed_db(db_path, rows)
+
+    # 今日 volume 改成 NULL（模擬缺值）
+    con = duckdb.connect(str(db_path))
+    con.execute(
+        "UPDATE daily_prices SET volume = NULL WHERE stock_id = '1101' AND date = ?",
+        [dates[-1].strftime("%Y-%m-%d")],
+    )
+    con.close()
+
+    results = scan_bullish_alignment_new_high(dates[-1].strftime("%Y-%m-%d"), db_path=str(db_path))
+    r1101 = next(r for r in results if r["stock_id"] == "1101")
+
+    assert r1101["volume_ratio_20d"] is None
+    assert r1101["volume_confirmed"] is None
+
+
 def test_scan_bullish_alignment_new_high_lookback_days_changes_boundary(tmp_path):
     """lookback_days 決定「創新高」的比較窗口：120 天前有過一次高點(300)，
     60 天窗口看不到那次高點 → 判定創新高；120 天窗口看得到 → 判定非創新高。

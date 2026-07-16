@@ -1,5 +1,10 @@
 # 逆轟策略頁面 — 視覺設計 Design Spec
 
+> [!WARNING]
+> **Superseded（2026-07-16）**：本文件包含「隨時加碼／直接出清／反手放空」等已撤回的命令式
+> 動作文案，請勿照此實作。現行規格為 `2026-07-16-momentum-strategy-page-v2-design.md`；本文件
+> 僅保留作為視覺 brainstorming 與決策歷史。
+
 **日期**：2026-07-15
 **作者**：Developer（與 Cody 用 `ui-ux-pro-max` skill brainstorming 後）
 **狀態**：草案，待 Cody review

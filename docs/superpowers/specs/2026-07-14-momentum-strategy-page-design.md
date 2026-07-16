@@ -1,5 +1,10 @@
 # 逆轟動能策略頁面 — 統整 Design Spec
 
+> [!WARNING]
+> **Superseded（2026-07-16）**：頁面資訊架構、五級狀態文案與後續實作要求已由
+> `2026-07-16-momentum-strategy-page-v2-design.md` 取代。本文件只保留作為 B1~B6 原始資料層
+> 稽核與決策歷史；若內容衝突，以 v2 為準。
+
 > 來源：`notes/動能派學習筆記.md`（CMoney「逆轟高灰」系列，110 篇）、`notes/每日心得日誌.md`
 > 本文取代並整併以下三份先前各自獨立的 design spec（內容已完整吸收，避免多份文件各自漂移）：
 > - ~~`2026-07-02-momentum-health-signal-design.md`~~

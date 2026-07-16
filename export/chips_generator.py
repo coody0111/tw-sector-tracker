@@ -642,7 +642,7 @@ function switchTab(id, focusTab=false){
   history.replaceState(null,'','#'+id);
   if(typeof applyFilters==='function')applyFilters();
 }
-const _tabs=['tab-signal','tab-dipbuy','tab-inst','tab-foreign','tab-trust','tab-margin','tab-holder','tab-insider'];
+const _tabs=['tab-signal','tab-dipbuy','tab-stealth','tab-inst','tab-foreign','tab-trust','tab-margin','tab-holder','tab-insider'];
 document.querySelector('.tab-bar').addEventListener('keydown',e=>{
   if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;
   e.preventDefault();
@@ -820,6 +820,67 @@ def _build_section35(meta_chips: dict, cum_ranks: dict) -> str:
 <div class="chips-section">
   <div class="cs-title">越跌越買：5日跌逾 1% 但法人仍連買</div>
   <table class="ct">{dip_thead}<tbody>{dip_tbody}</tbody></table>
+</div>"""
+
+
+def _build_section_stealth(meta_chips: dict, cum_ranks: dict) -> str:
+    """外資偷偷買 — 外資連買、但股價盤整（5日在 -1%~+1%）＝市場還沒發現的默默吸貨。
+    只看外資（不看投信），跟『越跌越買』(明顯下跌) 用 5日漲跌區間區隔開。"""
+    def _pct_cell(val) -> str:
+        if val is None:
+            return "<td style='text-align:center;color:#334155'>─</td>"
+        sign = "+" if val > 0 else ""
+        color = "#f87171" if val > 0 else ("#4ade80" if val < 0 else "#64748b")
+        return f"<td style='text-align:center;color:{color};font-weight:700'>{sign}{val:.1f}%</td>"
+
+    rows = []
+    for name, data in meta_chips.items():
+        fs = data.get("foreign_streak", 0)
+        if fs <= 0:                       # 只要外資連買
+            continue
+        cum_vals = cum_ranks.get("v", {}).get(name, {})
+        cum5 = cum_vals.get("cum5")
+        if cum5 is None or cum5 < -1.0 or cum5 > 1.0:   # 股價盤整：5日 -1%~+1%
+            continue
+        rows.append((name, data, cum_vals, fs))
+    # 外資連買越久排越前面；同天數再比今日買超張數
+    rows.sort(key=lambda x: (x[3], x[1].get("foreign_net_today", 0)), reverse=True)
+
+    if not rows:
+        return ('<div class="chips-section">'
+                '<div class="cs-title">外資偷偷買 — 外資連買但股價盤整（5日 -1%~+1%）</div>'
+                '<div style="color:#475569;font-size:.8rem;padding:8px 0">'
+                '今日沒有族群同時符合「外資連買」且「股價盤整」。</div></div>')
+
+    def _row(name, data, cum_vals, fs) -> str:
+        fn = data.get("foreign_net_today", 0)
+        tn = data.get("trust_net_today", 0)
+        ts = data.get("trust_streak", 0)
+        t_badge = _trust_streak_badge(ts) if ts > 0 else ""
+        return (
+            f"<tr><td class='ct-name'>{_meta_link(name)}</td>"
+            + _pct_cell(cum_vals.get("cum1"))
+            + _pct_cell(cum_vals.get("cum3"))
+            + _pct_cell(cum_vals.get("cum5"))
+            + _pct_cell(cum_vals.get("cum7"))
+            + f"<td>{_fmt_net(fn)}</td><td>{_fmt_net(tn)}</td>"
+            + f"<td>{_streak_badge(fs)}</td><td>{t_badge}</td></tr>"
+        )
+
+    tbody = "".join(_row(*r) for r in rows)
+    thead = ("<thead><tr>"
+             "<th>族群</th>"
+             "<th style='text-align:center'>今日</th>"
+             "<th style='text-align:center'>3日</th>"
+             "<th style='text-align:center'>5日</th>"
+             "<th style='text-align:center'>7日</th>"
+             "<th>外資今日</th><th>投信今日</th>"
+             "<th>外資狀態</th><th>投信狀態</th>"
+             "</tr></thead>")
+    return f"""
+<div class="chips-section">
+  <div class="cs-title">外資偷偷買 — 外資連買但股價盤整（5日 -1%~+1%）</div>
+  <table class="ct">{thead}<tbody>{tbody}</tbody></table>
 </div>"""
 
 
@@ -1031,6 +1092,7 @@ def generate(
     s2_html = _build_section2(stock_chips)
     s3_html = _build_section3(meta_chips, cum_ranks)
     s35_html = _build_section35(meta_chips, cum_ranks)
+    s_stealth_html = _build_section_stealth(meta_chips, cum_ranks)
     s4_html = _build_section4(stock_chips)
     s5_html = _build_section5(meta_chips)
     s6a_html, s6_foreign_html, s6_trust_html = _build_section6(inst_scan)
@@ -1074,6 +1136,7 @@ def generate(
         <div class="tab-bar" role="tablist" aria-label="籌碼分析分類">
           <button id="tab-btn-signal" type="button" role="tab" aria-controls="tab-signal" aria-selected="false" class="tab-btn" data-tab="tab-signal" onclick="switchTab('tab-signal')">法人同步觀察</button>
           <button id="tab-btn-dipbuy" type="button" role="tab" aria-controls="tab-dipbuy" aria-selected="false" class="tab-btn" data-tab="tab-dipbuy" onclick="switchTab('tab-dipbuy')">越跌越買</button>
+          <button id="tab-btn-stealth" type="button" role="tab" aria-controls="tab-stealth" aria-selected="false" class="tab-btn" data-tab="tab-stealth" onclick="switchTab('tab-stealth')">外資偷偷買</button>
           <button id="tab-btn-inst" type="button" role="tab" aria-controls="tab-inst" aria-selected="false" class="tab-btn" data-tab="tab-inst" onclick="switchTab('tab-inst')">法人買賣</button>
           <button id="tab-btn-foreign" type="button" role="tab" aria-controls="tab-foreign" aria-selected="false" class="tab-btn" data-tab="tab-foreign" onclick="switchTab('tab-foreign')">外資籌碼</button>
           <button id="tab-btn-trust" type="button" role="tab" aria-controls="tab-trust" aria-selected="false" class="tab-btn" data-tab="tab-trust" onclick="switchTab('tab-trust')">投信籌碼</button>
@@ -1093,6 +1156,10 @@ def generate(
 
       <div class="tab-panel" id="tab-dipbuy" role="tabpanel" aria-labelledby="tab-btn-dipbuy">
         {s35_html}
+      </div>
+
+      <div class="tab-panel" id="tab-stealth" role="tabpanel" aria-labelledby="tab-btn-stealth">
+        {s_stealth_html}
       </div>
 
       <div class="tab-panel" id="tab-inst" role="tabpanel" aria-labelledby="tab-btn-inst">

@@ -33,6 +33,9 @@ _EXIT_BIG_BLACK_PCT = -4.0  # 「重挫長黑」門檻，主觀預設值，可�
 _RS_WINDOW_DAYS = 5         # 相對強弱計算窗口，對齊現有累積漲跌 badge
 
 _LIMIT_UP_PCT = 9.5   # 漲停判定門檻，沿用 scan_volume_turnover 既有慣例（見設計文件資料正確性風險）
+_LIMIT_DOWN_PCT = -9.5  # 跌停判定門檻（v2 spec §3.6），只供「跌停風險」標記用，不產生放空/立刻砍指令
+_B5_BREAKOUT_VOL_MULTIPLE = 1.5    # 連板起漲日量能確認門檻，沿用專案既有 1.5 倍慣例
+_B5_BREAKOUT_VOL_LOOKBACK_DAYS = 20  # 起漲日均量比較窗口
 
 # 通用多頭排列＋創新高掃描常數（動能派筆記十一/四十五；mapping spec B3）
 _DEFAULT_LOOKBACK_DAYS = 60  # 「創新高」比較窗口，約一季（波段新高，非歷史新高，理由見統整 spec）
@@ -453,7 +456,9 @@ def scan_consecutive_limit_up(
         stock_id, stock_name, meta_sector, close, change_pct, volume,
         limit_up_streak (連續鎖漲停天數，今天算第1天),
         volume_declining_streak (bool|None，連板期間量是否逐日遞減/持平；
-                                  streak<2 時為 None)
+                                  streak<2 時為 None),
+        breakout_volume_confirmed (bool|None，連板起點當天量是否 >= 起點前20個交易日
+                                    均量*1.5；起點前歷史不足20日或量值缺值(NA)時為 None，v2新增)
     """
     con = duckdb.connect(db_path, read_only=True)
     price_df = con.execute(f"""
@@ -502,16 +507,39 @@ def scan_consecutive_limit_up(
                 streak_vols[k] <= streak_vols[k - 1] for k in range(1, len(streak_vols))
             )
 
+        # 連板起漲日量能確認（筆記四十五：起漲沒出量=假突破機率高，不追）。
+        # 跟 volume_declining_streak 是不同階段的量能訊號：這個看「起點那天」相對它自己
+        # 20日均量是否放量，不是看連板期間日與日之間的相對變化。
+        # 注意：volume 是 nullable BIGINT，NULL 經 DuckDB→pandas 轉出來是 pd.NA（不是float
+        # NaN），要在轉型/比較前先用 pd.isna 判斷，跟 scan_bullish_alignment_new_high() 的
+        # volume_ratio_20d 修法一致（同一個 bug class 在這個檔案已經出現第二次）。
+        breakout_start_idx = i + 1
+        pre_breakout = grp.iloc[max(0, breakout_start_idx - _B5_BREAKOUT_VOL_LOOKBACK_DAYS): breakout_start_idx]
+        raw_breakout_day_vol = grp.iloc[breakout_start_idx]["volume"]
+        if len(pre_breakout) < _B5_BREAKOUT_VOL_LOOKBACK_DAYS or pd.isna(raw_breakout_day_vol):
+            breakout_volume_confirmed = None
+        else:
+            breakout_day_vol = float(raw_breakout_day_vol)
+            pre_avg_vol = pre_breakout["volume"].mean()
+            if pd.notna(pre_avg_vol) and pre_avg_vol > 0:
+                breakout_volume_confirmed = bool(breakout_day_vol >= pre_avg_vol * _B5_BREAKOUT_VOL_MULTIPLE)
+            else:
+                breakout_volume_confirmed = None
+
         uinfo = universe_map.get(str(sid), {})
         results.append({
-            "stock_id":                sid,
-            "stock_name":              uinfo.get("stock_name", ""),
-            "meta_sector":             uinfo.get("meta_sector", ""),
-            "close":                   float(today["close"]),
-            "change_pct":              float(today["change_pct"]),
-            "volume":                  int(today["volume"]),
-            "limit_up_streak":         streak,
-            "volume_declining_streak": volume_declining_streak,
+            "stock_id":                  sid,
+            "stock_name":                uinfo.get("stock_name", ""),
+            "meta_sector":               uinfo.get("meta_sector", ""),
+            "close":                     float(today["close"]),
+            "change_pct":                float(today["change_pct"]),
+            # 既有 pre-existing 缺口：today["volume"] 也是可能為 pd.NA 的 nullable BIGINT，
+            # int(pd.NA) 一樣會直接 raise TypeError。這裡補上跟本檔案其他欄位一致的防呆
+            # （見 change_pct 的 pd.notna 寫法），detail 見本次 commit 說明（NA 防呆第三處）。
+            "volume":                    int(today["volume"]) if pd.notna(today["volume"]) else None,
+            "limit_up_streak":           streak,
+            "volume_declining_streak":   volume_declining_streak,
+            "breakout_volume_confirmed": breakout_volume_confirmed,
         })
 
     results.sort(key=lambda x: -x["limit_up_streak"])

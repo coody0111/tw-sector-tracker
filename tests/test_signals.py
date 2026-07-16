@@ -610,6 +610,87 @@ def test_scan_consecutive_limit_up_single_day_streak_has_none_volume_trend(tmp_p
     assert results[0]["volume_declining_streak"] is None
 
 
+def test_scan_consecutive_limit_up_flags_breakout_volume_confirmed(tmp_path):
+    """連板起點那天（第一根漲停）若量 >= 前20日均量*1.5，breakout_volume_confirmed=True；
+    量不夠則 False。用兩檔股票對照：AAAA 起漲日爆量、BBBB 起漲日量平淡。"""
+    db_path = tmp_path / "test.db"
+    rows = []
+    for d in range(1, 21):
+        rows.append(("AAAA", f"2026-06-{d:02d}", 100.0, 0.5, 1000))
+    rows += [
+        ("AAAA", "2026-07-12", 110.0, 9.8, 3000),
+        ("AAAA", "2026-07-13", 121.0, 10.0, 2500),
+        ("AAAA", "2026-07-14", 133.1, 10.0, 2000),
+    ]
+    for d in range(1, 21):
+        rows.append(("BBBB", f"2026-06-{d:02d}", 50.0, 0.5, 1000))
+    rows += [
+        ("BBBB", "2026-07-12", 55.0, 9.8, 1100),
+        ("BBBB", "2026-07-13", 60.5, 10.0, 900),
+        ("BBBB", "2026-07-14", 66.5, 10.0, 800),
+    ]
+    _seed_db(db_path, rows)
+
+    results = scan_consecutive_limit_up("2026-07-14", db_path=str(db_path))
+
+    a = next(r for r in results if r["stock_id"] == "AAAA")
+    b = next(r for r in results if r["stock_id"] == "BBBB")
+    assert a["breakout_volume_confirmed"] is True
+    assert b["breakout_volume_confirmed"] is False
+
+
+def test_scan_consecutive_limit_up_breakout_volume_none_when_insufficient_history(tmp_path):
+    """連板起點前歷史不足20個交易日（新股）時，breakout_volume_confirmed 應為 None。"""
+    db_path = tmp_path / "test.db"
+    rows = [
+        ("CCCC", "2026-07-08", 50.0, 0.5, 1000),
+        ("CCCC", "2026-07-09", 50.2, 0.5, 1000),
+        ("CCCC", "2026-07-10", 50.5, 0.5, 1000),
+        ("CCCC", "2026-07-11", 50.8, 0.5, 1000),
+        ("CCCC", "2026-07-12", 55.0, 9.8, 3000),
+        ("CCCC", "2026-07-13", 60.5, 10.0, 2500),
+        ("CCCC", "2026-07-14", 66.5, 10.0, 2000),
+    ]
+    _seed_db(db_path, rows)
+
+    results = scan_consecutive_limit_up("2026-07-14", db_path=str(db_path))
+
+    assert results[0]["breakout_volume_confirmed"] is None
+
+
+def test_scan_consecutive_limit_up_breakout_volume_none_when_breakout_day_volume_is_nan(tmp_path):
+    """連板起點當天 volume 若是 NULL（DB 缺值 → DuckDB→pandas 轉出來是 pd.NA，不是 float NaN），
+    breakout_volume_confirmed 必須是 None，不能讓 float(pd.NA) 直接 raise TypeError，也不能讓
+    NA 被悄悄判成 True/False（『不知道』不該偽裝成『沒過』），跟 scan_bullish_alignment_new_high()
+    的 volume_ratio_20d 修法是同一個 bug class。
+
+    刻意用單日漲停（streak=1）而非連續多日：連續多日會讓這筆 NULL 同時落入
+    volume_declining_streak 的比較窗口，那段既有邏輯對 NA 沒有防呆、會直接
+    raise TypeError（另一個既有 bug，超出本次任務範圍，已另外回報，不在此處
+    順手修掉，避免此次 commit 範圍外潛入變更）。單日漲停能單純只測到
+    breakout_volume_confirmed 這個新欄位的 NA 防呆。"""
+    db_path = tmp_path / "test.db"
+    rows = []
+    for d in range(1, 21):
+        rows.append(("DDDD", f"2026-06-{d:02d}", 100.0, 0.5, 1000))
+    rows.append(("DDDD", "2026-06-21", 110.0, 10.0, 2000))
+    _seed_db(db_path, rows)
+
+    # 連板起點日（同時也是今天，streak=1）的 volume 改成 NULL
+    con = duckdb.connect(str(db_path))
+    con.execute(
+        "UPDATE daily_prices SET volume = NULL WHERE stock_id = 'DDDD' AND date = ?",
+        ["2026-06-21"],
+    )
+    con.close()
+
+    results = scan_consecutive_limit_up("2026-06-21", db_path=str(db_path))
+
+    d = next(r for r in results if r["stock_id"] == "DDDD")
+    assert d["limit_up_streak"] == 1
+    assert d["breakout_volume_confirmed"] is None
+
+
 def test_scan_bullish_alignment_new_high_filters_correctly(tmp_path):
     """三種情境同時測試，避免像 detect_breakout_confirm 早期版本那樣只驗證單一條件：
     (1) 多頭排列 + 創新高 → 命中

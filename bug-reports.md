@@ -1,3 +1,150 @@
+## [2026-07-16] Review - 動能派 B1~B5（commit faa54b8：scan_momentum_health/scan_consecutive_limit_up/scan_bullish_alignment_new_high）
+
+### 驗證方式
+逐項對照 `docs/superpowers/specs/2026-07-14-momentum-strategy-page-design.md` §3（B1~B5 資料層規格）
+手動追蹤 `screener/signals.py` 三支新函式的每個分支邏輯，並針對懷疑點寫最小重現腳本實跑驗證
+（不只信任程式碼看起來合理，B4 的 look-ahead 問題就是這樣抓到的——靜態讀 code 看不出來，
+要真的餵資料跑過一次才會發現數字不對）。
+
+### 🔴 程式問題（需立刻修）— `rs_score` 有前瞻偏誤（look-ahead bias）
+- 位置：`screener/signals.py:319`（`scan_momentum_health()` 呼叫 `calc_cumulative_meta()`）
+- 說明：`calc_cumulative_meta()`（`processors/performance.py:88`）完全不吃 `trade_date` 參數，
+  SQL 永遠抓「整張 `daily_prices` 表裡最新的 8 個日期」算族群 5 日累積報酬，不管呼叫端傳的
+  `trade_date` 是不是資料庫裡最新的一天。`scan_momentum_health()` 算 `rs_score`（族群內相對強弱）
+  時直接拿這個當族群基準，沒有做任何日期裁切——只要 `trade_date` 不是 DB 裡最新的一天，
+  `rs_score` 就會摻進 `trade_date` 之後才發生的未來資料。
+- 重現方式：寫最小重現腳本（兩檔股票在 `trade_date` 當天有真實漲跌差異，對照組手算
+  `rs_score=+5.0`，跟既有測試 `test_scan_momentum_health_computes_relative_strength` 一致），
+  在 `trade_date` 之後追加幾天「未來」的族群齊漲走勢——`rs_score` 從預期的 `+5.0` 整個翻成
+  `-29.55`，完全被 `trade_date` 之後才發生的資料污染。
+- 為什麼現有測試沒抓到：`test_scan_momentum_health_computes_relative_strength`/
+  `test_scan_momentum_health_computes_market_relative_strength` 兩個測試都用 `dates[-1]`
+  （資料庫最後一天）當 `trade_date`，這時「最新 8 個日期」剛好跟「`trade_date` 為終點的窗口」
+  重疊，bug 被巧合遮住，沒有任何測試真的餵過「歷史日期（非最新）」的 `trade_date`。
+- 為什麼現在沒事、以後會爆：目前 `scan_momentum_health()` 唯一呼叫路徑是即時/每日產頁
+  （`trade_date` 天然就是 DB 最新一天），線上還沒出過錯誤結果。但 spec §6「建置優先序」明講
+  「每一條實作後都可以用 `screener/backtest.py` 回測驗證」——`run_backtest()` 正是會逐日餵入
+  歷史 `trade_date`，這個 bug 會在第一次拿這支函式回測時，悄悄把每一天的
+  `rs_score`/`rs_rank_pct`/`strength_tier` 全部算錯，且不會報錯、不會 crash，只會給錯的排名。
+- 對照組：同一函式裡 `rs_market_score`（vs 大盤）那一半完全正確——用的是函式內已經用 SQL
+  `WHERE date <= trade_date` 裁切過的 `price_df` 現算，沒有這個問題。只有偷懶重用外部
+  `calc_cumulative_meta()` 的 `rs_score` 那一半中招。
+- 建議修法（擇一）：
+  1. 幫 `calc_cumulative_meta()` 加可選的 `as_of_date` 參數，SQL 加 `WHERE date <= ?`
+  2. 在 `scan_momentum_health()` 內部比照 `market_cum5` 的做法，直接用已裁切好的 `price_df`
+     現算族群基準，不呼叫外部的 `calc_cumulative_meta()`
+
+### 🟡 建議改善
+- `scan_consecutive_limit_up()` 少了 `universe_path` 參數（另外兩支姊妹函式 `scan_momentum_health`/
+  `scan_bullish_alignment_new_high` 都有），內部寫死呼叫 `_load_universe_map()`（預設路徑）。
+  目前沒有測試斷言 `stock_name`/`meta_sector`，不構成現在的 bug，但沒辦法在隔離環境測試這兩個
+  欄位，也跟另外兩支函式的簽章不一致，建議補上參數維持一致性。
+
+### ✅ 驗證通過
+- B1 均線排列（`close>MA5>MA10>MA60` 三線，MA20 已正確排除判斷式）
+- B2 出場三原則（三條件同時成立才觸發）+ `entry_confirmed`（多頭排列+MA5/MA10皆上揚）
+- B3 通用多頭排列+創新高（MA5/10/60、`lookback_days`「含今日」語意自洽，非 off-by-one）
+- B5 連續漲停鎖死（`limit_up_streak`/`volume_declining_streak` 邏輯正確）
+- 五級強弱分類（§3.7）六個分支手動追蹤全部正確，含容易漏掉的
+  「多頭排列但 `rank<0.5`→弱」fallback 分支
+- `entry_confirmed` 未誤呼叫/耦合 `patterns.py::detect_breakout_confirm`
+- 全專案 260 個既有測試持續通過
+
+### 結論（2026-07-16 更新：Cody 授權直接修，已修完）
+- [x] 可以繼續下一個任務 —— 兩項問題都已修復並驗證，見下方「修復記錄」
+
+### 修復記錄（Cody 授權「認真嚴格來修」，Debugger 直接改+commit）
+
+**🔴 `rs_score` 前瞻偏誤 → 已修**
+- 改法：拿掉 `scan_momentum_health()` 對 `calc_cumulative_meta()` 的呼叫（該函式不吃
+  `trade_date`），改成用函式內已經 SQL `WHERE date<=trade_date` 裁切過的 `price_df`
+  現算族群基準（`groupby("meta_sector")` 逐族群算近5日等權平均累積報酬），手法跟原本就
+  正確的 `market_cum5`（vs 大盤那半）完全對稱。移除不再使用的 `calc_cumulative_meta` import。
+- TDD：先寫失敗測試 `test_scan_momentum_health_rs_score_ignores_future_data`
+  （在 `trade_date` 之後注入未來族群齊漲，驗證修復前會 RED：`rs_score` 從預期 `+5.0`
+  被污染成 `-29.55`，數字跟審查階段的手動重現腳本完全吻合），修完後轉 GREEN。
+- 額外驗證：拿審查階段那支獨立重現腳本（非 pytest，模擬真實情境）重新跑一次，修復前
+  `-29.55`、修復後 `+5.0`，確認不是只有測試資料湊巧過。
+
+**🟡 `scan_consecutive_limit_up()` 缺 `universe_path` → 已修**
+- 改法：函式簽章加 `universe_path: str = _UNIVERSE_PATH` 參數，內部 `_load_universe_map()`
+  呼叫改吃這個參數，跟兩支姊妹函式簽章一致。
+- TDD：先寫失敗測試 `test_scan_consecutive_limit_up_accepts_custom_universe_path`（修復前
+  RED：`TypeError: unexpected keyword argument 'universe_path'`），修完後轉 GREEN。
+
+**驗證**
+- `tests/test_signals.py`：21 個測試全過（含 2 個新增的 TDD 測試）。
+- 全專案 `pytest`（master worktree，有真實 `data/screener.db`）：**262 passed**，
+  沒有既有測試回歸；debug worktree 跑會少一個（`test_scan_patterns_returns_list`，
+  缺本機 DB 的既有已知限制，跟本次改動無關，已用真實 DB 的 master worktree 排除這個混淆
+  因素重新確認過）。
+- commit `272937e`（debug→master fast-forward，已 push）。
+
+---
+
+## [2026-07-15] 驗證（桌電）- 3 個待驗任務：進貨分校準/regime拆分/搜尋族群修復 全數 ✅ 通過
+
+### 驗證方式
+`git fetch` 確認 master/debug/origin 三邊一致（`a2af1f2`，工作區乾淨），`python -m pytest tests/ -q`
+全專案跑一次，針對 debug-tasks.md 點名的三則待驗項目逐項深挖，不只信任 commit message。
+
+### ✅ 全專案測試：260 passed, 1 warning
+warning 是既有、跟本次改動無關的 `test_processors.py::test_calc_market_breadth_ignores_nan_change_pct`
+`FutureWarning`（pandas 版本相關，非本次新增）。
+
+---
+
+### ✅ #1（2aa80a4/a27f129）`print_accumulation_calibration()` 分數分桶依大盤 regime 拆分
+- **`test_print_accumulation_calibration_breaks_down_by_regime` 通過**，且手動重跑同一組測資，逐行核對
+  輸出：`[60-100分] n=2 平均超額 +1.00%`（聚合列，(+6.0 + -4.0)/2 = 1.0，數學正確）、
+  `[60-100分/多頭] n=1 +6.00%`、`[60-100分/空頭] n=1 -4.00%`——**聚合行邏輯確認沒被新的巢狀迴圈影響**，
+  這是這次特別被要求覆查的點。
+- **`regime` 可能是 `"?"`（資料不足，見 `backtest.py::_regime_at`）時的行為**：新程式碼只迭代
+  `["多頭","盤整","空頭"]`，`"?"` 的訊號不會出現在拆分列，但仍計入上方聚合列——追蹤確認這**跟
+  `backtest.py::print_summary()` 既有的 regime 拆分邏輯完全同一套模式**（同樣只列三個正式 regime），
+  不是這次新增的不一致，是沿用既有慣例。
+- **`if "regime" in sub.columns` 這個 guard 本身正確**：`sub` 是 `df` 的切片，欄位集合不會因為
+  `.loc`/布林過濾而改變，所以「df 沒有 regime 欄位時完全跳過」這個保證有效，既有呼叫端
+  （沒有 regime 欄位的舊測資）行為不受影響。
+
+### ✅ #2（4-Task 進貨分回測校準）
+- **`screener/backtest.py` 全程未被這批改動觸碰**：`git log --oneline -- screener/backtest.py`
+  最近一次改動是 `e01e1ad`（chips 儀表板重做，時間早於本批次、內容不相關），本批次的
+  `2aa80a4`/`a27f129` 及其餘 3 個 Task commit 都沒有出現在 `backtest.py` 的異動歷史裡，claim 屬實。
+- **`_shareholder_as_of`/`_recent_return_as_of` no-lookahead 邏輯覆查（這次被特別點名的地基）**：
+  兩者都是「篩 `date <= d_ts` → 取排序後最後一筆」的標準 as-of 查詢，`d_ts` 是呼叫端
+  `scan_accumulation_score()._scan()` 傳入的**訊號日**（= `run_backtest()` 逐日掃描的 `date_str`）。
+  對照 `run_backtest()` 本身的進出場時序（**D 收盤產生訊號 → D+1 開盤進場**，`backtest.py` 多處
+  docstring 明講），用「訊號日當天收盤（含）以前」的資料算分數，時序上完全站得住——分數用到 D
+  當天收盤價、進場卻是 D+1 開盤之後，不構成前瞻偏誤。
+  - ⚠️ **附帶發現（非本次改動引入，屬既有系統性限制，不列為本次 bug）**：`_shareholder_as_of`
+    用的「大戶持股」`date` 是 TDCC 集保庫存**快照日**（通常週五），但 TDCC 實際**公布**會晚幾天
+    （通常隔週三才查得到）——程式碼目前用「快照日 <= 訊號日」判斷資料是否可用，沒有扣掉這段
+    公布延遲，理論上訊號日落在快照日之後、公布日之前的那幾天，會用到「當下其實還查不到」的
+    大戶資料。**但這不是本次新增的問題**：追查後確認現行 production 路徑
+    `screener/database.py::get_shareholder_top()` 對「最新一筆」的認定用的也是同一套「無延遲」
+    邏輯，這次的 as-of 版本只是把既有慣例從「查最新」推廣到「查任意歷史日期」，沒有讓既有限制
+    變得更嚴重。值得記錄但不阻擋這批改動過關；如果之後要認真拿回測數字做決策，這個延遲量級建議
+    抓 TDCC 實際公布時間表確認一次。
+
+### ✅ #3（a013e8a）搜尋族群「點了沒反應」修復
+- `test_search_select_meta_selector_matches_mc_card` 通過，既有 `test_search_select_stock_selector_matches_st_row`
+  等測試未回歸。
+- `git merge-base --is-ancestor a013e8a HEAD` 確認該 commit 已在 master 歷史中，`git status` 確認
+  master worktree 工作區乾淨——**debug-tasks.md 裡記錄的「工作區有其他未 commit 變更／main.py
+  自動 commit 持續在跑」的並發狀況已經自然解決**，沒有殘留任何未預期的 staged/unstaged 變更。
+
+### 沒有驗證的部分（不在 Debugger 職責範圍，交還 Cody）
+- `python main.py --backtest-accumulation` 真的對 `data/screener.db` 跑一次——debug-tasks.md 已明確
+  標注這步留給 Cody 自己開 terminal 跑，這次沒有代跑。
+
+### 結論
+- [x] 可以繼續下一個任務
+- 三則待驗項目全數 ✅ 通過，唯一新發現（TDCC 公布延遲）是既有系統性限制、非本次改動引入，記錄
+  下來供之後參考，不影響這批 commit 的正確性判定。
+
+---
+
 ## [2026-07-14] 驗證（筆電）- week_chg 邏輯 ✅ 真的修好了，但 🔴 2380 假訊號還在（既有髒值沒清）
 
 ### TL;DR

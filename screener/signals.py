@@ -17,8 +17,6 @@ from typing import List, Dict, Any
 import duckdb
 import pandas as pd
 
-from processors.performance import calc_cumulative_meta
-
 logger = logging.getLogger(__name__)
 
 _DB_PATH = "data/screener.db"
@@ -316,8 +314,29 @@ def scan_momentum_health(
 
     # ── B4：相對強弱（族群內 + vs 大盤） ──────────────────────────
     universe_df = _load_universe_df(universe_path)
-    sector_cum = calc_cumulative_meta(universe_df, db_path)
-    sector_cum5_map = {r["meta_name"]: r["cum5"] for r in sector_cum if r["cum5"] is not None}
+
+    # 族群基準 = 族群內成分股近5日等權平均累積報酬。刻意不呼叫 calc_cumulative_meta()——
+    # 那支函式不吃 trade_date，永遠抓 DB 裡最新日期算，回測餵歷史 trade_date 時會洩漏
+    # trade_date 之後才發生的未來資料（look-ahead bias，見 bug-reports.md 2026-07-16 重現紀錄）。
+    # 改成用已經用 SQL WHERE date<=trade_date 裁切過的 price_df 現算，跟下面 market_cum5
+    # 同一套手法（那半原本就正確，因為本來就沒借用 calc_cumulative_meta）。
+    sector_map = universe_df.set_index(universe_df["stock_id"].astype(str))["meta_sector"].to_dict()
+    sector_price_df = price_df[price_df["stock_id"].astype(str).isin(sector_map.keys())].copy()
+    sector_price_df["meta_sector"] = sector_price_df["stock_id"].astype(str).map(sector_map)
+
+    sector_cum5_map = {}
+    for meta_name, sgrp in sector_price_df.groupby("meta_sector"):
+        sector_dates = sorted(sgrp["date"].unique())
+        if len(sector_dates) < _RS_WINDOW_DAYS:
+            continue
+        last_n = sector_dates[-_RS_WINDOW_DAYS:]
+        daily_avg = sgrp[sgrp["date"].isin(last_n)].groupby("date")["change_pct"].mean()
+        factor = 1.0
+        for d in last_n:
+            pct = daily_avg.get(d)
+            if pct is not None and pd.notna(pct):
+                factor *= (1 + float(pct) / 100)
+        sector_cum5_map[meta_name] = round((factor - 1) * 100, 2)
 
     # 「大盤」基準 = universe 等權平均近5日累積報酬（不用 TAIEX 加權指數——universe 只有
     # 追蹤的電子科技股，跟涵蓋全市場的 TAIEX 不是同一個母體，混用會有 apples-to-oranges 問題）。
@@ -387,6 +406,7 @@ def scan_momentum_health(
 def scan_consecutive_limit_up(
     trade_date: str,
     db_path: str = _DB_PATH,
+    universe_path: str = _UNIVERSE_PATH,
 ) -> List[Dict[str, Any]]:
     """
     連續漲停鎖死偵測：逐股計算連續鎖漲停天數，供「最強型態」排序/標記使用。
@@ -419,7 +439,7 @@ def scan_consecutive_limit_up(
         logger.warning("scan_consecutive_limit_up: DuckDB 無行情資料")
         return []
 
-    universe_map = _load_universe_map()
+    universe_map = _load_universe_map(universe_path)
     price_df["date"] = pd.to_datetime(price_df["date"])
     target = pd.to_datetime(trade_date)
 

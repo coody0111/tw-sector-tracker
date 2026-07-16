@@ -898,6 +898,8 @@ if __name__ == "__main__":
                         help="TWSE MI_MARGN 補齊過去 N 個工作日融資融券資料（建議 60）")
     parser.add_argument("--backtest", action="store_true",
                         help="跑巨量換手回測，輸出勝率與期望值統計")
+    parser.add_argument("--backtest-accumulation", action="store_true",
+                        help="跑進貨分回測校準，輸出分數分桶超額報酬 + weakening 邊界案例比較")
     parser.add_argument(
         "--backtest-chips", nargs="?", const="all", default=None,
         choices=["all", "joint_buy", "foreign_continuation", "trust_continuation", "margin_bearish", "tdcc_accumulation"],
@@ -940,8 +942,13 @@ if __name__ == "__main__":
     elif args.backfill_margin:
         backfill_marg(days=args.backfill_margin)
     elif args.backtest:
-        df = run_backtest()
+        df = run_backtest(lambda d, p: scan_volume_turnover(d, db_path=p))
         print_backtest_summary(df)
+    elif args.backtest_accumulation:
+        from screener.patterns import scan_accumulation_score, print_accumulation_calibration
+        scanner, cache = scan_accumulation_score()
+        df = run_backtest(scanner)
+        print_accumulation_calibration(df, cache)
     elif args.backtest_chips:
         from screener.backtest import CHIPS_RULE_CONFIG, run_chips_rule_backtests
         for rule_name, df in run_chips_rule_backtests(args.backtest_chips).items():

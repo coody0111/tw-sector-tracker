@@ -1,3 +1,86 @@
+## [2026-07-15] ✅ 追加：`print_accumulation_calibration()` 分數分桶依大盤 regime 再拆分
+
+Cody 實跑 `python main.py --backtest-accumulation` 後看真實數字，分數分桶勝率/超額報酬幾乎打平、
+看不出「分數越高越好」——討論後認為這可能是把不同大盤 regime（多頭/盤整/空頭）的訊號攤在一起看，
+蓋掉了只在特定 regime 才成立的分數效應（呼應 2026-07-14 進貨分 spec「大盤 regime 相依」caveat）。
+`run_backtest()`（既有、未改動）本來就有輸出 `regime` 欄位，只是 `print_accumulation_calibration()`
+之前沒用到。這次補上：每個分數桶底下，若 df 有 `regime` 欄位，再依多頭/盤整/空頭各印一次。
+
+範圍小（`screener/patterns.py` 一個函式內加約20行、`tests/test_patterns.py` 加一個測試），沒有走
+完整 subagent-driven-development 流程（沒派 review subagent），只有我自己手動核對邏輯 + 語法檢查。
+新測試 `test_print_accumulation_calibration_breaks_down_by_regime` 驗證了兩筆不同 regime 的訊號會
+被拆成 `[60-100分/多頭]`／`[60-100分/空頭]` 分開印。既有測試（沒有 regime 欄位那筆）不受影響，
+因為 `"regime" in sub.columns` 這個 guard 會讓沒有 regime 欄位時完全跳過新邏輯，行為不變。
+
+### 請 Debugger 驗證
+- [ ] `python -m pytest tests/test_patterns.py -q` 全過，尤其新增的 `test_print_accumulation_calibration_breaks_down_by_regime`
+- [ ] 因為範圍小、沒走完整 review 流程，麻煩這次稍微多看一眼 `print_accumulation_calibration()` 改動的那段（分數分桶迴圈裡新增的 regime 巢狀迴圈），確認沒有把既有的「全部」彙總行邏輯弄壞
+
+### 特別注意
+- 這個改動不影響 `富鼎型邊界案例` 那段報告——只有分數分桶那段加了 regime 拆分，邊界案例維持原樣（現在因為大戶資料只有7-9週，n=0，跟這次改動無關，是資料量問題，見上面主要那則記錄）。
+
+---
+
+## [2026-07-15] ✅ 進貨分回測校準（plan: docs/superpowers/plans/2026-07-15-accumulation-score-backtest-calibration.md，spec: docs/superpowers/specs/2026-07-15-accumulation-score-backtest-calibration-design.md）
+
+把 `screener/patterns.py::calc_accumulation_score()`（進貨分，2026-07-14 完成但從未被驗證過切點準不準）接進
+`screener/backtest.py::run_backtest()`（2026-07-14 完成的通用回測框架），讓 Cody 能實際跑出「進貨分高的股票，
+後續超額報酬是否真的比較好」的真實數字。全部用 subagent-driven-development 執行（每個 Task 一個全新
+implementer subagent，做完各跑一輪 spec compliance review + code quality review，最後再跑一輪全體整合 review）。
+
+### 4個 Task，全部 commit 到 master
+1. **`_shareholder_history_index`/`_shareholder_as_of`/`_recent_return_index`/`_recent_return_as_of`**
+   （`screener/patterns.py`）——大戶連增週數/當週張數變化、近5日報酬的「任意歷史日期」查詢 helper。
+   既有的 `get_shareholder_top()`/`get_rolling_returns()`（`screener/database.py`）都只能查「最新」，
+   回測需要查任意歷史日期，所以另寫一版（讀一次全表建索引，跟 `backtest.py::_build_price_index` 同手法，
+   不是逐股逐日查 DB）。
+2. **`scan_accumulation_score(db_path) -> (scanner, cache)`**（`screener/patterns.py`）——scanner 工廠。
+   每天呼叫既有 `scan_institutional()` 拿外資/投信 streak，查 Task 1 的索引拿大戶/報酬，餵進既有
+   `calc_accumulation_score()`。`run_backtest()` 本身只認 `sig["stock_id"]`，不會把 score 等欄位帶進輸出，
+   所以用 `cache` dict（side-effect 快取）事後把完整明細 merge 回結果——**刻意不修改 `screener/backtest.py`**
+   （它剛做完 Task 1-6、還在等這批一起驗）。
+3. **`print_accumulation_calibration(df, cache, horizons)`**（`screener/patterns.py`）——校準報告。印兩塊：
+   分數分桶（0-19/20-39/40-59/60-100）看超額報酬是否隨分數遞增；「富鼎型邊界案例」
+   （`weakening=True` 但大戶當週淨增>0，之前討論過的已知懸而未決問題）單獨拉出來跟其餘樣本對照。
+4. **`main.py`**——順便修好一個既有 bug：`--backtest` 呼叫 `run_backtest()` 零參數會直接 `TypeError`
+   （Task 1 重構 `run_backtest` 簽章時的遺留回歸，這次順便補，不是本次新增的問題）。新增
+   `--backtest-accumulation` 指令，串起上面三個新函式。
+
+### 過程中抓到並修掉的問題
+- **Task 1**：第一次 spec review 發現 subagent 的檔案 append 把新測試碼插進前一個既有測試函式中間，
+  切斷它、還讓新測試多一行參照不存在變數的斷言（`NameError`）。已修復，改用真的 `pytest` 跑過確認
+  （`43 passed`），不是只靠 hand-trace。
+- **Task 3**：code quality review 抓到 `print_accumulation_calibration()` 裡三次分開的 `df.apply(axis=1)`
+  是可測到的效能問題（合成 50萬列 benchmark 約慢20倍），已改成一次 zip-based 查表。過程中撞到跟另一個
+  並行 session（debug→master 合併）的 git 分岔小插曲，該 session 自己已經 reconcile 掉
+  （commit 訊息就寫「reconcile duplicate debug-merge artifact」），我事後直接讀 code 確認修復內容完好，
+  沒有遺失或覆蓋任何東西。
+- **最終整體 review**：抓到一個非本次新增、但值得標注的既有行為——`scan_institutional()`（既有函式）
+  法人資料缺漏時會沿用前一有資料日的舊快照，導致回測報告裡的 `n`（訊號筆數）可能包含好幾天重複的
+  近似分數，不是真的獨立樣本。已在 `print_accumulation_calibration()` 加一段印出的提醒文字 + docstring
+  說明，避免看報告時把 `n` 偏高誤讀成樣本真的那麼獨立。
+
+### 測試
+全部 4 個 Task 都沒有自己跑 pytest 做「開發階段驗證」（照專案規則留給 Debugger），但每個 Task 的
+**review 階段**（由獨立 reviewer subagent，不是實作者本人）都有真的執行 `pytest` 確認：
+- Task 1 review：`43 passed`
+- Task 2 review：`44 passed`（`test_patterns.py`），全專案 `242 passed`
+- Task 3 review：`45 passed`（初版）；效能修復後 review 過程也用 `pytest` 確認測試仍過
+- 最終整體 review：全專案 `python -m pytest tests/ -q` → **243 passed, 1 warning**（那個 warning 是
+  `tests/test_processors.py` 既有的、跟這次無關的 `FutureWarning`）
+
+### 請 Debugger 驗證
+- [ ] `python -m pytest tests/ -q` 全過（243 passed 是我這邊 review 階段跑到的數字，麻煩重新確認一次）
+- [ ] `screener/backtest.py` 全程沒有被這批改動碰到（已用 `git log --oneline -- screener/backtest.py` 確認過範圍內是空的，麻煩複查）
+- [ ] `main.py --backtest` 修復後、`--backtest-accumulation` 新指令，語法檢查過(`py_compile`)但沒有真的跑過真實資料——**這步牽涉真的執行程式跑 `data/screener.db`，照規則留給 Cody 自己開 terminal 跑**，不是 Debugger 的驗證範圍，但麻煩留意 `python main.py --backtest-accumulation` 第一次真的跑起來的速度（`scan_institutional()` 逐日全表掃描，多年資料可能偏慢，這是已知、接受的風險，不是這次要修的東西）
+- [ ] `_shareholder_as_of()`/`_recent_return_as_of()` 的「as of 歷史日期」邏輯（forward-fill 方向、no-lookahead）——這是整個功能正確性的地基，麻煩特別覆查
+
+### 特別注意
+- 這次全程用 subagent-driven-development 模式執行（4個獨立 implementer + 8輪 spec/quality review + 1輪整體 review），過程中兩次撞到跟另一個並行 session 共用 `.git` 的小狀況（都已妥善處理、沒有遺失任何東西），再次印證 CLAUDE.md「兩個 session 別同時動 git」的提醒不是空穴來風。
+- `calc_accumulation_score()` 公式本身這次**沒有被修改**——這個 Task 的產出是「校準管線」本身，實際切點要不要調整，要等 Cody 用 `python main.py --backtest-accumulation` 看過真實數字之後再決定，不在本次範圍。
+
+---
+
 ## [2026-07-15] 搜尋族群「點了沒反應」修復（export/html_generator.py）
 
 ### 改了什麼

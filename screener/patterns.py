@@ -1565,10 +1565,18 @@ def print_accumulation_calibration(df: pd.DataFrame, cache: dict, horizons=(5, 1
     """
     印出進貨分校準報告：
     1. 依 score 分桶（0-19/20-39/40-59/60-100）看各桶平均超額報酬/勝率，回答
-       「分數越高，後續表現是否真的越好」。
+       「分數越高，後續表現是否真的越好」。若 df 有 run_backtest() 產出的 regime 欄位
+       （多頭/盤整/空頭），每個分數桶底下再依 regime 拆開印一次——「籌碼是配角」這個
+       結論可能只在特定行情成立（見 2026-07-14 spec「大盤 regime 相依」caveat），
+       總體攤平可能蓋掉某個 regime 下才看得出來的分數效應。
     2. weakening=True 但 holder_net_lots>0 的「富鼎型邊界案例」子集，跟其餘樣本對照，
        回答「純大戶進貨、法人沒動被判轉弱，是否真的該轉弱」。
     預設剔除 no_fill=True（漲停買不到）的訊號，比照 backtest.py::print_summary()。
+
+    ⚠️ n 不等於獨立樣本數：scan_institutional()（既有函式，本次未修改）在某天缺法人資料時
+    會沿用前一有資料日的舊快照重算 streak，同一組法人數字可能連續好幾天重複算出近似的分數，
+    被 run_backtest() 逐日訊號計入 n。看報告時 n 偏高不代表樣本真的那麼獨立，這是繼承自
+    既有 scan_institutional() 的行為，非本次新增的 bug（見設計 spec「已知限制」段落的延伸）。
     """
     if df.empty:
         print("無訊號資料")
@@ -1596,6 +1604,8 @@ def print_accumulation_calibration(df: pd.DataFrame, cache: dict, horizons=(5, 1
 
     print("=" * 60)
     print("  進貨分分數分桶（score 越高，後續超額報酬是否越好？）")
+    print("  注意：n 為訊號筆數，非獨立樣本數——法人資料缺漏時會沿用前一日舊快照，")
+    print("  同一組數字可能連續重複出現，n 偏高不代表樣本真的那麼獨立")
     print("=" * 60)
     buckets = [(0, 20, "0-19分"), (20, 40, "20-39分"), (40, 60, "40-59分"), (60, 101, "60-100分")]
     for lo, hi, tag in buckets:
@@ -1604,6 +1614,13 @@ def print_accumulation_calibration(df: pd.DataFrame, cache: dict, horizons=(5, 1
             continue
         for h in horizons:
             _block(sub, tag, h)
+        if "regime" in sub.columns:
+            for reg in ["多頭", "盤整", "空頭"]:
+                reg_sub = sub[sub["regime"] == reg]
+                if reg_sub.empty:
+                    continue
+                for h in horizons:
+                    _block(reg_sub, f"{tag}/{reg}", h)
 
     print("-" * 60)
     print("  富鼎型邊界案例（weakening=True 但大戶當週淨增 >0）vs 其餘樣本")

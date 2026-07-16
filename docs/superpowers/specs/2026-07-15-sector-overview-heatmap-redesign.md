@@ -1,10 +1,11 @@
 # 族群總覽頁（index.html）重新設計 — 熱區格＋族群近況＋個股點開版
 
-**日期**：2026-07-15
-**狀態**：設計方向已定案（v16），尚未寫入 `export/html_generator.py`
+**日期**：2026-07-15（2026-07-15 更新：個股清單展開方式定案 v18）
+**狀態**：設計方向已定案（頁面結構 v16、個股清單展開方式 v18），尚未寫入 `export/html_generator.py`
 **取代**：`2026-07-02-index-frontend-redesign-design.md`（見下方「跟舊 spec 的關係」）
-**設計沿革**：`docs/superpowers/mockups/README.md` 第 7-16 版，最終參考檔
-`docs/superpowers/mockups/2026-07-15-index-v16-stock-drilldown.html`
+**設計沿革**：`docs/superpowers/mockups/README.md` 第 7-18 版，最終參考檔
+`docs/superpowers/mockups/2026-07-15-index-v18-inline-expand.html`（個股清單展開邏輯以此為準，
+其餘頁面結構跟 v16 相同；v17 是比較過但未採用的備選方案，保留當紀錄）
 
 ## 跟舊 spec 的關係
 
@@ -105,14 +106,37 @@
   比單純幅度排序故事性更強——代表趨勢方向可能真的變了，不是單純波動
 - **③角色說明**（`.role-note`）：區分異動族群 vs 族群近況的時間尺度差異
 
-## 點開個股清單（v16 新增，之前 v11/v12 做過又在 v13 弄丟）
+## 點開個股清單（v16 新增，之前 v11/v12 做過又在 v13 弄丟；展開方式 v18 定案）
 
 點任一族群卡片（熱區格或異動族群卡片皆可）觸發 `selectGroup(name)`：
 
-- 已展開同一張卡再點一次 → 收合（`detail-panel` 加 `.hidden`）
-- 展開新族群 → 面板內容替換，`.heat-tile.active` 標記當前選中卡片（`outline` 樣式）
-- 面板位置固定在**熱區格正下方**（`#detailPanel`，緊接在 `#heatgrid` 後面），不管點的是熱區格
-  卡片還是異動族群卡片，都在同一個位置展開，維持版面穩定（`scrollIntoView` 平滑捲動過去）
+- 已展開同一張卡再點一次 → 收合（移除動態插入的 `#detailPanel` 節點）
+- 展開新族群 → 先移除舊面板節點，重新建立並插入新位置，`.heat-tile.active` 標記當前選中
+  卡片（`outline` 樣式）
+
+**展開位置（v18 定案，取代 v16/v17 的固定位置方案）**：面板動態插入到**被點卡片所在那一整排**
+的正下方，不是固定接在整個熱區格最後面，也不是側邊滑出。理由：v16 把面板固定接在熱區格最後面，
+點越前面排的卡片視線要滑過的距離越長，跟點擊位置完全脫節；比較過的另一個方案（v17，右側滑出
+drawer）雖然視線移動距離一致，但會遮住/擠壓部分熱區格內容——v18 的「原地展開」空間錨定感最好，
+點哪裡就在哪裡展開，不遮住任何內容，是最終選定方向。
+
+實作邏輯（`grid-column:1/-1` + `offsetTop` 分組）：
+
+```js
+// 找出被點卡片所在那一整排：用 offsetTop 分組，不能假設固定欄數
+// （CSS grid 用 auto-fill，欄數會隨螢幕寬度變，要用實際渲染後的位置分組才對任何寬度都準確）
+const tiles = [...document.querySelectorAll('.heat-tile')];
+const rowTop = clickedTile.offsetTop;
+const rowTiles = tiles.filter(t => t.offsetTop === rowTop);
+const lastInRow = rowTiles[rowTiles.length - 1];
+lastInRow.insertAdjacentElement('afterend', detailPanel);  // detailPanel 需要 grid-column:1/-1
+```
+
+點異動族群卡片（在熱區格外面的橫向捲動列表）也會展開到熱區格裡對應那張卡片所在的排——因為
+異動族群本來就是 41 個族群裡的其中幾個，兩區塊指向同一份資料，這個行為順便展示了這一點。
+
+⚠️ **已知取捨**：連續點擊不同族群時，因為每次展開位置不同（不同排），版面高度會跟著跳動
+（不像固定位置方案那樣穩定）。這是接受的取捨，不是 bug。
 
 個股表格欄位：股號＋股名、收盤價、漲跌%（照色系上色）、幅度長條（`.mini-bar`，寬度依
 `|漲跌%| / maxChg` 正規化）。

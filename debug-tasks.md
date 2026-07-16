@@ -1,3 +1,55 @@
+## [2026-07-16] 📋 回家再做：逆轟策略頁面 v2 實作計畫（討論定案，尚未拆 plan）
+
+### 目標
+依 **`docs/superpowers/specs/2026-07-16-momentum-strategy-page-v2-design.md`** 做出**整合版**逆轟策略頁
+（每日 pipeline 產出、吃真實掃描資料）。v2 spec 為唯一準則，取代 v1（`2026-07-14` design +
+`2026-07-15` visual-design）。
+
+### ⚠️ 現況盤點（動手前先知道）
+- **v2 spec 已在 master**（commit `9432e5e`，這次 pull 下來了）。
+- `docs/momentum.html`（24922 行、標題「逆轟動能策略 V2」）是 **codex 手刻的靜態頁**——**沒有
+  `export/momentum_generator.py`、沒接進 `main.py` pipeline、沒吃真實 scan 資料**，等於一個大 mockup。
+  → **不是成品**，真正要做的是整合版 generator。視覺可參考但別當權威。
+- `docs/superpowers/mockups/2026-07-16-momentum-strategy-v5-breakout-volume.html`（v5，codex 做的）
+  **整份是 v1 命令式風格**（隨時加碼/直接出清/立刻砍/可換入/反手放空 全在，v2 非命令標籤 0 個）
+  → **跟 v2 spec 完全對不上，丟掉不當參考**（Cody：「太爛」）。
+
+### v2 vs v1 的核心差異（別做回舊的）
+- **狀態≠命令**：拿掉所有命令文案；沒持股資料就不下「你該買賣」。§4.2 禁用字：隨時加碼/一定續抱/
+  直接出清/立刻砍/可換入/反手放空（要有回歸測試掃全頁確認沒有）。
+- **四層決策**：市場許可(normal/selective/defensive/unknown) → 族群優先序 → 個股技術狀態 → 
+  最終非命令標籤（進場候選/續強觀察/等待確認/風險升高/出場條件命中/跌停風險）。
+- **freshness**：指數/個股/法人資料日期不一致 → 許可降級 `unknown`、不輸出市場文案。
+- 新增共用**觀察分** `calc_meta_observation_scores()`（30%RS+25%廣度+20%延續+15%量能+10%籌碼），
+  **首頁＋逆轟頁共用**（＝先前討論的「今日重點族群」綜合分）。
+
+### 建議拆成 3 個 plan（相依順序，回家用 writing-plans 拆）
+1. **資料層**（`screener/signals.py`，全部只加欄位、向下相容 + 補測試）：
+   - `scan_momentum_health()`：出場子欄位（`below_ma5`/`ma5_slope_down`/`big_black_proxy`）+
+     `ma5_rising`/`ma10_rising` + **`daily_excess_pct`（今日抗跌差，單日，別再用 5 日 RS 代替）** + RS 樣本數。
+   - `scan_bullish_alignment_new_high()`（B3）：加 `volume_ratio_20d` + `volume_confirmed`（≥1.5），
+     **只加標記、不改既有價格命中集合**。
+   - `scan_consecutive_limit_up()`（B5）：加 `breakout_volume_confirmed`（起點量≥前20日均量×1.5，
+     不足回 `None`）。
+   - 新增 `_LIMIT_DOWN_PCT = -9.5`（只給「跌停風險」標記，不生放空/立刻砍指令）。
+2. **觀察分**（`processors/performance.py::calc_meta_observation_scores()`）：族群優先序，首頁+逆轟頁
+   共用；籌碼涵蓋不完整時排除該項、不補零，顯示 `score_coverage`。可單獨驗。
+3. **generator + UI**（`export/momentum_generator.py` 新建 + `main.py` 接線）：四層決策組裝、
+   freshness 降級、無障礙（button/details/aria-expanded、狀態不只靠顏色）、禁用命令文案回歸測試。
+   **UI 視覺用 `ui-ux-pro-max` skill 依 v2 非命令 IA 重做一版 mockup**，不沿用 v5/codex 靜態頁。
+
+### 驗收重點（v2 spec §7 有完整清單，摘要）
+- `daily_excess_pct` 用單日、不誤用 5 日 RS；小族群顯示低樣本信心（<5 檔=C，不能單靠百分位升「進場候選」）。
+- B3/B5 量能 True/False/None 測試；出場子欄位與 `exit_3_rule_triggered` 完全一致。
+- 全頁無 §4.2 禁用命令文案（回歸測試）；日期不一致顯示 `unknown`。
+- 所有計算以 `trade_date` 截止、no look-ahead。
+
+### 特別注意
+- 回測驗證是**另一個獨立任務**（v2 spec §5、§8 明列 out of scope），別跟頁面實作綁一起。
+- 動手寫 plan 前先 `git pull`（v2 spec 已在 master，但 origin 這幾天 codex/cron 很活躍，先同步）。
+
+---
+
 ## [2026-07-16] 🖥️ 桌電待驗：籌碼策略是否真的有增益（不要只看回測平均報酬）
 
 ### 背景

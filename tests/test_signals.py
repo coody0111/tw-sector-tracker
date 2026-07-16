@@ -387,6 +387,12 @@ def test_scan_momentum_health_daily_excess_pct_uses_single_day_not_5day(tmp_path
     """daily_excess_pct 必須用「今日」個股 change_pct 減「今日」universe 等權平均，
     不能誤用 5 日累積報酬（v2 spec §3.1 要修正的那個問題）。"""
     db_path = tmp_path / "test.db"
+    universe_path = tmp_path / "universe.csv"
+    universe_path.write_text(
+        "stock_id,stock_name,meta_sector\n"
+        "1101,測試A,sectorA\n1102,測試B,sectorA\n",
+        encoding="utf-8",
+    )
     dates = pd.date_range("2026-01-01", periods=65, freq="D")
     rows = []
     # 1101：前64天平淡(0.1%)，今日+3.0%（明顯跑贏大盤）
@@ -399,7 +405,9 @@ def test_scan_momentum_health_daily_excess_pct_uses_single_day_not_5day(tmp_path
     rows.append(("1102", dates[-1].strftime("%Y-%m-%d"), 49.5, -1.0, 1000))
     _seed_db(db_path, rows)
 
-    results = scan_momentum_health(dates[-1].strftime("%Y-%m-%d"), db_path=str(db_path))
+    results = scan_momentum_health(
+        dates[-1].strftime("%Y-%m-%d"), db_path=str(db_path), universe_path=str(universe_path)
+    )
     r1101 = next(r for r in results if r["stock_id"] == "1101")
 
     # universe 今日等權平均 = (3.0 + (-1.0)) / 2 = 1.0；daily_excess_pct = 3.0 - 1.0 = 2.0

@@ -440,6 +440,60 @@ def test_scan_momentum_health_rs_sample_count_reflects_sector_size(tmp_path):
     assert r1103["rs_sample_count"] == 1  # sectorB 只有 1103 一檔
 
 
+def test_scan_momentum_health_daily_excess_pct_none_when_stock_change_pct_missing(tmp_path):
+    """個股當日 change_pct 是 NULL（例如停牌/全額交割股當天無資料）時，daily_excess_pct
+    必須是 None，不能變成 NaN float（NaN float 會讓下游 `is None` 判斷失效、JSON序列化
+    也會產生不合法的 NaN token）。"""
+    db_path = tmp_path / "test.db"
+    universe_path = tmp_path / "universe.csv"
+    universe_path.write_text(
+        "stock_id,stock_name,meta_sector\n"
+        "1101,測試A,sectorA\n1102,測試B,sectorA\n",
+        encoding="utf-8",
+    )
+    dates = pd.date_range("2026-01-01", periods=65, freq="D")
+    rows = []
+    for i, d in enumerate(dates[:-1]):
+        rows.append(("1101", d.strftime("%Y-%m-%d"), 100.0 + i * 0.1, 0.1, 1000))
+    rows.append(("1101", dates[-1].strftime("%Y-%m-%d"), 100.0, None, 1000))  # 今日 change_pct NULL
+    for i, d in enumerate(dates[:-1]):
+        rows.append(("1102", d.strftime("%Y-%m-%d"), 50.0 + i * 0.05, 0.1, 1000))
+    rows.append(("1102", dates[-1].strftime("%Y-%m-%d"), 49.5, -1.0, 1000))
+    _seed_db(db_path, rows)
+
+    results = scan_momentum_health(
+        dates[-1].strftime("%Y-%m-%d"), db_path=str(db_path), universe_path=str(universe_path)
+    )
+    r1101 = next(r for r in results if r["stock_id"] == "1101")
+
+    assert r1101["daily_excess_pct"] is None
+
+
+def test_scan_momentum_health_daily_excess_pct_none_when_no_universe_data_today(tmp_path):
+    """universe 裡的股票當日完全沒有資料（例如 universe.csv 跟 daily_prices 不同步）時，
+    market_today_avg_pct 應該是 None，daily_excess_pct 對所有股票都要是 None，
+    不能算出一個誤導性的數字。"""
+    db_path = tmp_path / "test.db"
+    universe_path = tmp_path / "universe.csv"
+    # universe 只登記 8888，但 8888 完全沒有進 daily_prices（模擬 universe/daily_prices 不同步）
+    universe_path.write_text(
+        "stock_id,stock_name,meta_sector\n8888,測試X,sectorX\n",
+        encoding="utf-8",
+    )
+    dates = pd.date_range("2026-01-01", periods=65, freq="D")
+    # 被掃描的股票 9999 不在 universe 裡，但本身資料完整
+    rows = [("9999", d.strftime("%Y-%m-%d"), 100.0 + i * 0.1, 0.1, 1000)
+            for i, d in enumerate(dates)]
+    _seed_db(db_path, rows)
+
+    results = scan_momentum_health(
+        dates[-1].strftime("%Y-%m-%d"), db_path=str(db_path), universe_path=str(universe_path)
+    )
+
+    assert len(results) == 1
+    assert results[0]["daily_excess_pct"] is None
+
+
 def test_scan_consecutive_limit_up_counts_streak(tmp_path):
     """連續 3 天漲停（含今天）應算出 limit_up_streak == 3。"""
     db_path = tmp_path / "test.db"

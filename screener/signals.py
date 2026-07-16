@@ -377,7 +377,7 @@ def scan_momentum_health(
 
     for row in results:
         sid = row["stock_id"]
-        if market_today_avg_pct is not None:
+        if market_today_avg_pct is not None and pd.notna(row["change_pct"]):
             row["daily_excess_pct"] = round(row["change_pct"] - market_today_avg_pct, 2)
 
         grp = price_df[(price_df["stock_id"] == sid) & (price_df["date"] <= target)]

@@ -209,12 +209,19 @@ def scan_momentum_health(
         stock_id, stock_name, meta_sector, close, change_pct,
         ma5, ma10, ma20, ma60,
         ma_alignment ("多頭排列"/"空頭排列"/"糾結"),
-        ma5_slope_down (bool),
-        exit_3_rule_triggered (bool)，   ← (1)跌破MA5 (2)MA5下彎 (3)重挫長黑 三者同時成立
-        entry_confirmed (bool)，         ← 多頭排列 + MA5/MA10 皆上揚
+        ma5_slope_down (bool)，          ← 出場子條件：五日線下彎
+        below_ma5 (bool)，               ← 出場子條件：跌破五日線（v2新增）
+        big_black_proxy (bool)，         ← 出場子條件：重挫proxy，非完整K棒長黑判斷（v2新增）
+        ma5_rising (bool)，              ← 動能子條件：MA5上揚（v2新增）
+        ma10_rising (bool)，             ← 動能子條件：MA10上揚（v2新增）
+        exit_3_rule_triggered (bool)，   ← (1)below_ma5 (2)ma5_slope_down (3)big_black_proxy 三者同時成立
+        entry_confirmed (bool)，         ← 多頭排列 + ma5_rising + ma10_rising
         rs_score (float|None)，          ← 個股5日報酬 - 族群5日平均報酬
         rs_rank_pct (float|None)，       ← 族群內百分位排名，1.0=最強
-        rs_market_score (float|None)，   ← 個股5日報酬 - universe 等權平均5日報酬（vs 大盤）
+        rs_market_score (float|None)，   ← 個股5日報酬 - universe 等權平均5日報酬（vs 大盤，5日週期）
+        daily_excess_pct (float|None)，  ← 個股今日漲跌% - universe 今日等權平均漲跌%（單日週期，v2新增，
+                                            不可與 rs_market_score 混用，見設計 spec §3.1）
+        rs_sample_count (int)，          ← 同族群當日有效算出 rs_score 的股票數（v2新增，RS樣本信心分母）
         strength_tier                    ← 超強/強/整理/弱/超弱
     """
     con = duckdb.connect(db_path, read_only=True)
@@ -278,11 +285,9 @@ def scan_momentum_health(
         ma10_rising = ma10_today > ma10_yday
 
         today = window.iloc[-1]
-        exit_3_rule_triggered = bool(
-            today["close"] < ma5_today
-            and ma5_slope_down
-            and today["change_pct"] <= _EXIT_BIG_BLACK_PCT
-        )
+        below_ma5 = bool(today["close"] < ma5_today)
+        big_black_proxy = bool(today["change_pct"] <= _EXIT_BIG_BLACK_PCT)
+        exit_3_rule_triggered = bool(below_ma5 and ma5_slope_down and big_black_proxy)
         entry_confirmed = bool(
             ma_alignment == "多頭排列" and ma5_rising and ma10_rising
         )
@@ -300,11 +305,17 @@ def scan_momentum_health(
             "ma60":                  round(ma60_today, 2),
             "ma_alignment":          ma_alignment,
             "ma5_slope_down":        ma5_slope_down,
+            "below_ma5":             below_ma5,
+            "big_black_proxy":       big_black_proxy,
+            "ma5_rising":            ma5_rising,
+            "ma10_rising":           ma10_rising,
             "exit_3_rule_triggered": exit_3_rule_triggered,
             "entry_confirmed":       entry_confirmed,
             "rs_score":              None,
             "rs_rank_pct":           None,
             "rs_market_score":       None,
+            "rs_sample_count":       0,
+            "daily_excess_pct":      None,
             "strength_tier":         None,
         })
 
@@ -355,8 +366,20 @@ def scan_momentum_health(
                 factor *= (1 + float(pct) / 100)
         market_cum5 = round((factor - 1) * 100, 2)
 
+    # 「今日」大盤基準（v2 spec §3.1 daily_excess_pct，跟上面的5日 market_cum5 是不同週期，
+    # 不能混用——這裡只取 target 當天 universe 等權平均，不做5日累積）。
+    today_market_df = market_df[market_df["date"] == target]
+    market_today_avg_pct = None
+    if not today_market_df.empty:
+        avg_val = today_market_df["change_pct"].mean()
+        if pd.notna(avg_val):
+            market_today_avg_pct = float(avg_val)
+
     for row in results:
         sid = row["stock_id"]
+        if market_today_avg_pct is not None:
+            row["daily_excess_pct"] = round(row["change_pct"] - market_today_avg_pct, 2)
+
         grp = price_df[(price_df["stock_id"] == sid) & (price_df["date"] <= target)]
         cum5_window = grp.sort_values("date").tail(_RS_WINDOW_DAYS)
         if len(cum5_window) < _RS_WINDOW_DAYS:
@@ -379,9 +402,13 @@ def scan_momentum_health(
         rs_df.loc[valid, "rs_rank_pct"] = (
             rs_df.loc[valid].groupby("meta_sector")["rs_score"].rank(pct=True, ascending=True)
         )
+        sample_counts = rs_df.loc[valid].groupby("meta_sector")["rs_score"].transform("count")
+        rs_df.loc[valid, "rs_sample_count"] = sample_counts
     for i, row in enumerate(results):
         val = rs_df.loc[i, "rs_rank_pct"]
         row["rs_rank_pct"] = None if pd.isna(val) else round(float(val), 3)
+        count_val = rs_df.loc[i, "rs_sample_count"]
+        row["rs_sample_count"] = int(count_val) if pd.notna(count_val) else 0
 
     # ── 五級強弱分類 ──────────────────────────────────────────────
     for row in results:

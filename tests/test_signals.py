@@ -342,6 +342,96 @@ def test_scan_momentum_health_tier_bullish_but_weak_rs_is_weak(tmp_path):
     assert weak["strength_tier"] == "弱"
 
 
+def test_scan_momentum_health_exposes_exit_and_entry_sub_conditions(tmp_path):
+    """出場三原則的三個子條件（below_ma5/ma5_slope_down/big_black_proxy）跟動能子條件
+    （ma5_rising/ma10_rising）都要個別回傳，不只有合併後的 exit_3_rule_triggered/entry_confirmed。"""
+    db_path = tmp_path / "test.db"
+    dates = pd.date_range("2026-01-01", periods=66, freq="D")
+    # 65 天穩定上升，最後一天重挫長黑跌破均線（觸發完整出場三原則）
+    closes = [100.0 + i * 0.5 for i in range(65)] + [90.0]
+    change_pcts = [0.3] * 65 + [-8.0]
+    rows = [
+        ("1101", d.strftime("%Y-%m-%d"), c, pct, 1000)
+        for d, c, pct in zip(dates, closes, change_pcts)
+    ]
+    _seed_db(db_path, rows)
+
+    results = scan_momentum_health(dates[-1].strftime("%Y-%m-%d"), db_path=str(db_path))
+
+    assert len(results) == 1
+    r = results[0]
+    assert r["below_ma5"] is True
+    assert r["big_black_proxy"] is True
+    assert r["exit_3_rule_triggered"] is True  # 既有欄位不變
+    assert r["ma5_rising"] is False
+    assert r["ma10_rising"] is False
+
+
+def test_scan_momentum_health_ma5_ma10_rising_true_when_uptrend(tmp_path):
+    """穩定上升趨勢中，MA5/MA10 都該是 rising=True。"""
+    db_path = tmp_path / "test.db"
+    dates = pd.date_range("2026-01-01", periods=65, freq="D")
+    rows = [("1101", d.strftime("%Y-%m-%d"), 100.0 + i * 0.5, 0.3, 1000)
+            for i, d in enumerate(dates)]
+    _seed_db(db_path, rows)
+
+    results = scan_momentum_health(dates[-1].strftime("%Y-%m-%d"), db_path=str(db_path))
+
+    assert results[0]["ma5_rising"] is True
+    assert results[0]["ma10_rising"] is True
+    assert results[0]["below_ma5"] is False
+    assert results[0]["big_black_proxy"] is False
+
+
+def test_scan_momentum_health_daily_excess_pct_uses_single_day_not_5day(tmp_path):
+    """daily_excess_pct 必須用「今日」個股 change_pct 減「今日」universe 等權平均，
+    不能誤用 5 日累積報酬（v2 spec §3.1 要修正的那個問題）。"""
+    db_path = tmp_path / "test.db"
+    dates = pd.date_range("2026-01-01", periods=65, freq="D")
+    rows = []
+    # 1101：前64天平淡(0.1%)，今日+3.0%（明顯跑贏大盤）
+    for i, d in enumerate(dates[:-1]):
+        rows.append(("1101", d.strftime("%Y-%m-%d"), 100.0 + i * 0.1, 0.1, 1000))
+    rows.append(("1101", dates[-1].strftime("%Y-%m-%d"), 106.5, 3.0, 1000))
+    # 1102：universe 對照組，今日 -1.0%（跟1101同族群，讓 universe 今日均值被拉低）
+    for i, d in enumerate(dates[:-1]):
+        rows.append(("1102", d.strftime("%Y-%m-%d"), 50.0 + i * 0.05, 0.1, 1000))
+    rows.append(("1102", dates[-1].strftime("%Y-%m-%d"), 49.5, -1.0, 1000))
+    _seed_db(db_path, rows)
+
+    results = scan_momentum_health(dates[-1].strftime("%Y-%m-%d"), db_path=str(db_path))
+    r1101 = next(r for r in results if r["stock_id"] == "1101")
+
+    # universe 今日等權平均 = (3.0 + (-1.0)) / 2 = 1.0；daily_excess_pct = 3.0 - 1.0 = 2.0
+    assert r1101["daily_excess_pct"] == 2.0
+
+
+def test_scan_momentum_health_rs_sample_count_reflects_sector_size(tmp_path):
+    """rs_sample_count 應該是同族群當日有效算出 rs_score 的股票數，不是全市場股票數。"""
+    db_path = tmp_path / "test.db"
+    universe_path = tmp_path / "universe.csv"
+    universe_path.write_text(
+        "stock_id,stock_name,meta_sector\n"
+        "1101,測試A,sectorA\n1102,測試B,sectorA\n1103,測試C,sectorB\n",
+        encoding="utf-8",
+    )
+    dates = pd.date_range("2026-01-01", periods=65, freq="D")
+    rows = []
+    for sid in ["1101", "1102", "1103"]:
+        for i, d in enumerate(dates):
+            rows.append((sid, d.strftime("%Y-%m-%d"), 100.0 + i * 0.2, 0.2, 1000))
+    _seed_db(db_path, rows)
+
+    results = scan_momentum_health(
+        dates[-1].strftime("%Y-%m-%d"), db_path=str(db_path), universe_path=str(universe_path)
+    )
+
+    r1101 = next(r for r in results if r["stock_id"] == "1101")
+    r1103 = next(r for r in results if r["stock_id"] == "1103")
+    assert r1101["rs_sample_count"] == 2  # sectorA 有 1101+1102 兩檔
+    assert r1103["rs_sample_count"] == 1  # sectorB 只有 1103 一檔
+
+
 def test_scan_consecutive_limit_up_counts_streak(tmp_path):
     """連續 3 天漲停（含今天）應算出 limit_up_streak == 3。"""
     db_path = tmp_path / "test.db"

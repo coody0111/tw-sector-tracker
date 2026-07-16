@@ -1,3 +1,58 @@
+## [2026-07-17] 逆轟策略 v2 Plan 1/3（資料層）完成：signals.py 三支函式新增證據欄位
+
+### 改了什麼
+- 異動檔案：`screener/signals.py`、`tests/test_signals.py`
+- 邏輯說明：依 `docs/superpowers/plans/2026-07-16-momentum-v2-data-layer.md`（3個Task，全部走
+  subagent-driven-development：implementer→spec-compliance review→code-quality review），
+  全部**只加欄位、不改既有回傳的股票集合／既有欄位語意**：
+  - `scan_momentum_health()`：新增 `below_ma5`/`big_black_proxy`/`ma5_rising`/`ma10_rising`/
+    `daily_excess_pct`（今日抗跈差，單日，修正原本誤用5日RS的問題）/`rs_sample_count`（族群
+    RS樣本信心分母）。
+  - `scan_bullish_alignment_new_high()`（B3）：新增 `volume_ratio_20d`/`volume_confirmed`
+    （今日量≥前20日均量×1.5），純標記、不影響既有多頭排列+創新高的價格命中集合。
+  - `scan_consecutive_limit_up()`（B5）：新增 `breakout_volume_confirmed`（連板起漲日量≥
+    起點前20日均量×1.5），新增 `_LIMIT_DOWN_PCT = -9.5` 常數（暫未使用，留給 Plan 3）。
+- 這次 review 迴圈**連續抓到4次同一類 bug**（nullable BIGINT/DOUBLE 欄位如 `volume`/
+  `change_pct`，DuckDB→pandas NULL 有時變 `pd.NA`有時變float `NaN`，naive `float()`/`int()`/
+  比較會悄悄產生錯值或直接 crash），全部修好並補了對應測試：
+  1. `daily_excess_pct`：個股當日 `change_pct` 是 NaN 時洩漏成 `float('nan')` 而非 `None`
+     （commit `ad1d933`）。
+  2. `volume_ratio_20d`：今日 volume 是 `pd.NA` 時 `float(pd.NA)` 直接 `TypeError`（commit
+     `6528bc1`，B3 amend）。
+  3. `breakout_volume_confirmed`：對應位置主動預防（commit `92281b9`，B5 一開始就用同套
+     pattern 防呆，含順手修掉同函式既有的 `int(today["volume"])` 未防呆問題）。
+  4. `volume_declining_streak`（**既有欄位**，連板期間量能遞減判斷）：`all()` 對含 `pd.NA`
+     的 list 取 `bool()` 直接 `TypeError`，會炸掉整支掃描（commit `c1ce680`）。
+- 最終 `tests/test_signals.py`：25→**34 passed**；全 repo 測試套件：**275 passed**（1個既有
+  跟這次改動無關的 pandas FutureWarning，在 `test_processors.py`）。
+
+### 資料來源相關（如有異動）
+- 上市資料（TWSE）：無新資料來源異動，純掃描邏輯加欄位。
+- 上櫃資料（TPEx / FinMind）：同上，無異動。
+
+### 請 Debugger 驗證
+- [ ] 三支函式新增欄位的計算邏輯是否正確（尤其 `daily_excess_pct` 單日 vs 舊有 `rs_market_score`
+      5日週期別搞混、B3/B5 量能門檻 1.5x／20日窗口）
+- [ ] 確認**既有回傳的股票集合完全沒變**（B3/B5 新增欄位不該讓任何原本會命中的股票消失，或讓
+      原本不會命中的股票冒出來）
+- [ ] `python -m pytest tests/test_signals.py -q` 跑一次確認 34 passed
+- [ ] `python -m pytest -q` 全套件確認 275 passed（那個 FutureWarning 是既有的，不用管）
+
+### 特別注意
+- 這是 v2 spec 的 **Plan 1/3（資料層）**，Plan 2（觀察分 `calc_meta_observation_scores()`）跟
+  Plan 3（generator+UI）都還沒開始，`export/momentum_generator.py` 目前不存在，這次改動**沒有
+  任何消費端**，純粹是資料層準備。
+- 發現但**刻意沒動**的既有 bug（超出這次 3-task plan 範圍，留給後續獨立任務）：
+  `scan_volume_turnover()`（同檔案，這次3個Task都沒碰它）的 `int(today["volume"])`
+  完全沒有 NA 防呆，volume 若是 NULL 會直接讓整支 `--scan` 炸掉（比這次修的4個問題更嚴重，
+  因為那4個頂多讓單一欄位變 `None`，這個是整支函式crash）。建議之後開一個小任務單獨修。
+- Cody 這次明確要求「每一步驟都要 review 程式碼邏輯合不合理，不只是對照 spec 表面符合」，
+  所以每個 Task 除了 spec-compliance review 外都多做了一輪聚焦邏輯正確性的 code-quality
+  review，這也是為什麼能連續抓到4次同一類 bug——建議之後遇到「單一欄位新增/nullable DB欄位
+  讀取」這類改動，都比照這次的兩階段 review 流程，不要只看 spec 對不對。
+
+---
+
 ## [2026-07-16] 📋 回家再做：逆轟策略頁面 v2 實作計畫（討論定案，尚未拆 plan）
 
 ### 目標

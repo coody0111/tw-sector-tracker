@@ -691,6 +691,31 @@ def test_scan_consecutive_limit_up_breakout_volume_none_when_breakout_day_volume
     assert d["breakout_volume_confirmed"] is None
 
 
+def test_scan_consecutive_limit_up_volume_declining_streak_none_when_streak_has_nan_volume(tmp_path):
+    """連板期間(streak>=2)若有任一天 volume 是 NULL，volume_declining_streak 必須是 None，
+    不能讓 all(...) 在 pd.NA 上直接 TypeError 炸掉整支掃描（DB 匯入CSV時可能因空白欄位
+    產生真的 NULL，見 bug-reports.md 的全額交割案例）。"""
+    db_path = tmp_path / "test.db"
+    rows = []
+    for d in range(1, 21):
+        rows.append(("EEEE", f"2026-06-{d:02d}", 100.0, 0.5, 1000))
+    rows += [
+        ("EEEE", "2026-07-12", 110.0, 9.8, 3000),
+        ("EEEE", "2026-07-13", 121.0, 10.0, 2500),
+        ("EEEE", "2026-07-14", 133.1, 10.0, 2000),
+    ]
+    _seed_db(db_path, rows)
+
+    con = duckdb.connect(str(db_path))
+    con.execute("UPDATE daily_prices SET volume = NULL WHERE stock_id = 'EEEE' AND date = ?", ["2026-07-13"])
+    con.close()
+
+    results = scan_consecutive_limit_up("2026-07-14", db_path=str(db_path))
+    r = next(r for r in results if r["stock_id"] == "EEEE")
+
+    assert r["volume_declining_streak"] is None
+
+
 def test_scan_bullish_alignment_new_high_filters_correctly(tmp_path):
     """三種情境同時測試，避免像 detect_breakout_confirm 早期版本那樣只驗證單一條件：
     (1) 多頭排列 + 創新高 → 命中

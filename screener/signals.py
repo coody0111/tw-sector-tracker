@@ -503,9 +503,17 @@ def scan_consecutive_limit_up(
         volume_declining_streak = None
         if streak >= 2:
             streak_vols = grp.iloc[i + 1: today_idx + 1]["volume"].tolist()
-            volume_declining_streak = all(
-                streak_vols[k] <= streak_vols[k - 1] for k in range(1, len(streak_vols))
-            )
+            # 跟 breakout_day_vol/today["volume"] 同一個 bug class：volume 是 nullable
+            # BIGINT，匯入CSV遇空白欄位（見 database.py::import_csv_prices 的
+            # CAST(volume AS BIGINT) 無 fillna）會產生真的 DB NULL → pd.NA，先判斷
+            # 再比較，任一天缺值就整段判為 None（無法判定），不能讓 all() 對 pd.NA
+            # 取 bool() 直接 TypeError 炸掉整支掃描。
+            if any(pd.isna(v) for v in streak_vols):
+                volume_declining_streak = None
+            else:
+                volume_declining_streak = all(
+                    streak_vols[k] <= streak_vols[k - 1] for k in range(1, len(streak_vols))
+                )
 
         # 連板起漲日量能確認（筆記四十五：起漲沒出量=假突破機率高，不追）。
         # 跟 volume_declining_streak 是不同階段的量能訊號：這個看「起點那天」相對它自己

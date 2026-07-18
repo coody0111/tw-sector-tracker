@@ -131,3 +131,76 @@ def _calc_price_based_factors(
         }
 
     return results
+
+
+def _calc_chips_factor(
+    universe_df: pd.DataFrame,
+    inst_df: pd.DataFrame,
+    margin_df: pd.DataFrame,
+) -> Dict[str, Dict[str, Any]]:
+    """
+    計算「觀察分」5因子中的籌碼確認因子原始值：chips_raw（外資買超檔數比例）、
+    partial_coverage（跨交易所資料涵蓋是否不全）。
+
+    獨立重寫版本的跨交易所涵蓋度判斷邏輯，刻意不呼叫 calc_meta_chips_signals()
+    （見設計 spec §2 的取捨說明——效能與隔離性換維護成本）。
+
+    inst_df 需含 stock_id/date/foreign_net，呼叫端只傳 institutional 表最新一天的資料。
+    margin_df 需含 stock_id/date，呼叫端只傳 margin 表**自己**最新一天的資料（margin
+    跟 institutional 發布日可能不同步，不能共用同一個 today）。
+    universe_df 需含 stock_id/meta_sector/exchange。
+
+    Returns
+    -------
+    {meta_name: {
+        "chips_raw": float | None,
+        "partial_coverage": bool,
+    }}
+    """
+    universe = universe_df[["stock_id", "meta_sector", "exchange"]].copy()
+    universe["stock_id"] = universe["stock_id"].astype(str)
+
+    meta_all_exchanges: Dict[str, set] = {
+        name: set(grp.dropna().unique())
+        for name, grp in universe.groupby("meta_sector")["exchange"]
+    }
+    meta_stock_count_by_exchange = universe.groupby(["meta_sector", "exchange"])["stock_id"].count()
+    all_metas = set(universe["meta_sector"].dropna().unique())
+
+    inst = inst_df.copy()
+    inst["stock_id"] = inst["stock_id"].astype(str)
+    inst_merged = inst.merge(universe, on="stock_id", how="inner")
+    inst_merged = inst_merged.dropna(subset=["foreign_net", "meta_sector"])
+
+    margin = margin_df.copy()
+    margin["stock_id"] = margin["stock_id"].astype(str)
+    margin_merged = margin.merge(universe, on="stock_id", how="inner")
+    margin_covered_by_meta: Dict[str, set] = {
+        name: set(grp["exchange"].dropna().unique())
+        for name, grp in margin_merged.groupby("meta_sector")
+    }
+
+    results: Dict[str, Dict[str, Any]] = {}
+    for meta_name in all_metas:
+        meta_inst = inst_merged[inst_merged["meta_sector"] == meta_name]
+        covered_exchanges = meta_inst["exchange"].dropna().unique().tolist()
+
+        if covered_exchanges and meta_name in meta_stock_count_by_exchange.index.get_level_values(0):
+            total_stocks = int(
+                meta_stock_count_by_exchange.loc[meta_name]
+                .reindex(covered_exchanges).fillna(0).sum()
+            )
+        else:
+            total_stocks = 0
+
+        buy_count = int((meta_inst["foreign_net"] > 0).sum())
+        chips_raw = round(buy_count / total_stocks, 4) if total_stocks > 0 else None
+
+        expected_exchanges = meta_all_exchanges.get(meta_name, set())
+        inst_partial = bool(expected_exchanges - set(covered_exchanges))
+        margin_partial = bool(expected_exchanges - margin_covered_by_meta.get(meta_name, set()))
+        partial_coverage = inst_partial or margin_partial
+
+        results[meta_name] = {"chips_raw": chips_raw, "partial_coverage": partial_coverage}
+
+    return results

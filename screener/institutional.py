@@ -59,13 +59,36 @@ def percentile_ranks(values: list[float]) -> list[float]:
     return [rank / (n - 1) for rank in ranks]
 
 
-def rank_continuation_candidates(candidates: list[dict], streak_key: str, limit: int | None = None) -> list[dict]:
-    """連買天數與 10 日漲幅各占一半的共同排行，供頁面與回測使用。"""
+_CONTINUATION_WEIGHT_MODES = {"blended", "streak_only", "price_only"}
+
+
+def rank_continuation_candidates(
+    candidates: list[dict], streak_key: str, limit: int | None = None,
+    weight_mode: str = "blended",
+) -> list[dict]:
+    """連買天數與 10 日漲幅的排行，供頁面與回測使用。
+
+    weight_mode（預設 "blended"，維持既有頁面呼叫方式不變的行為）：
+      blended     連買天數排名 + 價格漲幅排名各占一半（既有預設邏輯）
+      streak_only 純依連買天數排名，價格漲幅不影響排序——回測用，隔離「法人連買」
+                  本身的貢獻，不被「已經漲多少」污染
+      price_only  純依價格漲幅排名，連買天數不影響排序——回測用，隔離「價格動能」
+                  本身的貢獻，用來跟 streak_only／blended 對照，才回答得了「籌碼資訊
+                  是否真的有額外貢獻」這個問題（見 2026-07-18 bug-reports.md 討論）
+    """
+    if weight_mode not in _CONTINUATION_WEIGHT_MODES:
+        raise ValueError(f"weight_mode 必須是 {_CONTINUATION_WEIGHT_MODES} 之一，收到 {weight_mode!r}")
     if not candidates:
         return []
     streak_ranks = percentile_ranks([row.get(streak_key, 0) for row in candidates])
     price_ranks = percentile_ranks([row.get("price_cum_pct") or 0 for row in candidates])
-    scored = list(zip(candidates, (s + p for s, p in zip(streak_ranks, price_ranks))))
+    if weight_mode == "streak_only":
+        combined = streak_ranks
+    elif weight_mode == "price_only":
+        combined = price_ranks
+    else:
+        combined = [s + p for s, p in zip(streak_ranks, price_ranks)]
+    scored = list(zip(candidates, combined))
     scored.sort(key=lambda item: -item[1])
     ranked = [row for row, _ in scored]
     return ranked[:limit] if limit is not None else ranked

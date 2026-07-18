@@ -21,21 +21,47 @@ from screener.institutional import (
 logger = logging.getLogger(__name__)
 
 _DB_PATH = "data/screener.db"
-CHIPS_RULES = ("joint_buy", "foreign_continuation", "trust_continuation", "margin_bearish", "tdcc_accumulation")
+
+# foreign/trust_continuation 的消融對照變體（2026-07-18 bug-reports.md 討論）：
+# 排名公式原本是「連買天數排名 + 10日漲幅排名」各半，把「法人連買」跟「已經漲了多少」
+# 兩個因子綁在一起，測不出籌碼資訊本身的貢獻。_streak_only/_price_only 沿用完全相同的
+# 篩選門檻，只換排序依據，讓回測能把兩個因子拆開測。
+_CONTINUATION_RULE_SPECS = {
+    "foreign_continuation":             {"streak_field": "foreign_streak", "min_streak": 3, "weight_mode": "blended"},
+    "foreign_continuation_streak_only": {"streak_field": "foreign_streak", "min_streak": 3, "weight_mode": "streak_only"},
+    "foreign_continuation_price_only":  {"streak_field": "foreign_streak", "min_streak": 3, "weight_mode": "price_only"},
+    "trust_continuation":               {"streak_field": "trust_streak", "min_streak": 5, "weight_mode": "blended"},
+    "trust_continuation_streak_only":   {"streak_field": "trust_streak", "min_streak": 5, "weight_mode": "streak_only"},
+    "trust_continuation_price_only":    {"streak_field": "trust_streak", "min_streak": 5, "weight_mode": "price_only"},
+}
+
+CHIPS_RULES = (
+    "joint_buy",
+    *_CONTINUATION_RULE_SPECS.keys(),
+    "margin_bearish", "tdcc_accumulation",
+)
 
 # 每條規則的回測語意必須跟實際用途一致。偏多規則模擬 D+1 買進，所以扣來回
 # 交易成本並剔除隔日漲停買不到的訊號；margin_bearish 是既有持股的風險警示，
 # 不是放空策略，也沒有「買不到」問題，因此觀察未扣成本的後續相對表現。
+# 消融變體（_streak_only/_price_only）跟其原始規則交易語意完全相同，只有選股排序不同，
+# 沿用同一組 cost_pct/skip_no_fill/success_direction。
 CHIPS_RULE_CONFIG = {
     "joint_buy": {"success_direction": "positive", "skip_no_fill": True, "cost_pct": 0.6},
-    "foreign_continuation": {"success_direction": "positive", "skip_no_fill": True, "cost_pct": 0.6},
-    "trust_continuation": {"success_direction": "positive", "skip_no_fill": True, "cost_pct": 0.6},
+    **{name: {"success_direction": "positive", "skip_no_fill": True, "cost_pct": 0.6}
+       for name in _CONTINUATION_RULE_SPECS},
     "margin_bearish": {"success_direction": "negative", "skip_no_fill": False, "cost_pct": 0.0},
     "tdcc_accumulation": {"success_direction": "positive", "skip_no_fill": True, "cost_pct": 0.6},
 }
 
 _MIN_RULE_SIGNAL_DATES = 20
 _MIN_BLOCK_SIGNAL_DATES = 10
+
+# TDCC 集保股權分散表每週五更新，但實際「查得到」會晚幾個交易日（公布延遲）——沒有官方
+# 精確公布時間表可查證，這是務實估計值（2026-07-18 bug-reports.md 記錄），可能需要之後
+# 跟 Cody 確認 TDCC 官方公布時程後調整。回測若忽略這段延遲，會在「當時實際上還查不到這筆
+# 資料」的那天就下單，是前瞻偏誤（look-ahead bias）。
+_TDCC_PUBLISH_LAG_TRADING_DAYS = 3
 
 
 @lru_cache(maxsize=1)
@@ -44,6 +70,19 @@ def _backtest_universe() -> pd.DataFrame:
         "data/stock_universe.csv", dtype=str,
         usecols=["stock_id", "stock_name", "meta_sector"],
     )
+
+
+@lru_cache(maxsize=16)
+def _all_trading_dates(db_path: str) -> tuple[str, ...]:
+    """全市場交易日曆（daily_prices 實際有資料的日期），供計算「快照日之後第N個交易日」
+    （模擬 TDCC 公布延遲）使用。缺表或查詢失敗時回傳空 tuple（安全，不產生訊號)。"""
+    try:
+        con = duckdb.connect(db_path, read_only=True)
+        rows = con.execute("SELECT DISTINCT date FROM daily_prices ORDER BY date").fetchall()
+        con.close()
+    except Exception:
+        return ()
+    return tuple(str(row[0])[:10] for row in rows if row and row[0])
 
 
 @lru_cache(maxsize=16)
@@ -79,7 +118,7 @@ def _table_dates(db_path: str, table: str) -> frozenset[str]:
 
 def scan_chips_rule(date_str: str, db_path: str, rule: str) -> List[Dict[str, Any]]:
     """依籌碼頁實際門檻產生單一規則訊號，供逐規則回測。"""
-    if rule in {"joint_buy", "foreign_continuation", "trust_continuation"}:
+    if rule == "joint_buy" or rule in _CONTINUATION_RULE_SPECS:
         first_date, _ = _table_date_range(db_path, "institutional")
         if first_date and date_str < first_date:
             return []
@@ -93,13 +132,12 @@ def scan_chips_rule(date_str: str, db_path: str, rule: str) -> List[Dict[str, An
             return []
         if rule == "joint_buy":
             return rank_joint_buy_candidates([r for r in rows if r.get("meta_sector")], limit=30)
-        if rule == "foreign_continuation":
-            candidates = [r for r in rows if r.get("meta_sector") and (r.get("foreign_streak") or 0) >= 3
-                          and (r.get("price_cum_pct") or 0) >= 5]
-            return rank_continuation_candidates(candidates, "foreign_streak", limit=15)
-        candidates = [r for r in rows if r.get("meta_sector") and (r.get("trust_streak") or 0) >= 5
+        spec = _CONTINUATION_RULE_SPECS[rule]
+        candidates = [r for r in rows if r.get("meta_sector") and (r.get(spec["streak_field"]) or 0) >= spec["min_streak"]
                       and (r.get("price_cum_pct") or 0) >= 5]
-        return rank_continuation_candidates(candidates, "trust_streak", limit=15)
+        return rank_continuation_candidates(
+            candidates, spec["streak_field"], limit=15, weight_mode=spec["weight_mode"],
+        )
 
     if rule == "margin_bearish":
         first_date, _ = _table_date_range(db_path, "margin")
@@ -117,10 +155,21 @@ def scan_chips_rule(date_str: str, db_path: str, rule: str) -> List[Dict[str, An
         first_date, _ = _table_date_range(db_path, "shareholder")
         if first_date and date_str < first_date:
             return []
+        # 集保資料有公布延遲（見 _TDCC_PUBLISH_LAG_TRADING_DAYS 說明）：訊號日不能直接等於
+        # 快照日，要往前找「快照日 + 延遲天數」剛好等於今天的那個快照，模擬「這天才真的
+        # 查得到」的時序，避免在資料實際公布前就搶先下單（look-ahead bias）。
+        trading_dates = _all_trading_dates(db_path)
+        if date_str not in trading_dates:
+            return []
+        lag_idx = trading_dates.index(date_str) - _TDCC_PUBLISH_LAG_TRADING_DAYS
+        if lag_idx < 0:
+            return []
+        snapshot_date = trading_dates[lag_idx]
         con = duckdb.connect(db_path, read_only=True)
-        latest = con.execute("SELECT MAX(date) FROM shareholder WHERE date <= ?", [date_str]).fetchone()[0]
-        # 週資料只在報告日本身發訊號，避免同一份 TDCC 資料被後續每天重複計數。
-        if latest is None or str(latest)[:10] != date_str:
+        latest = con.execute("SELECT MAX(date) FROM shareholder WHERE date <= ?", [snapshot_date]).fetchone()[0]
+        # 只在「快照日 + 公布延遲」對應的那個交易日發訊號一次，避免同一份 TDCC 資料
+        # 被後續每天重複計數。
+        if latest is None or str(latest)[:10] != snapshot_date:
             con.close()
             return []
         df = con.execute("""

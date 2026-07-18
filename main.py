@@ -23,7 +23,7 @@ from export.chips_generator import generate as generate_chips_html
 from screener.database import init_db, import_csv_prices, import_sector_stocks, get_chips_today
 from screener.institutional import scan_institutional
 from screener.signals import scan_volume_turnover
-from screener.backtest import run_backtest, print_summary as print_backtest_summary
+from screener.backtest import run_backtest, print_summary as print_backtest_summary, CHIPS_RULES
 
 UNIVERSE_PATH = Path("data/stock_universe.csv")
 
@@ -902,8 +902,8 @@ if __name__ == "__main__":
                         help="跑進貨分回測校準，輸出分數分桶超額報酬 + weakening 邊界案例比較")
     parser.add_argument(
         "--backtest-chips", nargs="?", const="all", default=None,
-        choices=["all", "joint_buy", "foreign_continuation", "trust_continuation", "margin_bearish", "tdcc_accumulation"],
-        help="逐規則回測籌碼頁；可指定規則，省略值時回測全部",
+        choices=["all", *CHIPS_RULES],
+        help="逐規則回測籌碼頁；可指定規則，省略值時回測全部（含 _streak_only/_price_only 消融對照變體）",
     )
     parser.add_argument("--realtime", action="store_true",
                         help="使用盤中即時行情（mis.twse.com.tw），適合 9:00~13:30 盤中使用")

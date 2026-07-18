@@ -86,14 +86,66 @@ def test_foreign_continuation_backtest_matches_ui_top15(monkeypatch):
     assert picks[0]["stock_id"] == "2019"
 
 
-def test_tdcc_rule_only_emits_on_weekly_report_date(tmp_path):
-    db = str(tmp_path / "tdcc.db")
+def test_foreign_continuation_ablation_variants_use_isolated_ranking(monkeypatch):
+    """foreign_continuation_streak_only/price_only 沿用跟 foreign_continuation 完全一樣的
+    篩選門檻（foreign_streak>=3 且 price_cum_pct>=5），只有排序依據不同——用來回答「排除價格
+    動能之後，法人連買本身還有沒有效」這個消融對照問題（見 2026-07-18 bug-reports.md）。"""
+    rows = [
+        {"stock_id": "A", "date": "2026-07-01", "meta_sector": "測試", "foreign_streak": 20, "price_cum_pct": 5.0},
+        {"stock_id": "B", "date": "2026-07-01", "meta_sector": "測試", "foreign_streak": 3, "price_cum_pct": 50.0},
+    ]
+    monkeypatch.setattr(backtest_module, "scan_institutional", lambda *args, **kwargs: rows)
+
+    streak_only = make_chips_rule_scanner("foreign_continuation_streak_only")("2026-07-01", "ignored.db")
+    price_only = make_chips_rule_scanner("foreign_continuation_price_only")("2026-07-01", "ignored.db")
+
+    assert [p["stock_id"] for p in streak_only] == ["A", "B"], "純連買天數排序，A（20日）該排第一"
+    assert [p["stock_id"] for p in price_only] == ["B", "A"], "純價格漲幅排序，B（+50%）該排第一"
+
+
+def test_backtest_chips_config_covers_all_continuation_ablation_rules():
+    """每個 CHIPS_RULES 都要有對應的 CHIPS_RULE_CONFIG，否則 run_chips_rule_backtests()
+    會在跑到該規則時 KeyError——這是純粹的設定完整性檢查，不用真的跑回測。"""
+    for rule in backtest_module.CHIPS_RULES:
+        assert rule in backtest_module.CHIPS_RULE_CONFIG, f"{rule} 缺少 CHIPS_RULE_CONFIG 設定"
+
+
+def _make_tdcc_db(tmp_path, name, trading_days):
+    db = str(tmp_path / name)
     con = duckdb.connect(db)
     con.execute("CREATE TABLE shareholder (stock_id VARCHAR, date DATE, streak INTEGER, week_chg DOUBLE)")
     con.execute("INSERT INTO shareholder VALUES ('2330','2026-07-03',2,1.5)")
+    con.execute("CREATE TABLE daily_prices (stock_id VARCHAR, date DATE, close DOUBLE, change_pct DOUBLE)")
+    for d in trading_days:
+        con.execute("INSERT INTO daily_prices VALUES ('2330', ?, 100.0, 0.1)", [d])
     con.close()
-    assert scan_chips_rule("2026-07-03", db, "tdcc_accumulation")
-    assert scan_chips_rule("2026-07-04", db, "tdcc_accumulation") == []
+    return db
+
+
+def test_tdcc_rule_delays_signal_by_publish_lag(tmp_path):
+    """集保快照日（週五）本身不該發訊號——TDCC 實際公布會晚幾個交易日（見
+    _TDCC_PUBLISH_LAG_TRADING_DAYS 說明），回測若直接在快照日下單，等於用了「當時
+    實際上還查不到」的資料，是前瞻偏誤。訊號要延後到快照日+3個交易日才發，模擬
+    「這天才真的查得到」（2026-07-18 bug-reports.md 記錄的修復）。"""
+    trading_days = ["2026-07-01", "2026-07-02", "2026-07-03", "2026-07-06", "2026-07-07", "2026-07-08"]
+    db = _make_tdcc_db(tmp_path, "tdcc.db", trading_days)
+
+    # 快照日(07-03)本身跟延遲天數內(07-06/07-07)都還查不到，不該發訊號
+    assert scan_chips_rule("2026-07-03", db, "tdcc_accumulation") == []
+    assert scan_chips_rule("2026-07-06", db, "tdcc_accumulation") == []
+    assert scan_chips_rule("2026-07-07", db, "tdcc_accumulation") == []
+    # 快照日+3個交易日(07-08)才真的查得到，這天才發訊號
+    assert scan_chips_rule("2026-07-08", db, "tdcc_accumulation")
+
+
+def test_tdcc_rule_does_not_repeat_signal_after_publish_day(tmp_path):
+    """公布延遲那天發過一次訊號後，再下一個交易日不該把同一份資料重複算成新訊號。"""
+    trading_days = ["2026-07-01", "2026-07-02", "2026-07-03", "2026-07-06", "2026-07-07",
+                     "2026-07-08", "2026-07-09"]
+    db = _make_tdcc_db(tmp_path, "tdcc2.db", trading_days)
+
+    assert scan_chips_rule("2026-07-08", db, "tdcc_accumulation")          # 公布日
+    assert scan_chips_rule("2026-07-09", db, "tdcc_accumulation") == []    # 隔天不重複
 
 
 def test_chips_rule_skips_dates_before_institutional_history(tmp_path, monkeypatch):

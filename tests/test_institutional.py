@@ -1,7 +1,8 @@
 # tests/test_institutional.py
 import duckdb
+import pytest
 
-from screener.institutional import scan_institutional, _calc_cum_pct
+from screener.institutional import scan_institutional, _calc_cum_pct, rank_continuation_candidates
 
 
 def _make_inst_table(con):
@@ -132,3 +133,42 @@ def test_scan_institutional_min_price_cum_pct_filters_flat_stocks(tmp_path):
     ids = {r["stock_id"] for r in res}
     assert "2483" in ids, "外資連買 + 股價實際走強，應保留"
     assert "1111" not in ids, "外資連買但股價幾乎沒動，應被濾掉（疑似被動式資金流入雜訊）"
+
+
+# ── rank_continuation_candidates 的 weight_mode 消融測試 ──────────────────
+# 背景：debug-tasks.md 桌電待驗發現 foreign/trust_continuation 的排名公式（連買天數
+# 排名+10日漲幅排名各占一半）讓「法人連買」跟「價格動能」兩個因子綁在一起，測不出籌碼
+# 本身的貢獻——D+1 進場又是在「已經漲完」的隔天才追，很可能是中位數超額全部是負的主因。
+# weight_mode 讓回測能把兩個因子拆開測，不改動 blended 預設值（chips_generator.py 沿用
+# 既有呼叫方式不受影響）。
+_ABLATION_CANDIDATES = [
+    {"stock_id": "A", "foreign_streak": 10, "price_cum_pct": 1.0},
+    {"stock_id": "B", "foreign_streak": 8, "price_cum_pct": 20.0},
+    {"stock_id": "C", "foreign_streak": 1, "price_cum_pct": 10.0},
+]
+
+
+def test_rank_continuation_candidates_default_blends_streak_and_price():
+    """不傳 weight_mode（或明確傳 'blended'）維持既有 50/50 混合排名，不能因為新增
+    weight_mode 參數就悄悄改掉 chips_generator.py 現有呼叫方式的行為。"""
+    ranked = rank_continuation_candidates(_ABLATION_CANDIDATES, "foreign_streak")
+    assert [r["stock_id"] for r in ranked] == ["B", "A", "C"]
+
+
+def test_rank_continuation_candidates_streak_only_ignores_price():
+    """weight_mode='streak_only' 應該純粹依連買天數排序，不受價格排名影響——
+    B/C 的價格排名遠高於 A，但 streak_only 下 A 該排第一。"""
+    ranked = rank_continuation_candidates(_ABLATION_CANDIDATES, "foreign_streak", weight_mode="streak_only")
+    assert [r["stock_id"] for r in ranked] == ["A", "B", "C"]
+
+
+def test_rank_continuation_candidates_price_only_ignores_streak():
+    """weight_mode='price_only' 應該純粹依價格累積漲幅排序，不受連買天數影響——
+    A 的連買天數最高，但 price_only 下 A 該排最後。"""
+    ranked = rank_continuation_candidates(_ABLATION_CANDIDATES, "foreign_streak", weight_mode="price_only")
+    assert [r["stock_id"] for r in ranked] == ["B", "C", "A"]
+
+
+def test_rank_continuation_candidates_rejects_invalid_weight_mode():
+    with pytest.raises(ValueError):
+        rank_continuation_candidates(_ABLATION_CANDIDATES, "foreign_streak", weight_mode="not_a_real_mode")

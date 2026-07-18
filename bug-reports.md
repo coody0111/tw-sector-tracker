@@ -1,3 +1,77 @@
+## [2026-07-18] Review - `python main.py --backtest-chips all` 初次真實輸出（Cody 桌電實跑，大戶資料已回補）
+
+### 驗證方式
+Cody 提供完整 log 輸出（5 條規則：joint_buy/foreign_continuation/trust_continuation/
+margin_bearish/tdcc_accumulation），對照 `debug-tasks.md` 「🖥️ 桌電待驗：籌碼策略是否真的
+有增益」那則的檢查清單，逐項覆查程式碼 + 解讀數字。**這次只做得到「程式碼正確性」跟「原始
+數字紅旗」兩塊，debug-tasks.md 明列必做的對照組/bootstrap/樣本外/paper tracking 都還沒做，
+不能下最終結論。**
+
+### ✅ 程式碼正確性檢查通過
+- **D+1 開盤進場/漲停剔除/交易成本**：`screener/backtest.py::run_backtest()` 統一處理，
+  `CHIPS_RULE_CONFIG` 逐規則設定 `skip_no_fill`/`cost_pct`（偏多規則剔除漲停+扣0.6%成本；
+  `margin_bearish` 是既有持股風險警示不是放空策略，不剔除漲停、不扣成本——語意正確）。
+- **no-lookahead／法人 fallback 不得重複計數**：`scan_chips_rule()` 明確用
+  `available_dates = _table_dates(db_path, "institutional")` + `date_str not in available_dates`
+  跟 `if not any(r.get("date") == date_str for r in rows): return []` 兩層擋掉
+  `scan_institutional()` 既有的「缺資料日 fallback 沿用前一發布日快照」行為，確保只在真正
+  發布的那天才產生訊號，不會把同一批法人數字在後續交易日重複算成新訊號——這正是
+  debug-tasks.md 特別點名要複查的地方，已在程式碼層級正確處理。`tdcc_accumulation` 同理
+  （`str(latest)[:10] != date_str` 擋掉週資料被後續每天重複計數）。
+- **`get_margin_divergence(..., as_of_date=date_str)`**：SQL 用
+  `WHERE (? IS NULL OR date <= ?)` 正確綁定 `as_of_date`，不會像先前抓到的
+  `calc_cumulative_meta()` 那個 bug一樣吃到未來資料。
+- **訊號日 vs 訊號筆數分開統計**：`print_summary()` 用 `nunique()` 算獨立訊號日數，
+  低於 `_MIN_RULE_SIGNAL_DATES`/`_MIN_BLOCK_SIGNAL_DATES` 門檻會印出「訊號日不足」警告，
+  不會把大量同日股票誤當成大量獨立樣本——這點程式碼已經內建，數字本身也誠實標注了。
+
+### 🔴 原始數字紅旗（4 條偏多規則：joint_buy/foreign_continuation/trust_continuation/tdcc_accumulation）
+四條偏多規則在**全部/多頭/D+5/D+10/D+14 幾乎每一格**都呈現同一個令人擔心的模式：
+
+| 規則 | D+14 勝率(超額>0) | D+14 平均超額 | D+14 中位數超額 |
+|---|---|---|---|
+| joint_buy | 44% | +2.98% | **-2.58%** |
+| foreign_continuation | 40% | +0.76% | **-4.70%** |
+| trust_continuation | 42% | +2.29% | **-2.68%** |
+| tdcc_accumulation | 35% | +0.51% | **-3.44%** |
+
+- **勝率全部低於 50%**（34~44%），**中位數超額全部是負的**，但**平均超額偶爾是正的**——
+  這是典型的「右偏態」訊號：一小撮大贏家把平均拉正，但典型（中位數）交易其實輸給大盤。
+  這不是穩健的優勢訊號的樣子，是需要進一步拆解才能判斷是真訊號還是雜訊放大的樣子。
+- **限定多頭 regime 也一樣**：不是「熊市拖累平均」的故事——即使只看多頭子集，勝率跟中位數
+  超額還是同一個不健康的樣子，代表這不只是行情濾網問題。
+- **盤整 regime 全部最差**（但都標了「訊號日不足」，1~8 個訊號日，這段期間盤整很少見，
+  樣本太小不能下結論，只能說「方向上一致地更差」這件事值得留意）。
+
+### 🟡 margin_bearish（唯一的偏空風險警示規則）
+避險命中率(超額<0) 53~56%，比亂猜(50%)略高但不算強力確認；部分區間平均超額還是正的
+（例如 D+10 全部 +1.56%），代表雖然過半數訊號有命中「該漲時反而弱」的方向，但沒命中的
+那批平均漲得更兇，把整體平均拉正——訊號辨識力偏弱，不是清楚的邊際優勢。
+
+### 還沒做、不能跳過的部分（debug-tasks.md 已列，這裡重申，避免誤用這批數字下結論）
+- [ ] 消融對照：僅價格條件 vs 僅籌碼條件 vs 價格+籌碼完整規則——沒有這組對照，現在看到的
+  「超額」根本不知道是籌碼資訊本身的貢獻，還是價格端篩選（例如 joint_buy 隱含的族群/漲幅
+  篩選）自己就有的效果。
+- [ ] 同日期/同族群/相近市值流動性的配對股票對照組。
+- [ ] 按訊號日做 clustered bootstrap／信賴區間（現在的勝率/超額都是點估計，沒有不確定性
+  區間，尤其樣本本來就不算大）。
+- [ ] 樣本外／walk-forward 驗證（目前門檻/規則都是同一段 4~7月資料上定的，還沒測試過其他
+  期間會不會結果整個翻掉）。
+- [ ] 1~3 個月 paper tracking。
+
+### 結論（依 debug-tasks.md 規定的格式，這批數字目前只能標到這裡，不能再高）
+- **4 條偏多規則（joint_buy/foreign_continuation/trust_continuation/tdcc_accumulation）**：
+  依 debug-tasks.md 分類法，比較接近「**樣本不足／疑似無增益**」而非「有效候選」——原始
+  勝率/中位數的紅旗一致到不像純雜訊，但也還沒有對照組能排除「這只是價格端篩選本身的效果，
+  籌碼資訊沒有額外貢獻」的可能性。**在跑完消融對照前，不建議先入為主認為籌碼資訊有用**。
+- **margin_bearish**：邊際訊號，避險命中率略高於亂猜，證據力偏弱，同樣需要對照組才能判斷。
+- **不得寫成「已證實可交易策略」**（debug-tasks.md 明文規定，這批只是初次真實回測輸出，
+  程式碼正確性沒問題，但統計方法論的必要步驟都還沒跑）。
+- [x] 可以繼續下一個任務——程式碼層面沒有需要修的 bug；下一步是照 debug-tasks.md 清單做
+  消融對照，不是重跑同一組回測。
+
+---
+
 ## [2026-07-16] Review - 動能派 B1~B5（commit faa54b8：scan_momentum_health/scan_consecutive_limit_up/scan_bullish_alignment_new_high）
 
 ### 驗證方式

@@ -1,3 +1,65 @@
+## [2026-07-18] 修 - TDCC 公布延遲前瞻偏誤 + foreign/trust_continuation 消融對照變體（Cody 授權「改吧」）
+
+### 背景
+接續上一則 review（`--backtest-chips all` 初次真實輸出），回報了兩個具體可改的點，Cody
+授權直接修：① `tdcc_accumulation` 用快照日本身當訊號日，忽略 TDCC 實際公布延遲，疑似前瞻
+偏誤；② `foreign_continuation`/`trust_continuation` 的排名公式把「法人連買」跟「10日價格
+動能」綁在一起，測不出籌碼本身的貢獻。
+
+### 🔴 修復 1：TDCC 公布延遲前瞻偏誤
+- 位置：`screener/backtest.py::scan_chips_rule()` 的 `tdcc_accumulation` 分支
+- 問題：原本 `latest = MAX(date) FROM shareholder WHERE date <= date_str`，只在
+  `latest == date_str`（快照日本身）才發訊號。但 TDCC 集保股權分散表每週五更新的是
+  **快照日**，實際**查得到**會晚幾個交易日——用快照日本身當訊號日，等於在「當時實際上還
+  查不到這筆資料」的那天就下單，是前瞻偏誤（look-ahead bias）。
+- 改法：新增 `_TDCC_PUBLISH_LAG_TRADING_DAYS = 3`（**務實估計值，沒有 TDCC 官方精確公布
+  時間表可查證，之後可能需要跟 Cody 確認調整**）+ `_all_trading_dates(db_path)` 快取交易
+  日曆，訊號日改成「快照日 + 3 個交易日」，不是快照日本身。
+- TDD：`test_tdcc_rule_delays_signal_by_publish_lag`（先製造 RED：快照日跟延遲期間內都不該
+  有訊號，延遲滿了才該有）+ `test_tdcc_rule_does_not_repeat_signal_after_publish_day`（公布日
+  後隔天不重複計數）。既有測試 `test_tdcc_rule_only_emits_on_weekly_report_date` 的舊斷言其實
+  是在測「修復前的錯誤行為」，已改寫成上述兩個新測試，不是單純新增。
+- 驗證：real DB 實跑 `tdcc_accumulation`，訊號數從 768→810、訊號日期範圍起點從
+  2025-12-19→2025-12-24（往後遞延符合預期，不是隨機跑掉），無 crash。
+
+### 🟡 修復 2：foreign/trust_continuation 消融對照變體
+- 位置：`screener/institutional.py::rank_continuation_candidates()` + `screener/backtest.py`
+- 問題：排名公式是「連買天數排名 + 10日累積漲幅排名」各占一半，兩個規則的篩選也要求
+  `price_cum_pct >= 5`（已經漲 5% 以上才入選）。這代表現在的「籌碼規則」其實有一半權重來自
+  價格動能本身，回測結果測不出「法人連買」單獨的貢獻，也可能是中位數超額全負的部分原因
+  （D+1 進場等於追在已經漲完的隔天，容易撞到短期均值回歸）。
+- 改法：`rank_continuation_candidates()` 新增 `weight_mode` 參數（`"blended"` 預設值=既有
+  行為不變，`chips_generator.py` 既有呼叫方式完全不受影響；`"streak_only"`=純連買天數排序；
+  `"price_only"`=純價格漲幅排序）。`screener/backtest.py` 新增 4 個消融規則名稱
+  （`foreign_continuation_streak_only`/`_price_only`、`trust_continuation_streak_only`/
+  `_price_only`），沿用完全相同的篩選門檻，只換排序依據，納入 `CHIPS_RULES`（`--backtest-chips
+  all` 會一起跑）。`main.py` 的 `--backtest-chips` argparse choices 改成從 `CHIPS_RULES`
+  動態產生，不用手動同步兩份清單。
+- **範圍說明**：這次只拆了**排序依據**，沒有動**篩選門檻**（兩個規則都還是要求
+  `price_cum_pct >= 5` 才能入選候選池）——debug-tasks.md 原文提到的「僅價格條件 vs 僅籌碼
+  條件」如果要做到「完全不用價格篩選」的版本，還需要另外設計「純籌碼條件」的候選池（目前
+  沒有這樣的入選邏輯），這次沒做，是更大的後續任務。
+- TDD：`test_rank_continuation_candidates_default_blends_streak_and_price`（防止新參數
+  悄悄改掉既有行為）+ `_streak_only_ignores_price` + `_price_only_ignores_streak` +
+  `_rejects_invalid_weight_mode`（`screener/institutional.py`），
+  `test_foreign_continuation_ablation_variants_use_isolated_ranking` +
+  `test_backtest_chips_config_covers_all_continuation_ablation_rules`（`screener/backtest.py`）。
+- 驗證：real DB 實跑 `foreign_continuation_streak_only`，無 crash，數字跟原本 blended 版
+  同一量級（仍是勝率<50%、中位數負，初步看不是「拆開後籌碼單獨就變好」，但這只是 sanity
+  check 不是正式分析，正式解讀留給 Cody 或下一輪 review）。
+
+### 測試
+`tests/test_institutional.py` 10 passed、`tests/test_backtest.py` 18 passed、
+全專案 `pytest tests/ -q`：**292 passed, 1 warning**（既有無關 warning）。
+
+### 結論
+- [x] 可以繼續下一個任務——兩個修復都已 commit，TDD 全綠，real DB sanity check 無 crash。
+- 兩項修復都只是**讓回測更誠實**（去除前瞻偏誤、讓消融對照可執行），**不代表任何規則現在
+  被證實有效**——debug-tasks.md 列的配對組/bootstrap/樣本外/paper tracking 仍然一項都沒做，
+  結論標準維持前一則報告的規定，不因為程式碼修好了就放寬。
+
+---
+
 ## [2026-07-18] Review - `python main.py --backtest-chips all` 初次真實輸出（Cody 桌電實跑，大戶資料已回補）
 
 ### 驗證方式

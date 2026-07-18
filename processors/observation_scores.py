@@ -171,10 +171,16 @@ def _calc_chips_factor(
     inst["stock_id"] = inst["stock_id"].astype(str)
     inst_merged = inst.merge(universe, on="stock_id", how="inner")
     inst_merged = inst_merged.dropna(subset=["foreign_net", "meta_sector"])
+    # 防呆：即使呼叫端不小心傳了超過一天的資料進來，也只用最新一天，避免chips_raw
+    # 悄悄超過1.0（呼應calc_meta_chips_signals()裡all_dates[-1]的自我修正做法）。
+    if not inst_merged.empty:
+        inst_merged = inst_merged[inst_merged["date"] == inst_merged["date"].max()]
 
     margin = margin_df.copy()
     margin["stock_id"] = margin["stock_id"].astype(str)
     margin_merged = margin.merge(universe, on="stock_id", how="inner")
+    if not margin_merged.empty:
+        margin_merged = margin_merged[margin_merged["date"] == margin_merged["date"].max()]
     margin_covered_by_meta: Dict[str, set] = {
         name: set(grp["exchange"].dropna().unique())
         for name, grp in margin_merged.groupby("meta_sector")
@@ -194,6 +200,9 @@ def _calc_chips_factor(
             total_stocks = 0
 
         buy_count = int((meta_inst["foreign_net"] > 0).sum())
+        # chips_raw是None（不是0）代表「完全沒資料，不知道」；跟calc_meta_chips_signals()的
+        # foreign_buy_ratio在同樣情況回0不同——這裡刻意選None，讓Task3能正確排除這個因子
+        # 不計入reweight，而不是誤判成「這族群外資0%買超」。
         chips_raw = round(buy_count / total_stocks, 4) if total_stocks > 0 else None
 
         expected_exchanges = meta_all_exchanges.get(meta_name, set())

@@ -158,3 +158,26 @@ def test_calc_chips_factor_excludes_nan_foreign_net_from_buy_count():
     result = _calc_chips_factor(universe, inst_df, margin_df)
 
     assert result["測試族群"]["chips_raw"] == 0.5  # buy_count=1(僅1101) / total_stocks=2(TWSE全部檔數)
+
+
+def test_calc_chips_factor_only_uses_latest_date_when_multiple_dates_present():
+    """防呆：即使呼叫端不小心傳了超過一天的institutional/margin資料進來，也只該用最新一天，
+    不能讓chips_raw悄悄超過1.0（每個因子理論上限），破壞Task3組裝時假設的0~1範圍。"""
+    universe = _make_chips_universe([
+        ("1101", "測試族群", "TWSE"),
+        ("6488", "測試族群", "TWSE"),
+    ])
+    inst_df = _make_inst_rows([
+        ("1101", "2026-07-02", 1000),
+        ("6488", "2026-07-02", 500),
+        ("1101", "2026-07-03", 1000),
+        ("6488", "2026-07-03", 500),
+    ])
+    margin_df = _make_margin_rows([
+        ("1101", "2026-07-02"), ("6488", "2026-07-02"),
+        ("1101", "2026-07-03"), ("6488", "2026-07-03"),
+    ])
+
+    result = _calc_chips_factor(universe, inst_df, margin_df)
+
+    assert result["測試族群"]["chips_raw"] == 1.0  # 不該是2.0

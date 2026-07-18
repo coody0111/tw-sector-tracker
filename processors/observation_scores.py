@@ -16,6 +16,14 @@ import pandas as pd
 
 from streak_utils import calc_streak as _streak
 
+_PRICE_LOOKBACK_DAYS = 11  # 涵蓋cum3(3天)、streak(視資料而定)、量能參與(今日+5天)所需的查詢窗口
+_RS_WEIGHT = 0.30
+_BREADTH_WEIGHT = 0.25
+_CONTINUATION_WEIGHT = 0.20
+_VOLUME_WEIGHT = 0.15
+_CHIPS_WEIGHT = 0.10
+_CONTINUATION_CAP_DAYS = 5  # 延續性因子封頂天數：連漲5天(以上)=滿分
+
 
 def _calc_price_based_factors(
     universe_df: pd.DataFrame,
@@ -211,5 +219,131 @@ def _calc_chips_factor(
         partial_coverage = inst_partial or margin_partial
 
         results[meta_name] = {"chips_raw": chips_raw, "partial_coverage": partial_coverage}
+
+    return results
+
+
+def calc_meta_observation_scores(
+    universe_df: pd.DataFrame,
+    db_path: str = "data/screener.db",
+) -> Dict[str, Dict[str, Any]]:
+    """
+    首頁與逆轟頁共用的「觀察分」，決定族群優先展開順序（非最終買賣動作）。
+
+    完全獨立實作：不呼叫 processors/performance.py 的 calc_cumulative_meta()/
+    calc_universe_performance()/calc_meta_signals()/calc_meta_chips_signals()，
+    單一 DuckDB 連線查完 daily_prices/institutional/margin 後在記憶體算完。刻意的
+    設計決定，換取效能（不用開4次連線）與跟既有4支函式的完全隔離；代價是
+    partial_coverage 等邏輯與 calc_meta_chips_signals() 重複一份，兩邊之後各自
+    修正不會自動同步，見設計 spec §2。
+
+    Returns
+    -------
+    {meta_name: {
+        "observation_score": float | None,  # 0~100，5因子全不可用時 None
+        "score_coverage": float,            # 0~1，實際可用權重比例
+        "rs_raw": float | None,             # cum3差值（%），供UI顯示原始值，非0~1
+        "breadth_raw": float | None,        # 今日上漲比例（0~1，本身就是最終用於加權的值）
+        "continuation_raw": int | None,     # streak天數（原始整數，未封頂，供UI顯示）
+        "volume_raw": float | None,         # 集合量比（原始值，非0~1）
+        "chips_raw": float | None,          # foreign_buy_ratio（0~1，本身就是最終用於加權的值）
+        "partial_coverage": bool,           # 籌碼資料是否涵蓋不全（chips_raw為None時的可能原因）
+    }}
+    """
+    con = duckdb.connect(db_path, read_only=True)
+    try:
+        price_dates_df = con.execute(
+            f"SELECT DISTINCT date FROM daily_prices ORDER BY date DESC LIMIT {_PRICE_LOOKBACK_DAYS}"
+        ).fetchdf()
+        if price_dates_df.empty:
+            return {}
+        min_price_date = price_dates_df["date"].min()
+        price_df = con.execute(
+            "SELECT stock_id, date, change_pct, volume FROM daily_prices WHERE date >= ?",
+            [min_price_date],
+        ).fetchdf()
+
+        inst_latest = con.execute("SELECT MAX(date) FROM institutional").fetchone()[0]
+        if inst_latest is not None:
+            inst_df = con.execute(
+                "SELECT stock_id, date, foreign_net FROM institutional WHERE date = ?",
+                [inst_latest],
+            ).fetchdf()
+        else:
+            inst_df = pd.DataFrame(columns=["stock_id", "date", "foreign_net"])
+
+        margin_latest = con.execute("SELECT MAX(date) FROM margin").fetchone()[0]
+        if margin_latest is not None:
+            margin_df = con.execute(
+                "SELECT stock_id, date FROM margin WHERE date = ?",
+                [margin_latest],
+            ).fetchdf()
+        else:
+            margin_df = pd.DataFrame(columns=["stock_id", "date"])
+    finally:
+        con.close()
+
+    price_factors = _calc_price_based_factors(universe_df, price_df)
+    chips_factors = _calc_chips_factor(universe_df, inst_df, margin_df)
+
+    all_metas = set(universe_df["meta_sector"].dropna().unique()) | set(price_factors.keys())
+    if not all_metas:
+        return {}
+
+    rs_series = pd.Series(
+        {m: price_factors.get(m, {}).get("rs_raw") for m in all_metas}, dtype="float64"
+    )
+    volume_series = pd.Series(
+        {m: price_factors.get(m, {}).get("volume_raw") for m in all_metas}, dtype="float64"
+    )
+    rs_rank = rs_series.rank(pct=True, ascending=True)
+    volume_rank = volume_series.rank(pct=True, ascending=True)
+
+    results: Dict[str, Dict[str, Any]] = {}
+    for meta_name in all_metas:
+        pf = price_factors.get(meta_name, {})
+        cf = chips_factors.get(meta_name, {"chips_raw": None, "partial_coverage": False})
+
+        rs_raw = pf.get("rs_raw")
+        breadth_raw = pf.get("breadth_raw")
+        continuation_raw = pf.get("continuation_raw")
+        volume_raw = pf.get("volume_raw")
+        chips_raw = cf.get("chips_raw")
+        partial_coverage = bool(cf.get("partial_coverage", False))
+
+        weighted_sum = 0.0
+        coverage = 0.0
+
+        if rs_raw is not None and pd.notna(rs_rank.get(meta_name)):
+            weighted_sum += _RS_WEIGHT * float(rs_rank[meta_name])
+            coverage += _RS_WEIGHT
+        if breadth_raw is not None:
+            weighted_sum += _BREADTH_WEIGHT * breadth_raw
+            coverage += _BREADTH_WEIGHT
+        if continuation_raw is not None:
+            continuation_score = (
+                min(max(continuation_raw, 0), _CONTINUATION_CAP_DAYS) / _CONTINUATION_CAP_DAYS
+            )
+            weighted_sum += _CONTINUATION_WEIGHT * continuation_score
+            coverage += _CONTINUATION_WEIGHT
+        if volume_raw is not None and pd.notna(volume_rank.get(meta_name)):
+            weighted_sum += _VOLUME_WEIGHT * float(volume_rank[meta_name])
+            coverage += _VOLUME_WEIGHT
+        if chips_raw is not None and not partial_coverage:
+            weighted_sum += _CHIPS_WEIGHT * chips_raw
+            coverage += _CHIPS_WEIGHT
+
+        observation_score = round(100 * weighted_sum / coverage, 1) if coverage > 0 else None
+
+        results[meta_name] = {
+            "observation_score": observation_score,
+            "score_coverage": round(coverage, 2),
+            "rs_raw": rs_raw,
+            "breadth_raw": breadth_raw,
+            "continuation_raw": continuation_raw,
+            "volume_raw": volume_raw,
+            "chips_raw": chips_raw,
+            "partial_coverage": partial_coverage,
+        }
 
     return results

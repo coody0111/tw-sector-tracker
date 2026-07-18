@@ -181,3 +181,129 @@ def test_calc_chips_factor_only_uses_latest_date_when_multiple_dates_present():
     result = _calc_chips_factor(universe, inst_df, margin_df)
 
     assert result["測試族群"]["chips_raw"] == 1.0  # 不該是2.0
+
+
+import duckdb
+from processors.observation_scores import calc_meta_observation_scores
+
+
+def _seed_observation_db(db_path, price_rows, inst_rows=None, margin_rows=None):
+    """price_rows: list of (stock_id, date, change_pct, volume)
+    inst_rows: list of (stock_id, date, foreign_net)
+    margin_rows: list of (stock_id, date)"""
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        CREATE TABLE daily_prices (
+            stock_id VARCHAR, date DATE, change_pct DOUBLE, volume BIGINT
+        )
+    """)
+    con.executemany("INSERT INTO daily_prices VALUES (?, ?, ?, ?)", price_rows)
+    con.execute("""
+        CREATE TABLE institutional (
+            stock_id VARCHAR, date DATE, foreign_net BIGINT
+        )
+    """)
+    if inst_rows:
+        con.executemany("INSERT INTO institutional VALUES (?, ?, ?)", inst_rows)
+    con.execute("""
+        CREATE TABLE margin (
+            stock_id VARCHAR, date DATE
+        )
+    """)
+    if margin_rows:
+        con.executemany("INSERT INTO margin VALUES (?, ?)", margin_rows)
+    con.close()
+
+
+def _make_full_universe(rows):
+    """rows: list of (stock_id, meta_sector, exchange)"""
+    return pd.DataFrame(rows, columns=["stock_id", "meta_sector", "exchange"])
+
+
+def test_calc_meta_observation_scores_end_to_end_all_factors_available():
+    """完整6天資料（滿足量能參與需要的天數）+ 齊全籌碼資料，2個族群，5因子全部可算，
+    驗證score_coverage=1.0（無缺項）、observation_score落在合理範圍、原始值都有填。"""
+    import tempfile, pathlib
+    db_path = pathlib.Path(tempfile.mkdtemp()) / "test.db"
+
+    universe = _make_full_universe([
+        ("A1", "sectorA", "TWSE"), ("A2", "sectorA", "TWSE"),
+        ("B1", "sectorB", "TWSE"),
+    ])
+
+    price_rows = []
+    for d in range(25, 30):  # 5天暖身資料
+        price_rows.append(("A1", f"2026-06-{d:02d}", 1.0, 1000))
+        price_rows.append(("A2", f"2026-06-{d:02d}", -1.0, 1000))
+        price_rows.append(("B1", f"2026-06-{d:02d}", 2.0, 1000))
+    # 今日(06-30)
+    price_rows.append(("A1", "2026-06-30", 1.0, 1000))
+    price_rows.append(("A2", "2026-06-30", -1.0, 1000))
+    price_rows.append(("B1", "2026-06-30", 2.0, 2500))  # B1今日爆量
+
+    inst_rows = [
+        ("A1", "2026-06-30", 1000), ("A2", "2026-06-30", -500), ("B1", "2026-06-30", 800),
+    ]
+    margin_rows = [("A1", "2026-06-30"), ("A2", "2026-06-30"), ("B1", "2026-06-30")]
+
+    _seed_observation_db(db_path, price_rows, inst_rows, margin_rows)
+
+    result = calc_meta_observation_scores(universe, db_path=str(db_path))
+
+    assert result["sectorA"]["score_coverage"] == 1.0
+    assert result["sectorB"]["score_coverage"] == 1.0
+    assert result["sectorA"]["observation_score"] is not None
+    assert result["sectorB"]["observation_score"] is not None
+    # sectorB全面優於sectorA（漲幅更高、量能爆量、外資買超檔數比例更高），分數應該更高
+    assert result["sectorB"]["observation_score"] > result["sectorA"]["observation_score"]
+    # 原始值都要有填，供UI顯示
+    for meta in ("sectorA", "sectorB"):
+        assert result[meta]["rs_raw"] is not None
+        assert result[meta]["breadth_raw"] is not None
+        assert result[meta]["continuation_raw"] is not None
+
+
+def test_calc_meta_observation_scores_reweights_when_chips_partial_coverage():
+    """族群橫跨TWSE+TPEx但今日籌碼資料只有TWSE到齊 → chips因子視為不可用，
+    score_coverage應該是1.0-0.10=0.90（不是1.0，也不是誤把chips_raw當0分計入）。"""
+    import tempfile, pathlib
+    db_path = pathlib.Path(tempfile.mkdtemp()) / "test.db"
+
+    universe = _make_full_universe([
+        ("C1", "sectorC", "TWSE"), ("C2", "sectorC", "TPEx"),
+    ])
+    price_rows = []
+    for d in range(25, 31):
+        price_rows.append(("C1", f"2026-06-{d:02d}", 0.5, 1000))
+        price_rows.append(("C2", f"2026-06-{d:02d}", 0.5, 1000))
+    inst_rows = [("C1", "2026-06-30", 500)]  # C2(TPEx)今日缺institutional資料
+    margin_rows = [("C1", "2026-06-30"), ("C2", "2026-06-30")]
+
+    _seed_observation_db(db_path, price_rows, inst_rows, margin_rows)
+
+    result = calc_meta_observation_scores(universe, db_path=str(db_path))
+
+    assert result["sectorC"]["score_coverage"] == 0.90
+    assert result["sectorC"]["observation_score"] is not None  # 其餘4因子仍可算
+
+
+def test_calc_meta_observation_scores_all_factors_unavailable_returns_none_score():
+    """族群完全沒有任何天期資料（例如全新上市族群），5因子全不可用時仍要回傳這個族群
+    （不能從結果消失），observation_score=None、score_coverage=0。"""
+    import tempfile, pathlib
+    db_path = pathlib.Path(tempfile.mkdtemp()) / "test.db"
+
+    # universe裡登記了sectorD，但daily_prices/institutional/margin完全沒有D1的任何資料
+    universe = _make_full_universe([
+        ("D1", "sectorD", "TWSE"),
+        ("E1", "sectorE", "TWSE"),  # sectorE有正常資料，用來讓價格類查詢不會整批提早return {}
+    ])
+    price_rows = [("E1", f"2026-06-{d:02d}", 0.5, 1000) for d in range(25, 31)]
+    _seed_observation_db(db_path, price_rows, inst_rows=[("E1", "2026-06-30", 500)],
+                          margin_rows=[("E1", "2026-06-30")])
+
+    result = calc_meta_observation_scores(universe, db_path=str(db_path))
+
+    assert "sectorD" in result
+    assert result["sectorD"]["observation_score"] is None
+    assert result["sectorD"]["score_coverage"] == 0

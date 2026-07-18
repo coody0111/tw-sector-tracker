@@ -1,3 +1,53 @@
+## [2026-07-18] 逆轟策略 v2 Plan 2/3（觀察分）完成：新增 processors/observation_scores.py
+
+### 改了什麼
+- 新增檔案：`processors/observation_scores.py`（新檔，非改既有 `processors/performance.py`——
+  該檔已871行超過專案800行上限，且這次設計上完全獨立、不共用該檔任何既有函式，是自然新檔邊界）、
+  `tests/test_observation_scores.py`（新檔）。
+- 邏輯說明：依 `docs/superpowers/plans/2026-07-17-meta-observation-scores.md`（3個Task，全部走
+  subagent-driven-development），設計依據 `docs/superpowers/specs/2026-07-17-meta-observation-scores-design.md`：
+  - `_calc_price_based_factors()`：算相對強度（族群近3日累積報酬 vs universe整體，30%權重）、
+    族群廣度（今日上漲比例，25%）、延續性（連漲天數封頂5天，20%）、成分股量能參與（族群集合
+    量比，15%）4個因子原始值，只吃 `daily_prices`。
+  - `_calc_chips_factor()`：算籌碼確認（外資買超檔數比例，10%）原始值，只吃 `institutional`/
+    `margin`。**刻意獨立重寫**了 `processors/performance.py::calc_meta_chips_signals()` 裡的
+    跨交易所涵蓋度判斷邏輯（`partial_coverage`），不呼叫該既有函式——換效能（單一連線）跟隔離性，
+    代價是兩邊之後不會自動同步（已在檔案 docstring 明確註記）。
+  - `calc_meta_observation_scores()`（公開函式，首頁+逆轟頁未來共用）：開一條 DuckDB 連線查完
+    `daily_prices`/`institutional`/`margin`，呼叫上面兩支私有函式，把非0~1的因子（相對強度、量能
+    參與）做「當日跨族群百分位排名」歸一化，加權算出 `observation_score`（0~100）。資料不足時
+    `score_coverage` 按可用權重重算，5因子全不可用時該族群仍回傳（不從結果消失）、
+    `observation_score=None`。
+- 這次 review 迴圈額外抓到1個真實防呆缺口（`_calc_chips_factor()` 沒有像 `calc_meta_chips_signals()`
+  原版一樣自我防呆「只用最新一天資料」，若未來呼叫端不小心傳超過一天的 institutional/margin 資料
+  進去，`chips_raw` 會悄悄超過1.0、破壞0~100分數範圍的假設）——已修好並補測試（commit `cfd2bea`）。
+- 最終 `tests/test_observation_scores.py`：**10 passed**；全 repo 測試套件：**285 passed**（1個既有
+  跟這次改動無關的 pandas FutureWarning，在 `test_processors.py`，跟上次 Plan 1 完成時同一個）。
+
+### 資料來源相關（如有異動）
+- 上市資料（TWSE）：無新資料來源異動，純計算邏輯，讀既有 `daily_prices`/`institutional`/`margin`。
+- 上櫃資料（TPEx / FinMind）：同上，無異動；`_calc_chips_factor()` 的跨交易所涵蓋度判斷邏輯有
+  處理 TWSE/TPEx 資料不同步到齊的情況（沿用既有 `calc_meta_chips_signals()` 已驗證過的判斷邏輯）。
+
+### 請 Debugger 驗證
+- [ ] 5因子公式與權重是否合理（相對強度30%/廣度25%/延續性20%/量能參與15%/籌碼確認10%，
+      這些數值全部標記為**實驗性、待回測校準**，見 spec §7 out of scope）
+- [ ] `score_coverage` reweight 機制：缺某因子時分母是否正確排除（例如缺籌碼時應該是0.90不是1.0）
+- [ ] `python -m pytest tests/test_observation_scores.py -q` 跑一次確認 10 passed
+- [ ] `python -m pytest -q` 全套件確認 285 passed
+
+### 特別注意
+- 這是 v2 spec 的 **Plan 2/3（觀察分）**，Plan 3（generator+UI，把這支函式實際接進 `index.html`
+  排序邏輯 + 新建 `export/momentum_generator.py`）還沒開始。
+- **給 Plan 3 的重要提醒**（code review 明確標記）：`calc_meta_observation_scores(universe_df, ...)`
+  的 `universe_df` 參數**必須含 `exchange` 欄位**，否則 `_calc_chips_factor()` 內部
+  `universe_df[["stock_id", "meta_sector", "exchange"]]` 會直接 `KeyError` 炸掉整支函式（不只是
+  籌碼那一項失效，是整個 `calc_meta_observation_scores()` 呼叫失敗）。Plan 3 接線時務必確認傳進去
+  的 universe_df 來源（`data/stock_universe.csv` 讀出來的）有這個欄位。
+- 沒有回測驗證這5個因子是否真的有效（跟 Plan 1 一樣，回測是獨立任務，這次全部數值都是實驗性）。
+
+---
+
 ## [2026-07-17] 逆轟策略 v2 Plan 1/3（資料層）完成：signals.py 三支函式新增證據欄位
 
 ### 改了什麼

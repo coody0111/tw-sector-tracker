@@ -463,6 +463,7 @@ def generate(trade_date: date, results: list[dict], output_path: str) -> None:
   <a class="nav-link" href="index.html">族群績效</a>
   <a class="nav-link" href="chips.html">籌碼分析</a>
   <a class="nav-link active" href="patterns.html">形態掃描</a>
+  <a class="nav-link" href="momentum.html">逆轟策略</a>
 </div>
 <div class="filter-bar">
   <button class="exch-btn active" data-exch="" onclick="applyFilters(this)">全部</button>

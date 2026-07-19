@@ -1374,6 +1374,7 @@ def generate(
       <a class="nav-link active" href="index.html">族群績效</a>
       <a class="nav-link" href="chips.html">籌碼分析</a>
       <a class="nav-link" href="patterns.html">形態掃描</a>
+      <a class="nav-link" href="momentum.html">逆轟策略</a>
     </div>
   </div>
 

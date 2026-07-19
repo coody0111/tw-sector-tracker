@@ -20,9 +20,15 @@ from processors.performance import calc_sector_performance, calc_meta_performanc
 from storage.csv_writer import CsvWriter
 from export.html_generator import generate as generate_html
 from export.chips_generator import generate as generate_chips_html
+from export.momentum_generator import (
+    market_permission, classify_sector_state, build_sector_priority,
+    build_decision_table, selloff_risk_zone, build_streak_cards,
+    generate as generate_momentum_html,
+)
+from processors.observation_scores import calc_meta_observation_scores
 from screener.database import init_db, import_csv_prices, import_sector_stocks, get_chips_today
 from screener.institutional import scan_institutional
-from screener.signals import scan_volume_turnover
+from screener.signals import scan_volume_turnover, scan_momentum_health, scan_bullish_alignment_new_high, scan_consecutive_limit_up
 from screener.backtest import run_backtest, print_summary as print_backtest_summary, CHIPS_RULES
 
 UNIVERSE_PATH = Path("data/stock_universe.csv")
@@ -242,6 +248,8 @@ def _push_html(trade_date: date) -> None:
         files_to_add = ["docs/index.html", "docs/chips.html"]
         if os.path.exists("docs/patterns.html"):
             files_to_add.append("docs/patterns.html")
+        if os.path.exists("docs/momentum.html"):
+            files_to_add.append("docs/momentum.html")
         subprocess.run(["git", "add"] + files_to_add, check=True)
         # 只看這幾個產出檔有沒有變動（限定範圍，不受其他 staged 變更影響判斷）
         result = subprocess.run(["git", "diff", "--cached", "--quiet", "--"] + files_to_add)
@@ -717,6 +725,18 @@ def run(trade_date: date = None, realtime: bool = False) -> None:
             logger.warning("巨量換手掃描失敗: %s", exc)
             vol_signals = []
 
+        try:
+            # universe_df 必須含 exchange 欄位，否則 calc_meta_observation_scores() 內部
+            # _calc_chips_factor() 會 KeyError（見 debug-tasks.md 2026-07-18 條目提醒）。
+            obs_universe_df = pd.read_csv(
+                UNIVERSE_PATH, dtype=str,
+                usecols=["stock_id", "stock_name", "meta_sector", "exchange"],
+            )
+            observation_scores = calc_meta_observation_scores(obs_universe_df)
+        except Exception as exc:
+            logger.warning("觀察分計算失敗，index.html 排序退回avg_change_pct、momentum頁本次不產生: %s", exc)
+            observation_scores = {}
+
         generate_html(trade_date, pd.DataFrame(perf) if perf else pd.DataFrame(),
                       sectors_df=sectors_df,
                       prices_df=prices_df if prices_df is not None else pd.DataFrame(),
@@ -729,7 +749,8 @@ def run(trade_date: date = None, realtime: bool = False) -> None:
                       stock_sparklines=stock_sparklines,
                       vol_turnover=vol_signals,
                       rolling_returns=rolling_returns,
-                      market_regime=market_regime)
+                      market_regime=market_regime,
+                      observation_scores=observation_scores)
         logger.info("HTML generated → docs/index.html")
 
         try:
@@ -873,6 +894,45 @@ def run(trade_date: date = None, realtime: bool = False) -> None:
             logger.info("HTML generated → docs/patterns.html")
         except Exception as exc:
             logger.warning("patterns 掃描/產 HTML 失敗: %s", exc)
+
+        momentum_html_written = False
+        if observation_scores:
+            try:
+                momentum_results = scan_momentum_health(trade_date.isoformat())
+                bullish_results = scan_bullish_alignment_new_high(trade_date.isoformat())
+                limit_up_results = scan_consecutive_limit_up(trade_date.isoformat())
+
+                permission_data = market_permission(
+                    market_regime or {},
+                    index_date=market_regime.get("taiex_date") if market_regime else None,
+                    price_date=trade_date.isoformat(),
+                )
+                sector_states = {
+                    meta_name: classify_sector_state(data)
+                    for meta_name, data in observation_scores.items()
+                }
+                sector_priority = build_sector_priority(observation_scores, top_n=5)
+                decision_table = build_decision_table(
+                    momentum_results, bullish_results, permission_data["permission"], sector_states,
+                )
+                risk_zone = (
+                    selloff_risk_zone(momentum_results)
+                    if permission_data["permission"] == "defensive" else {}
+                )
+                streak_cards = build_streak_cards(limit_up_results)
+
+                momentum_html_written = generate_momentum_html(
+                    trade_date, permission_data, sector_priority, decision_table,
+                    risk_zone, streak_cards,
+                    index_date=market_regime.get("taiex_date") if market_regime else None,
+                    price_date=trade_date.isoformat(),
+                    chips_date=trade_date.isoformat(),
+                )
+            except Exception as exc:
+                logger.warning("逆轟策略頁產生失敗: %s", exc)
+
+        if momentum_html_written:
+            logger.info("HTML generated → docs/momentum.html")
 
         _push_html(trade_date)
 

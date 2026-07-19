@@ -118,3 +118,117 @@ def test_build_sector_priority_none_score_sorts_last():
     }
     result = build_sector_priority(observation_scores, top_n=5)
     assert [r["meta_name"] for r in result] == ["A", "B"]
+
+
+from export.momentum_generator import determine_final_label, build_decision_table
+
+
+def _base_stock_row(**overrides):
+    row = {
+        "stock_id": "2330", "stock_name": "台積電", "meta_sector": "半導體",
+        "close": 900.0, "change_pct": 2.0, "ma5": 890.0, "ma10": 870.0, "ma20": 850.0, "ma60": 800.0,
+        "ma_alignment": "多頭排列", "ma5_slope_down": False, "below_ma5": False, "big_black_proxy": False,
+        "ma5_rising": True, "ma10_rising": True, "exit_3_rule_triggered": False, "entry_confirmed": True,
+        "rs_score": 3.0, "rs_rank_pct": 0.9, "rs_market_score": 4.0, "rs_sample_count": 12,
+        "daily_excess_pct": 1.5, "strength_tier": "超強",
+    }
+    row.update(overrides)
+    return row
+
+
+def test_determine_final_label_limit_down_takes_top_priority():
+    """跌停風險優先權最高：即使同時符合出場條件命中，也只顯示跌停風險（流動性風險最急迫）。"""
+    row = _base_stock_row(change_pct=-9.6, exit_3_rule_triggered=True, strength_tier="超弱")
+    label = determine_final_label(row, "defensive", "轉弱", {})
+    assert label == "跌停風險"
+
+
+def test_determine_final_label_exit_condition_hit():
+    row = _base_stock_row(change_pct=-5.0, exit_3_rule_triggered=True, strength_tier="超弱")
+    label = determine_final_label(row, "normal", "主升", {})
+    assert label == "出場條件命中"
+
+
+def test_determine_final_label_entry_candidate_when_all_gates_pass():
+    row = _base_stock_row()
+    bullish_map = {"2330": {"stock_id": "2330", "volume_confirmed": True}}
+    label = determine_final_label(row, "normal", "主升", bullish_map)
+    assert label == "進場候選"
+
+
+def test_determine_final_label_blocked_by_low_rs_confidence():
+    """RS樣本信心是C（<5檔）時，即使其他閘門都成立，也不能升級成進場候選（spec §3.2/§3.4）。"""
+    row = _base_stock_row(rs_sample_count=3)
+    bullish_map = {"2330": {"stock_id": "2330", "volume_confirmed": True}}
+    label = determine_final_label(row, "normal", "主升", bullish_map)
+    assert label != "進場候選"
+    assert label == "續強觀察"
+
+
+def test_determine_final_label_blocked_by_missing_volume_confirmed():
+    row = _base_stock_row()
+    bullish_map = {"2330": {"stock_id": "2330", "volume_confirmed": False}}
+    label = determine_final_label(row, "normal", "主升", bullish_map)
+    assert label != "進場候選"
+
+
+def test_determine_final_label_blocked_when_not_in_bullish_new_high_list():
+    row = _base_stock_row()
+    label = determine_final_label(row, "normal", "主升", {})  # 2330不在B3清單
+    assert label != "進場候選"
+
+
+def test_determine_final_label_blocked_when_market_defensive():
+    row = _base_stock_row()
+    bullish_map = {"2330": {"stock_id": "2330", "volume_confirmed": True}}
+    label = determine_final_label(row, "defensive", "主升", bullish_map)
+    assert label == "風險升高"
+
+
+def test_determine_final_label_risk_elevated_for_weak_tier():
+    row = _base_stock_row(strength_tier="弱", ma_alignment="空頭排列", entry_confirmed=False)
+    label = determine_final_label(row, "normal", "轉弱", {})
+    assert label == "風險升高"
+
+
+def test_determine_final_label_continued_strength_watch_when_gate_incomplete():
+    """超強/強但進場閘門不完整（例如不在B3清單）時，顯示續強觀察，不是進場候選。"""
+    row = _base_stock_row(strength_tier="強")
+    label = determine_final_label(row, "normal", "轉強", {})
+    assert label == "續強觀察"
+
+
+def test_determine_final_label_wait_for_confirmation_default():
+    row = _base_stock_row(strength_tier="整理", ma_alignment="糾結", entry_confirmed=False, rs_rank_pct=None)
+    label = determine_final_label(row, "selective", "等待確認", {})
+    assert label == "等待確認"
+
+
+def test_build_decision_table_groups_by_sector_strength_and_sorts():
+    momentum_results = [
+        _base_stock_row(stock_id="2330", stock_name="台積電", meta_sector="半導體", rs_rank_pct=0.9, strength_tier="超強"),
+        _base_stock_row(stock_id="2454", stock_name="聯發科", meta_sector="半導體", rs_rank_pct=0.5, strength_tier="強"),
+        _base_stock_row(stock_id="2603", stock_name="長榮", meta_sector="航運", rs_rank_pct=0.3, strength_tier="整理", ma_alignment="糾結"),
+    ]
+    sector_states = {"半導體": "主升", "航運": "等待確認"}
+    table = build_decision_table(momentum_results, [], "normal", sector_states)
+
+    ids = [r["stock_id"] for r in table]
+    assert ids == ["2330", "2454", "2603"]  # 半導體(較強族群)優先，組內2330>2454
+    assert table[0]["sector_state"] == "主升"
+    assert table[0]["rs_confidence"] == "A"  # rs_sample_count=12
+
+
+def test_build_decision_table_includes_entry_and_exit_evidence():
+    momentum_results = [_base_stock_row()]
+    bullish_results = [{"stock_id": "2330", "stock_name": "台積電", "meta_sector": "半導體",
+                         "close": 900.0, "change_pct": 2.0, "ma5": 890.0, "ma10": 870.0, "ma60": 800.0,
+                         "lookback_days": 60, "volume_ratio_20d": 1.8, "volume_confirmed": True}]
+    sector_states = {"半導體": "主升"}
+    table = build_decision_table(momentum_results, bullish_results, "normal", sector_states)
+
+    row = table[0]
+    assert row["final_label"] == "進場候選"
+    assert ("多頭排列＋創新高（B3清單內）", True) in row["entry_evidence"]
+    assert ("量能確認（B3量比≥1.5）", True) in row["entry_evidence"]
+    assert ("跌破五日線", False) in row["exit_evidence"]

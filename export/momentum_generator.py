@@ -163,3 +163,128 @@ def build_sector_priority(observation_scores: dict, top_n: int = 5) -> list:
     for i, row in enumerate(top_rows):
         row["rank"] = i + 1
     return top_rows
+
+
+_RS_CONFIDENCE_BLOCKING = "C"
+
+_TIER_ORDER = {"超強": 0, "強": 1, "整理": 2, "弱": 3, "超弱": 4}
+
+
+def determine_final_label(
+    stock_row: dict,
+    market_permission_state: str,
+    sector_state: str,
+    bullish_new_high_map: dict,
+) -> str:
+    """
+    最終決策標籤（v2 spec §2.4），六選一，全部為非命令式狀態描述。stock_row 是
+    scan_momentum_health() 單筆輸出。bullish_new_high_map 是
+    {stock_id: scan_bullish_alignment_new_high()單筆輸出}，供判斷 B3 清單成員資格與
+    volume_confirmed（不能只傳一個 set，因為還需要讀 volume_confirmed 的值）。
+
+    優先序（由上到下，符合就回傳，不繼續往下判斷）：
+    1. 跌停風險：change_pct <= _LIMIT_DOWN_PCT（流動性風險最急迫，跟其他狀態互斥，
+       即使同時符合出場條件命中或其他狀態也只顯示這個）
+    2. 出場條件命中：exit_3_rule_triggered
+    3. 進場候選：spec §3.4 六項閘門同時成立
+    4. 風險升高：strength_tier=="弱" 或 market_permission_state=="defensive"
+    5. 續強觀察：strength_tier in {"超強","強"}（但進場閘門未全部成立）
+    6. 等待確認：其餘情況（整理、急彈、資料不足）
+    """
+    change_pct = stock_row.get("change_pct")
+    if change_pct is not None and change_pct <= _LIMIT_DOWN_PCT:
+        return "跌停風險"
+
+    if stock_row.get("exit_3_rule_triggered"):
+        return "出場條件命中"
+
+    sid = stock_row.get("stock_id")
+    confidence = rs_sample_confidence(stock_row.get("rs_sample_count", 0))
+    b3_row = bullish_new_high_map.get(sid)
+    entry_gate = (
+        market_permission_state in ("normal", "selective")
+        and sector_state in ("主升", "轉強")
+        and stock_row.get("strength_tier") in ("超強", "強")
+        and bool(stock_row.get("entry_confirmed"))
+        and b3_row is not None
+        and bool(b3_row.get("volume_confirmed"))
+        and confidence != _RS_CONFIDENCE_BLOCKING
+    )
+    if entry_gate:
+        return "進場候選"
+
+    if stock_row.get("strength_tier") == "弱" or market_permission_state == "defensive":
+        return "風險升高"
+
+    if stock_row.get("strength_tier") in ("超強", "強"):
+        return "續強觀察"
+
+    return "等待確認"
+
+
+def build_decision_table(
+    momentum_results: list,
+    bullish_new_high_results: list,
+    market_permission_state: str,
+    sector_states: dict,
+) -> list:
+    """
+    個股決策主表（v2 spec §4/§4.1）。組合 scan_momentum_health() +
+    scan_bullish_alignment_new_high() + 族群狀態 + 市場許可 → 每檔股票的最終標籤與證據。
+
+    sector_states：{meta_name: sector_state_str}，呼叫端先對 calc_meta_observation_scores()
+    的**全量**輸出（不只 build_sector_priority() 的 top_n）逐族群跑過 classify_sector_state()——
+    個股不會因為所屬族群沒排進首頁Top5就被排除在主表外。
+
+    排序：先依族群內最強個股的技術狀態排序分組（族群整體越強，組別排越前面），組內再依
+    strength_tier（超強>強>整理>弱>超弱）與 rs_rank_pct 降冪排列。
+    """
+    bullish_map = {r["stock_id"]: r for r in bullish_new_high_results}
+
+    rows = []
+    for row in momentum_results:
+        meta_name = row.get("meta_sector")
+        sector_state = sector_states.get(meta_name, "等待確認")
+        label = determine_final_label(row, market_permission_state, sector_state, bullish_map)
+        confidence = rs_sample_confidence(row.get("rs_sample_count", 0))
+        b3_row = bullish_map.get(row["stock_id"])
+        rows.append({
+            "stock_id": row["stock_id"],
+            "stock_name": row["stock_name"],
+            "meta_sector": meta_name,
+            "sector_state": sector_state,
+            "close": row["close"],
+            "change_pct": row["change_pct"],
+            "strength_tier": row["strength_tier"],
+            "rs_rank_pct": row["rs_rank_pct"],
+            "rs_sample_count": row.get("rs_sample_count", 0),
+            "rs_confidence": confidence,
+            "rs_market_score": row.get("rs_market_score"),
+            "daily_excess_pct": row.get("daily_excess_pct"),
+            "final_label": label,
+            "entry_evidence": [
+                ("多頭排列＋創新高（B3清單內）", b3_row is not None),
+                ("量能確認（B3量比≥1.5）", bool(b3_row.get("volume_confirmed")) if b3_row else False),
+                ("動能確認：MA5/MA10皆上揚", bool(row.get("entry_confirmed"))),
+            ],
+            "exit_evidence": [
+                ("跌破五日線", bool(row.get("below_ma5"))),
+                ("五日線下彎", bool(row.get("ma5_slope_down"))),
+                ("重挫proxy（單日跌幅近似，非完整K棒長黑）", bool(row.get("big_black_proxy"))),
+            ],
+            "ma": {"ma5": row["ma5"], "ma10": row["ma10"], "ma20": row["ma20"], "ma60": row["ma60"]},
+        })
+
+    sector_best_rank: dict = {}
+    for row in rows:
+        combo = (_TIER_ORDER.get(row["strength_tier"], 5), -(row["rs_rank_pct"] or 0))
+        s = row["meta_sector"]
+        if s not in sector_best_rank or combo < sector_best_rank[s]:
+            sector_best_rank[s] = combo
+
+    rows.sort(key=lambda r: (
+        sector_best_rank[r["meta_sector"]],
+        _TIER_ORDER.get(r["strength_tier"], 5),
+        -(r["rs_rank_pct"] or 0),
+    ))
+    return rows

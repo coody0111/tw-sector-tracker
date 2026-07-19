@@ -933,6 +933,8 @@ def run(trade_date: date = None, realtime: bool = False) -> None:
 
         if momentum_html_written:
             logger.info("HTML generated → docs/momentum.html")
+        elif observation_scores:
+            logger.warning("docs/momentum.html 沒有更新（decision_table 為空，可能是當天無掃描命中或資料源失敗）")
 
         _push_html(trade_date)
 

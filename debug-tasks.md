@@ -1,3 +1,35 @@
+## [2026-07-20] 修 - TAIEX完全抓取失敗時market_permission()誤判selective（Debugger回報，已修）
+
+### 背景
+接續下方 2026-07-19 條目，Debugger 驗證回報了一個真的 bug（不是「是否可接受」的行為，
+Debugger 明確建議修），Cody 授權直接修。
+
+### 🔴 問題
+- 位置：`export/momentum_generator.py::market_permission()`
+- TAIEX 整支 API 抓取失敗時，`main.py` 的 `market_regime` 會是 `None`，呼叫
+  `market_permission(market_regime or {}, index_date=None, ...)` 傳進去是空 dict。
+- 原本邏輯：`index_date is None` 會跳過日期一致性檢查，接著落到
+  `tier = market_regime.get("tier", "持平")`——空 dict 沒有 `"tier"`，套用預設值「持平」→
+  `permission="selective"` → 誤輸出完整操作文案「只看條件完整的強勢候選；訊號不足的個股維持
+  觀察，不追價。」
+- 對照組：TAIEX**有**抓到、但日期跟個股行情對不上時，正確降級成 `unknown`、`advice_text=""`。
+- 結果：資料**更不完整**（整支 API 失敗）反而比「日期部分不一致」**更寬鬆**、還會輸出一段
+  像正常運作時才會出現的操作建議，方向跟保守設計相反。
+
+### ✅ 修法
+- `market_permission()` 開頭新增 guard：`market_regime` 為空或缺 `"tier"` 欄位時，一律直接
+  回傳 `permission="unknown"`、`advice_text=""`，不落到 tier 預設值分支。
+- 新增 2 個回歸測試：`test_market_permission_unknown_when_market_regime_empty`（空dict）、
+  `test_market_permission_unknown_when_tier_key_missing`（非空但缺tier欄位）。
+- `tests/test_momentum_generator.py`：43 passed（41→43）；全專案 `pytest -q`：**338 passed**
+  （336→338，1個既有無關warning）。
+
+### 請 Debugger 驗證
+- [ ] 確認這個修法符合你原本建議的方向
+- [ ] `python -m pytest tests/test_momentum_generator.py -q` 跑一次確認 43 passed
+
+---
+
 ## [2026-07-19] 逆轟策略 v2 Plan 3/3（generator + UI 整合）完成：新增 docs/momentum.html
 
 ### 改了什麼

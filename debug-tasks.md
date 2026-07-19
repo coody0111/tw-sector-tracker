@@ -1,3 +1,96 @@
+## [2026-07-19] 逆轟策略 v2 Plan 3/3（generator + UI 整合）完成：新增 docs/momentum.html
+
+### 改了什麼
+- 新增檔案：`export/momentum_generator.py`（新檔案，比照 `chips_generator.py`/`patterns_generator.py`
+  自成一檔慣例；純函式業務邏輯層 + `generate()` 產生 `docs/momentum.html`）。
+- 異動檔案：`export/html_generator.py`（`generate()` 新增可選參數 `observation_scores`，
+  向後相容，缺值時退回原本 `avg_change_pct` 排序）、`export/chips_generator.py`／
+  `export/patterns_generator.py`（各自 nav 加一行「逆轟策略」連結）、`main.py`（`run()` 掛接
+  每日流程、`_push_html()` 納入 `docs/momentum.html`）。
+- 邏輯說明：依 `docs/superpowers/plans/2026-07-19-momentum-strategy-v2-plan3.md`（6個Task，
+  全部走 subagent-driven-development：implementer→spec-compliance review→code-quality
+  review），設計依據 `docs/superpowers/specs/2026-07-16-momentum-strategy-page-v2-design.md`（v2，
+  取代 2026-07-14/2026-07-15 兩份舊 spec）：
+  - `index.html` 族群卡片排序改用 `calc_meta_observation_scores()`（首頁與逆轟頁共用同一份
+    觀察分，同一次 `main.py` 呼叫只算一次，不重複開 DuckDB 連線）。
+  - `momentum_generator.py` 業務邏輯：`market_permission()`（市場操作許可四級：
+    normal/selective/defensive/unknown，指數與個股行情日期不同時降級 unknown、不輸出操作
+    文案）、`classify_sector_state()`（族群狀態五級，草案門檻已標記待回測）、
+    `determine_final_label()`（個股最終決策標籤六選一：進場候選/續強觀察/等待確認/風險升高/
+    出場條件命中/跌停風險，全部非命令式文字，優先序：跌停風險 > 出場條件命中 > 進場候選六項
+    閘門 > 風險升高 > 續強觀察 > 等待確認）、`selloff_risk_zone()`（急殺風險區，**用單日
+    `daily_excess_pct` 不用5日 `rs_market_score`**，這是先前舊版 v1 plan 犯過的錯，這次特別
+    寫回歸測試守住）、`build_streak_cards()`（連續收近漲停卡片，文案不稱「鎖死」）。
+  - `generate()`：組裝成 `docs/momentum.html`，全部用原生 `<details>/<summary>` 展開列，
+    不需要客戶端 JS。`BANNED_PHRASES` 常數 + 全頁回歸測試（`隨時加碼`/`一定續抱`/`直接出清`/
+    `立刻砍`/`可換入`/`反手放空` 六個命令式字樣皆不得出現）。
+  - `main.py::run()`：呼叫 `scan_momentum_health`/`scan_bullish_alignment_new_high`/
+    `scan_consecutive_limit_up`/`calc_meta_observation_scores` 各一次，組出決策主表；
+    momentum 相關程式碼整段包在 try/except，任何一步失敗只 log warning、不影響當天其餘流程
+    （chips.html/patterns.html 正常產生、`_push_html` 照常執行）。
+- 這次 review 迴圈額外抓到並修好 3 個問題：
+  1. `determine_final_label()` 原本「風險升高」判斷式只檢查 `strength_tier=="弱"`，沒涵蓋
+     `"超弱"`——目前之所以沒事是因為 `scan_momentum_health()` 目前一定讓「超弱」伴隨
+     `exit_3_rule_triggered=True`（會被更高優先序的「出場條件命中」攔截），但這個函式本身
+     不該依賴這個外部巧合。已修成同時涵蓋 `("弱","超弱")`，並補了假設這個巧合被打破時的
+     回歸測試（commit `1aeecd8`）。
+  2. `generate()` 產生的 `docs/momentum.html` 缺少 render 層級測試驗證 `rs_rank_pct=None`
+     （RS樣本不足）與有值的股票混在同一張表時能正確 render 佔位符號、不會讓 `<tr>` 數量對不上
+     ——已補測試（commit `8b45f61`）。
+  3. `main.py` 的 momentum 區塊原本只在成功寫檔時 log info，「跑完沒出錯但 decision_table
+     為空、實際沒寫檔」的情況完全沒有診斷 log——已比照既有 `chips_html_written` 慣例補上
+     `elif observation_scores:` 的 warning log（commit `3ce3db9`）。
+- 最終 `tests/test_momentum_generator.py`：**41 passed**；`tests/test_html_generator.py` 全部通過
+  （含3個新增 observation_score 排序測試）；全 repo 測試套件：**336 passed**（1個既有跟這次
+  改動無關的 pandas FutureWarning，在 `test_processors.py`，跟前兩個 Plan 完成時同一個）。
+- 完成後額外做了一次全體整合review（跨9個commit的end-to-end檢查，不是逐task重複review）：
+  confirm `observation_scores` 全量（不只首頁Top5）正確傳進 `build_decision_table()` 的
+  `sector_states`、`BANNED_PHRASES`六個字樣全文掃描確認無漏網、`market_permission()`回傳的
+  字串常值與`determine_final_label()`比對邏輯完全一致（兩邊沒有共用enum、只靠字串常值一致，
+  但目前確實一致）、main.py呼叫點的參數順序/型別跟函式簽章逐一核對正確。
+
+### 資料來源相關（如有異動）
+- 上市資料（TWSE）：無新資料來源異動，純計算邏輯與HTML組裝，讀既有 `daily_prices`/
+  `institutional`/`margin`（透過既有 `calc_meta_observation_scores()`/`scan_momentum_health()`
+  等函式）。
+- 上櫃資料（TPEx / FinMind）：同上，無異動。
+
+### 請 Debugger 驗證
+- [ ] 5因子觀察分排序 + 六級最終標籤決策邏輯是否合理（**全部標記為實驗性、待回測校準**，
+      未回測驗證策略有效性，只驗證程式邏輯符合 spec）
+- [ ] `docs/momentum.html` 全文搜尋確認真的沒有 `隨時加碼`/`一定續抱`/`直接出清`/`立刻砍`/
+      `可換入`/`反手放空` 六個命令式字樣（`BANNED_PHRASES` 回歸測試已覆蓋，但建議實際跑一次
+      `python main.py` 產生真實頁面後再肉眼複查一次，測試用的是假資料 fixture）
+  - **一個需要 Debugger 特別確認的行為**（holistic review 提出，不是 bug，但需要確認是否為
+    預期行為）：TAIEX 抓取完全失敗時 `market_regime=None`，此時 `market_permission()` 的
+    `index_date` 也是 `None`，會跳過日期一致性檢查、直接落到預設 `tier="持平"` →
+    `permission="selective"`，而不是 `"unknown"`。這代表「TAIEX完全抓不到」跟「大盤真的持平」
+    在頁面上看起來一樣（都是 selective/持平），沒有明確區分「抓取失敗」的狀態。請確認這是否
+    是可接受的降級行為，或是否需要額外處理。
+- [ ] `index.html` 族群卡片排序改用 `observation_score` 後，實際跑一次確認排序結果符合預期
+      （3個新增測試已驗證排序邏輯 + None 值處理 + 向後相容，但沒有用真實資料跑過）
+- [ ] `python -m pytest tests/test_momentum_generator.py tests/test_html_generator.py -q` 跑一次
+      確認 momentum_generator 41 passed、html_generator 全過
+- [ ] `python -m pytest -q` 全套件確認 336 passed
+- [ ] 3個既有頁面（index/chips/patterns）nav 都能正常連到 `momentum.html`，`momentum.html` 自己
+      的 nav 也能連回其他3頁
+
+### 特別注意
+- 這是 v2 spec 的 **Plan 3/3（generator + UI 整合），至此 v2 spec 三個 Plan 全部完成**
+  （Plan 1 資料層 `screener/signals.py`、Plan 2 觀察分 `processors/observation_scores.py`、
+  Plan 3 這次）。
+- v2 spec §7/§8 明確排除的項目本次**確認沒有誤做**（holistic review 已 grep 確認零殘留）：
+  `scan_limit_up_unlocked()`（漲停打開階段性解讀）、紫圈／橘圈視覺徽章、任何回測驗證邏輯。
+- 舊版 `docs/superpowers/plans/2026-07-16-momentum-strategy-page.md`（v2 spec 定案**前**寫的
+  plan）已作廢、**這次完全沒有照那份舊 plan 實作**——那份用的是命令式文案（隨時加碼/反手放空
+  等）且誤用5日 `rs_market_score`，跟這次新寫的 `momentum_generator.py` 函式名稱與邏輯完全不同、
+  不相容，純粹當歷史紀錄保留，往後不要參考其程式碼。
+- `calc_meta_observation_scores()` 呼叫端仍需要 `universe_df` 含 `exchange` 欄位（Plan 2 完成時
+  就標注過的提醒，這次 `main.py` 接線時已確認 `data/stock_universe.csv` 實際有這個欄位、
+  `usecols` 有明確列出）。
+
+---
+
 ## [2026-07-18] 逆轟策略 v2 Plan 2/3（觀察分）完成：新增 processors/observation_scores.py
 
 ### 改了什麼

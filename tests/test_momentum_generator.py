@@ -255,3 +255,64 @@ def test_build_decision_table_defaults_to_wait_for_confirmation_when_sector_miss
 
     assert table[0]["sector_state"] == "等待確認"
     assert table[0]["final_label"] != "進場候選"  # 等待確認不在entry_gate允許的{主升,轉強}內
+
+
+from export.momentum_generator import selloff_risk_zone, build_streak_cards
+
+
+def test_selloff_risk_zone_uses_daily_excess_pct_not_rs_market_score():
+    """關鍵回歸：急殺風險區必須用daily_excess_pct（單日抗跌），不能誤用5日rs_market_score
+    （v2 spec §3.1 明訂，這是舊plan犯過的錯）。這檔股票今日抗跌(daily_excess_pct>0)但
+    5日相對大盤是負的(rs_market_score<0)，應該被列入抗跌候選。"""
+    momentum_results = [
+        {"stock_id": "2609", "stock_name": "陽明", "meta_sector": "航運",
+         "change_pct": -0.5, "daily_excess_pct": 1.2, "rs_market_score": -2.0},
+    ]
+    result = selloff_risk_zone(momentum_results)
+    assert [r["stock_id"] for r in result["resilient"]] == ["2609"]
+
+
+def test_selloff_risk_zone_splits_resilient_and_limit_down():
+    momentum_results = [
+        {"stock_id": "2609", "stock_name": "陽明", "meta_sector": "航運",
+         "change_pct": 1.2, "daily_excess_pct": 3.0, "rs_market_score": 1.0},
+        {"stock_id": "2617", "stock_name": "台航", "meta_sector": "航運",
+         "change_pct": -0.4, "daily_excess_pct": 1.4, "rs_market_score": 0.5},
+        {"stock_id": "2023", "stock_name": "燁輝", "meta_sector": "鋼鐵",
+         "change_pct": -9.7, "daily_excess_pct": -8.0, "rs_market_score": -7.0},
+        {"stock_id": "9999", "stock_name": "無關股", "meta_sector": "其他",
+         "change_pct": -1.0, "daily_excess_pct": -0.5, "rs_market_score": -0.2},
+    ]
+    result = selloff_risk_zone(momentum_results)
+
+    resilient_ids = [r["stock_id"] for r in result["resilient"]]
+    limit_down_ids = [r["stock_id"] for r in result["limit_down"]]
+    assert resilient_ids == ["2609", "2617"]  # daily_excess_pct>0，依分數降冪
+    assert limit_down_ids == ["2023"]
+    assert "9999" not in resilient_ids and "9999" not in limit_down_ids
+
+
+def test_selloff_risk_zone_limit_down_takes_precedence_over_resilient():
+    momentum_results = [
+        {"stock_id": "1111", "stock_name": "極端股", "meta_sector": "測試",
+         "change_pct": -9.6, "daily_excess_pct": 2.0, "rs_market_score": 3.0},
+    ]
+    result = selloff_risk_zone(momentum_results)
+    assert [r["stock_id"] for r in result["limit_down"]] == ["1111"]
+    assert result["resilient"] == []
+
+
+def test_build_streak_cards_carries_breakout_volume_confirmed():
+    limit_up_results = [
+        {"stock_id": "6770", "stock_name": "力積電", "meta_sector": "半導體", "close": 50.0,
+         "change_pct": 9.8, "volume": 100000, "limit_up_streak": 4,
+         "volume_declining_streak": True, "breakout_volume_confirmed": True},
+        {"stock_id": "1560", "stock_name": "中砂", "meta_sector": "工具機", "close": 80.0,
+         "change_pct": 9.9, "volume": 50000, "limit_up_streak": 3,
+         "volume_declining_streak": True, "breakout_volume_confirmed": False},
+    ]
+    cards = build_streak_cards(limit_up_results)
+
+    assert cards[0]["stock_id"] == "6770"
+    assert cards[0]["breakout_volume_confirmed"] is True
+    assert cards[1]["breakout_volume_confirmed"] is False

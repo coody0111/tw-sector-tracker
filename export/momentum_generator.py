@@ -288,3 +288,59 @@ def build_decision_table(
         -(r["rs_rank_pct"] or 0),
     ))
     return rows
+
+
+def selloff_risk_zone(momentum_results: list) -> dict:
+    """
+    急殺風險區資料（v2 spec §3.1/§3.6/§4「僅defensive顯示」）。這支函式本身不檢查市場
+    許可狀態，純資料整理，呼叫端（generate()）決定要不要渲染這個區塊。
+
+    抗跌候選：daily_excess_pct > 0（今日抗跌優於大盤單日均值），依 daily_excess_pct 降冪
+    排列。**必須用 daily_excess_pct，不能用 rs_market_score**（v2 spec §3.1：急殺模式候選
+    條件使用單日 daily_excess_pct，rs_market_score 是5日週期，兩者不可互相代替）。
+    跌停風險：change_pct <= _LIMIT_DOWN_PCT，優先權高於抗跌候選（同時符合兩邊時只算跌停
+    風險，流動性風險比抗跌排名更急迫）。
+    """
+    limit_down = [
+        r for r in momentum_results
+        if r.get("change_pct") is not None and r["change_pct"] <= _LIMIT_DOWN_PCT
+    ]
+    limit_down_ids = {r["stock_id"] for r in limit_down}
+
+    resilient = [
+        r for r in momentum_results
+        if r.get("daily_excess_pct") is not None and r["daily_excess_pct"] > 0
+        and r["stock_id"] not in limit_down_ids
+    ]
+    resilient.sort(key=lambda r: r["daily_excess_pct"], reverse=True)
+
+    return {
+        "resilient": [
+            {"stock_id": r["stock_id"], "stock_name": r["stock_name"], "meta_sector": r["meta_sector"],
+             "change_pct": r["change_pct"], "daily_excess_pct": r["daily_excess_pct"]}
+            for r in resilient
+        ],
+        "limit_down": [
+            {"stock_id": r["stock_id"], "stock_name": r["stock_name"], "meta_sector": r["meta_sector"],
+             "change_pct": r["change_pct"]}
+            for r in limit_down
+        ],
+    }
+
+
+def build_streak_cards(limit_up_results: list) -> list:
+    """
+    連續收近漲停卡片資料（v2 spec §3.5，顯示名稱固定用「連續收近漲停」，不再稱「鎖死」，
+    因為現有資料無法證明盤中全程鎖死）。直接沿用 scan_consecutive_limit_up() 既有降冪排序。
+    """
+    return [
+        {
+            "stock_id": row["stock_id"],
+            "stock_name": row["stock_name"],
+            "meta_sector": row["meta_sector"],
+            "limit_up_streak": row["limit_up_streak"],
+            "volume_declining_streak": row["volume_declining_streak"],
+            "breakout_volume_confirmed": row["breakout_volume_confirmed"],
+        }
+        for row in limit_up_results
+    ]

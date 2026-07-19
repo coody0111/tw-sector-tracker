@@ -1,3 +1,5 @@
+from datetime import date
+
 from export.momentum_generator import (
     rs_sample_confidence, market_permission, classify_sector_state, build_sector_priority,
 )
@@ -316,3 +318,119 @@ def test_build_streak_cards_carries_breakout_volume_confirmed():
     assert cards[0]["stock_id"] == "6770"
     assert cards[0]["breakout_volume_confirmed"] is True
     assert cards[1]["breakout_volume_confirmed"] is False
+
+
+from export.momentum_generator import generate, BANNED_PHRASES
+
+
+def _sample_decision_row(**overrides):
+    row = {
+        "stock_id": "2330", "stock_name": "台積電", "meta_sector": "半導體", "sector_state": "主升",
+        "close": 900.0, "change_pct": 2.0, "strength_tier": "超強", "rs_rank_pct": 0.9,
+        "rs_sample_count": 12, "rs_confidence": "A", "rs_market_score": 4.0, "daily_excess_pct": 1.5,
+        "final_label": "進場候選",
+        "entry_evidence": [("多頭排列＋創新高（B3清單內）", True), ("量能確認（B3量比≥1.5）", True),
+                            ("動能確認：MA5/MA10皆上揚", True)],
+        "exit_evidence": [("跌破五日線", False), ("五日線下彎", False), ("重挫proxy（單日跌幅近似，非完整K棒長黑）", False)],
+        "ma": {"ma5": 890.0, "ma10": 870.0, "ma20": 850.0, "ma60": 800.0},
+    }
+    row.update(overrides)
+    return row
+
+
+def test_generate_returns_false_and_skips_write_when_decision_table_empty(tmp_path):
+    output_path = tmp_path / "momentum.html"
+    permission = {"permission": "normal", "tier_text": "小漲", "divergence_text": "", "advice_text": "正常尋找進場候選"}
+
+    result = generate(date(2026, 7, 19), permission, [], [], {}, [], output_path=str(output_path))
+
+    assert result is False
+    assert not output_path.exists()
+
+
+def test_generate_writes_page_with_core_sections(tmp_path):
+    output_path = tmp_path / "momentum.html"
+    permission = {"permission": "normal", "tier_text": "小漲", "divergence_text": "", "advice_text": "正常尋找進場候選"}
+    sector_priority = [{"meta_name": "半導體", "rank": 1, "observation_score": 82.0, "score_coverage": 1.0,
+                        "sector_state": "主升", "partial_coverage": False}]
+    decision_table = [_sample_decision_row()]
+
+    result = generate(date(2026, 7, 19), permission, sector_priority, decision_table, {}, [], output_path=str(output_path))
+
+    assert result is True
+    html = output_path.read_text(encoding="utf-8")
+    assert "台積電" in html
+    assert "進場候選" in html
+    assert "半導體" in html
+
+
+def test_generate_never_contains_banned_command_phrases(tmp_path):
+    """v2 spec §4.2 上線前全文搜尋禁止字樣的回歸測試——這是最終驗收條件的核心測試。"""
+    output_path = tmp_path / "momentum.html"
+    permission = {"permission": "defensive", "tier_text": "大跌", "divergence_text": "資金集中診斷：中小型輪動。",
+                  "advice_text": "停止一般追價，優先檢視抗跌個股與持有風險；本區不建議任何放空操作。"}
+    sector_priority = [{"meta_name": "半導體", "rank": 1, "observation_score": 30.0, "score_coverage": 1.0,
+                        "sector_state": "轉弱", "partial_coverage": False}]
+    decision_table = [_sample_decision_row(final_label="出場條件命中", strength_tier="超弱")]
+    risk_zone = {
+        "resilient": [{"stock_id": "2609", "stock_name": "陽明", "meta_sector": "航運",
+                       "change_pct": 1.2, "daily_excess_pct": 3.0}],
+        "limit_down": [{"stock_id": "2023", "stock_name": "燁輝", "meta_sector": "鋼鐵", "change_pct": -9.7}],
+    }
+
+    generate(date(2026, 7, 19), permission, sector_priority, decision_table, risk_zone, [], output_path=str(output_path))
+
+    html = output_path.read_text(encoding="utf-8")
+    for phrase in BANNED_PHRASES:
+        assert phrase not in html, f"頁面出現禁用命令式文案：{phrase}"
+
+
+def test_generate_escapes_malicious_stock_name(tmp_path):
+    """股票名稱來自 universe.csv，頁面會發布到 GitHub Pages，比照 chips_generator.py 既有防護。"""
+    output_path = tmp_path / "momentum.html"
+    permission = {"permission": "normal", "tier_text": "小漲", "divergence_text": "", "advice_text": ""}
+    decision_table = [_sample_decision_row(stock_name="<script>alert(1)</script>")]
+
+    generate(date(2026, 7, 19), permission, [], decision_table, {}, [], output_path=str(output_path))
+
+    html = output_path.read_text(encoding="utf-8")
+    assert "<script>alert(1)</script>" not in html
+
+
+def test_generate_renders_risk_zone_only_when_defensive(tmp_path):
+    output_path = tmp_path / "momentum.html"
+    permission = {"permission": "normal", "tier_text": "小漲", "divergence_text": "", "advice_text": ""}
+    decision_table = [_sample_decision_row()]
+    risk_zone = {"resilient": [{"stock_id": "2609", "stock_name": "陽明", "meta_sector": "航運",
+                                "change_pct": 1.2, "daily_excess_pct": 3.0}], "limit_down": []}
+
+    generate(date(2026, 7, 19), permission, [], decision_table, risk_zone, [], output_path=str(output_path))
+
+    html = output_path.read_text(encoding="utf-8")
+    assert "陽明" not in html  # market_permission=normal，急殺風險區不渲染
+
+
+def test_generate_renders_risk_zone_when_defensive(tmp_path):
+    output_path = tmp_path / "momentum.html"
+    permission = {"permission": "defensive", "tier_text": "大跌", "divergence_text": "", "advice_text": ""}
+    decision_table = [_sample_decision_row()]
+    risk_zone = {"resilient": [{"stock_id": "2609", "stock_name": "陽明", "meta_sector": "航運",
+                                "change_pct": 1.2, "daily_excess_pct": 3.0}], "limit_down": []}
+
+    generate(date(2026, 7, 19), permission, [], decision_table, risk_zone, [], output_path=str(output_path))
+
+    html = output_path.read_text(encoding="utf-8")
+    assert "陽明" in html
+
+
+def test_generate_unknown_permission_suppresses_advice_text(tmp_path):
+    output_path = tmp_path / "momentum.html"
+    permission = {"permission": "unknown", "tier_text": "資料日期不一致",
+                  "divergence_text": "指數資料日期 2026-07-18 與個股行情日期 2026-07-19 不同，暫不輸出市場操作許可。",
+                  "advice_text": ""}
+    decision_table = [_sample_decision_row()]
+
+    generate(date(2026, 7, 19), permission, [], decision_table, {}, [], output_path=str(output_path))
+
+    html = output_path.read_text(encoding="utf-8")
+    assert "資料日期不一致" in html

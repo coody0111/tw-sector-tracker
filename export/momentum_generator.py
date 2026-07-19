@@ -12,6 +12,9 @@
 不要混用。
 """
 from html import escape as _html_escape
+import json
+from datetime import date
+from pathlib import Path
 
 # v2 spec §4.2：上線前必須全文搜尋並禁止這些命令式字樣，generate() 的輸出不得含有任何一個。
 BANNED_PHRASES = ("隨時加碼", "一定續抱", "直接出清", "立刻砍", "可換入", "反手放空")
@@ -344,3 +347,243 @@ def build_streak_cards(limit_up_results: list) -> list:
         }
         for row in limit_up_results
     ]
+
+
+_CSS = """
+:root{--bg:#080B12;--panel:#0F1420;--panel-2:#161D2C;--border:#293346;
+  --ink:#DADFE8;--ink-2:#98A0B4;--ink-3:#636B80;--up:#E6432F;--down:#37B25C;
+  --accent:#F0BB55;--tier-super:#F0BB55;--tier-strong:#4FC46A;--tier-mid:#8B94AC;
+  --tier-weak:#E08A3E;--tier-superweak:#E6432F;
+  --sans:"Public Sans",-apple-system,"PingFang TC","Microsoft JhengHei","Segoe UI",sans-serif;
+  --mono:ui-monospace,"IBM Plex Mono","Cascadia Code","Roboto Mono",monospace;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.55;padding:0 0 80px}
+.tabular{font-family:var(--mono);font-variant-numeric:tabular-nums}
+a{color:inherit}
+.skip-link{position:absolute;left:-999px;top:0;background:var(--panel);color:var(--ink);padding:8px 14px;z-index:100}
+.skip-link:focus{left:8px;top:8px}
+.topbar{display:flex;align-items:baseline;gap:16px;padding:18px 24px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+.topbar h1{font-size:1.2rem;font-weight:700;margin:0}
+.topbar .sub{font-size:.72rem;color:var(--ink-3)}
+.nav-links{display:flex;gap:8px;margin-left:auto}
+.nav-link{font-size:.78rem;padding:5px 14px;border-radius:6px;border:1px solid var(--border);color:var(--ink-2);text-decoration:none}
+.nav-link:hover{border-color:var(--ink-2);color:var(--ink)}
+.nav-link.active{border-color:var(--accent);color:var(--ink);background:var(--panel-2)}
+.nav-link:focus-visible,button:focus-visible,summary:focus-visible,a:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.notice{margin:16px 24px;padding:10px 16px;border:1px solid var(--border);border-radius:8px;color:var(--ink-2);font-size:.8rem}
+.permission-banner{margin:0 24px 20px;padding:18px 20px;border-radius:10px;border:1px solid var(--border);border-left:4px solid var(--tier-mid)}
+.permission-banner[data-permission="normal"]{border-left-color:var(--tier-strong)}
+.permission-banner[data-permission="selective"]{border-left-color:var(--accent)}
+.permission-banner[data-permission="defensive"]{border-left-color:var(--tier-superweak)}
+.permission-banner[data-permission="unknown"]{border-left-color:var(--ink-3)}
+.permission-banner h2{margin:0 0 6px;font-size:1.1rem}
+.permission-banner p{margin:4px 0;color:var(--ink-2);font-size:.85rem}
+.section-head{margin:28px 24px 10px}
+.section-head h2{font-size:1rem;margin:0}
+.sector-grid{display:flex;gap:10px;flex-wrap:wrap;margin:0 24px}
+.sector-card{border:1px solid var(--border);border-radius:8px;padding:10px 14px;background:var(--panel);min-width:150px}
+.sector-card .rank{color:var(--accent);font-weight:700;font-family:var(--mono)}
+.sector-card .state{font-size:.72rem;color:var(--ink-2)}
+table.decision-table{width:100%;border-collapse:collapse;margin:0 24px;max-width:calc(100% - 48px)}
+.decision-table th,.decision-table td{padding:8px 10px;border-bottom:1px solid var(--border);text-align:left;font-size:.82rem}
+.decision-table th{color:var(--ink-3);font-weight:600;font-size:.72rem;text-transform:uppercase}
+.tier-badge{padding:2px 8px;border-radius:4px;font-size:.72rem;font-weight:600}
+.tier-badge[data-tier="超強"]{color:var(--tier-super)}
+.tier-badge[data-tier="強"]{color:var(--tier-strong)}
+.tier-badge[data-tier="整理"]{color:var(--tier-mid)}
+.tier-badge[data-tier="弱"]{color:var(--tier-weak)}
+.tier-badge[data-tier="超弱"]{color:var(--tier-superweak)}
+.label-badge{padding:3px 10px;border-radius:12px;font-size:.72rem;font-weight:600;border:1px solid var(--border)}
+.up{color:var(--up)}.down{color:var(--down)}
+details.evidence{margin-top:4px}
+details.evidence summary{cursor:pointer;font-size:.76rem;color:var(--ink-2)}
+.evidence-list{margin:6px 0 0;padding-left:18px;font-size:.78rem;color:var(--ink-2)}
+.evidence-list li[data-pass="true"]{color:var(--tier-strong)}
+.evidence-list li[data-pass="false"]{color:var(--ink-3)}
+.risk-zone{margin:28px 24px;padding:16px 20px;border:1px solid var(--tier-superweak);border-radius:10px}
+.risk-zone h2{margin:0 0 10px;font-size:1rem}
+.streak-grid{display:flex;gap:10px;flex-wrap:wrap;margin:0 24px}
+.streak-card{border:1px solid var(--border);border-radius:8px;padding:10px 14px;background:var(--panel)}
+.overflow-wrap{overflow-x:auto}
+"""
+
+
+def _pct_str(value) -> str:
+    if value is None:
+        return "─"
+    cls = "up" if value > 0 else ("down" if value < 0 else "")
+    sign = "+" if value > 0 else ""
+    return f'<span class="tabular {cls}">{sign}{value:.2f}%</span>'
+
+
+def _evidence_list(items: list) -> str:
+    lis = "".join(
+        f'<li data-pass="{"true" if passed else "false"}">{"✓" if passed else "✗"} {_esc(label)}</li>'
+        for label, passed in items
+    )
+    return f'<ul class="evidence-list">{lis}</ul>'
+
+
+def _sector_priority_html(sector_priority: list) -> str:
+    if not sector_priority:
+        return ""
+    cards = []
+    for row in sector_priority:
+        score = row.get("observation_score")
+        score_str = f"{score:.1f}" if score is not None else "─"
+        coverage = row.get("score_coverage", 0.0)
+        cards.append(
+            f'<div class="sector-card" id="sector-{_esc(row["meta_name"])}">'
+            f'<span class="rank">#{row["rank"]}</span> '
+            f'<strong>{_esc(row["meta_name"])}</strong>'
+            f'<div class="state">觀察分 {score_str}（涵蓋率 {coverage*100:.0f}%）· {_esc(row.get("sector_state", ""))}</div>'
+            f'</div>'
+        )
+    return (
+        '<div class="section-head"><h2>主流族群 Top 5</h2>'
+        '<p style="color:var(--ink-3);font-size:.78rem">觀察分為實驗性分數，用於決定優先展開順序，不直接產生買賣動作。</p></div>'
+        f'<div class="sector-grid">{"".join(cards)}</div>'
+    )
+
+
+def _decision_table_html(decision_table: list) -> str:
+    rows = []
+    for row in decision_table:
+        rs_cell = (
+            f'<td class="tabular">{row["rs_rank_pct"]:.2f}（{_esc(row["rs_confidence"])}）</td>'
+            if row["rs_rank_pct"] is not None else '<td>─</td>'
+        )
+        rows.append(
+            "<tr>"
+            f'<td><strong>{_esc(row["stock_name"])}</strong> {_esc(row["stock_id"])}'
+            f'<div style="color:var(--ink-3);font-size:.72rem">{_esc(row["meta_sector"])} · {_esc(row["sector_state"])}</div></td>'
+            f'<td><span class="tier-badge" data-tier="{_esc(row["strength_tier"])}">{_esc(row["strength_tier"])}</span></td>'
+            + rs_cell
+            + f'<td>{_pct_str(row.get("daily_excess_pct"))}</td>'
+            f'<td><span class="label-badge">{_esc(row["final_label"])}</span></td>'
+            "<td><details class=\"evidence\"><summary>展開證據</summary>"
+            f'<strong style="font-size:.76rem">進場</strong>{_evidence_list(row["entry_evidence"])}'
+            f'<strong style="font-size:.76rem">出場</strong>{_evidence_list(row["exit_evidence"])}'
+            f'<div style="font-size:.74rem;color:var(--ink-3);margin-top:6px" class="tabular">'
+            f'MA5 {row["ma"]["ma5"]} · MA10 {row["ma"]["ma10"]} · MA20 {row["ma"]["ma20"]} · MA60 {row["ma"]["ma60"]}</div>'
+            "</details></td></tr>"
+        )
+    return "".join(rows)
+
+
+def _risk_zone_html(risk_zone: dict) -> str:
+    resilient = risk_zone.get("resilient", [])
+    limit_down = risk_zone.get("limit_down", [])
+    if not resilient and not limit_down:
+        return ""
+    resilient_rows = "".join(
+        f'<li>{_esc(r["stock_name"])} {_esc(r["stock_id"])}（{_esc(r["meta_sector"])}）'
+        f'今日抗跌差 {_pct_str(r["daily_excess_pct"])}</li>'
+        for r in resilient
+    )
+    limit_down_rows = "".join(
+        f'<li>{_esc(r["stock_name"])} {_esc(r["stock_id"])}（{_esc(r["meta_sector"])}）'
+        f'{_pct_str(r["change_pct"])}</li>'
+        for r in limit_down
+    )
+    return (
+        '<div class="risk-zone"><h2>急殺風險區</h2>'
+        '<p style="color:var(--ink-2);font-size:.8rem">僅市場許可為防禦模式時顯示。以下為抗跌候選與流動性風險提醒，'
+        '不代表放空或出場委託指令。</p>'
+        f'<div><strong>抗跌候選（今日抗跌差 &gt; 0）</strong><ul class="evidence-list">{resilient_rows or "<li>無</li>"}</ul></div>'
+        f'<div><strong>跌停風險（流動性受限，實際委託可能無法成交）</strong><ul class="evidence-list">{limit_down_rows or "<li>無</li>"}</ul></div>'
+        '</div>'
+    )
+
+
+def _streak_cards_html(streak_cards: list) -> str:
+    if not streak_cards:
+        return ""
+    cards = "".join(
+        f'<div class="streak-card"><strong>{_esc(c["stock_name"])}</strong> {_esc(c["stock_id"])}'
+        f'<div class="tabular" style="font-size:.78rem;color:var(--ink-2)">連續收近漲停 {c["limit_up_streak"]} 天'
+        f' · 量縮 {"是" if c["volume_declining_streak"] else ("否" if c["volume_declining_streak"] is False else "─")}'
+        f' · 起漲量能確認 {"是" if c["breakout_volume_confirmed"] else ("否" if c["breakout_volume_confirmed"] is False else "─")}</div></div>'
+        for c in streak_cards
+    )
+    return f'<div class="section-head"><h2>連續收近漲停</h2></div><div class="streak-grid">{cards}</div>'
+
+
+def generate(
+    trade_date: date,
+    market_permission_data: dict,
+    sector_priority: list,
+    decision_table: list,
+    risk_zone: dict,
+    streak_cards: list,
+    index_date: str = None,
+    price_date: str = None,
+    chips_date: str = None,
+    output_path: str = "docs/momentum.html",
+) -> bool:
+    """
+    產生 docs/momentum.html。decision_table 為空時不寫檔、回傳 False（比照
+    chips_generator.py::generate() 既有慣例，代表本次每日流程 momentum 相關資料源失敗）。
+    """
+    if not decision_table:
+        return False
+
+    date_str = trade_date.strftime("%Y-%m-%d")
+    permission = market_permission_data.get("permission", "unknown")
+    tier_text = _esc(market_permission_data.get("tier_text", ""))
+    divergence_text = _esc(market_permission_data.get("divergence_text", ""))
+    advice_text = _esc(market_permission_data.get("advice_text", ""))
+
+    freshness_bits = []
+    if index_date:
+        freshness_bits.append(f"指數 {index_date}")
+    if price_date:
+        freshness_bits.append(f"個股行情 {price_date}")
+    if chips_date:
+        freshness_bits.append(f"籌碼 {chips_date}")
+    freshness_text = "　·　".join(freshness_bits) if freshness_bits else date_str
+
+    risk_zone_html = _risk_zone_html(risk_zone) if permission == "defensive" else ""
+
+    html = f"""<!doctype html>
+<html lang="zh-Hant"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<title>逆轟動能策略 {date_str}</title>
+<style>{_CSS}</style>
+</head>
+<body>
+<a class="skip-link" href="#main-content">跳到主要內容</a>
+<header class="topbar">
+  <h1>逆轟動能策略</h1>
+  <span class="sub">{freshness_text}</span>
+  <nav class="nav-links" aria-label="主要功能">
+    <a class="nav-link" href="index.html">族群績效</a>
+    <a class="nav-link" href="chips.html">籌碼分析</a>
+    <a class="nav-link" href="patterns.html">形態掃描</a>
+    <a class="nav-link active" href="momentum.html" aria-current="page">逆轟策略</a>
+  </nav>
+</header>
+<div class="notice">本頁為全市場動能掃描與決策支援，不是自動交易或個人化投資建議。所有分數與門檻標記為實驗性，尚未回測校準。</div>
+<main id="main-content">
+<div class="permission-banner" data-permission="{permission}">
+  <h2>市場操作許可：{tier_text}</h2>
+  {f'<p>{divergence_text}</p>' if divergence_text else ''}
+  {f'<p>{advice_text}</p>' if advice_text else ''}
+</div>
+{_sector_priority_html(sector_priority)}
+<div class="section-head"><h2>個股決策主表</h2></div>
+<div class="overflow-wrap">
+<table class="decision-table">
+<thead><tr><th>股票</th><th>技術狀態</th><th>族群內RS（信心）</th><th>今日抗跌差</th><th>最終標籤</th><th>證據</th></tr></thead>
+<tbody>{_decision_table_html(decision_table)}</tbody>
+</table>
+</div>
+{risk_zone_html}
+{_streak_cards_html(streak_cards)}
+</main>
+</body></html>"""
+
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    Path(output_path).write_text(html, encoding="utf-8")
+    return True

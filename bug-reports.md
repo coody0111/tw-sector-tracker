@@ -1,3 +1,81 @@
+## [2026-07-19] Review - 逆轟策略 v2 Plan 3/3（generator + UI 整合）驗證
+
+### 驗證方式
+對照 `debug-tasks.md` 2026-07-19 條目「請 Debugger 驗證」清單逐項確認。debug worktree 沒有
+`data/screener.db`（既有已知限制，CLAUDE.md 已註記），無法實際跑 `python main.py` 產生真實
+頁面，部分項目只做得到程式碼層級檢查。
+
+### ✅ 驗證通過
+- `python -m pytest tests/test_momentum_generator.py tests/test_html_generator.py -q`：
+  **58 passed**。
+- `python -m pytest -q` 全套件：**335 passed, 1 failed**——差的那 1 個是
+  `test_scan_patterns_returns_list`，需要本機 `data/screener.db`，這台 debug 資料夾本來就沒有
+  這個檔案，是既有環境限制，跟這次改動無關（CLAUDE.md 已明確列為已知限制）。跟預期的
+  336 passed 差1，原因就是這個，不是 regression。
+- `determine_final_label()` 優先序（跌停風險 > 出場條件命中 > 進場候選六項閘門 > 風險升高 >
+  續強觀察 > 等待確認）逐行對照 spec，符合描述；「弱」「超弱」都有涵蓋進風險升高分支（確認
+  debug-tasks.md 提到的那個修復點）。
+- `selloff_risk_zone()` 確認用 `daily_excess_pct`（不是 `rs_market_score`），跌停風險優先權
+  高於抗跌候選，邏輯正確，沒有重犯 v1 舊版用錯5日週期欄位的錯。
+- 4 個 generator 原始碼（`html_generator.py`/`chips_generator.py`/`patterns_generator.py`/
+  `momentum_generator.py`）nav 模板互相檢查過，4 個頁面互指連結都存在（程式碼層級沒問題，
+  見下方 🟡 說明為何實際頁面還看不到）。
+- `BANNED_PHRASES` 六個命令式字樣在目前 `docs/momentum.html` 全文搜尋 **0 命中**——但這份檔案
+  是舊檔不是這次新程式產生的（見下方🟡），這項驗證實際上沒測到新 code 的真實輸出，只能算
+  「舊頁面本身沒問題」，不能當作新 generator 的驗證通過。
+
+### 🟡 目前無法驗證，需要 Cody 桌電用真實資料跑一次
+`docs/index.html`／`chips.html`／`patterns.html` commit 於 7/17（`c3d4b0e`），`docs/momentum.html`
+commit 於 7/16（`c644f89`）——**都早於這次 Plan 3 的 9 個 commit（全部在 7/19）**。也就是說
+repo 裡現在看得到的 4 個 `docs/*.html` 都是舊版程式產生的頁面，不是這次新 code 的真實輸出。
+debug worktree 沒有 `data/screener.db`，跑不了 `python main.py` 重新產生，所以以下三項只做到
+程式碼審查，沒辦法用真實頁面驗證：
+- `BANNED_PHRASES` 肉眼複查（自動化測試 fixture 已覆蓋，但那是假資料，不是真實頁面）
+- 4 個頁面 nav 互連是否真的可點（程式碼模板正確；但目前 `docs/index.html`/`chips.html`/
+  `patterns.html` 舊檔互連本來就沒有連到 `momentum.html`——這是舊版程式產生的預期結果，不代表
+  新版程式有問題）
+- `index.html` 族群卡片排序改用觀察分後的實際排序結果是否合理
+
+建議 Cody 桌電跑一次 `python main.py`（有 `data/screener.db`）重新產生 4 個 `docs/*.html` 並
+push，我再重新肉眼複查一次。
+
+### 🔴 發現問題：TAIEX 完全抓取失敗時，`advice_text` 反而比「日期部分不一致」時更寬鬆
+- 位置：`export/momentum_generator.py::market_permission()`（52-111行）+ `main.py`
+  676-700行、905-909行
+- 這是 debug-tasks.md 點名要我判斷「是否可接受」的行為，我的結論：**建議修**，這不只是「看起來
+  一樣」的降級選擇，是兩種失敗模式的降級程度不一致，而且方向相反。
+- 現況比對：
+  - **部分失敗**（TAIEX有抓到，但日期跟個股行情對不上）：`market_permission()` 第67行
+    `if index_date is not None and price_date is not None and index_date != price_date` 命中
+    → `permission="unknown"`，`advice_text=""`（完全不輸出操作文案）。這是保守、正確的降級。
+  - **完全失敗**（TAIEX整支API掛掉，`main.py` 676-700行 try/except 吃掉例外後
+    `market_regime=None`）：`main.py` 906-907行傳進 `market_permission()` 的是
+    `market_regime or {}`（空 dict）＋`index_date=None`。因為 `index_date is None`，第67行的
+    日期一致性檢查**直接被跳過**，落到第75行 `tier = market_regime.get("tier", "持平")`——空
+    dict 沒有 `"tier"` 這個 key，套用預設值 `"持平"` → `permission="selective"` →
+    **輸出完整操作建議文案**：「只看條件完整的強勢候選；訊號不足的個股維持觀察，不追價。」
+  - 結果：資料**更不完整**（整支 API 失敗，不只是日期對不上）的情況，反而**輸出了比較寬鬆、
+    像正常運作**的文案，跟「部分失敗就閉嘴」的保守設計方向相反。使用者在 TAIEX 完全抓不到的
+    當天打開頁面，看不出任何異狀，還會拿到一段像是「大盤真的持平」時才該出現的操作建議。
+- 已確認沒有回歸測試覆蓋這個情境：`test_market_permission_skips_date_check_when_dates_not_provided`
+  測的是「呼叫端沒傳日期但 regime 本身有效」的向後相容案例（`regime` 裡有 `tier:"大漲"`），
+  跟這裡「`market_regime=None` → 空 dict」的情境不同——這是一個沒被測試網住的真實邊界情況，
+  不是憑空假設，`main.py` 實際 production 路徑會真的走到這裡（TAIEX 抓取失敗時常發生）。
+- **建議改法**（給 Cody 決定要不要現在改）：`market_permission()` 開頭加一個檢查——
+  `market_regime` 為空 dict 或 falsy（沒有任何欄位可用，例如缺 `"tier"` key）時，直接回傳
+  `permission="unknown"`，不要落到 tier 預設值分支。這樣「TAIEX完全失敗」的降級程度會跟「日期
+  對不上」一致或更保守，而不是更寬鬆。
+
+### 結論
+- [ ] 需要修改後再確認——TAIEX 完全失敗的 `advice_text` 問題請 Cody 決定要不要現在修（已附
+      建議改法），以及桌電重新用真實資料跑一次 `python main.py` 後我才能肉眼複查
+      momentum.html／nav互連／index.html排序這三項
+- 邏輯本身（決策標籤優先序、急殺風險區欄位選用、5因子觀察分排序）程式碼審查沒發現問題，跟
+  spec 一致；提醒 debug-tasks.md 已標注的「全部實驗性、待回測校準」立場維持不變，這次驗證
+  只確認程式邏輯符合 spec，不代表策略/門檻數值本身有效。
+
+---
+
 ## [2026-07-18] 修 - TDCC 公布延遲前瞻偏誤 + foreign/trust_continuation 消融對照變體（Cody 授權「改吧」）
 
 ### 背景

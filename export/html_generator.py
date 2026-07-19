@@ -979,6 +979,7 @@ def generate(
     vol_turnover: list = None,
     rolling_returns: dict = None,
     market_regime: dict = None,
+    observation_scores: dict = None,
     output_path: str = "docs/index.html",
 ) -> None:
     if perf_df.empty and not meta_perf:
@@ -1047,7 +1048,13 @@ def generate(
     # 都沒有，只是停留在空白 index.html——不是連結本身壞掉，是卡片從沒被產生過）。
     # 改成 render 全部 41 個族群，不再只留 Top10/Bottom10。
     if meta_perf:
-        meta_sorted = sorted(meta_perf, key=lambda r: r["avg_change_pct"], reverse=True)
+        if observation_scores:
+            def _meta_sort_key(r):
+                score = observation_scores.get(r["meta_name"], {}).get("observation_score")
+                return score if score is not None else -1.0
+            meta_sorted = sorted(meta_perf, key=_meta_sort_key, reverse=True)
+        else:
+            meta_sorted = sorted(meta_perf, key=lambda r: r["avg_change_pct"], reverse=True)
 
         all_cards, all_panels = [], []
         for i, r in enumerate(meta_sorted):

@@ -282,3 +282,90 @@ def test_generate_renders_card_for_every_meta_sector_not_just_top_bottom_10(tmp_
     expected = {f"族群{i}" for i in range(25)}
     missing = expected - names_present
     assert not missing, f"這些族群完全沒有卡片、連結會靜默失敗：{sorted(missing)}"
+
+
+def test_generate_orders_meta_cards_by_observation_score_when_provided(tmp_path):
+    """v2 spec §2.2/§6：首頁與逆轟頁共用 calc_meta_observation_scores() 決定族群展開順序。
+    族群B漲幅較低但觀察分較高時，應該排在族群A前面（不是照avg_change_pct）。"""
+    output_path = tmp_path / "index.html"
+    universe_df = pd.DataFrame([
+        {"stock_id": "1000", "stock_name": "測試股A", "meta_sector": "族群A", "sub_sector": "族群A"},
+        {"stock_id": "2000", "stock_name": "測試股B", "meta_sector": "族群B", "sub_sector": "族群B"},
+    ])
+    meta_perf = [
+        {"meta_name": "族群A", "sub_names": ["族群A"], "avg_change_pct": 5.0,
+         "up_count": 1, "down_count": 0, "flat_count": 0, "stock_ids": ["1000"]},
+        {"meta_name": "族群B", "sub_names": ["族群B"], "avg_change_pct": 1.0,
+         "up_count": 1, "down_count": 0, "flat_count": 0, "stock_ids": ["2000"]},
+    ]
+    observation_scores = {
+        "族群A": {"observation_score": 40.0, "score_coverage": 1.0},
+        "族群B": {"observation_score": 85.0, "score_coverage": 1.0},
+    }
+
+    generate(
+        trade_date=date(2026, 7, 19), perf_df=pd.DataFrame(), meta_perf=meta_perf,
+        universe_df=universe_df, observation_scores=observation_scores,
+        output_path=str(output_path),
+    )
+    html = output_path.read_text(encoding="utf-8")
+
+    pos_a = html.index('data-meta-name="族群A"')
+    pos_b = html.index('data-meta-name="族群B"')
+    assert pos_b < pos_a
+
+
+def test_generate_falls_back_to_avg_change_pct_when_observation_scores_missing(tmp_path):
+    """observation_scores 未提供時維持既有 avg_change_pct 排序（向後相容，既有呼叫端不用改）。"""
+    output_path = tmp_path / "index.html"
+    universe_df = pd.DataFrame([
+        {"stock_id": "1000", "stock_name": "測試股A", "meta_sector": "族群A", "sub_sector": "族群A"},
+        {"stock_id": "2000", "stock_name": "測試股B", "meta_sector": "族群B", "sub_sector": "族群B"},
+    ])
+    meta_perf = [
+        {"meta_name": "族群A", "sub_names": ["族群A"], "avg_change_pct": 5.0,
+         "up_count": 1, "down_count": 0, "flat_count": 0, "stock_ids": ["1000"]},
+        {"meta_name": "族群B", "sub_names": ["族群B"], "avg_change_pct": 1.0,
+         "up_count": 1, "down_count": 0, "flat_count": 0, "stock_ids": ["2000"]},
+    ]
+
+    generate(
+        trade_date=date(2026, 7, 19), perf_df=pd.DataFrame(), meta_perf=meta_perf,
+        universe_df=universe_df, output_path=str(output_path),
+    )
+    html = output_path.read_text(encoding="utf-8")
+
+    pos_a = html.index('data-meta-name="族群A"')
+    pos_b = html.index('data-meta-name="族群B"')
+    assert pos_a < pos_b  # avg_change_pct: A(5.0) > B(1.0)
+
+
+def test_generate_treats_none_observation_score_as_lowest(tmp_path):
+    """該族群 observation_score=None（5因子全不可用）時排最後，不能排最前或crash，
+    即使該族群 avg_change_pct 數值比較高。"""
+    output_path = tmp_path / "index.html"
+    universe_df = pd.DataFrame([
+        {"stock_id": "1000", "stock_name": "測試股A", "meta_sector": "族群A", "sub_sector": "族群A"},
+        {"stock_id": "2000", "stock_name": "測試股B", "meta_sector": "族群B", "sub_sector": "族群B"},
+    ])
+    meta_perf = [
+        {"meta_name": "族群A", "sub_names": ["族群A"], "avg_change_pct": 1.0,
+         "up_count": 1, "down_count": 0, "flat_count": 0, "stock_ids": ["1000"]},
+        {"meta_name": "族群B", "sub_names": ["族群B"], "avg_change_pct": 5.0,
+         "up_count": 1, "down_count": 0, "flat_count": 0, "stock_ids": ["2000"]},
+    ]
+    observation_scores = {
+        "族群A": {"observation_score": 60.0, "score_coverage": 1.0},
+        "族群B": {"observation_score": None, "score_coverage": 0.0},
+    }
+
+    generate(
+        trade_date=date(2026, 7, 19), perf_df=pd.DataFrame(), meta_perf=meta_perf,
+        universe_df=universe_df, observation_scores=observation_scores,
+        output_path=str(output_path),
+    )
+    html = output_path.read_text(encoding="utf-8")
+
+    pos_a = html.index('data-meta-name="族群A"')
+    pos_b = html.index('data-meta-name="族群B"')
+    assert pos_a < pos_b

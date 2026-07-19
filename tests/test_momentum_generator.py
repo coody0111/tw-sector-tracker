@@ -191,6 +191,16 @@ def test_determine_final_label_risk_elevated_for_weak_tier():
     assert label == "風險升高"
 
 
+def test_determine_final_label_risk_elevated_for_superweak_without_exit_trigger():
+    """超弱(strength_tier)但exit_3_rule_triggered=False時（例如未來呼叫端資料組成方式改變，
+    不再保證兩者一定同時成立）仍要被分類成風險升高，不能悄悄落到最中性的等待確認
+    （這是code review抓到的邊界情況：determine_final_label()本身不應該依賴
+    screener/signals.py目前「超弱一定伴隨exit_3_rule_triggered=True」這個外部巧合）。"""
+    row = _base_stock_row(strength_tier="超弱", exit_3_rule_triggered=False, entry_confirmed=False)
+    label = determine_final_label(row, "normal", "轉弱", {})
+    assert label == "風險升高"
+
+
 def test_determine_final_label_continued_strength_watch_when_gate_incomplete():
     """超強/強但進場閘門不完整（例如不在B3清單）時，顯示續強觀察，不是進場候選。"""
     row = _base_stock_row(strength_tier="強")
@@ -232,3 +242,16 @@ def test_build_decision_table_includes_entry_and_exit_evidence():
     assert ("多頭排列＋創新高（B3清單內）", True) in row["entry_evidence"]
     assert ("量能確認（B3量比≥1.5）", True) in row["entry_evidence"]
     assert ("跌破五日線", False) in row["exit_evidence"]
+
+
+def test_build_decision_table_defaults_to_wait_for_confirmation_when_sector_missing_from_states():
+    """momentum_results裡的股票所屬族群沒有出現在sector_states dict時（例如新族群還沒被
+    calc_meta_observation_scores()算過），sector_state要保守預設為等待確認，不能crash
+    或誤判成主升/轉強讓它意外通過進場閘門。"""
+    momentum_results = [
+        _base_stock_row(stock_id="9999", stock_name="新族群股", meta_sector="新族群"),
+    ]
+    table = build_decision_table(momentum_results, [], "normal", {})  # sector_states為空dict
+
+    assert table[0]["sector_state"] == "等待確認"
+    assert table[0]["final_label"] != "進場候選"  # 等待確認不在entry_gate允許的{主升,轉強}內

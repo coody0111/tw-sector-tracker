@@ -213,7 +213,7 @@ def determine_final_label(
     if entry_gate:
         return "進場候選"
 
-    if stock_row.get("strength_tier") == "弱" or market_permission_state == "defensive":
+    if stock_row.get("strength_tier") in ("弱", "超弱") or market_permission_state == "defensive":
         return "風險升高"
 
     if stock_row.get("strength_tier") in ("超強", "強"):

@@ -12,7 +12,6 @@
 不要混用。
 """
 from html import escape as _html_escape
-import json
 from datetime import date
 from pathlib import Path
 

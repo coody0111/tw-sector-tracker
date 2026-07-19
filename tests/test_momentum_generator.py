@@ -364,6 +364,30 @@ def test_generate_writes_page_with_core_sections(tmp_path):
     assert "半導體" in html
 
 
+def test_generate_renders_none_rs_rank_pct_alongside_populated_row(tmp_path):
+    """decision_table混合rs_rank_pct=None（例如RS樣本不足5日窗口）與有值的股票時，
+    None的那列要正確render成佔位符號，不能crash或讓表格欄位數量對不上
+    （code review抓到：Task5先前只在_sample_decision_row()固定用0.9測試，
+    沒有render層級驗證None分支，也沒有混合案例）。"""
+    output_path = tmp_path / "momentum.html"
+    permission = {"permission": "normal", "tier_text": "小漲", "divergence_text": "", "advice_text": ""}
+    decision_table = [
+        _sample_decision_row(),  # rs_rank_pct=0.9 (有值)
+        _sample_decision_row(stock_id="2454", stock_name="聯發科", rs_rank_pct=None, rs_confidence="C"),
+    ]
+
+    result = generate(date(2026, 7, 19), permission, [], decision_table, {}, [], output_path=str(output_path))
+
+    assert result is True
+    html = output_path.read_text(encoding="utf-8")
+    assert "台積電" in html
+    assert "聯發科" in html
+    # 3 = <thead>的欄位標題列 1 + <tbody>資料列 2（決策主表固定有表頭列，不只資料列）。
+    assert html.count("<tr>") == 3
+    assert html.count("</tr>") == 3
+    assert "<td>─</td>" in html  # None的rs_rank_pct正確render成佔位符號
+
+
 def test_generate_never_contains_banned_command_phrases(tmp_path):
     """v2 spec §4.2 上線前全文搜尋禁止字樣的回歸測試——這是最終驗收條件的核心測試。"""
     output_path = tmp_path / "momentum.html"

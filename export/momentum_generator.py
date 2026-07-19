@@ -59,11 +59,25 @@ def market_permission(market_regime: dict, index_date: str = None, price_date: s
     操作文案（v2 spec §2.1：這個一致性檢查必須由呼叫端提供真實日期，這支函式只負責比較，不
     猜測資料是否新鮮）。任一為 None（呼叫端未提供）時跳過日期檢查，直接依 tier 判斷。
 
+    `market_regime` 為空 dict 或缺 "tier" 欄位（例如 TAIEX 整支 API 抓取失敗，main.py 呼叫端
+    傳入 `market_regime or {}`）時，一律先降級為 "unknown"，不落到下面 tier 預設值 "持平" 的
+    分支——否則會變成「資料完全抓不到」的降級程度反而比「日期部分不一致」更寬鬆（還會誤輸出
+    完整操作文案），方向跟保守設計相反（2026-07-19 debug-tasks.md 條目 Debugger 回報的邊界
+    情況，已修正）。
+
     Returns
     -------
     {permission, tier_text, divergence_text, advice_text}
     permission ∈ {"normal", "selective", "defensive", "unknown"}
     """
+    if not market_regime or "tier" not in market_regime:
+        return {
+            "permission": "unknown",
+            "tier_text": "大盤資料無法取得",
+            "divergence_text": "TAIEX 指數或大盤資料本次抓取失敗，暫不輸出市場操作許可。",
+            "advice_text": "",
+        }
+
     if index_date is not None and price_date is not None and index_date != price_date:
         return {
             "permission": "unknown",

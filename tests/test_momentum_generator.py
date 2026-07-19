@@ -68,6 +68,24 @@ def test_market_permission_skips_date_check_when_dates_not_provided():
     assert result["permission"] == "normal"
 
 
+def test_market_permission_unknown_when_market_regime_empty():
+    """market_regime=None（TAIEX整支API抓取失敗）時main.py會傳入market_regime or {}，
+    這種「資料完全抓不到」的情況必須降級成unknown，不能落到tier預設值"持平"分支誤判成
+    selective還輸出完整操作文案——這樣資料更不完整反而比「日期部分不一致」更寬鬆，方向反了
+    （2026-07-19 debug-tasks.md Debugger回報的真實邊界情況，已修正）。"""
+    result = market_permission({})
+    assert result["permission"] == "unknown"
+    assert result["advice_text"] == ""
+
+
+def test_market_permission_unknown_when_tier_key_missing():
+    """market_regime非空但缺"tier"欄位（資料殘缺不完整）時同樣要降級unknown，不能靠
+    .get("tier","持平")的預設值悄悄當成正常持平判斷。"""
+    result = market_permission({"taiex_change_pct": 0.1})
+    assert result["permission"] == "unknown"
+    assert result["advice_text"] == ""
+
+
 def test_classify_sector_state_zhusheng_when_high_score_and_broad():
     data = {"observation_score": 80.0, "breadth_raw": 0.7, "continuation_raw": 4, "rs_raw": 3.0}
     assert classify_sector_state(data) == "主升"

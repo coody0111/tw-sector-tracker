@@ -1,3 +1,26 @@
+## [2026-07-20] 驗證 - TAIEX完全失敗 market_permission() 降級修復（commit 95e18bf）✅
+
+### 驗證方式
+對照 debug-tasks.md 2026-07-20 條目，確認 Developer 修法符合上一則報告建議的方向。
+
+### ✅ 驗證通過
+- `export/momentum_generator.py::market_permission()` 開頭新增 guard：`market_regime` 為空
+  或缺 `"tier"` 欄位時，直接回傳 `permission="unknown"`、`advice_text=""`，不再落到
+  `tier.get("tier","持平")` 預設值分支——完全符合我上一則建議的改法。
+- 新增 `tier_text="大盤資料無法取得"` + `divergence_text` 明確說明「TAIEX 指數或大盤資料本次
+  抓取失敗」，比單純回傳 unknown 更好，使用者能直接看出是資料問題不是大盤真的持平。
+- 兩個新回歸測試（`test_market_permission_unknown_when_market_regime_empty`、
+  `_when_tier_key_missing`）涵蓋空 dict 跟「非空但缺 tier」兩種情境，正是原本沒被測試網住的
+  邊界情況。
+- `python -m pytest tests/test_momentum_generator.py -q`：**43 passed**（跟 Developer 回報一致）
+- `python -m pytest -q` 全套件：**337 passed, 1 failed**（差的還是同一個既有環境限制
+  `test_scan_patterns_returns_list`，跟 Developer 桌電 338 passed 對得起來，337+1既有限制=338）
+
+### 結論
+- [x] 可以繼續下一個任務——修復確認正確，逆轟策略 v2 Plan 3/3 至此全數驗證通過，可以 push。
+
+---
+
 ## [2026-07-19] Review - 逆轟策略 v2 Plan 3/3（generator + UI 整合）驗證
 
 ### 驗證方式

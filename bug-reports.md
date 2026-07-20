@@ -66,10 +66,25 @@ push，我再重新肉眼複查一次。
   `permission="unknown"`，不要落到 tier 預設值分支。這樣「TAIEX完全失敗」的降級程度會跟「日期
   對不上」一致或更保守，而不是更寬鬆。
 
+### 🔄 補驗證（2026-07-20，Cody 桌電重新跑過 python main.py 後）
+`git merge master` 拉到新版 4 個 docs/*.html（`docs/momentum.html` 更新為 7/20 21:37，
+971,825 字元，確認是這次新 code 的真實輸出，不再是 7/16 舊檔），補做原本卡住的三項：
+
+- ✅ **BANNED_PHRASES 肉眼複查**：新版 `docs/momentum.html` 六個命令式字樣全文搜尋 **0 命中**
+- ✅ **4 頁 nav 互連**：index/chips/patterns/momentum 四個頁面現在互相都連得到彼此（`<a href>`
+  逐一 grep 確認）
+- ✅ **index.html 排序改觀察分**：Top5 族群順序跟 `momentum.html`「主流族群 Top 5」完全一致
+  （電子零組69.0 > 電信66.9 > 通信元件60.5 > 電源類58.2 > 生技製藥54.1，降冪排列，
+  `sector_state` 也跟著分數合理分級為主升/轉強），兩頁用同一份 `observation_scores` 結果、
+  排序一致
+- 附帶驗證：今天真實資料 `permission="defensive"`，`急殺風險區` 正確渲染（566 檔抗跌候選），
+  順便驗證了 `risk_zone_html` 只在 defensive 時顯示的條件邏輯是對的
+
 ### 結論
-- [ ] 需要修改後再確認——TAIEX 完全失敗的 `advice_text` 問題請 Cody 決定要不要現在修（已附
-      建議改法），以及桌電重新用真實資料跑一次 `python main.py` 後我才能肉眼複查
-      momentum.html／nav互連／index.html排序這三項
+- [x] 可以繼續下一個任務——除了下面這一點，其餘驗證全數通過。
+- [ ] TAIEX 完全失敗時 `advice_text` 反而比部分失敗更寬鬆的問題，Cody 已決定交給 Developer
+      處理（不在 debug 這邊直接改），本則報告已提供完整定位與建議改法，等 Developer 修完後
+      debug 這邊再驗一次。
 - 邏輯本身（決策標籤優先序、急殺風險區欄位選用、5因子觀察分排序）程式碼審查沒發現問題，跟
   spec 一致；提醒 debug-tasks.md 已標注的「全部實驗性、待回測校準」立場維持不變，這次驗證
   只確認程式邏輯符合 spec，不代表策略/門檻數值本身有效。

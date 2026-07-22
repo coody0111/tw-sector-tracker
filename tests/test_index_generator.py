@@ -205,3 +205,54 @@ def test_find_anomaly_cards_silently_excludes_sector_missing_from_signals_and_wi
     ]
     result = find_anomaly_cards(meta_perf, meta_signals={}, heatgrid_windows={})
     assert result == []
+
+
+from export.index_generator import build_heatgrid_cards
+
+
+def test_build_heatgrid_cards_ranks_by_avg_change_pct_and_includes_all_fields():
+    meta_perf = [
+        {"meta_name": "族群A", "avg_change_pct": 5.0, "up_count": 10, "down_count": 2, "flat_count": 1},
+        {"meta_name": "族群B", "avg_change_pct": -3.0, "up_count": 2, "down_count": 10, "flat_count": 0},
+    ]
+    meta_signals = {
+        "族群A": {"streak": 5, "vol_ratio": 1.8, "yesterday_rank": 3},
+        "族群B": {"streak": -2, "vol_ratio": 1.1, "yesterday_rank": 1},
+    }
+    meta_chips = {
+        "族群A": {"foreign_streak": 3, "trust_streak": 0},
+        "族群B": {"foreign_streak": -1, "trust_streak": 2},
+    }
+    heatgrid_windows = {
+        "族群A": {"streak_today": 3, "last_week_pct_today": 1.0, "this_week_pct_today": 6.0,
+                  "streak_5d_ago": None, "last_week_pct_5d_ago": None},
+        "族群B": {"streak_today": -2, "last_week_pct_today": -1.0, "this_week_pct_today": -3.5,
+                  "streak_5d_ago": None, "last_week_pct_5d_ago": None},
+    }
+
+    cards = build_heatgrid_cards(meta_perf, meta_signals, meta_chips, heatgrid_windows)
+
+    assert [c["meta_name"] for c in cards] == ["族群A", "族群B"]
+    assert cards[0]["rank"] == 1
+    assert cards[1]["rank"] == 2
+    a = cards[0]
+    assert a["pct"] == 5.0
+    assert a["up_count"] == 10 and a["down_count"] == 2
+    assert a["tier"] == {"key": "super", "label": "超強"}  # streak=3>0, accel=6.0-1.0=5.0>3
+    assert a["foreign_streak"] == 3 and a["trust_streak"] == 0
+    assert a["last_week_pct"] == 1.0 and a["this_week_pct"] == 6.0
+    assert "color-mix" in a["heat_bg"]
+
+
+def test_build_heatgrid_cards_handles_missing_signals_gracefully():
+    """meta_signals/meta_chips/heatgrid_windows某族群缺資料時(例如新族群還沒被算過)不crash，
+    相關欄位回None/預設值，不是KeyError。"""
+    meta_perf = [
+        {"meta_name": "新族群", "avg_change_pct": 1.0, "up_count": 1, "down_count": 0, "flat_count": 0},
+    ]
+    cards = build_heatgrid_cards(meta_perf, {}, {}, {})
+
+    assert cards[0]["meta_name"] == "新族群"
+    assert cards[0]["tier"] is None
+    assert cards[0]["foreign_streak"] is None
+    assert cards[0]["streak"] is None

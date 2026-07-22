@@ -192,3 +192,51 @@ def find_anomaly_cards(
             })
 
     return results
+
+
+def build_heatgrid_cards(
+    meta_perf: List[Dict[str, Any]],
+    meta_signals: Dict[str, Dict[str, Any]],
+    meta_chips: Dict[str, Dict[str, Any]],
+    heatgrid_windows: Dict[str, Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """
+    熱區格 41 張卡片資料（視覺 spec §3「族群排行」），依 avg_change_pct 降冪排列。組合
+    meta_perf（今日漲跌/家數）+ meta_signals（量比，既有函式）+ meta_chips（外資/投信連買
+    天數，既有函式）+ heatgrid_windows（processors/performance.py::calc_meta_heatgrid_windows()
+    算的原始窗口值，這裡才做 classify_tier/classify_temp 分類）。
+    """
+    ranked = sorted(meta_perf, key=lambda r: r["avg_change_pct"], reverse=True)
+    max_abs_pct = max((abs(r["avg_change_pct"]) for r in ranked), default=0.0)
+
+    cards = []
+    for i, row in enumerate(ranked):
+        meta_name = row["meta_name"]
+        sig = meta_signals.get(meta_name, {})
+        chips = meta_chips.get(meta_name, {})
+        window_data = heatgrid_windows.get(meta_name, {})
+        pct = row["avg_change_pct"]
+        accel = _accel_from_windows(window_data)
+
+        cards.append({
+            "rank": i + 1,
+            "meta_name": meta_name,
+            "pct": pct,
+            "up_count": row["up_count"],
+            "down_count": row["down_count"],
+            "streak": window_data.get("streak_today"),
+            "vol_ratio": sig.get("vol_ratio"),
+            "foreign_streak": chips.get("foreign_streak"),
+            "trust_streak": chips.get("trust_streak"),
+            "last_week_pct": window_data.get("last_week_pct_today"),
+            "this_week_pct": window_data.get("this_week_pct_today"),
+            "accel": accel,
+            "tier": classify_tier(
+                window_data.get("streak_today"),
+                window_data.get("last_week_pct_today"),
+                window_data.get("this_week_pct_today"),
+            ),
+            "temp": classify_temp(accel),
+            "heat_bg": heat_bg(pct, max_abs_pct),
+        })
+    return cards

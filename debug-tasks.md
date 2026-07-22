@@ -3010,3 +3010,63 @@ BIGINT 欄位變成 **nullable `pd.NA`**（不是 `float('nan')`）。`data_gene
 ### 特別注意
 - 沒有恢復舊版 `_stock_card_html()` 的完整功能（外資/投信/融資籌碼摘要、
   openStockModal彈窗）——這次只補「卡片格式+sparkline」，範圍比舊版簡單
+
+## [2026-07-22] 全面稽核補回熱區格改版遺漏功能 + 族群近況分類重構
+
+### 改了什麼
+- 異動檔案：export/index_generator.py, main.py, tests/test_index_generator.py
+- 對應 commit：adcd801（功能補回）、bb0f80f（族群近況重構）
+- 背景：Cody跑過`python main.py`看到真實頁面後，陸續回報一系列「以前有的東西不見了」，
+  最後要求全面稽核export/html_generator.py(舊版)跟export/index_generator.py(新版)的
+  功能落差。稽核結果見這次對話記錄，共13項落差，逐一處理如下。
+
+### 補回的功能（commit adcd801）
+1. **修復真正的bug**：chips.html的`#meta=`深連結因為新版`selectGroup()`沒有讀取
+   `location.hash`而失效（chips_generator.py:_meta_link()還在產生這種連結），補回
+   IIFE在載入時自動展開對應族群面板。
+2. 個股搜尋框(#stock-search)+下拉搜尋結果(STOCK_INDEX/META_INDEX)，可搜股票代號/
+   名稱/族群名，點擊直接跳轉展開對應族群。
+3. 個股卡片補回近5/7/10/14日累積漲跌(get_rolling_returns())、外資/投信/融資摘要
+   (get_chips_today())、排序控制(漲跌%/代號/收盤/近N日)。
+4. 無行情個股不再從清單消失，改成no_data=True灰階佔位卡。
+5. 族群展開面板補回族群層級sparkline(複用個股sparkline的buildSparkline())跟籌碼
+   摘要(外資/投信淨額+連買賣天數+融資變動警示)。
+6. 熱區格卡片補回3/5/7日累積漲跌badge(calc_cumulative_meta())跟排名升降箭頭。
+7. 補回大盤分級儀表板(五級方向+資金集中度診斷+操作提示)跟巨量換手訊號區塊
+   (前日漲停→今日爆量收跌+法人確認)，main.py新增對應資料計算+傳遞(全部fail-soft)。
+- **刻意沒恢復**：個股彈窗(openStockModal)——這次改用把sparkline/籌碼/量比直接放上
+  卡片本身取代，不需要額外點擊開modal。
+
+### 族群近況分類重構（commit bb0f80f）
+Cody回報實際案例：**功率半導體今日排名#40→#1、+5.66%，卻被歸類成「退燒」**。
+根因：accel(週對週5日滾動窗比較)回答的是趨勢問題，跟「今天是不是正在發生大事」
+是兩個不同問題，兩者合法地可以背離；異動族群區塊的burst判定又同時要求量比>=1.5，
+這次案例量比不夠高，兩邊都漏接。
+
+修法：
+- `build_sector_recap()`簽名改吃`build_heatgrid_cards()`算好的cards（不再重算）。
+- 新增「今日爆發」：只看排名跳動(>=10)+今日上漲，不要求量比。
+- cold_top5排除掉「今日爆發」的族群——不能同時講「退燒」又「爆發」。
+- 新增「外資悄悄佈局」「投信悄悄佈局」：股價還沒明顯反應(±1%內)但法人連買>=3天。
+- 新增「量能異常」：量比>=1.5x但股價還沒反應(±2%內)。
+- 族群近況從2欄(升溫/退燒)擴充成6欄，版面改用auto-fit responsive grid。
+
+### 資料來源相關（如有異動）
+- 上市資料（TWSE）：無異動
+- 上櫃資料（TPEx / FinMind）：無異動，全部沿用main.py既有的DB查詢函式，只是這次
+  接上index.html而已（get_rolling_returns/get_chips_today/scan_volume_turnover/
+  calc_cumulative_meta都是main.py本來就有的既有函式）
+
+### 請 Debugger 驗證
+- [ ] 全部401個測試通過（已本機跑過，全綠）
+- [ ] 實際瀏覽器測試：搜尋框、#meta=深連結（從chips.html點連結進來）、個股卡片排序
+- [ ] 族群近況6個分類版面正常顯示，手機版(auto-fit grid)不跑版
+- [ ] 大盤分級儀表板+巨量換手訊號區塊有資料時正常顯示，沒資料時不顯示空區塊
+- [ ] 確認功率半導體這類「今日爆發」族群不再出現在「退燒」清單
+
+### 特別注意
+- 這是一次範圍很大的改動(3個檔案+667行/189行)，建議Debugger花多一點時間實測，
+  不只看code review
+- main.py新增了4個新的資料計算呼叫(rolling_returns/index_chips_df/vol_turnover_signals
+  /沿用既有的cum_data)，都各自獨立try/except，理論上不會互相影響，但實測時留意log
+  有沒有異常warning

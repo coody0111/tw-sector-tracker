@@ -16,11 +16,11 @@ _PATTERN_LABEL = {
     "收斂三角": ("🔺", "#86efac"),
     "上升三角": ("📐", "#6ee7b7"),
     "下降楔型": ("📉", "#67e8f9"),
-    "多頭拐點": ("🔥", "#fbbf24"),
+    "多頭拐點": ("🔥", "#F0BB55"),
     "VCP突破":  ("🚀", "#a78bfa"),
     "雙頂":    ("🔴", "#fca5a5"),
     "三角跌破": ("🔻", "#fca5a5"),
-    "箱型整理": ("📦", "#94a3b8"),
+    "箱型整理": ("📦", "#98A0B4"),
 }
 
 # 回測勝率（from backtest_patterns 結果）
@@ -40,7 +40,7 @@ def _sparkline_svg(closes: list, width: int = 64, height: int = 22) -> str:
     xs = [round(i / (len(closes) - 1) * width, 1) for i in range(len(closes))]
     ys = [round(height - (c - lo) / (hi - lo) * height, 1) for c in closes]
     pts = " ".join(f"{x},{y}" for x, y in zip(xs, ys))
-    color = "#4ade80" if closes[-1] >= closes[0] else "#f87171"
+    color = "#37B25C" if closes[-1] >= closes[0] else "#E6432F"
     return (f"<svg width='{width}' height='{height}' viewBox='0 0 {width} {height}' "
             f"style='display:inline-block;vertical-align:middle'>"
             f"<polyline points='{pts}' fill='none' stroke='{color}' stroke-width='1.5' "
@@ -50,21 +50,21 @@ def _sparkline_svg(closes: list, width: int = 64, height: int = 22) -> str:
 
 def _pct(v: float) -> str:
     sign = "+" if v > 0 else ""
-    color = "#f87171" if v > 0 else ("#4ade80" if v < 0 else "#64748b")  # 台股：紅漲綠跌
+    color = "#E6432F" if v > 0 else ("#37B25C" if v < 0 else "#636B80")  # 台股：紅漲綠跌
     return f"<span style='color:{color}'>{sign}{v:.2f}%</span>"
 
 
 def _score_badge(s: int) -> str:
     if s >= 4:
-        color, bg = "#f87171", "rgba(127,29,29,.25)"
+        color, bg = "#E6432F", "rgba(127,29,29,.25)"
     elif s > 0:
         color, bg = "#fb923c", "rgba(120,53,15,.2)"
     elif s <= -4:
-        color, bg = "#4ade80", "rgba(6,78,59,.25)"
+        color, bg = "#37B25C", "rgba(6,78,59,.25)"
     elif s < 0:
-        color, bg = "#60a5fa", "rgba(30,58,138,.2)"
+        color, bg = "#F0BB55", "rgba(30,58,138,.2)"
     else:
-        color, bg = "#64748b", "rgba(30,41,59,.4)"
+        color, bg = "#636B80", "rgba(30,41,59,.4)"
     return (f"<span style='background:{bg};color:{color};border:1px solid {color}33;"
             f"border-radius:4px;padding:1px 8px;font-size:.72rem;font-weight:700'>{s:+d}</span>")
 
@@ -72,17 +72,17 @@ def _score_badge(s: int) -> str:
 def _composite_badge(score: int | None) -> str:
     """0-100 綜合評分徽章，含填充色進度感。"""
     if score is None:
-        return "<span style='color:#334155;font-size:.72rem'>─</span>"
+        return "<span style='color:#293346;font-size:.72rem'>─</span>"
     if score >= 75:
-        color, bg = "#4ade80", "rgba(6,78,59,.35)"
+        color, bg = "#37B25C", "rgba(6,78,59,.35)"
     elif score >= 60:
         color, bg = "#86efac", "rgba(6,78,59,.2)"
     elif score >= 45:
-        color, bg = "#fbbf24", "rgba(120,53,15,.2)"
+        color, bg = "#F0BB55", "rgba(120,53,15,.2)"
     elif score >= 30:
         color, bg = "#fb923c", "rgba(120,53,15,.3)"
     else:
-        color, bg = "#f87171", "rgba(127,29,29,.25)"
+        color, bg = "#E6432F", "rgba(127,29,29,.25)"
     return (f"<span style='background:{bg};color:{color};border:1px solid {color}55;"
             f"border-radius:6px;padding:2px 10px;font-size:.72rem;font-weight:800;"
             f"letter-spacing:.02em'>{score}</span>")
@@ -91,7 +91,7 @@ def _composite_badge(score: int | None) -> str:
 def _pattern_badges(patterns: list[str]) -> str:
     parts = []
     for p in patterns:
-        icon, color = _PATTERN_LABEL.get(p, ("", "#94a3b8"))
+        icon, color = _PATTERN_LABEL.get(p, ("", "#98A0B4"))
         parts.append(f"<span style='color:{color};border:1px solid {color}55;"
                      f"border-radius:4px;padding:1px 6px;font-size:.7rem'>{icon}{p}</span>")
     return " ".join(parts)
@@ -100,25 +100,25 @@ def _pattern_badges(patterns: list[str]) -> str:
 def _inst_label(f: int, t: int) -> str:
     parts = []
     if f > 0:
-        parts.append(f"<span style='color:#f87171;font-size:.7rem'>外資+{f}日</span>")
+        parts.append(f"<span style='color:#E6432F;font-size:.7rem'>外資+{f}日</span>")
     elif f < 0:
-        parts.append(f"<span style='color:#4ade80;font-size:.7rem'>外資{f}日</span>")
+        parts.append(f"<span style='color:#37B25C;font-size:.7rem'>外資{f}日</span>")
     if t > 0:
-        parts.append(f"<span style='color:#fbbf24;font-size:.7rem'>投信+{t}日</span>")
+        parts.append(f"<span style='color:#F0BB55;font-size:.7rem'>投信+{t}日</span>")
     elif t < 0:
-        parts.append(f"<span style='color:#60a5fa;font-size:.7rem'>投信{t}日</span>")
-    return " ".join(parts) or "<span style='color:#475569;font-size:.7rem'>─</span>"
+        parts.append(f"<span style='color:#F0BB55;font-size:.7rem'>投信{t}日</span>")
+    return " ".join(parts) or "<span style='color:#37435C;font-size:.7rem'>─</span>"
 
 
 def _holder_cell(lv_pct: float | None, sh_streak: int) -> str:
     if lv_pct is None:
-        return "<span style='color:#334155;font-size:.7rem'>─</span>"
-    pct_color = "#f87171" if lv_pct >= 70 else ("#fbbf24" if lv_pct >= 50 else "#94a3b8")
+        return "<span style='color:#293346;font-size:.7rem'>─</span>"
+    pct_color = "#E6432F" if lv_pct >= 70 else ("#F0BB55" if lv_pct >= 50 else "#98A0B4")
     streak_str = ""
     if sh_streak > 0:
-        streak_str = f"<span style='color:#f87171;font-size:.7rem'> ↑{sh_streak}w</span>"
+        streak_str = f"<span style='color:#E6432F;font-size:.7rem'> ↑{sh_streak}w</span>"
     elif sh_streak < 0:
-        streak_str = f"<span style='color:#4ade80;font-size:.7rem'> ↓{abs(sh_streak)}w</span>"
+        streak_str = f"<span style='color:#37B25C;font-size:.7rem'> ↓{abs(sh_streak)}w</span>"
     return f"<span style='color:{pct_color};font-size:.72rem;font-weight:700'>{lv_pct:.0f}%{streak_str}</span>"
 
 
@@ -132,16 +132,16 @@ def _signal_info_cell(r: dict) -> str:
     sig_dt = r.get("signal_date", "")[:10] if r.get("signal_date") else ""
 
     if anchor is None:
-        return "<span style='color:#334155;font-size:.7rem'>─</span>"
+        return "<span style='color:#293346;font-size:.7rem'>─</span>"
 
-    rr_color = "#4ade80" if (rr or 0) >= 2 else ("#fbbf24" if (rr or 0) >= 1 else "#f87171")
-    days_str = f"<span style='color:#64748b;font-size:.65rem'>D+{days}</span> " if days is not None else ""
-    date_str = f"<span style='color:#475569;font-size:.65rem'>{sig_dt}</span><br>" if sig_dt else ""
+    rr_color = "#37B25C" if (rr or 0) >= 2 else ("#F0BB55" if (rr or 0) >= 1 else "#E6432F")
+    days_str = f"<span style='color:#636B80;font-size:.65rem'>D+{days}</span> " if days is not None else ""
+    date_str = f"<span style='color:#37435C;font-size:.65rem'>{sig_dt}</span><br>" if sig_dt else ""
     levels = (
         f"<span style='font-size:.68rem'>"
-        f"進<b style='color:#e2e8f0'>{anchor:.2f}</b> "
-        f"停<b style='color:#f87171'>{stop:.2f}</b> "
-        f"標<b style='color:#4ade80'>{target:.2f}</b>"
+        f"進<b style='color:#DADFE8'>{anchor:.2f}</b> "
+        f"停<b style='color:#E6432F'>{stop:.2f}</b> "
+        f"標<b style='color:#37B25C'>{target:.2f}</b>"
         f"</span>"
     )
     rr_badge = (
@@ -159,20 +159,20 @@ def _stock_row(r: dict) -> str:
     sh_streak = r.get("sh_streak", 0) or 0
     exch = r.get("exchange", "")
     exch_badge = (
-        "<span style='color:#60a5fa;font-size:.6rem;border:1px solid #1e3a5f;border-radius:3px;padding:0 4px;margin-left:4px'>上市</span>" if exch == "TWSE"
-        else "<span style='color:#a78bfa;font-size:.6rem;border:1px solid #3b1f6e;border-radius:3px;padding:0 4px;margin-left:4px'>上櫃</span>" if exch == "TPEx"
+        "<span style='color:#9bc7ff;font-size:.6rem;border:1px solid #416d9f;border-radius:3px;padding:0 4px;margin-left:4px'>上市</span>" if exch == "TWSE"
+        else "<span style='color:#cabaff;font-size:.6rem;border:1px solid #6e5999;border-radius:3px;padding:0 4px;margin-left:4px'>上櫃</span>" if exch == "TPEx"
         else ""
     )
     price = r.get("close_price", "")
     price_str = f"{price:.2f}" if isinstance(price, (int, float)) else ""
     return (
         f"<tr data-exchange='{exch}' data-search='{r['stock_id']} {r['stock_name']} {r['meta_sector']}'>"
-        f"<td style='color:#e2e8f0;font-weight:700'>{r['stock_id']}{exch_badge}</td>"
-        f"<td style='color:#cbd5e1'>{r['stock_name']}</td>"
-        f"<td style='color:#94a3b8;font-size:.72rem'>{r['meta_sector']}</td>"
-        f"<td style='color:#e2e8f0'>{price_str}</td>"
+        f"<td style='color:#DADFE8;font-weight:700'>{r['stock_id']}{exch_badge}</td>"
+        f"<td style='color:#DADFE8'>{r['stock_name']}</td>"
+        f"<td style='color:#98A0B4;font-size:.72rem'>{r['meta_sector']}</td>"
+        f"<td style='color:#DADFE8'>{price_str}</td>"
         f"<td>{_pct(r['change_pct'])}</td>"
-        f"<td style='color:#94a3b8'>{r['vol_ratio']:.1f}x</td>"
+        f"<td style='color:#98A0B4'>{r['vol_ratio']:.1f}x</td>"
         f"<td>{_composite_badge(comp)}</td>"
         f"<td>{spark}</td>"
         f"<td style='white-space:normal'>{_pattern_badges(r['patterns'])}</td>"
@@ -185,19 +185,19 @@ def _stock_row(r: dict) -> str:
 
 def _table_header() -> str:
     cols = ["代號", "名稱", "族群", "收盤", "漲跌", "量比", "評分", "走勢", "形態", "訊號/進出價", "大戶", "法人"]
-    ths = "".join(f"<th style='color:#64748b;font-weight:500;padding:6px 10px;text-align:left;"
-                  f"border-bottom:1px solid #1e293b;white-space:nowrap'>{c}</th>" for c in cols)
+    ths = "".join(f"<th style='color:#636B80;font-weight:500;padding:6px 10px;text-align:left;"
+                  f"border-bottom:1px solid #293346;white-space:nowrap'>{c}</th>" for c in cols)
     return f"<thead><tr>{ths}</tr></thead>"
 
 
 def _section(title: str, rows: list[dict], subtitle: str = "") -> str:
     if not rows:
         return ""
-    sub = f"<p style='color:#475569;font-size:.75rem;margin:2px 0 10px'>{subtitle}</p>" if subtitle else ""
+    sub = f"<p style='color:#37435C;font-size:.75rem;margin:2px 0 10px'>{subtitle}</p>" if subtitle else ""
     body = "".join(_stock_row(r) for r in rows)
     return (
         f"<section style='margin-bottom:32px'>"
-        f"<h2 style='color:#94a3b8;font-size:.8rem;font-weight:600;letter-spacing:.1em;"
+        f"<h2 style='color:#98A0B4;font-size:.8rem;font-weight:600;letter-spacing:.1em;"
         f"text-transform:uppercase;margin:0 0 6px'>{title}</h2>"
         f"{sub}"
         f"<div style='overflow-x:auto'>"
@@ -226,10 +226,10 @@ def _meta_hits_section(results: list[dict]) -> str:
     ranked = sorted(meta_stocks.items(), key=lambda x: len(x[1]), reverse=True)
 
     def _color(n: int) -> str:
-        if n >= 5: return "#f87171"
+        if n >= 5: return "#E6432F"
         if n >= 3: return "#fb923c"
-        if n >= 2: return "#fbbf24"
-        return "#94a3b8"
+        if n >= 2: return "#F0BB55"
+        return "#98A0B4"
 
     badges = []
     panels = []
@@ -243,28 +243,28 @@ def _meta_hits_section(results: list[dict]) -> str:
         for r in sorted(stocks, key=lambda x: -(x.get("composite_score") or 0)):
             bullish_pats = [p for p in r["patterns"] if p in _BULLISH]
             pat_html = " ".join(
-                f"<span style='color:{_PATTERN_LABEL.get(p,('','#94a3b8'))[1]};font-size:.65rem'>"
-                f"{_PATTERN_LABEL.get(p,('','#94a3b8'))[0]}{p}</span>"
+                f"<span style='color:{_PATTERN_LABEL.get(p,('','#98A0B4'))[1]};font-size:.65rem'>"
+                f"{_PATTERN_LABEL.get(p,('','#98A0B4'))[0]}{p}</span>"
                 for p in bullish_pats
             )
             chg = r["change_pct"]
-            chg_color = "#f87171" if chg > 0 else "#4ade80"
+            chg_color = "#E6432F" if chg > 0 else "#37B25C"
             sign = "+" if chg > 0 else ""
             price = r.get("close_price")
             price_str = (f"{price:.2f}" if price and price < 10 else
                          f"{price:.1f}" if price and price < 100 else
                          f"{int(price)}" if price else "─")
             rows.append(
-                f"<tr style='border-bottom:1px solid #1e293b'>"
-                f"<td style='color:#e2e8f0;font-weight:700;padding:4px 8px 4px 0;white-space:nowrap'>{r['stock_id']}</td>"
-                f"<td style='color:#94a3b8;font-size:.78rem;padding:4px 8px;white-space:nowrap'>{r['stock_name']}</td>"
-                f"<td style='color:#e2e8f0;font-size:.78rem;font-weight:600;padding:4px 8px;white-space:nowrap'>{price_str}</td>"
+                f"<tr style='border-bottom:1px solid #293346'>"
+                f"<td style='color:#DADFE8;font-weight:700;padding:4px 8px 4px 0;white-space:nowrap'>{r['stock_id']}</td>"
+                f"<td style='color:#98A0B4;font-size:.78rem;padding:4px 8px;white-space:nowrap'>{r['stock_name']}</td>"
+                f"<td style='color:#DADFE8;font-size:.78rem;font-weight:600;padding:4px 8px;white-space:nowrap'>{price_str}</td>"
                 f"<td style='color:{chg_color};font-size:.78rem;padding:4px 8px;white-space:nowrap'>{sign}{chg:.2f}%</td>"
                 f"<td style='padding:4px 0'>{pat_html}</td>"
                 f"</tr>"
             )
         panels.append(
-            f"<div id='mh-{mid}' style='display:none;background:#070b12;border:1px solid #1e293b;"
+            f"<div id='mh-{mid}' style='display:none;background:#080B12;border:1px solid #293346;"
             f"border-radius:6px;padding:10px 14px;margin-top:6px;margin-bottom:4px'>"
             f"<table style='width:100%;border-collapse:collapse'>{''.join(rows)}</table>"
             f"</div>"
@@ -274,7 +274,7 @@ def _meta_hits_section(results: list[dict]) -> str:
             f"<span onclick=\"var p=document.getElementById('mh-{mid}');"
             f"p.style.display=p.style.display==='none'?'block':'none'\" "
             f"style='display:inline-flex;align-items:center;gap:5px;cursor:pointer;"
-            f"background:#0f1624;border:1px solid {c}55;border-radius:6px;"
+            f"background:#0F1420;border:1px solid {c}55;border-radius:6px;"
             f"padding:4px 10px;color:{c};font-size:.78rem;font-weight:600;white-space:nowrap'>"
             f"{meta}<span style='background:{c}22;border-radius:4px;padding:0 5px;"
             f"font-size:.7rem'>{n}</span></span>"
@@ -282,30 +282,30 @@ def _meta_hits_section(results: list[dict]) -> str:
 
     return (
         "<div style='margin-bottom:20px'>"
-        "<div style='color:#475569;font-size:.72rem;margin-bottom:6px;letter-spacing:.05em'>"
+        "<div style='color:#37435C;font-size:.72rem;margin-bottom:6px;letter-spacing:.05em'>"
         "今日族群型態熱區（點擊展開個股）</div>"
         "<div style='display:flex;flex-wrap:wrap;gap:6px'>"
         + "".join(badges)
         + "</div>"
         + "".join(panels)
         + "</div>"
-        "<hr style='border-color:#1e293b;margin:0 0 20px'>"
+        "<hr style='border-color:#293346;margin:0 0 20px'>"
     )
 
 
 def _backtest_row(name: str, n: int, w3: int, w5: int, w10: int, ret10: float) -> str:
     """生成一列回測資料，自動計算 2R 期望值（1:2 風險報酬比）。"""
     def _wc(w: int) -> str:
-        c = "#4ade80" if w >= 50 else ("#94a3b8" if w >= 40 else "#f87171")
+        c = "#37B25C" if w >= 50 else ("#98A0B4" if w >= 40 else "#E6432F")
         return f"<td style='text-align:center;color:{c}'>{w}%</td>"
-    ret_c = "#4ade80" if ret10 > 0 else "#f87171"
+    ret_c = "#37B25C" if ret10 > 0 else "#E6432F"
     sign = "+" if ret10 > 0 else ""
     ev2r = 3 * (w10 / 100) - 1          # 2R 期望值 (1:2 RR)
-    ev_c = "#4ade80" if ev2r > 0 else "#f87171"
+    ev_c = "#37B25C" if ev2r > 0 else "#E6432F"
     ev_sign = "+" if ev2r > 0 else ""
     return (
         f"<tr><td>{name}</td>"
-        f"<td style='text-align:center;color:#64748b'>{n:,}</td>"
+        f"<td style='text-align:center;color:#636B80'>{n:,}</td>"
         f"{_wc(w3)}{_wc(w5)}{_wc(w10)}"
         f"<td style='text-align:center;color:{ret_c}'>{sign}{ret10:.1f}%</td>"
         f"<td style='text-align:center;color:{ev_c};font-weight:700'>{ev_sign}{ev2r:.2f}R</td>"
@@ -332,7 +332,7 @@ _BACKTEST_NOTE = (
     + _backtest_row("▽三角跌破（做空）",  951, 47, 49, 55, +3.1)
     + "</tbody></table>"
     "</div>"
-    "<p style='color:#475569;font-size:.7rem;margin-top:8px'>"
+    "<p style='color:#37435C;font-size:.7rem;margin-top:8px'>"
     "※ 2R期望值 = 3×D+10勝率 − 1，以 1:2 風險報酬比計算。>0 表示長期正期望；勝率需 >33.3% 才能維持正期望。"
     "<br>※ 2026H1 為空頭環境，看多形態勝率偏低屬正常；VCP 樣本數不足，暫無統計。</p>"
     "</div>"
@@ -340,31 +340,31 @@ _BACKTEST_NOTE = (
 
 _CSS = """
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:#0b0f18;color:#e2e8f0;font-family:system-ui,sans-serif;padding:12px 20px}
-a{color:#60a5fa}
+body{background:#080B12;color:#DADFE8;font-family:system-ui,sans-serif;padding:12px 20px}
+a{color:#F0BB55}
 .nav-links{display:flex;gap:8px;margin:8px 0 0}
-.nav-link{font-size:.78rem;padding:5px 14px;border-radius:6px;border:1px solid #1e293b;color:#64748b;text-decoration:none;transition:all .15s}
-.nav-link:hover{border-color:#475569;color:#94a3b8}
-.nav-link.active{border-color:#475569;color:#e2e8f0;background:#141c2e}
+.nav-link{font-size:.78rem;padding:5px 14px;border-radius:6px;border:1px solid #293346;color:#636B80;text-decoration:none;transition:all .15s}
+.nav-link:hover{border-color:#37435C;color:#98A0B4}
+.nav-link.active{border-color:#37435C;color:#DADFE8;background:#161D2C}
 .filter-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:14px 0 0}
-.exch-btn{background:transparent;color:#94a3b8;border:1px solid #334155;border-radius:6px;padding:4px 12px;cursor:pointer;font-size:.72rem;transition:all .15s}
-.exch-btn.active{background:#1e293b;color:#e2e8f0;border-color:#475569}
-.s-search{flex:1;min-width:160px;max-width:260px;background:#0f1624;color:#e2e8f0;border:1px solid #334155;border-radius:6px;padding:4px 10px;font-size:.78rem;outline:none}
-.tab-bar{display:flex;gap:2px;margin:14px 0 0;border-bottom:1px solid #1e293b}
-.tab-btn{font-size:.8rem;padding:9px 16px;border:none;border-bottom:2px solid transparent;margin-bottom:-1px;background:none;color:#64748b;cursor:pointer;font-weight:600;letter-spacing:.02em;transition:all .15s;border-radius:4px 4px 0 0}
-.tab-btn:hover{color:#94a3b8;background:#0f1624}
-.tab-btn.active{color:#e2e8f0;border-bottom-color:#60a5fa;background:#0f1624}
+.exch-btn{background:transparent;color:#98A0B4;border:1px solid #293346;border-radius:6px;padding:4px 12px;cursor:pointer;font-size:.72rem;transition:all .15s}
+.exch-btn.active{background:#293346;color:#DADFE8;border-color:#37435C}
+.s-search{flex:1;min-width:160px;max-width:260px;background:#0F1420;color:#DADFE8;border:1px solid #293346;border-radius:6px;padding:4px 10px;font-size:.78rem;outline:none}
+.tab-bar{display:flex;gap:2px;margin:14px 0 0;border-bottom:1px solid #293346}
+.tab-btn{font-size:.8rem;padding:9px 16px;border:none;border-bottom:2px solid transparent;margin-bottom:-1px;background:none;color:#636B80;cursor:pointer;font-weight:600;letter-spacing:.02em;transition:all .15s;border-radius:4px 4px 0 0}
+.tab-btn:hover{color:#98A0B4;background:#0F1420}
+.tab-btn.active{color:#DADFE8;border-bottom-color:#F0BB55;background:#0F1420}
 .tab-panel{display:none;padding-top:16px}
 .tab-panel.active{display:block}
-tbody tr:hover{background:#0f1624}
-tbody td{padding:5px 10px;border-bottom:1px solid #1e293b;vertical-align:middle;white-space:nowrap}
-.pt-section{background:#0f1624;border:1px solid #1e293b;border-radius:10px;padding:14px 16px;margin-bottom:16px}
-.pt-title{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#475569;margin-bottom:10px}
+tbody tr:hover{background:#0F1420}
+tbody td{padding:5px 10px;border-bottom:1px solid #293346;vertical-align:middle;white-space:nowrap}
+.pt-section{background:#0F1420;border:1px solid #293346;border-radius:10px;padding:14px 16px;margin-bottom:16px}
+.pt-title{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#37435C;margin-bottom:10px}
 .pt{width:100%;border-collapse:collapse;font-size:.8rem}
-.pt th{text-align:left;padding:5px 10px;font-size:.65rem;color:#334155;text-transform:uppercase;border-bottom:1px solid #1e293b}
-.pt td{padding:7px 10px;border-bottom:1px solid #0b0f18}
+.pt th{text-align:left;padding:5px 10px;font-size:.65rem;color:#293346;text-transform:uppercase;border-bottom:1px solid #293346}
+.pt td{padding:7px 10px;border-bottom:1px solid #080B12}
 .pt tr:last-child td{border-bottom:none}
-.pt tr:hover td{background:#141c2e}
+.pt tr:hover td{background:#161D2C}
 @media(max-width:540px){body{padding:10px}.tab-btn{padding:8px 10px;font-size:.72rem}}
 """
 
@@ -456,8 +456,8 @@ def generate(trade_date: date, results: list[dict], output_path: str) -> None:
 <style>{_CSS}</style>
 </head>
 <body>
-<div style="color:#94a3b8;font-size:1rem;font-weight:600;margin-bottom:2px">形態掃描
-  <span style="color:#475569;font-size:.78rem;font-weight:400;margin-left:8px">{date_str}</span>
+<div style="color:#98A0B4;font-size:1rem;font-weight:600;margin-bottom:2px">形態掃描
+  <span style="color:#37435C;font-size:.78rem;font-weight:400;margin-left:8px">{date_str}</span>
 </div>
 <div class="nav-links">
   <a class="nav-link" href="index.html">族群績效</a>

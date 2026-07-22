@@ -34,7 +34,7 @@ def _cum_cell(meta_name: str, cum_ranks: dict, period: str, key: str, val_key: s
     if val is None:
         return "<td class='cum-cell' style='color:var(--subtle)'>─</td>"
     sign = "+" if val > 0 else ""
-    color = "#f87171" if val > 0 else "#4ade80"
+    color = "#E6432F" if val > 0 else "#37B25C"
     return f"<td class='cum-cell' style='color:{color}'>{sign}{val:.1f}%</td>"
 
 
@@ -46,7 +46,7 @@ def _meta_link(name: str) -> str:
     safe_name = _esc(name)
     return (
         f"<a href='index.html#meta={encoded}' "
-        f"style='color:inherit;text-decoration:none;border-bottom:1px dotted #475569' "
+        f"style='color:inherit;text-decoration:none;border-bottom:1px dotted var(--border-strong)' "
         f"title='前往 {safe_name} 族群'>{safe_name}</a>"
     )
 
@@ -63,7 +63,7 @@ def _coverage_flag(data: dict) -> str:
 
 
 def _net_color(n: int) -> str:
-    return "#f87171" if n > 0 else ("#4ade80" if n < 0 else "var(--muted)")
+    return "#E6432F" if n > 0 else ("#37B25C" if n < 0 else "var(--muted)")
 
 
 def _price_cell(close, change_pct) -> str:
@@ -73,10 +73,10 @@ def _price_cell(close, change_pct) -> str:
     price_str = f"{close:.2f}" if close < 10 else (f"{close:.1f}" if close < 100 else f"{int(close)}")
     if change_pct is not None:
         sign = "+" if change_pct > 0 else ""
-        color = "#f87171" if change_pct > 0 else ("#4ade80" if change_pct < 0 else "var(--muted)")
-        return (f"<td><span style='color:#e2e8f0;font-weight:600'>{price_str}</span>"
+        color = "#E6432F" if change_pct > 0 else ("#37B25C" if change_pct < 0 else "var(--muted)")
+        return (f"<td><span style='color:var(--text);font-weight:600'>{price_str}</span>"
                 f"<br><span style='color:{color};font-size:.68rem'>{sign}{change_pct:.1f}%</span></td>")
-    return f"<td style='color:#e2e8f0;font-weight:600'>{price_str}</td>"
+    return f"<td style='color:var(--text);font-weight:600'>{price_str}</td>"
 
 
 def _fmt_net(n: int) -> str:
@@ -96,10 +96,10 @@ def _streak_badge(s: int, label: str = "") -> str:
         return ""
     if s > 0:
         txt = f"外資連買 {s}日" if not label else f"{label}連買{s}日"
-        return f"<span style='color:#f87171;background:rgba(127,29,29,.2);border:1px solid rgba(127,29,29,.4);border-radius:4px;padding:1px 7px;font-size:.7rem;font-weight:700'>{txt}</span>"
+        return f"<span style='color:#E6432F;background:rgba(127,29,29,.2);border:1px solid rgba(127,29,29,.4);border-radius:4px;padding:1px 7px;font-size:.7rem;font-weight:700'>{txt}</span>"
     else:
         txt = f"外資連賣 {abs(s)}日" if not label else f"{label}連賣{abs(s)}日"
-        return f"<span style='color:#4ade80;background:rgba(6,78,59,.2);border:1px solid rgba(6,78,59,.4);border-radius:4px;padding:1px 7px;font-size:.7rem;font-weight:700'>{txt}</span>"
+        return f"<span style='color:#37B25C;background:rgba(6,78,59,.2);border:1px solid rgba(6,78,59,.4);border-radius:4px;padding:1px 7px;font-size:.7rem;font-weight:700'>{txt}</span>"
 
 
 def _trust_streak_badge(s: int) -> str:
@@ -107,7 +107,7 @@ def _trust_streak_badge(s: int) -> str:
         return ""
     if s > 0:
         txt = f"投信連買 {s}日"
-        return f"<span style='color:#fbbf24;background:rgba(120,53,15,.25);border:1px solid rgba(120,53,15,.5);border-radius:4px;padding:1px 7px;font-size:.7rem;font-weight:700'>{txt}</span>"
+        return f"<span style='color:#F0BB55;background:rgba(120,53,15,.25);border:1px solid rgba(120,53,15,.5);border-radius:4px;padding:1px 7px;font-size:.7rem;font-weight:700'>{txt}</span>"
     else:
         txt = f"投信連賣 {abs(s)}日"
         return f"<span style='color:#60a5fa;background:rgba(30,58,138,.25);border:1px solid rgba(30,58,138,.5);border-radius:4px;padding:1px 7px;font-size:.7rem;font-weight:700'>{txt}</span>"
@@ -115,11 +115,11 @@ def _trust_streak_badge(s: int) -> str:
 
 def _ratio_bar(ratio: float) -> str:
     w = int(ratio * 100)
-    color = "#f87171" if ratio >= 0.6 else ("#fb923c" if ratio >= 0.4 else "var(--subtle)")
+    color = "#E6432F" if ratio >= 0.6 else ("#fb923c" if ratio >= 0.4 else "var(--subtle)")
     pct_txt = f"{ratio*100:.0f}%"
     return (
         f"<div style='display:flex;align-items:center;gap:6px'>"
-        f"<div style='flex:1;height:4px;background:#1e293b;border-radius:2px'>"
+        f"<div style='flex:1;height:4px;background:var(--surface-2);border-radius:2px'>"
         f"<div style='height:4px;width:{w}%;background:{color};border-radius:2px'></div></div>"
         f"<span style='color:{color};font-size:.7rem;font-weight:700;min-width:30px'>{pct_txt}</span>"
         f"</div>"
@@ -180,8 +180,8 @@ def _data_date_badge(data_date, latest) -> str:
     if not data_date or not latest or data_date == latest:
         return ""
     md = data_date[5:].replace("-", "/") if len(str(data_date)) >= 10 else str(data_date)
-    return (f" <span style='color:#fbbf24;font-size:.6rem;font-weight:700;"
-            f"border:1px solid #fbbf2455;border-radius:3px;padding:0 3px' "
+    return (f" <span style='color:#F0BB55;font-size:.6rem;font-weight:700;"
+            f"border:1px solid #F0BB5555;border-radius:3px;padding:0 3px' "
             f"title='此列資料日期為 {data_date}，落後榜上其他列'>資料日 {md}</span>")
 
 
@@ -238,11 +238,11 @@ def _composite_mini(score: int | None) -> str:
     """Compact 0-100 score chip for chips.html tables."""
     if score is None:
         return ""
-    if score >= 75:   color = "#4ade80"
+    if score >= 75:   color = "#37B25C"
     elif score >= 60: color = "#86efac"
-    elif score >= 45: color = "#fbbf24"
+    elif score >= 45: color = "#F0BB55"
     elif score >= 30: color = "#fb923c"
-    else:             color = "#f87171"
+    else:             color = "#E6432F"
     return (f"<span style='color:{color};border:1px solid {color}55;border-radius:4px;"
             f"padding:1px 7px;font-size:.72rem;font-weight:800'>{score}</span>")
 
@@ -302,7 +302,7 @@ def _inst_streak_table(rows: list, streak_key: str, net_key: str, cum_key: str, 
         if price_cum is None:
             price_cum_html = "<span style='color:var(--subtle)'>─</span>"
         else:
-            p_color = "#f87171" if price_cum >= 0 else "#4ade80"
+            p_color = "#E6432F" if price_cum >= 0 else "#37B25C"
             p_sign = "+" if price_cum >= 0 else ""
             price_cum_html = f"<span style='color:{p_color};font-weight:700'>{p_sign}{price_cum:.1f}%</span>"
         html += (
@@ -328,15 +328,15 @@ def _margin_alert_table(alerts: list) -> str:
     html = "<table class='ct'><thead><tr><th>#</th><th>股票</th><th>族群</th><th>收盤</th><th>融資餘額</th><th>增加量</th><th>增幅</th></tr></thead><tbody>"
     for i, s in enumerate(alerts, 1):
         pct = s["alert_pct"]
-        color = "#fb923c" if pct >= 10 else "#fbbf24"
+        color = "#fb923c" if pct >= 10 else "#F0BB55"
         html += (
             f"<tr>"
             f"<td class='ct-rank'>{i}</td>"
             f"<td><span class='sid'>{_esc(s['stock_id'])}</span> {_esc(s['stock_name'])}{_data_date_badge(s.get('data_date'), latest_dd)}</td>"
             f"<td class='ct-meta'>{_meta_link(s['meta_sector'])}</td>"
             f"{_price_cell(s.get('close'), s.get('change_pct'))}"
-            f"<td style='color:#94a3b8'>{s['margin_balance']:,}</td>"
-            f"<td style='color:#f87171'>+{s['margin_change']:,}</td>"
+            f"<td style='color:var(--subtle)'>{s['margin_balance']:,}</td>"
+            f"<td style='color:#E6432F'>+{s['margin_change']:,}</td>"
             f"<td><span style='color:{color};font-weight:700'>+{pct:.1f}%</span></td>"
             f"</tr>"
         )
@@ -357,11 +357,11 @@ def _margin_divergence_table(rows: list, divergence_type: str) -> str:
         mpct = s["margin_pct"]
         ppct = s["price_pct"]
         if divergence_type == "bearish":
-            m_html = f"<span style='color:#f87171;font-weight:700'>+{mpct:.1f}%</span>"
-            p_html = f"<span style='color:#4ade80;font-weight:700'>{ppct:.1f}%</span>"
+            m_html = f"<span style='color:#E6432F;font-weight:700'>+{mpct:.1f}%</span>"
+            p_html = f"<span style='color:#37B25C;font-weight:700'>{ppct:.1f}%</span>"
         else:
-            m_html = f"<span style='color:#4ade80;font-weight:700'>{mpct:.1f}%</span>"
-            p_html = f"<span style='color:#f87171;font-weight:700'>+{ppct:.1f}%</span>"
+            m_html = f"<span style='color:#37B25C;font-weight:700'>{mpct:.1f}%</span>"
+            p_html = f"<span style='color:#E6432F;font-weight:700'>+{ppct:.1f}%</span>"
         html += (
             f"<tr>"
             f"<td class='ct-rank'>{i}</td>"
@@ -435,7 +435,7 @@ def _shareholder_table(rows: list) -> str:
         chg_html = "<span style='color:var(--subtle)'>─</span>"
         if chg is not None:
             sign = "+" if chg > 0 else ""
-            chg_color = "#f87171" if chg > 0 else ("#4ade80" if chg < 0 else "var(--muted)")
+            chg_color = "#E6432F" if chg > 0 else ("#37B25C" if chg < 0 else "var(--muted)")
             chg_html = f"<span style='color:{chg_color};font-weight:700'>{sign}{chg:.2f}%</span>"
 
         share_chg = s.get("share_chg")
@@ -443,19 +443,19 @@ def _shareholder_table(rows: list) -> str:
         if share_chg is not None:
             lots = share_chg / 1000  # 股數 → 張數
             sign = "+" if lots > 0 else ""
-            color = "#f87171" if lots > 0 else ("#4ade80" if lots < 0 else "var(--muted)")
+            color = "#E6432F" if lots > 0 else ("#37B25C" if lots < 0 else "var(--muted)")
             share_chg_html = f"<span style='color:{color};font-weight:700'>{sign}{lots:,.0f}張</span>"
 
         if streak > 0:
-            streak_html = (f"<span style='color:#f87171;background:rgba(127,29,29,.2);border:1px solid rgba(127,29,29,.4);"
+            streak_html = (f"<span style='color:#E6432F;background:rgba(127,29,29,.2);border:1px solid rgba(127,29,29,.4);"
                            f"border-radius:4px;padding:1px 7px;font-size:.7rem;font-weight:700'>↑{streak}週</span>")
         elif streak < 0:
-            streak_html = (f"<span style='color:#4ade80;background:rgba(6,78,59,.2);border:1px solid rgba(6,78,59,.4);"
+            streak_html = (f"<span style='color:#37B25C;background:rgba(6,78,59,.2);border:1px solid rgba(6,78,59,.4);"
                            f"border-radius:4px;padding:1px 7px;font-size:.7rem;font-weight:700'>↓{abs(streak)}週</span>")
         else:
             streak_html = "<span style='color:var(--subtle)'>─</span>"
 
-        pct_color = "#f87171" if pct >= 70 else ("#fbbf24" if pct >= 50 else "#94a3b8")
+        pct_color = "#E6432F" if pct >= 70 else ("#F0BB55" if pct >= 50 else "var(--subtle)")
 
         lv15_html = _insider_cell(s.get("lv15_shares"), s.get("lv15_chg"), s.get("lv15_pct"), pct_label="持股")
 
@@ -516,11 +516,11 @@ def _insider_cell(shares, chg, pct, pct_label: str = "質押") -> str:
     if shares is None:
         return "<td style='color:var(--subtle)'>─</td>"
     lots = shares / 1000
-    lines = [f"<span style='color:#e2e8f0;font-weight:600'>{lots:,.0f}張</span>"]
+    lines = [f"<span style='color:var(--text);font-weight:600'>{lots:,.0f}張</span>"]
     if chg is not None:
         chg_lots = chg / 1000
         sign = "+" if chg_lots > 0 else ""
-        color = "#f87171" if chg_lots > 0 else ("#4ade80" if chg_lots < 0 else "var(--muted)")
+        color = "#E6432F" if chg_lots > 0 else ("#37B25C" if chg_lots < 0 else "var(--muted)")
         lines.append(f"<span style='color:{color};font-size:.68rem'>{sign}{chg_lots:,.0f}張</span>")
     if pct is not None:
         lines.append(f"<span style='color:var(--muted);font-size:.75rem'>{pct_label}{pct:.1f}%</span>")
@@ -533,13 +533,13 @@ def _chg_cell(pct) -> str:
     if pct is None:
         return "<td style='color:var(--subtle)'>─</td>"
     sign = "+" if pct > 0 else ""
-    color = "#f87171" if pct > 0 else ("#4ade80" if pct < 0 else "var(--muted)")
+    color = "#E6432F" if pct > 0 else ("#37B25C" if pct < 0 else "var(--muted)")
     return (f"<td><span style='color:{color};font-weight:600;font-size:.72rem'>"
             f"{sign}{pct:.2f}%</span></td>")
 
 
 _CSS = """
-  :root{--bg:#08101c;--surface:#0e1827;--surface-2:#142238;--surface-3:#192a43;--border:#263a55;--border-strong:#3c5575;--text:#e8eef7;--muted:#a8b6c9;--subtle:#7f91a8;--accent:#62a5ff;--accent-soft:#142e50;--focus:#f6c85f;--up:#ff747d;--down:#45c690;--radius:8px}
+  :root{--bg:#080B12;--surface:#0F1420;--surface-2:#161D2C;--surface-3:#1E2738;--border:#293346;--border-strong:#37435C;--text:#DADFE8;--muted:#98A0B4;--subtle:#636B80;--accent:#F0BB55;--accent-soft:rgba(240,187,85,.16);--focus:#F0BB55;--up:#E6432F;--down:#37B25C;--radius:8px}
   *{box-sizing:border-box}
   html{background:var(--bg);overflow-x:hidden}
   body{margin:0;min-width:320px;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans TC",sans-serif;background:var(--bg);color:var(--text);line-height:1.5;overflow-x:hidden}
@@ -548,7 +548,7 @@ _CSS = """
   .skip-link{position:fixed;left:12px;top:8px;z-index:1000;transform:translateY(-160%);padding:9px 13px;background:var(--text);color:var(--bg);border-radius:6px;font-weight:750}
   .skip-link:focus{transform:translateY(0)}
   .app-shell{min-height:100dvh}
-  .topbar{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:28px;min-height:64px;padding:0 24px;border-bottom:1px solid var(--border);background:rgba(8,16,28,.96);backdrop-filter:blur(12px)}
+  .topbar{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:28px;min-height:64px;padding:0 24px;border-bottom:1px solid var(--border);background:rgba(8,11,18,.96);backdrop-filter:blur(12px)}
   .brand-lockup{display:flex;align-items:baseline;gap:12px;min-width:max-content}
   h1{margin:0;font-size:1rem;font-weight:760;color:var(--text);letter-spacing:.015em}
   .page-name{font-size:.75rem;color:var(--accent);font-weight:750;padding-left:12px;border-left:1px solid var(--border-strong)}
@@ -560,7 +560,7 @@ _CSS = """
   .data-status span{color:var(--subtle);font-size:.6875rem;font-weight:700}
   .data-status strong{font-size:.8125rem;font-weight:720;font-variant-numeric:tabular-nums;color:var(--text)}
   .workspace{display:grid;grid-template-columns:216px minmax(0,1fr);max-width:1840px;margin:0 auto;min-height:calc(100dvh - 64px)}
-  .section-nav{border-right:1px solid var(--border);background:#0a1422;padding:20px 14px}
+  .section-nav{border-right:1px solid var(--border);background:#0B0F19;padding:20px 14px}
   .section-nav-inner{position:sticky;top:84px}
   .section-nav-label{padding:0 10px 9px;color:var(--subtle);font-size:.6875rem;font-weight:800;letter-spacing:.08em}
   .tab-bar{display:flex;flex-direction:column;gap:3px}
@@ -570,27 +570,27 @@ _CSS = """
   .tab-btn.active{color:var(--text);border-left-color:var(--accent);background:var(--accent-soft)}
   .section-nav-note{margin:18px 10px 0;padding-top:14px;border-top:1px solid var(--border);color:var(--subtle);font-size:.6875rem;line-height:1.65}
   .main-content{min-width:0;padding:20px 24px 32px}
-  .chips-toolbar{position:sticky;top:76px;z-index:10;display:flex;align-items:end;gap:12px;margin:0 0 16px;padding:10px 12px;background:rgba(14,24,39,.97);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 8px 24px rgba(3,8,15,.24)}
+  .chips-toolbar{position:sticky;top:76px;z-index:10;display:flex;align-items:end;gap:12px;margin:0 0 16px;padding:10px 12px;background:rgba(15,20,32,.97);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 8px 24px rgba(3,4,7,.24)}
   .search-field{display:grid;grid-template-columns:auto minmax(220px,320px);align-items:center;gap:9px;color:var(--muted);font-size:.75rem;font-weight:700}
   .search-field input{width:100%;height:40px;padding:8px 11px;color:var(--text);background:var(--bg);border:1px solid var(--border-strong);border-radius:6px}
   .search-field input::placeholder{color:var(--subtle)}
   .exchange-filter{display:flex;border:1px solid var(--border-strong);border-radius:6px;overflow:hidden}
   .exch-btn{min-width:62px;height:40px;padding:7px 13px;background:transparent;color:var(--muted);border:0;border-right:1px solid var(--border-strong);cursor:pointer;font-size:.8125rem;font-weight:650}
   .exch-btn:last-child{border-right:0}.exch-btn:hover{color:var(--text);background:var(--surface-2)}
-  .exch-btn.active{color:#dceaff;background:var(--accent-soft);box-shadow:inset 0 -2px 0 var(--accent)}
+  .exch-btn.active{color:var(--text);background:var(--accent-soft);box-shadow:inset 0 -2px 0 var(--accent)}
   .filter-result{margin-left:auto;min-height:20px;color:var(--muted);font-size:.75rem;font-variant-numeric:tabular-nums}
   .tab-panel{display:none;min-width:0}.tab-panel.active{display:block}
   .chips-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;margin-bottom:14px}
   .chips-section,.chips-section-half{min-width:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:13px 14px;overflow:hidden}
   .chips-section{margin-bottom:14px}
-  .cs-title{font-size:.8125rem;font-weight:780;color:#c7d3e2;margin-bottom:8px}
+  .cs-title{font-size:.8125rem;font-weight:780;color:var(--text);margin-bottom:8px}
   .cs-description,.data-note{margin:0 0 11px;color:var(--muted);font-size:.75rem;max-width:90ch}
   .cs-date{color:var(--subtle);font-weight:600}.coverage-flag{display:inline-block;margin-left:5px;padding:1px 5px;border:1px solid #b77935;border-radius:4px;color:#ffc37d;font-size:.625rem;font-weight:750;cursor:help}
-  .table-shell{max-width:100%;overflow-x:auto;overscroll-behavior-x:contain;border:1px solid #20314a;border-radius:6px;scrollbar-width:thin;scrollbar-color:var(--border-strong) transparent}
+  .table-shell{max-width:100%;overflow-x:auto;overscroll-behavior-x:contain;border:1px solid var(--border);border-radius:6px;scrollbar-width:thin;scrollbar-color:var(--border-strong) transparent}
   .ct{width:100%;min-width:max-content;border-collapse:collapse;font-variant-numeric:tabular-nums}
-  .ct th{position:sticky;top:0;z-index:1;text-align:left;padding:7px 9px;font-size:.6875rem;color:var(--muted);background:#122036;border-bottom:1px solid var(--border);white-space:nowrap}
-  .ct td{padding:7px 9px;border-bottom:1px solid #1b2a40;font-size:.8125rem;white-space:nowrap}
-  .ct tbody tr:nth-child(even) td{background:rgba(20,34,56,.2)}
+  .ct th{position:sticky;top:0;z-index:1;text-align:left;padding:7px 9px;font-size:.6875rem;color:var(--muted);background:var(--surface-2);border-bottom:1px solid var(--border);white-space:nowrap}
+  .ct td{padding:7px 9px;border-bottom:1px solid var(--border);font-size:.8125rem;white-space:nowrap}
+  .ct tbody tr:nth-child(even) td{background:rgba(22,29,44,.2)}
   .ct tr:last-child td{border-bottom:none}.ct tr:hover td{background:var(--surface-3)}
   .sort-button{display:inline-flex;align-items:center;gap:5px;min-height:32px;padding:3px 4px;border:0;background:transparent;color:inherit;font-weight:inherit;cursor:pointer}
   .sort-button::after{content:"↕";color:var(--subtle);font-size:.6875rem}
@@ -601,8 +601,8 @@ _CSS = """
   .market-badge{display:inline-block;margin-left:5px;padding:0 4px;border:1px solid var(--border-strong);border-radius:3px;color:var(--muted);font-size:.625rem}
   .market-badge.twse{border-color:#416d9f;color:#9bc7ff}.market-badge.tpex{border-color:#6e5999;color:#cabaff}
   .ct-name{font-weight:700;color:var(--text);min-width:90px}.ct-meta{color:var(--muted);font-size:.75rem}
-  .ct-rank{color:var(--subtle);font-size:.75rem;font-weight:700;text-align:center;width:32px}.sid{color:#b9c7d8;font-size:.75rem;font-weight:720}
-  .no-data{color:var(--muted);font-size:.8125rem;padding:18px 8px;text-align:center;border:1px dashed var(--border);border-radius:6px;background:rgba(8,16,28,.35)}
+  .ct-rank{color:var(--subtle);font-size:.75rem;font-weight:700;text-align:center;width:32px}.sid{color:var(--muted);font-size:.75rem;font-weight:720}
+  .no-data{color:var(--muted);font-size:.8125rem;padding:18px 8px;text-align:center;border:1px dashed var(--border);border-radius:6px;background:rgba(8,11,18,.35)}
   .footer{margin:28px 0 0;font-size:.6875rem;color:var(--subtle);text-align:center;padding-bottom:8px}
   .cum-cell{font-size:.8125rem;font-weight:700;text-align:center;white-space:nowrap;padding:6px 9px}
   @media(max-width:1100px){
@@ -768,7 +768,7 @@ def _build_section35(meta_chips: dict, cum_ranks: dict) -> str:
         if val is None:
             return "<td style='text-align:center;color:var(--subtle)'>─</td>"
         sign = "+" if val > 0 else ""
-        color = "#f87171" if val > 0 else ("#4ade80" if val < 0 else "var(--muted)")
+        color = "#E6432F" if val > 0 else ("#37B25C" if val < 0 else "var(--muted)")
         return f"<td style='text-align:center;color:{color};font-weight:700'>{sign}{val:.1f}%</td>"
 
     dip_buy_rows = []
@@ -828,9 +828,9 @@ def _build_section_stealth(meta_chips: dict, cum_ranks: dict) -> str:
     只看外資（不看投信），跟『越跌越買』(明顯下跌) 用 5日漲跌區間區隔開。"""
     def _pct_cell(val) -> str:
         if val is None:
-            return "<td style='text-align:center;color:#334155'>─</td>"
+            return "<td style='text-align:center;color:var(--subtle)'>─</td>"
         sign = "+" if val > 0 else ""
-        color = "#f87171" if val > 0 else ("#4ade80" if val < 0 else "#64748b")
+        color = "#E6432F" if val > 0 else ("#37B25C" if val < 0 else "var(--subtle)")
         return f"<td style='text-align:center;color:{color};font-weight:700'>{sign}{val:.1f}%</td>"
 
     rows = []
@@ -849,7 +849,7 @@ def _build_section_stealth(meta_chips: dict, cum_ranks: dict) -> str:
     if not rows:
         return ('<div class="chips-section">'
                 '<div class="cs-title">外資偷偷買 — 外資連買但股價盤整（5日 -1%~+1%）</div>'
-                '<div style="color:#475569;font-size:.8rem;padding:8px 0">'
+                '<div style="color:var(--subtle);font-size:.8rem;padding:8px 0">'
                 '今日沒有族群同時符合「外資連買」且「股價盤整」。</div></div>')
 
     def _row(name, data, cum_vals, fs) -> str:

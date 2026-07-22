@@ -1,3 +1,53 @@
+## [2026-07-22] 驗證 - 全面稽核補回熱區格改版遺漏功能 + 族群近況分類重構（commit adcd801/bb0f80f）✅
+
+### 驗證方式
+接續上一則報告；Cody 桌電跑完 `python main.py` 看到真實頁面後回報一系列「以前有的東西不見了」，
+Developer 做了 `export/html_generator.py`（舊版）vs `export/index_generator.py`（新版）全面稽核，
+抓出 13 項功能落差補回（`adcd801`）+ 修一個真實資料抓到的分類錯誤（`bb0f80f`）。這次交接特別要求
+多花時間實測、不只看 code review，所以這次用桌電真實跑出來的 `docs/index.html` 逐項核對，不是
+只看程式碼。
+
+### ✅ 驗證通過
+- `python -m pytest -q` 全套件：**400 passed, 1 failed**（差的是既有環境限制
+  `test_scan_patterns_returns_list`，跟報告寫的「401 passed」對得起來，400+1＝401，這次數字
+  跟報告一致，沒有上次那個 62→36 的落差問題）
+- 真實 `docs/index.html`（23:24 重新產生）逐項核對 13 項補回功能的代表性樣本：
+  - 搜尋框（`#stock-search`）+ `STOCK_INDEX`/`META_INDEX` 搜尋索引都存在
+  - 無行情個股改灰階佔位卡（`no_data`），不再從清單消失
+  - 族群層級 sparkline（`buildSparkline`）、大盤分級儀表板都有渲染
+  - 巨量換手訊號區塊今天沒有任何訊號（0檔），一開始以為是遺漏，追進
+    `export/index_generator.py:290` 確認是 `if not vol_turnover_signals: return ""` 的
+    fail-soft 設計，今天單純沒有「前日漲停→今日爆量收跌」這個特定樣態的族群，不是 bug
+  - `chips.html` 的 `#meta=族群名` 深連結格式（`index.html#meta=AI%E4%BC%BA...`）跟
+    `docs/index.html` 底部新補的 hash routing IIFE（`decodeURIComponent(location.hash)` →
+    `selectGroup(h.slice(6))`）**格式完全對得上**，這是這次稽核抓到的「真正bug」（不是13項
+    裡的錦上添花項），確認修好了
+- **族群近況分類重構的核心迴歸案例，用真實資料驗證通過**：Cody 回報的「功率半導體今日
+  #40→#1、+5.66%，卻被歸類成退燒」這個具體案例，我在真實頁面裡查證：
+  - 「🚀 今日爆發 Top 5」清單裡確實看得到「功率半導體 +5.66% ↑39」（排名跳39名，數字跟
+    Cody 回報的案例一致）
+  - 「❄️ 近期退燒 Top 5」清單裡**沒有**功率半導體（改成機器人/自動化、光學/相機、網通設備等），
+    確認「cold_top5排除今日爆發族群」這個修法邏輯真的生效，不是只有測試過、實際資料沒對到
+  - 族群近況6個分類（近期增溫/近期退燒/今日爆發/外資悄悄佈局/投信悄悄佈局/量能異常）
+    在真實頁面裡全部有渲染，版面確實從2欄擴成6欄
+- 4 個頁面（index/chips/patterns/momentum）nav 互連逐一 grep 確認，這次改動沒有動到 nav，
+  沒有受影響
+
+### ⚠️ 承接上一則報告，仍未驗證：鍵盤操作 + 手機版 auto-fit grid
+- 這次交接清單新增要求「手機版(auto-fit grid)不跑版」，跟上一則沒測到的鍵盤操作
+  （Tab+Enter/Space）一樣，這個 session 沒有瀏覽器工具，兩項都只能停在「程式碼存在對應
+  屬性/CSS」層級，沒辦法實際用瀏覽器（尤其手機版面需要真的縮小視窗看有沒有跑版，這種純
+  視覺回歸完全沒辦法用 grep 驗證）。這兩項持續掛著，需要有瀏覽器工具的環境或 Cody 桌電
+  肉眼補測。
+
+### 結論
+- [x] 可以繼續下一個任務——這次補回的13項功能+分類重構的核心迴歸案例，我用真實資料逐一
+      核對過，包含原本以為是遺漏、追查後確認是正常fail-soft設計的巨量換手區塊，都沒問題。
+- [ ] 鍵盤操作、手機版 auto-fit grid 兩項視覺/互動測試持續待補（連續兩次交接都提到，需要
+      瀏覽器環境才能真正驗證，不是我這邊能決定要不要做的事）。
+
+---
+
 ## [2026-07-22] 驗證 - 族群總覽頁熱區格改版（export/index_generator.py 取代 html_generator.py）
 
 ### 驗證方式

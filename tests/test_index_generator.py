@@ -32,6 +32,22 @@ def test_classify_tier_returns_none_when_any_input_is_none():
     assert classify_tier(3, 1.0, None) is None
 
 
+def test_classify_tier_boundary_at_super_accel_threshold():
+    """accel剛好等於_TIER_SUPER_ACCEL(3)時：>3才算super，==3不算，要落到strong
+    （streak>0時strong的下限是accel>=-2，包含3.0）。"""
+    assert classify_tier(3, 1.0, 4.0) == {"key": "strong", "label": "強"}  # accel=3.0剛好卡在邊界
+    assert classify_tier(3, 1.0, 4.01) == {"key": "super", "label": "超強"}  # accel剛超過3才算super
+
+
+def test_classify_tier_boundary_at_weak_accel_threshold_differs_by_streak_sign():
+    """accel剛好等於-2時：streak>0落在strong(accel>=-2包含-2)，streak<0落到mid
+    (weak要求accel<-2，嚴格小於，不含-2)——這是code review特別點名要鎖住的不對稱行為，
+    避免以後有人「統一」兩個分支的比較運算子時不小心改變邊界行為。"""
+    assert classify_tier(3, 1.0, -1.0) == {"key": "strong", "label": "強"}  # accel=-2.0, streak>0
+    assert classify_tier(-2, 1.0, -1.0) == {"key": "mid", "label": "整理"}  # accel=-2.0, streak<0，不算weak
+    assert classify_tier(-2, 1.0, -1.01) == {"key": "weak", "label": "弱"}  # accel剛小於-2才算weak
+
+
 def test_classify_temp_hot_and_cold_thresholds():
     assert classify_temp(5.0) == {"key": "hot", "label": "增溫 +5.0pt", "icon": "🔥"}
     assert classify_temp(7.3) == {"key": "hot", "label": "增溫 +7.3pt", "icon": "🔥"}

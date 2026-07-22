@@ -415,3 +415,129 @@ def test_build_stock_detail_data_skips_individual_stock_missing_price():
 
     assert len(result["族群C"]) == 1
     assert result["族群C"][0]["stock_id"] == "1000"
+
+
+from datetime import date
+from export.index_generator import generate
+
+
+def _sample_meta_perf():
+    return [
+        {"meta_name": "測試族群", "avg_change_pct": 3.5, "up_count": 5, "down_count": 1, "flat_count": 0},
+    ]
+
+
+def _sample_universe_df():
+    return pd.DataFrame([
+        {"stock_id": "1000", "stock_name": "測試股", "meta_sector": "測試族群"},
+    ])
+
+
+def _sample_prices_df():
+    return pd.DataFrame([
+        {"stock_id": "1000", "close": 100.0, "change_pct": 3.5},
+    ])
+
+
+def test_generate_returns_early_and_skips_write_when_meta_perf_empty(tmp_path):
+    output_path = tmp_path / "index.html"
+
+    generate(date(2026, 7, 22), [], pd.DataFrame(), {}, {}, pd.DataFrame(), {}, output_path=str(output_path))
+
+    assert not output_path.exists()
+
+
+def test_generate_writes_page_with_all_41_style_sectors_present(tmp_path):
+    """41個族群全部要有卡片，這裡用3個族群模擬同樣的「全部要出現」要求
+    （呼應2026-07-09 index.html只render部分族群導致連結靜默失敗的回歸測試精神）。"""
+    output_path = tmp_path / "index.html"
+    meta_perf = [
+        {"meta_name": f"族群{i}", "avg_change_pct": float(i) - 1, "up_count": 1, "down_count": 0, "flat_count": 0}
+        for i in range(3)
+    ]
+    universe_df = pd.DataFrame([
+        {"stock_id": f"100{i}", "stock_name": f"股票{i}", "meta_sector": f"族群{i}"} for i in range(3)
+    ])
+    prices_df = pd.DataFrame([
+        {"stock_id": f"100{i}", "close": 10.0 + i, "change_pct": float(i) - 1} for i in range(3)
+    ])
+
+    generate(date(2026, 7, 22), meta_perf, universe_df, {}, {}, prices_df, {}, output_path=str(output_path))
+
+    html = output_path.read_text(encoding="utf-8")
+    import re
+    names_present = set(re.findall(r'data-meta-name="(族群\d)"', html))
+    assert names_present == {"族群0", "族群1", "族群2"}
+
+
+def test_generate_escapes_malicious_meta_and_stock_name(tmp_path):
+    """族群名稱/股票名稱來自stock_universe.csv，頁面發布到GitHub Pages，比照既有generator防護。
+
+    meta_name 會被 Python 端 _esc() 渲染進實際 HTML markup（熱區格/異動族群卡片），必須
+    對<script>這類會斷開標籤的payload做HTML escape。stock_name只出現在<script>區塊內嵌的
+    JSON資料裡（build_stock_detail_data()故意不escape，見generate()註解），瀏覽器HTML
+    parser不會解析<script>內容為標籤，只要沒有</就無法逃逸出script邊界——真正的防護是
+    JS端selectGroup()在寫進innerHTML前呼叫escHtml()，這裡改成驗證escHtml()確實有被套用
+    在stock_id/stock_name上，而不是斷言payload完全不出現在整份文件裡（那個斷言對這個安全
+    模型來說是錯的，這是code review跟coordinator一起釐清後修正的地方，不是設計有洞）。"""
+    output_path = tmp_path / "index.html"
+    meta_perf = [
+        {"meta_name": "<script>alert(1)</script>", "avg_change_pct": 1.0, "up_count": 1, "down_count": 0, "flat_count": 0},
+    ]
+    universe_df = pd.DataFrame([
+        {"stock_id": "9999", "stock_name": "<img onerror=alert(2)>", "meta_sector": "<script>alert(1)</script>"},
+    ])
+    prices_df = pd.DataFrame([{"stock_id": "9999", "close": 1.0, "change_pct": 1.0}])
+
+    generate(date(2026, 7, 22), meta_perf, universe_df, {}, {}, prices_df, {}, output_path=str(output_path))
+
+    html = output_path.read_text(encoding="utf-8")
+
+    # meta_name 渲染進實際HTML markup（熱區格卡片等），必須被_esc()完整escape
+    assert "<script>alert(1)</script>" not in html
+
+    # meta_name/meta_sector 即使出現在<script>內嵌JSON裡，也不能真的斷開script標籤本身
+    # （這才是json.dumps().replace("</","<\\/")要防的唯一逃逸路徑）
+    assert "</script>alert(1)" not in html
+
+    # stock_name 的真正防護在JS端：確認escHtml()確實被用在渲染stock_name/stock_id的地方，
+    # 而不是斷言payload完全不出現在文件裡（它會安全地出現在<script>內嵌JSON中，這是預期行為）
+    assert "escHtml(s.stock_name)" in html
+    assert "escHtml(s.stock_id)" in html
+
+
+def test_generate_uses_this_dataset_metaname_not_raw_string_interpolation(tmp_path):
+    """族群名稱含斜線(例如「機器人/自動化」)時，onclick不能直接內插原始名稱字串，
+    必須用this.dataset.metaName讀DOM屬性——這是最容易在改版時不小心退化回不安全寫法的地方。"""
+    output_path = tmp_path / "index.html"
+    meta_perf = [
+        {"meta_name": "機器人/自動化", "avg_change_pct": 1.0, "up_count": 1, "down_count": 0, "flat_count": 0},
+    ]
+    universe_df = pd.DataFrame([
+        {"stock_id": "1000", "stock_name": "測試股", "meta_sector": "機器人/自動化"},
+    ])
+    prices_df = pd.DataFrame([{"stock_id": "1000", "close": 10.0, "change_pct": 1.0}])
+
+    generate(date(2026, 7, 22), meta_perf, universe_df, {}, {}, prices_df, {}, output_path=str(output_path))
+
+    html = output_path.read_text(encoding="utf-8")
+    assert "onclick=\"selectGroup('機器人/自動化')\"" not in html
+    assert "onclick=\"selectGroup(this.dataset.metaName)\"" in html
+
+
+def test_generate_includes_nav_links_to_other_three_pages(tmp_path):
+    output_path = tmp_path / "index.html"
+    generate(date(2026, 7, 22), _sample_meta_perf(), _sample_universe_df(), {}, {}, _sample_prices_df(), {}, output_path=str(output_path))
+
+    html = output_path.read_text(encoding="utf-8")
+    assert 'href="chips.html"' in html
+    assert 'href="patterns.html"' in html
+    assert 'href="momentum.html"' in html
+
+
+def test_generate_renders_anomaly_section_empty_state_when_no_cards_qualify(tmp_path):
+    output_path = tmp_path / "index.html"
+    generate(date(2026, 7, 22), _sample_meta_perf(), _sample_universe_df(), {}, {}, _sample_prices_df(), {}, output_path=str(output_path))
+
+    html = output_path.read_text(encoding="utf-8")
+    assert "目前沒有族群符合" in html  # 0張異動族群卡片時的誠實空狀態文案

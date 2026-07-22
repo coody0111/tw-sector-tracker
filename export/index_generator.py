@@ -688,20 +688,20 @@ table.vt-table{width:100%;border-collapse:collapse}
 .cs-row .cs-streak-up{color:var(--up);font-size:.68rem}
 .cs-row .cs-streak-dn{color:var(--down);font-size:.68rem}
 .cs-row .cs-alert{color:var(--accent);font-size:.68rem;font-weight:700}
-table.stock-table{width:100%;border-collapse:collapse}
-.stock-table thead th{text-align:left;font-family:var(--mono);font-size:.6rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);padding:0 10px 8px;border-bottom:1px solid var(--border-2)}
-.stock-table thead th.num{text-align:right}
-.stock-table tbody td{padding:9px 10px;border-bottom:1px solid var(--border);font-size:.84rem;font-family:var(--mono);font-variant-numeric:tabular-nums}
-.stock-table tbody tr:hover{background:var(--panel-2)}
-.stock-table tbody tr.no-data{opacity:.5}
-.stock-table td.num{text-align:right}
-.stock-table .sid{font-family:var(--mono);color:var(--ink-3);font-size:.72rem;margin-right:8px}
-.stock-table .sname{font-family:var(--serif);font-weight:600;color:var(--ink);font-size:.86rem}
-.spark-cell{width:150px}
-.spark-cell svg{width:100%;height:auto;display:block}
-.chips-cell{font-size:.68rem;color:var(--ink-3)}
-.chips-cell span+span{margin-left:8px}
-.sc-chips-empty{color:var(--ink-3)}
+.stock-cards-wrap{display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:8px}
+.stock-card{border:1px solid var(--border);border-radius:5px;padding:10px 11px;background:var(--panel-3)}
+.stock-card.no-data{opacity:.5}
+.sc-header{display:flex;align-items:baseline;gap:6px;margin-bottom:4px}
+.sc-id{font-family:var(--mono);color:var(--ink-3);font-size:.68rem}
+.sc-name{font-family:var(--serif);font-weight:600;color:var(--ink);font-size:.86rem;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sc-body{display:flex;align-items:baseline;justify-content:space-between;font-family:var(--mono);font-variant-numeric:tabular-nums}
+.sc-price{font-size:.86rem;color:var(--ink-2)}
+.sc-pct{font-size:.86rem;font-weight:700}
+.sc-sparkline{margin-top:6px;line-height:0}
+.sc-sparkline svg{width:100%;height:auto;display:block}
+.sc-roll{display:flex;gap:6px;margin-top:6px;font-family:var(--mono);font-size:.62rem;flex-wrap:wrap}
+.sc-roll-item .lbl{color:var(--ink-3);margin-right:2px}
+.sc-chips{display:flex;gap:8px;margin-top:5px;font-family:var(--mono);font-size:.62rem;flex-wrap:wrap;color:var(--ink-3)}
 .detail-empty{color:var(--ink-3);font-size:.86rem;padding:20px 0;font-family:var(--serif)}
 
 .ht-top{display:flex;align-items:baseline;gap:8px}
@@ -1152,33 +1152,30 @@ function buildChipsSummary(meta) {{
   return rows.length ? `<div class="chips-summary">${{rows.join('')}}</div>` : '';
 }}
 
-function _rollCell(v) {{
-  if (v === null || v === undefined) return '<td class="num">─</td>';
-  const c = v >= 0 ? 'var(--up)' : 'var(--down)';
-  return `<td class="num tabular" style="color:${{c}}">${{v>=0?'+':''}}${{v.toFixed(2)}}%</td>`;
-}}
-
 function renderStockCard(s) {{
   if (s.no_data) {{
-    return `<tr class="stock-row no-data">
-      <td><span class="sid">${{escHtml(s.stock_id)}}</span><span class="sname">${{escHtml(s.stock_name)}}</span></td>
-      <td colspan="7">無行情</td></tr>`;
+    return `<div class="stock-card no-data">
+      <div class="sc-header"><span class="sc-id">${{escHtml(s.stock_id)}}</span><span class="sc-name">${{escHtml(s.stock_name)}}</span></div>
+      <div class="sc-body"><span class="sc-price">無行情</span></div></div>`;
   }}
   const color = s.change_pct >= 0 ? 'var(--up)' : 'var(--down)';
   const sign = s.change_pct >= 0 ? '+' : '';
   const spark = buildSparkline(s.pcts, s.dates);
+  const rollItems = [['5日', s.roll5], ['7日', s.roll7], ['10日', s.roll10], ['14日', s.roll14]]
+    .filter(([, v]) => v !== null && v !== undefined)
+    .map(([lbl, v]) => {{
+      const c = v >= 0 ? 'var(--up)' : 'var(--down)';
+      return `<span class="sc-roll-item"><span class="lbl">${{lbl}}</span><span class="tabular" style="color:${{c}}">${{v>=0?'+':''}}${{v.toFixed(2)}}%</span></span>`;
+    }}).join('');
+  const rollHtml = rollItems ? `<div class="sc-roll">${{rollItems}}</div>` : '';
   const chipsParts = [];
   if (s.foreign_net) chipsParts.push(`<span style="color:${{s.foreign_net>0?'var(--up)':'var(--down)'}}">外資${{s.foreign_net>0?'+':''}}${{Math.trunc(s.foreign_net/1000).toLocaleString()}}張</span>`);
   if (s.trust_net) chipsParts.push(`<span style="color:${{s.trust_net>0?'var(--up)':'var(--down)'}}">投信${{s.trust_net>0?'+':''}}${{Math.trunc(s.trust_net/1000).toLocaleString()}}張</span>`);
-  const chipsHtml = chipsParts.length ? chipsParts.join(' ') : '<span class="sc-chips-empty">─</span>';
-  return `<tr class="stock-row">
-    <td><span class="sid">${{escHtml(s.stock_id)}}</span><span class="sname">${{escHtml(s.stock_name)}}</span></td>
-    <td class="num tabular">${{s.close.toFixed(1)}}</td>
-    <td class="num tabular" style="color:${{color}}">${{sign}}${{s.change_pct.toFixed(2)}}%</td>
-    <td class="spark-cell">${{spark}}</td>
-    ${{_rollCell(s.roll5)}}${{_rollCell(s.roll7)}}${{_rollCell(s.roll10)}}${{_rollCell(s.roll14)}}
-    <td class="chips-cell">${{chipsHtml}}</td>
-  </tr>`;
+  const chipsHtml = chipsParts.length ? `<div class="sc-chips">${{chipsParts.join('')}}</div>` : '';
+  return `<div class="stock-card">
+    <div class="sc-header"><span class="sc-id">${{escHtml(s.stock_id)}}</span><span class="sc-name">${{escHtml(s.stock_name)}}</span></div>
+    <div class="sc-body"><span class="sc-price">${{s.close.toFixed(1)}}</span><span class="sc-pct" style="color:${{color}}">${{sign}}${{s.change_pct.toFixed(2)}}%</span></div>
+    ${{spark}}${{rollHtml}}${{chipsHtml}}</div>`;
 }}
 
 let _panelStocks = [], _panelSortKey = 'pct';
@@ -1258,11 +1255,7 @@ function selectGroup(name) {{
           <option value="5">近5日</option><option value="7">近7日</option><option value="10">近10日</option><option value="14">近14日</option>
         </select>
       </div>
-      <div class="overflow-wrap"><table class="stock-table">
-        <thead><tr><th>股票</th><th class="num">收盤</th><th class="num">漲跌%</th><th>走勢</th>
-          <th class="num">5日</th><th class="num">7日</th><th class="num">10日</th><th class="num">14日</th><th>籌碼</th></tr></thead>
-        <tbody id="panelStocksWrap"></tbody>
-      </table></div>`;
+      <div class="stock-cards-wrap" id="panelStocksWrap"></div>`;
   }}
   panel.querySelector('.detail-head').appendChild(closeBtn);
   if (stocks.length) renderPanelStocks();

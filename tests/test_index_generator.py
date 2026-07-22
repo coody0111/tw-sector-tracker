@@ -51,9 +51,9 @@ def test_classify_tier_boundary_at_weak_accel_threshold_differs_by_streak_sign()
 
 
 def test_classify_temp_hot_and_cold_thresholds():
-    assert classify_temp(5.0) == {"key": "hot", "label": "增溫 +5.0pt", "icon": "🔥"}
-    assert classify_temp(7.3) == {"key": "hot", "label": "增溫 +7.3pt", "icon": "🔥"}
-    assert classify_temp(-5.0) == {"key": "cold", "label": "退燒 -5.0pt", "icon": "❄️"}
+    assert classify_temp(5.0) == {"key": "hot", "label": "增溫 +5.0pt"}
+    assert classify_temp(7.3) == {"key": "hot", "label": "增溫 +7.3pt"}
+    assert classify_temp(-5.0) == {"key": "cold", "label": "退燒 -5.0pt"}
     assert classify_temp(4.9) is None  # 未達門檻
     assert classify_temp(-4.9) is None
     assert classify_temp(None) is None
@@ -244,7 +244,7 @@ def test_build_heatgrid_cards_ranks_by_avg_change_pct_and_includes_all_fields():
     assert a["streak"] == 3  # window_data["streak_today"]，不是meta_signals的streak(5)
     assert a["vol_ratio"] == 1.8
     assert a["tier"] == {"key": "super", "label": "超強"}  # streak=3>0, accel=6.0-1.0=5.0>3
-    assert a["temp"] == {"key": "hot", "label": "增溫 +5.0pt", "icon": "🔥"}  # accel=5.0>=5.0門檻
+    assert a["temp"] == {"key": "hot", "label": "增溫 +5.0pt"}  # accel=5.0>=5.0門檻
     assert a["foreign_streak"] == 3 and a["trust_streak"] == 0
     assert a["last_week_pct"] == 1.0 and a["this_week_pct"] == 6.0
     assert a["accel"] == 5.0
@@ -873,7 +873,7 @@ def test_generate_renders_volume_turnover_section_when_provided(tmp_path):
     html = output_path.read_text(encoding="utf-8")
     assert "巨量換手訊號" in html
     assert "台積電" in html
-    assert "外資+投信✓" in html
+    assert "外資+投信確認" in html
 
     output_path2 = tmp_path / "index2.html"
     generate(date(2026, 7, 22), meta_perf, universe_df, {}, {}, prices_df, {},

@@ -281,3 +281,80 @@ def test_build_heatgrid_cards_handles_missing_signals_gracefully():
     assert card["last_week_pct"] is None and card["this_week_pct"] is None
     assert card["accel"] is None
     assert "color-mix" in card["heat_bg"]  # 就算完全沒有enrichment資料，heat_bg仍要能算(靠pct本身)
+
+
+from export.index_generator import build_sector_recap
+
+
+def test_build_sector_recap_sorts_hot_and_cold_by_accel():
+    meta_perf = [
+        {"meta_name": "升溫族群", "avg_change_pct": 3.0, "up_count": 1, "down_count": 0, "flat_count": 0},
+        {"meta_name": "退燒族群", "avg_change_pct": -1.0, "up_count": 0, "down_count": 1, "flat_count": 0},
+        {"meta_name": "普通族群", "avg_change_pct": 0.5, "up_count": 1, "down_count": 0, "flat_count": 0},
+    ]
+    heatgrid_windows = {
+        "升溫族群": {"streak_today": 3, "last_week_pct_today": 1.0, "this_week_pct_today": 9.0,
+                    "streak_5d_ago": None, "last_week_pct_5d_ago": None},  # accel=8.0
+        "退燒族群": {"streak_today": -2, "last_week_pct_today": 1.0, "this_week_pct_today": -5.0,
+                    "streak_5d_ago": None, "last_week_pct_5d_ago": None},  # accel=-6.0
+        "普通族群": {"streak_today": 1, "last_week_pct_today": 1.0, "this_week_pct_today": 1.5,
+                    "streak_5d_ago": None, "last_week_pct_5d_ago": None},  # accel=0.5
+    }
+
+    recap = build_sector_recap(meta_perf, heatgrid_windows)
+
+    assert recap["hot_top5"][0]["meta_name"] == "升溫族群"
+    assert recap["cold_top5"][0]["meta_name"] == "退燒族群"
+
+
+def test_build_sector_recap_excludes_none_accel_from_hot_cold_ranking():
+    meta_perf = [
+        {"meta_name": "資料不足", "avg_change_pct": 1.0, "up_count": 1, "down_count": 0, "flat_count": 0},
+        {"meta_name": "正常族群", "avg_change_pct": 1.0, "up_count": 1, "down_count": 0, "flat_count": 0},
+    ]
+    heatgrid_windows = {
+        "資料不足": {"streak_today": None, "last_week_pct_today": None, "this_week_pct_today": None,
+                    "streak_5d_ago": None, "last_week_pct_5d_ago": None},
+        "正常族群": {"streak_today": 1, "last_week_pct_today": 1.0, "this_week_pct_today": 3.0,
+                    "streak_5d_ago": None, "last_week_pct_5d_ago": None},
+    }
+
+    recap = build_sector_recap(meta_perf, heatgrid_windows)
+
+    hot_names = [r["meta_name"] for r in recap["hot_top5"]]
+    assert "資料不足" not in hot_names
+    assert "正常族群" in hot_names
+
+
+def test_build_sector_recap_includes_turning_points():
+    meta_perf = [
+        {"meta_name": "翻轉族群", "avg_change_pct": 1.0, "up_count": 1, "down_count": 0, "flat_count": 0},
+    ]
+    heatgrid_windows = {
+        "翻轉族群": {"streak_today": 3, "last_week_pct_today": 1.0, "this_week_pct_today": 6.0,
+                    "streak_5d_ago": -2, "last_week_pct_5d_ago": 3.5},
+    }
+    recap = build_sector_recap(meta_perf, heatgrid_windows)
+    assert recap["turning_points"][0]["meta_name"] == "翻轉族群"
+    assert recap["turning_points"][0]["direction"] == "轉強訊號"
+
+
+def test_build_sector_recap_excludes_stale_sector_from_turning_points():
+    """heatgrid_windows有某族群的翻轉資料，但meta_perf(當下有效族群清單)已經不包含它
+    (例如calc_meta_performance()跟calc_meta_heatgrid_windows()兩個獨立呼叫，某次族群集合
+    不一致)——turning_points不能顯示這個已經不在meta_perf裡的族群，要跟hot_top5/cold_top5
+    的過濾邏輯一致(這是Task 4 code review提前發現的落地前風險，Task 6一開始就要防)。"""
+    meta_perf = [
+        {"meta_name": "有效族群", "avg_change_pct": 1.0, "up_count": 1, "down_count": 0, "flat_count": 0},
+    ]
+    heatgrid_windows = {
+        "有效族群": {"streak_today": 1, "last_week_pct_today": 1.0, "this_week_pct_today": 1.5,
+                    "streak_5d_ago": None, "last_week_pct_5d_ago": None},
+        "已下架族群": {  # 有真實翻轉(弱→超強)，但不在meta_perf裡
+            "streak_today": 3, "last_week_pct_today": 1.0, "this_week_pct_today": 6.0,
+            "streak_5d_ago": -2, "last_week_pct_5d_ago": 3.5,
+        },
+    }
+    recap = build_sector_recap(meta_perf, heatgrid_windows)
+    turning_names = [r["meta_name"] for r in recap["turning_points"]]
+    assert "已下架族群" not in turning_names

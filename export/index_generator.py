@@ -240,3 +240,40 @@ def build_heatgrid_cards(
             "heat_bg": heat_bg(pct, max_abs_pct),
         })
     return cards
+
+
+_SECTOR_RECAP_TOP_N = 5
+
+
+def build_sector_recap(
+    meta_perf: List[Dict[str, Any]],
+    heatgrid_windows: Dict[str, Dict[str, Any]],
+) -> Dict[str, Any]:
+    """
+    族群近況（視覺 spec §4）：升溫/退燒雙欄 Top5 + 轉折點列表。accel 為 None（資料不足）的
+    族群不參與升溫/退燒排序（沒有依據判斷是升溫還是退燒，不能硬排進去）。
+    """
+    pct_map = {row["meta_name"]: row["avg_change_pct"] for row in meta_perf}
+    with_accel = []
+    for meta_name, window_data in heatgrid_windows.items():
+        if meta_name not in pct_map:
+            continue
+        accel = _accel_from_windows(window_data)
+        if accel is None:
+            continue
+        with_accel.append({"meta_name": meta_name, "pct": pct_map[meta_name], "accel": accel})
+
+    hot_top5 = sorted(with_accel, key=lambda r: r["accel"], reverse=True)[:_SECTOR_RECAP_TOP_N]
+    cold_top5 = sorted(with_accel, key=lambda r: r["accel"])[:_SECTOR_RECAP_TOP_N]
+
+    # turning_points 傳入前先用 pct_map（衍生自 meta_perf）過濾 heatgrid_windows，跟上面
+    # hot_top5/cold_top5 的排除邏輯保持一致——calc_meta_performance()/calc_meta_heatgrid_windows()
+    # 是main.py裡兩個獨立呼叫，理論上族群集合可能不完全一致，不過濾會讓同一個回傳值裡
+    # hot_top5/cold_top5排除了某族群、但turning_points卻還顯示它，是自相矛盾的輸出。
+    active_windows = {name: data for name, data in heatgrid_windows.items() if name in pct_map}
+
+    return {
+        "hot_top5": hot_top5,
+        "cold_top5": cold_top5,
+        "turning_points": find_turning_points(active_windows),
+    }

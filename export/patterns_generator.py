@@ -11,16 +11,16 @@ _BEARISH = {"雙頂", "三角跌破"}
 _NEUTRAL = {"箱型整理"}
 
 _PATTERN_LABEL = {
-    "雙底":    ("🟢", "#86efac"),
-    "頭肩底":  ("🏔", "#34d399"),
-    "收斂三角": ("🔺", "#86efac"),
-    "上升三角": ("📐", "#6ee7b7"),
-    "下降楔型": ("📉", "#67e8f9"),
-    "多頭拐點": ("🔥", "#F0BB55"),
-    "VCP突破":  ("🚀", "#a78bfa"),
-    "雙頂":    ("🔴", "#fca5a5"),
-    "三角跌破": ("🔻", "#fca5a5"),
-    "箱型整理": ("📦", "#98A0B4"),
+    "雙底":    ("", "#86efac"),
+    "頭肩底":  ("", "#34d399"),
+    "收斂三角": ("", "#86efac"),
+    "上升三角": ("", "#6ee7b7"),
+    "下降楔型": ("", "#67e8f9"),
+    "多頭拐點": ("", "#F0BB55"),
+    "VCP突破":  ("", "#a78bfa"),
+    "雙頂":    ("", "#fca5a5"),
+    "三角跌破": ("", "#fca5a5"),
+    "箱型整理": ("", "#98A0B4"),
 }
 
 # 回測勝率（from backtest_patterns 結果）
@@ -325,10 +325,10 @@ _BACKTEST_NOTE = (
     "<th style='text-align:center' title='1:2風險報酬比期望值 = 3×勝率-1，>0表示正期望'>2R期望值</th>"
     "</tr></thead>"
     "<tbody>"
-    + _backtest_row("🟢雙底",           5248, 41, 40, 43, -1.1)
-    + _backtest_row("🔺三角突破",        3146, 43, 45, 48, +2.9)
-    + _backtest_row("🔥多頭拐點",          582, 27, 25, 21, -5.5)
-    + _backtest_row("🔻雙頂（做空）",     905, 51, 58, 60, +4.3)
+    + _backtest_row("雙底",           5248, 41, 40, 43, -1.1)
+    + _backtest_row("三角突破",        3146, 43, 45, 48, +2.9)
+    + _backtest_row("多頭拐點",          582, 27, 25, 21, -5.5)
+    + _backtest_row("雙頂（做空）",     905, 51, 58, 60, +4.3)
     + _backtest_row("▽三角跌破（做空）",  951, 47, 49, 55, +3.1)
     + "</tbody></table>"
     "</div>"
@@ -427,18 +427,18 @@ def generate(trade_date: date, results: list[dict], output_path: str) -> None:
                      f"命中任一看多形態 · score ≥ 2 · Top 50 · {date_str}")
 
     tab2 = "\n".join([
-        _section("🚀 VCP 量縮底部突破",  s_vcp),
-        _section("🔺 三角整理向上突破",  s_tri),
-        _section("🟢 雙底",              s_dbl),
-        _section("🔥 多頭排列拐點",     s60d),
+        _section("VCP 量縮底部突破",  s_vcp),
+        _section("三角整理向上突破",  s_tri),
+        _section("雙底",              s_dbl),
+        _section("多頭排列拐點",     s60d),
     ])
 
     tab3 = _meta_hits_section(results)
 
     tab4 = "\n".join([
-        _section("📉 避開清單", s_avoid, "看空形態命中 · score ≤ -2"),
+        _section("避開清單", s_avoid, "看空形態命中 · score ≤ -2"),
         "<div style='height:16px'></div>",
-        _section("⬜ 盤整觀察（箱型整理）", s_box, "尚未突破，等待方向"),
+        _section("盤整觀察（箱型整理）", s_box, "尚未突破，等待方向"),
         "<div style='height:16px'></div>",
         _BACKTEST_NOTE,
     ])
@@ -467,15 +467,15 @@ def generate(trade_date: date, results: list[dict], output_path: str) -> None:
 </div>
 <div class="filter-bar">
   <button class="exch-btn active" data-exch="" onclick="applyFilters(this)">全部</button>
-  <button class="exch-btn" data-exch="TWSE" onclick="applyFilters(this)">🏛 上市</button>
-  <button class="exch-btn" data-exch="TPEx" onclick="applyFilters(this)">🏪 上櫃</button>
+  <button class="exch-btn" data-exch="TWSE" onclick="applyFilters(this)">上市</button>
+  <button class="exch-btn" data-exch="TPEx" onclick="applyFilters(this)">上櫃</button>
   <input id="s-search" class="s-search" type="text" placeholder="搜尋股號 / 名稱 / 族群…" oninput="applyFilters()">
 </div>
 <div class="tab-bar">
-  <button class="tab-btn" data-tab="tab-screener" onclick="switchTab('tab-screener')">🔥 做多候選</button>
-  <button class="tab-btn" data-tab="tab-patterns" onclick="switchTab('tab-patterns')">📈 形態分區</button>
-  <button class="tab-btn" data-tab="tab-meta"     onclick="switchTab('tab-meta')">📊 META 熱區</button>
-  <button class="tab-btn" data-tab="tab-avoid"    onclick="switchTab('tab-avoid')">📉 避開 / 觀察</button>
+  <button class="tab-btn" data-tab="tab-screener" onclick="switchTab('tab-screener')">做多候選</button>
+  <button class="tab-btn" data-tab="tab-patterns" onclick="switchTab('tab-patterns')">形態分區</button>
+  <button class="tab-btn" data-tab="tab-meta"     onclick="switchTab('tab-meta')">META 熱區</button>
+  <button class="tab-btn" data-tab="tab-avoid"    onclick="switchTab('tab-avoid')">避開 / 觀察</button>
 </div>
 
 <div class="tab-panel" id="tab-screener">

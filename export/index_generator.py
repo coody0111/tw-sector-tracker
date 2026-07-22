@@ -72,9 +72,9 @@ def classify_temp(accel: Optional[float]) -> Optional[Dict[str, str]]:
     if accel is None:
         return None
     if accel >= _TEMP_THRESHOLD_PT:
-        return {"key": "hot", "label": f"增溫 +{accel:.1f}pt", "icon": "🔥"}
+        return {"key": "hot", "label": f"增溫 +{accel:.1f}pt"}
     if accel <= -_TEMP_THRESHOLD_PT:
-        return {"key": "cold", "label": f"退燒 {accel:.1f}pt", "icon": "❄️"}
+        return {"key": "cold", "label": f"退燒 {accel:.1f}pt"}
     return None
 
 
@@ -205,15 +205,15 @@ def find_anomaly_cards(
 # docs/superpowers/specs/2026-07-09-market-regime-dashboard-design.md）。顏色改用新配色的
 # var(--up)/var(--down)/var(--ink-2)，不再用舊版寫死的hex。
 _REGIME_TIERS = {
-    "大漲": {"emoji": "🚀", "color": "var(--up)",
+    "大漲": {"color": "var(--up)",
              "tip": "漲時加碼，找主流族群最強一檔追（可追漲停）。"},
-    "小漲": {"emoji": "🔴", "color": "var(--up)",
+    "小漲": {"color": "var(--up)",
              "tip": "正常操作，續抱強勢股、汰弱留強。"},
-    "持平": {"emoji": "⚪", "color": "var(--ink-2)",
+    "持平": {"color": "var(--ink-2)",
              "tip": "均線上才買、觸發出場三原則就賣，反覆操作，不提前佈局盤整股。"},
-    "小跌": {"emoji": "🟢", "color": "var(--down)",
+    "小跌": {"color": "var(--down)",
              "tip": "持股健檢：均線空頭排列／下彎／跌破頸線任一成立就先出。"},
-    "大跌": {"emoji": "⛔", "color": "var(--down)",
+    "大跌": {"color": "var(--down)",
              "tip": "只找最後撐住的 5–10 檔換股，不接弱勢、不攤平、不抄底。"},
 }
 
@@ -250,7 +250,7 @@ def _market_regime_html(market_regime: Optional[Dict[str, Any]]) -> str:
         is_conc = market_regime.get("is_concentrated")
         divergence = market_regime.get("divergence")
         if is_conc and direction:
-            head = f'<span class="regime-conc-head warn">資金集中 ⚠️ — {_esc(direction)}</span>'
+            head = f'<span class="regime-conc-head warn">資金集中 — {_esc(direction)}</span>'
         else:
             head = '<span class="regime-conc-head">資金分布均衡</span>'
         div_txt = f"{divergence:+.2f}" if divergence is not None else "—"
@@ -271,11 +271,11 @@ def _market_regime_html(market_regime: Optional[Dict[str, Any]]) -> str:
         f'<div class="market-regime" style="border-left-color:{style["color"]}">'
         '<div class="regime-label">大盤現況</div>'
         '<div class="regime-head">'
-        f'<span class="regime-tier tabular" style="color:{style["color"]}">{style["emoji"]} {_esc(tier)}</span>'
+        f'<span class="regime-tier tabular" style="color:{style["color"]}">{_esc(tier)}</span>'
         f'<span class="regime-pct tabular" style="color:{style["color"]}">加權指數 {pct_txt}</span>'
         f'{breadth_html}'
         '</div>'
-        f'<div class="regime-tip">💡 {_esc(style["tip"])}</div>'
+        f'<div class="regime-tip">{_esc(style["tip"])}</div>'
         f'{conc_html}'
         '</div>'
     )
@@ -296,7 +296,7 @@ def _vol_turnover_html(vol_turnover_signals: Optional[List[Dict[str, Any]]]) -> 
         chg_color = "var(--up)" if chg >= 0 else "var(--down)"
         f_net = s.get("foreign_net")
         confirmed = s.get("inst_confirmed", False)
-        inst_badge = '<span class="badge foreign">外資+投信✓</span>' if confirmed else ""
+        inst_badge = '<span class="badge foreign">外資+投信確認</span>' if confirmed else ""
         if f_net and f_net > 0:
             f_html = f'<span class="tabular" style="color:var(--up)">+{f_net // 1000:,}張</span>'
         elif f_net and f_net < 0:
@@ -316,7 +316,7 @@ def _vol_turnover_html(vol_turnover_signals: Optional[List[Dict[str, Any]]]) -> 
         )
     return (
         '<div class="vol-turnover">'
-        f'<div class="regime-label">⚡ 巨量換手訊號（前日漲停 → 今日爆量收跌，共 {len(vol_turnover_signals)} 檔）</div>'
+        f'<div class="regime-label">巨量換手訊號（前日漲停 → 今日爆量收跌，共 {len(vol_turnover_signals)} 檔）</div>'
         '<div class="overflow-wrap"><table class="vt-table">'
         '<thead><tr><th>代號 / 名稱</th><th>族群</th><th>今日漲跌</th><th>量倍數</th><th>外資</th><th>確認</th></tr></thead>'
         f'<tbody>{"".join(rows)}</tbody>'
@@ -808,7 +808,7 @@ def _heatgrid_html(cards: List[Dict[str, Any]]) -> str:
             tier_html = '<div class="ht-tier" style="color:var(--ink-3)">資料不足</div>'
 
         if temp is not None:
-            temp_html = f'<div class="ht-temp {temp["key"]}">{temp["icon"]} {temp["label"]}</div>'
+            temp_html = f'<div class="ht-temp {temp["key"]}">{temp["label"]}</div>'
         elif c["accel"] is not None:
             temp_html = f'<div class="ht-temp flat tabular">→ {c["accel"]:+.1f}pt</div>'
         else:
@@ -928,24 +928,24 @@ def _sector_recap_html(recap: Dict[str, Any]) -> str:
 <div class="section-head"><h2>族群近況</h2><span class="count">6大類排行・轉折點</span></div>
 <div class="section-rule"></div>
 <div class="role-note">
-  <span>🔥❄️🚀 <b>族群近況</b>＝週度趨勢+單日事件+籌碼訊號的綜合面板</span>
-  <span>⚡ <b>異動族群</b>（頁面最上方）只看爆量+排名跳動同時成立，門檻比這裡的「今日爆發」嚴格</span>
+  <span><b>族群近況</b>＝週度趨勢+單日事件+籌碼訊號的綜合面板</span>
+  <span><b>異動族群</b>（頁面最上方）只看爆量+排名跳動同時成立，門檻比這裡的「今日爆發」嚴格</span>
   <span>兩者角色不同，故意分開兩個區塊，不是重複資訊</span>
 </div>
 <div class="status-cols">
-  <div><div class="status-col-head hot">🔥 近期增溫 Top 5</div><div>{hot_html}</div></div>
-  <div><div class="status-col-head cold">❄️ 近期退燒 Top 5</div><div>{cold_html}</div></div>
-  <div><div class="status-col-head breakout">🚀 今日爆發 Top 5</div><div>{breakout_html}</div>
+  <div><div class="status-col-head hot">近期增溫 Top 5</div><div>{hot_html}</div></div>
+  <div><div class="status-col-head cold">近期退燒 Top 5</div><div>{cold_html}</div></div>
+  <div><div class="status-col-head breakout">今日爆發 Top 5</div><div>{breakout_html}</div>
     <div class="status-col-note">今日排名跳動≥{_BREAKOUT_RANK_JUMP_MIN}名且上漲，不要求同時爆量——單日單一事件，跟下面「退燒」互斥</div></div>
-  <div><div class="status-col-head foreign">💰 外資悄悄佈局 Top 5</div><div>{foreign_html}</div>
+  <div><div class="status-col-head foreign">外資悄悄佈局 Top 5</div><div>{foreign_html}</div>
     <div class="status-col-note">股價還沒明顯反應（±{_STEALTH_PRICE_FLAT_MAX}%內）但外資連買≥{_STEALTH_STREAK_MIN}天</div></div>
-  <div><div class="status-col-head trust">🏦 投信悄悄佈局 Top 5</div><div>{trust_html}</div>
+  <div><div class="status-col-head trust">投信悄悄佈局 Top 5</div><div>{trust_html}</div>
     <div class="status-col-note">股價還沒明顯反應（±{_STEALTH_PRICE_FLAT_MAX}%內）但投信連買≥{_STEALTH_STREAK_MIN}天</div></div>
-  <div><div class="status-col-head volume">📊 量能異常 Top 5</div><div>{volume_html}</div>
+  <div><div class="status-col-head volume">量能異常 Top 5</div><div>{volume_html}</div>
     <div class="status-col-note">今日量能≥{_VOL_ANOMALY_RATIO_MIN}x5日均量，但股價還沒明顯反應（±{_VOL_ANOMALY_PRICE_FLAT_MAX}%內）</div></div>
 </div>
 <div class="turning-wrap">
-  <div class="turning-head">⚠ 轉折點：等級真的翻轉的族群</div>
+  <div class="turning-head">轉折點：等級真的翻轉的族群</div>
   <div class="turning-sub">不是看誰漲最多，是看「上週的等級」跟「這週的等級」是否真的換了一級。</div>
   <div>{turning_html}</div>
 </div>"""
@@ -1033,7 +1033,7 @@ def generate(
 <header class="topbar">
   <div><div class="kicker">台股電子半導體族群追蹤</div><h1>族群總覽</h1></div>
   <div class="search-wrap">
-    <input id="stock-search" class="stock-search" placeholder="🔍 搜尋股票代號 / 名稱 / 族群…"
+    <input id="stock-search" class="stock-search" placeholder="搜尋股票代號 / 名稱 / 族群…"
       oninput="searchStocks(this.value)" onblur="setTimeout(hideSearch,200)" autocomplete="off">
     <div id="search-dropdown" class="search-dropdown" hidden></div>
   </div>
@@ -1049,7 +1049,7 @@ def generate(
 <main id="main-content">
 {_market_regime_html(market_regime)}
 {_vol_turnover_html(vol_turnover_signals)}
-<div class="section-head"><h2>⚡ 異動族群</h2><span class="count">{len(anomaly_cards)} 檔符合</span></div>
+<div class="section-head"><h2>異動族群</h2><span class="count">{len(anomaly_cards)} 檔符合</span></div>
 <div class="section-sub">「現在正在發生」的瞬間訊號——爆量排名跳動、或連續多週噴出。跟下面「族群近況」不同：這裡是單日事件，族群近況是週度趨勢。</div>
 <div class="anomaly-wrap"><div class="anomaly-strip">{_anomaly_cards_html(anomaly_cards)}</div></div>
 
@@ -1064,7 +1064,7 @@ def generate(
   <span><span class="dot" style="background:var(--tier-superweak)"></span>超弱＝轉弱+連跌</span>
 </div>
 <div class="heatgrid" id="heatgrid">{_heatgrid_html(cards)}</div>
-<div class="legend-note">⚠️ 動能狀態標籤（超強/強/整理/弱/超弱）是族群層級獨立算的草案規則（連漲天數+本週比上週加速度），跟個股層級或觀察分頁面的五級分類不共用計算依據，門檻未經回測驗證。「近5日→前5日」是滾動5個交易日的複利累積漲跌幅，不是自然日曆週。</div>
+<div class="legend-note">動能狀態標籤（超強/強/整理/弱/超弱）是族群層級獨立算的草案規則（連漲天數+本週比上週加速度），跟個股層級或觀察分頁面的五級分類不共用計算依據，門檻未經回測驗證。「近5日→前5日」是滾動5個交易日的複利累積漲跌幅，不是自然日曆週。</div>
 
 {_sector_recap_html(recap)}
 </main>

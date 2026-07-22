@@ -440,7 +440,7 @@ def _pct_str(value) -> str:
 
 def _evidence_list(items: list) -> str:
     lis = "".join(
-        f'<li data-pass="{"true" if passed else "false"}">{"✓" if passed else "✗"} {_esc(label)}</li>'
+        f'<li data-pass="{"true" if passed else "false"}">{_esc(label)}</li>'
         for label, passed in items
     )
     return f'<ul class="evidence-list">{lis}</ul>'

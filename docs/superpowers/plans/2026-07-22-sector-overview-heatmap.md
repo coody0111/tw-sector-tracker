@@ -1015,7 +1015,14 @@ git commit -m "feat(index-generator): 新增build_heatgrid_cards()組裝41張熱
 - `build_sector_recap(meta_perf: list, heatgrid_windows: dict) -> dict`：回傳
   `{"hot_top5": [...], "cold_top5": [...], "turning_points": [...]}`。`hot_top5`/`cold_top5`
   依 `accel`（`_accel_from_windows()` 算出）排序，`accel` 為 `None` 的族群排除，不參與排序
-  （資料不足代表無法判斷升溫/退燒）。`turning_points` 直接沿用 Task 4 的 `find_turning_points()`。
+  （資料不足代表無法判斷升溫/退燒）。`turning_points` 呼叫 Task 4 的 `find_turning_points()`，
+  但傳入前**必須先用 `meta_perf` 過濾 `heatgrid_windows`**（只保留當下還在 `meta_perf` 裡的
+  族群）——`main.py` 呼叫 `calc_meta_performance()` 跟 `calc_meta_heatgrid_windows()` 是兩個
+  獨立呼叫，各自有獨立的失敗模式，理論上兩邊回傳的族群集合可能不完全一致；`hot_top5`/
+  `cold_top5` 已經用 `pct_map`（衍生自 `meta_perf`）排除了不在 `meta_perf` 裡的族群，
+  `turning_points` 若直接吃未過濾的 `heatgrid_windows` 會產生「同一個回傳值裡，`hot_top5`/
+  `cold_top5` 排除了某族群、但 `turning_points` 卻還顯示它」的不一致（Task 4 code review
+  提前讀到這支函式的規格後發現的落地前風險，這裡在寫 Task 6 之前直接修正，不留到之後才補）。
 
 - [ ] **Step 1: 寫失敗測試**
 
@@ -1071,11 +1078,32 @@ def test_build_sector_recap_includes_turning_points():
     ]
     heatgrid_windows = {
         "翻轉族群": {"streak_today": 3, "last_week_pct_today": 1.0, "this_week_pct_today": 6.0,
-                    "streak_5d_ago": -2, "last_week_pct_5d_ago": 3.0},
+                    "streak_5d_ago": -2, "last_week_pct_5d_ago": 3.5},
     }
     recap = build_sector_recap(meta_perf, heatgrid_windows)
     assert recap["turning_points"][0]["meta_name"] == "翻轉族群"
     assert recap["turning_points"][0]["direction"] == "轉強訊號"
+
+
+def test_build_sector_recap_excludes_stale_sector_from_turning_points():
+    """heatgrid_windows有某族群的翻轉資料，但meta_perf(當下有效族群清單)已經不包含它
+    (例如calc_meta_performance()跟calc_meta_heatgrid_windows()兩個獨立呼叫，某次族群集合
+    不一致)——turning_points不能顯示這個已經不在meta_perf裡的族群，要跟hot_top5/cold_top5
+    的過濾邏輯一致(這是Task 4 code review提前發現的落地前風險，Task 6一開始就要防)。"""
+    meta_perf = [
+        {"meta_name": "有效族群", "avg_change_pct": 1.0, "up_count": 1, "down_count": 0, "flat_count": 0},
+    ]
+    heatgrid_windows = {
+        "有效族群": {"streak_today": 1, "last_week_pct_today": 1.0, "this_week_pct_today": 1.5,
+                    "streak_5d_ago": None, "last_week_pct_5d_ago": None},
+        "已下架族群": {  # 有真實翻轉(弱→超強)，但不在meta_perf裡
+            "streak_today": 3, "last_week_pct_today": 1.0, "this_week_pct_today": 6.0,
+            "streak_5d_ago": -2, "last_week_pct_5d_ago": 3.5,
+        },
+    }
+    recap = build_sector_recap(meta_perf, heatgrid_windows)
+    turning_names = [r["meta_name"] for r in recap["turning_points"]]
+    assert "已下架族群" not in turning_names
 ```
 
 - [ ] **Step 2: 執行確認失敗**
@@ -1112,17 +1140,23 @@ def build_sector_recap(
     hot_top5 = sorted(with_accel, key=lambda r: r["accel"], reverse=True)[:_SECTOR_RECAP_TOP_N]
     cold_top5 = sorted(with_accel, key=lambda r: r["accel"])[:_SECTOR_RECAP_TOP_N]
 
+    # turning_points 傳入前先用 pct_map（衍生自 meta_perf）過濾 heatgrid_windows，跟上面
+    # hot_top5/cold_top5 的排除邏輯保持一致——calc_meta_performance()/calc_meta_heatgrid_windows()
+    # 是main.py裡兩個獨立呼叫，理論上族群集合可能不完全一致，不過濾會讓同一個回傳值裡
+    # hot_top5/cold_top5排除了某族群、但turning_points卻還顯示它，是自相矛盾的輸出。
+    active_windows = {name: data for name, data in heatgrid_windows.items() if name in pct_map}
+
     return {
         "hot_top5": hot_top5,
         "cold_top5": cold_top5,
-        "turning_points": find_turning_points(heatgrid_windows),
+        "turning_points": find_turning_points(active_windows),
     }
 ```
 
 - [ ] **Step 4: 執行確認通過**
 
 Run: `python -m pytest tests/test_index_generator.py -q`
-Expected: PASS（24 passed）
+Expected: PASS（25 passed）
 
 - [ ] **Step 5: Commit**
 

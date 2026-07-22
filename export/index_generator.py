@@ -83,3 +83,112 @@ def heat_bg(pct: float, max_abs_pct: float) -> str:
     alpha_pct = round(alpha * 100)
     color_var = "var(--up)" if pct >= 0 else "var(--down)"
     return f"color-mix(in srgb, {color_var} {alpha_pct}%, var(--panel))"
+
+
+_TIER_RANK = {"superweak": 0, "weak": 1, "mid": 2, "strong": 3, "super": 4}
+_ANOMALY_VOL_RATIO_MIN = 1.5
+_ANOMALY_RANK_JUMP_MIN = 10
+_ANOMALY_TREND_STREAK_MIN = 5
+
+
+def _accel_from_windows(window_data: Dict[str, Any]) -> Optional[float]:
+    """this_week_pct_today - last_week_pct_today，任一為None時回None。"""
+    this_week = window_data.get("this_week_pct_today")
+    last_week = window_data.get("last_week_pct_today")
+    if this_week is None or last_week is None:
+        return None
+    return round(this_week - last_week, 2)
+
+
+def _tiers_from_windows(window_data: Dict[str, Any]) -> Dict[str, Optional[Dict[str, str]]]:
+    """從calc_meta_heatgrid_windows()的原始數值算出tier_today/tier_last_week。
+    tier_last_week重用last_week_pct_today當this_week(見窗口重疊關係)。"""
+    tier_today = classify_tier(
+        window_data.get("streak_today"),
+        window_data.get("last_week_pct_today"),
+        window_data.get("this_week_pct_today"),
+    )
+    tier_last_week = classify_tier(
+        window_data.get("streak_5d_ago"),
+        window_data.get("last_week_pct_5d_ago"),
+        window_data.get("last_week_pct_today"),
+    )
+    return {"tier_today": tier_today, "tier_last_week": tier_last_week}
+
+
+def find_turning_points(heatgrid_windows: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    轉折點列表（視覺spec用語：族群近況②）。比對 tier_today vs tier_last_week，真的換了一級
+    才列入（不是幅度排序）。任一為 None（資料不足）或兩者相同時跳過。
+    """
+    results = []
+    for meta_name, window_data in heatgrid_windows.items():
+        tiers = _tiers_from_windows(window_data)
+        cur = tiers["tier_today"]
+        prev = tiers["tier_last_week"]
+        if cur is None or prev is None or cur["key"] == prev["key"]:
+            continue
+        direction = "轉強訊號" if _TIER_RANK[cur["key"]] > _TIER_RANK[prev["key"]] else "轉弱訊號，留意"
+        results.append({
+            "meta_name": meta_name,
+            "prev_key": prev["key"], "prev_label": prev["label"],
+            "cur_key": cur["key"], "cur_label": cur["label"],
+            "direction": direction,
+        })
+    return results
+
+
+def find_anomaly_cards(
+    meta_perf: List[Dict[str, Any]],
+    meta_signals: Dict[str, Dict[str, Any]],
+    heatgrid_windows: Dict[str, Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """
+    異動族群動態清單（視覺spec用語：頁面最上方快報，今日vs昨日的瞬間訊號）。不是固定5張卡，
+    符合條件有幾檔就回傳幾檔。門檻是視覺 spec 定的經驗法則草案，待回測（見 Global Constraints）。
+
+    爆量暴衝(burst)：vol_ratio >= 1.5 且今日排名比昨日跳動 >= 10（今日排名依 avg_change_pct
+    降冪計算，第1名跳動幅度最大）。
+    連續噴出(trend)：classify_temp(accel)=="hot" 且 streak_today >= 5（草案，要求持續而非
+    曇花一現）。
+    同一族群兩者都成立時，burst 優先（量能異常是更即時的訊號）。
+    """
+    ranked = sorted(meta_perf, key=lambda r: r["avg_change_pct"], reverse=True)
+    today_rank = {row["meta_name"]: i + 1 for i, row in enumerate(ranked)}
+    pct_map = {row["meta_name"]: row["avg_change_pct"] for row in meta_perf}
+
+    results = []
+    for meta_name in pct_map:
+        sig = meta_signals.get(meta_name, {})
+        window_data = heatgrid_windows.get(meta_name, {})
+        vol_ratio = sig.get("vol_ratio")
+        yesterday_rank = sig.get("yesterday_rank")
+        accel = _accel_from_windows(window_data)
+        streak_today = window_data.get("streak_today")
+
+        is_burst = (
+            vol_ratio is not None and vol_ratio >= _ANOMALY_VOL_RATIO_MIN
+            and yesterday_rank is not None
+            and (yesterday_rank - today_rank[meta_name]) >= _ANOMALY_RANK_JUMP_MIN
+        )
+        if is_burst:
+            results.append({
+                "kind": "burst", "meta_name": meta_name, "pct": pct_map[meta_name],
+                "reason": f"今日量能 {vol_ratio}x 於5日均量，昨日#{yesterday_rank}→今日#{today_rank[meta_name]}",
+            })
+            continue
+
+        temp = classify_temp(accel) if accel is not None else None
+        is_trend = (
+            temp is not None and temp["key"] == "hot"
+            and streak_today is not None and streak_today >= _ANOMALY_TREND_STREAK_MIN
+        )
+        if is_trend:
+            last_week_pct = window_data.get("last_week_pct_today")
+            this_week_pct = window_data.get("this_week_pct_today")
+            results.append({
+                "kind": "trend", "meta_name": meta_name, "pct": pct_map[meta_name],
+                "reason": f"上週 {last_week_pct:+.1f}% → 本週 {this_week_pct:+.1f}%　加速 {accel:+.1f}pt",
+            })
+
+    return results

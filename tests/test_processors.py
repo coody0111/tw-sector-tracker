@@ -504,3 +504,51 @@ def test_calc_stock_sparklines_includes_daily_volume_and_ratio(tmp_path):
     assert result["dates"] == ["07/13", "07/14", "07/15"]
     assert result["avg_volume"] == 15000
     assert result["vol_ratio"] == 3.0
+
+
+# ── _streak_and_windows_as_of（任意時間點的 streak/上週/本週窗口回推）─────
+from processors.performance import _streak_and_windows_as_of
+
+
+def test_streak_and_windows_as_of_computes_this_and_last_week():
+    """thisWeek=最近5天(index 5~9)複利報酬，lastWeek=再往前5天(index 0~4)。
+    全部+1.0%：thisWeek=(1.01^5-1)*100≈5.10，lastWeek同理也≈5.10。"""
+    daily_pcts = [1.0] * 10  # index 0~9，10天歷史，cutoff_index=9剛好卡在邊界
+    result = _streak_and_windows_as_of(daily_pcts, cutoff_index=9)
+    assert result is not None
+    assert result["this_week_pct"] == 5.1
+    assert result["last_week_pct"] == 5.1
+    assert result["streak"] == 10  # 連漲10天(index 0~9全部+1.0%)
+
+
+def test_streak_and_windows_as_of_returns_none_when_insufficient_history():
+    """cutoff_index=8時只有9天資料(index 0~8)，不足10天(thisWeek5+lastWeek5)，回None。"""
+    daily_pcts = [1.0] * 9
+    result = _streak_and_windows_as_of(daily_pcts, cutoff_index=8)
+    assert result is None
+
+
+def test_streak_and_windows_as_of_streak_resets_on_direction_change():
+    """連漲3天後轉跌，streak應該是-1(今天跌，只算今天這1天)，不是累加正負號混合。"""
+    daily_pcts = [1.0, -0.5, -0.5, -0.5, 1.0, 1.0, 1.0, 1.0, 1.0, -0.3]
+    # index 9(今天)是-0.3，往前看index 8是+1.0方向不同 → streak=-1
+    result = _streak_and_windows_as_of(daily_pcts, cutoff_index=9)
+    assert result["streak"] == -1
+
+
+def test_streak_and_windows_as_of_zero_pct_breaks_streak_to_zero():
+    """今天漲跌%剛好是0(持平)時，streak視為0（跟streak_utils.calc_streak()既有慣例一致）。"""
+    daily_pcts = [1.0] * 9 + [0.0]
+    result = _streak_and_windows_as_of(daily_pcts, cutoff_index=9)
+    assert result["streak"] == 0
+
+
+def test_streak_and_windows_as_of_five_days_ago_reuses_todays_last_week_as_this_week():
+    """驗證窗口重疊關係：cutoff_index往前推5(等於算「5天前的今天」)時，它的this_week_pct
+    應該等於原本cutoff_index算出來的last_week_pct（同一個窗口，只是換了個稱呼）——
+    這是轉折點回推算法能省一次計算的關鍵前提，必須驗證是真的邏輯保證，不是巧合。"""
+    daily_pcts = [0.5, 0.5, -0.3, -0.3, -0.3, 1.2, 1.2, 1.2, 1.2, 1.2, 0.8, 0.8, 0.8, 0.8, 0.8]
+    today = _streak_and_windows_as_of(daily_pcts, cutoff_index=14)
+    five_days_ago = _streak_and_windows_as_of(daily_pcts, cutoff_index=9)
+    assert five_days_ago is not None
+    assert five_days_ago["this_week_pct"] == today["last_week_pct"]

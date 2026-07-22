@@ -869,3 +869,41 @@ def classify_market_regime(
         "is_concentrated": is_concentrated,
         "concentration_direction": concentration_direction,
     }
+
+
+def _streak_and_windows_as_of(daily_pcts: List[float], cutoff_index: int) -> Optional[Dict[str, Any]]:
+    """
+    回推「假裝 cutoff_index 是今天」時的 streak/上週/本週窗口，供族群總覽頁熱區格改版的轉折點
+    回推算法使用（不用開新的歷史快照表，見
+    docs/superpowers/specs/2026-07-22-sector-overview-heatmap-implementation-design.md §2.3）。
+
+    daily_pcts：某族群「每日平均漲跌%」序列，舊→新排列，長度需涵蓋到 cutoff_index。
+    cutoff_index：0-based index，這個位置視為「今天」。
+
+    窗口定義（以 cutoff_index=T0 為基準）：
+        thisWeek = daily_pcts[T0-4 : T0+1]   （最近5天，含當天）
+        lastWeek = daily_pcts[T0-9 : T0-4]   （再往前5天）
+    streak：重用共用工具 streak_utils.calc_streak()，餵入截到 cutoff_index 為止的子序列。
+
+    Returns
+    -------
+    {"streak": int, "last_week_pct": float, "this_week_pct": float} 或
+    None（cutoff_index < 9，可用歷史不足10天，無法同時算出兩個5日窗口）
+    """
+    if cutoff_index < 9:
+        return None
+
+    this_week_window = daily_pcts[cutoff_index - 4: cutoff_index + 1]
+    last_week_window = daily_pcts[cutoff_index - 9: cutoff_index - 4]
+
+    def _compound(window: List[float]) -> float:
+        factor = 1.0
+        for pct in window:
+            factor *= (1 + pct / 100)
+        return round((factor - 1) * 100, 2)
+
+    this_week_pct = _compound(this_week_window)
+    last_week_pct = _compound(last_week_window)
+    streak = _streak(daily_pcts[:cutoff_index + 1])
+
+    return {"streak": streak, "last_week_pct": last_week_pct, "this_week_pct": this_week_pct}

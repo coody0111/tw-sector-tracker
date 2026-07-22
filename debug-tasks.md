@@ -3175,3 +3175,42 @@ panel 已經在 document 裡了，才第一次真的 render 出東西——完�
   排序改欄位標題），過程中沒有人用瀏覽器/jsdom實際執行過JS，只靠靜態程式碼審查跟
   pytest字串比對測試，這類「DOM插入順序」的bug完全不會被這些方法抓到。以後如果
   牽涉到DOM操作順序的改動，建議至少用jsdom簡單跑一次實際互動再回報「已修好」
+
+## [2026-07-23] 族群分類調整：工業電腦從電腦周邊獨立拆出
+
+### 改了什麼
+- 異動檔案：config.py
+
+### 邏輯說明
+Cody要求把工業電腦相關獨立成新的META族群，不要再併在「電腦周邊」裡。拆出的關鍵字：
+`工業電腦`、`掌上型工業電腦`、`自動資料收集產品`、`條碼掃描器`（確認過MoneyDJ沒有
+"Edge AI"這個產業分類可以拉，唯一AI相關的是「AI伺服器」，本來就已經是獨立族群）。
+
+**兩處都改了，缺一不可：**
+- `META_PRIORITY_LIST`（config.py:249）：`scripts/build_universe.py` 建
+  `stock_universe.csv` 時用，決定每支股票的 `meta_sector` 欄位。
+- `META_SECTORS`（config.py:446）：`calc_meta_performance()`/`get_meta_sector()`
+  每日流程用，把 MoneyDJ 抓到的小族群名即時併進主族群。
+
+筆電/桌機/鍵鼠/滑鼠/儲存設備/印表機/KIOSK/POS機系統等維持在「電腦周邊」，只拆
+IPC 本業直接相關的關鍵字，沒有連 KIOSK/POS 一起拉（Cody 選的是精簡範圍）。
+
+### 資料來源相關（如有異動）
+- 上市資料（TWSE）/上櫃資料（TPEx）：無異動，純分類邏輯調整
+
+### ⚠️ 需要 Cody 手動執行的後續步驟
+`META_PRIORITY_LIST` 的改動**不會自動生效**——`data/stock_universe.csv` 是
+`scripts/build_universe.py` 一次性建出來的靜態檔案，個股的 `meta_sector` 欄位在
+這次改動前就已經寫死是「電腦周邊」了。**要重跑 `python scripts/build_universe.py`
+重建 `stock_universe.csv`**，工業電腦相關個股才會真的被歸到新族群。這是一次性
+build 指令，不在每日 `main.py` 流程裡，需要 Cody 自己在 terminal 執行。
+
+`META_SECTORS` 那邊不用額外動作，下次 `python main.py` 跑的時候就會直接生效
+（因為那是每日流程即時查表，不是靜態建檔）。
+
+### 請 Debugger 驗證
+- [ ] 全部406個測試通過（已本機跑過，全綠，純config.py改動沒有動到任何邏輯）
+- [ ] `python -c "import config; print(config.get_meta_sector('工業電腦'))"` 
+      應該輸出 `工業電腦`
+- [ ] Cody重跑`build_universe.py`後，確認樺漢/研華/凌華等IPC股的meta_sector
+      欄位變成「工業電腦」，不再是「電腦周邊」

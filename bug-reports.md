@@ -1,3 +1,65 @@
+## [2026-07-22] 驗證 - 族群總覽頁熱區格改版（export/index_generator.py 取代 html_generator.py）
+
+### 驗證方式
+對照 `debug-tasks.md` 2026-07-22 條目「請 Debugger 驗證」清單逐項確認。這次過程中先發生一個
+插曲：Debugger（我）跟 Developer 幾乎同時被交付同一個熱區格改版任務，各自寫了不同的技術設計
+（我的偏向 client-side JS 算分類、Developer 的偏向 server-side Python 算分類+回推算法做轉折點），
+發現後我停手把 debug 分支重置回 master，讓 Developer 那份（已經跟 Cody brainstorming 定案過）
+繼續做完，我回到正常 Debugger 角色驗證，沒有兩邊各自硬做造成分岔。
+
+### ✅ 驗證通過
+- `python -m pytest tests/test_processors.py -q`：**40 passed**（跟報告一致）
+- `python -m pytest -q` 全套件：**386 passed, 1 failed**（差的是既有環境限制
+  `test_scan_patterns_returns_list`，需要本機 `data/screener.db`，這台 debug 資料夾本來就沒有，
+  跟這次改動無關，歷史上每次都是這個模式）
+- **真實頁面確認是新版**：Cody 桌電後來又跑了 `python main.py`（`docs/index.html` 21:25 重新
+  產生），確認：
+  - 41 個 `.heat-tile` 卡片全部存在，`mc-card`（舊版殘留）完全沒有
+  - 4 個頁面（index/chips/patterns/momentum）nav 互連逐一 grep 確認全部正常
+  - 異動族群：今天剛好 0 檔符合條件，誠實顯示「目前沒有族群符合爆量暴衝或連續噴出的條件」
+    空狀態文字，不是空白或壞掉的區塊——動態張數設計驗證通過
+  - 族群近況①升溫/退燒 Top5：10 筆真實資料（例如「電信 +0.53% 今日、+4.5pt 加速」）
+  - 族群近況②轉折點列表：**20 筆真實翻轉紀錄**（例如「AI晶片 弱→整理」），證明
+    `_streak_and_windows_as_of()` 回推算法（不開新表）真的端到端跑通，不只是通過假資料的單元
+    測試
+- **安全性檢查**：`stock_name`/`meta_name` 這類外部資料的跳脫策略是刻意分兩層——伺服器端
+  `_esc()`（`export/index_generator.py:327`）用在 Python `generate()` 直接吐出的 HTML（熱區格
+  卡片、異動族群卡片、族群近況列表都有逐一呼叫，grep 確認一致），前端 `escHtml()`（同檔案
+  ~715行）用在 JS `selectGroup()` 動態插入 DOM 的個股明細面板——這裡不能只靠 Python 端的
+  `_esc()`，因為個股資料是從內嵌 JSON 讀出來的（`json.dumps` 只做 JSON 字串轉義，不是 HTML
+  escape），`escHtml()` 用瀏覽器原生 `textContent→innerHTML` 技巧在真正插入 DOM 前才轉義，是
+  正確的做法，程式碼裡的註解也把這個「為什麼要兩層」的理由講得很清楚。這塊沒發現問題。
+
+### 🔴 發現問題：驗證報告的測試數字跟實際不符
+- `debug-tasks.md` 該則報告寫「`tests/test_index_generator.py`：**62 passed**」，我實際跑
+  `python -m pytest tests/test_index_generator.py -q` 只有 **36 passed**，用
+  `grep -c "^def test_" tests/test_index_generator.py` 確認檔案裡真的只有 36 個測試函式，不是
+  我的環境漏跑或誤判。
+- 這不是這台 debug 資料夾常見的「缺 `data/screener.db`」那種環境限制——這個檔案的測試完全不碰
+  真實 DB，跑起來很乾淨，36 個全過，純粹是報告裡寫的數字（62）本身就不對，可能是彙整報告時
+  筆誤或算錯，不是程式碼有問題。**測試本身沒有少寫或被誤刪的跡象**（36個測試涵蓋
+  `classify_tier`/`classify_temp`/`heat_bg`/`build_heatgrid_cards`/`build_sector_recap`/
+  `find_turning_points`/`find_anomaly_cards`/`build_stock_detail_data`/`generate()` 都有），
+  只是報告數字寫錯，但既然這是「請 Debugger 驗證」清單裡明確列出的檢查項，還是要如實回報這個
+  落差，不能因為「反正測試都過」就跳過不提。
+
+### ⚠️ 無法驗證：鍵盤操作（Tab focus + Enter/Space 展開）
+- 交接清單特別要求「麻煩實際測一次，不要只看程式碼」，但這次 session 沒有瀏覽器工具可用
+  （`claude-in-chrome` 使用者選擇不安裝），只能確認程式碼層級：`docs/index.html` 裡
+  `onkeydown`/`role="button"` 屬性確實存在（grep 確認），但沒辦法真的按過一次驗證行為正確
+  （例如 Enter 有沒有正確觸發展開、Space 會不會意外捲頁等瀏覽器層級細節）。誠實回報這項沒做到
+  底，不是裝作測過。麻煩 Cody 桌電有空實際點一次，或之後找有瀏覽器工具的 session 補測。
+
+### 結論
+- [x] 可以繼續下一個任務——核心功能（熱區格、異動族群、族群近況、轉折點、nav、安全性）都驗證
+      通過，真實資料端到端跑起來正確。
+- [ ] 兩個待跟催項目：① 上面的測試數字落差（62→36，不影響功能，但報告要更正）；
+      ② 鍵盤操作需要有瀏覽器的環境補測一次。
+- 動能五級/溫度變化/異動族群三組門檻仍是未回測草案，跟報告本身的立場一致，這次驗證只確認
+  程式邏輯符合 spec、端到端資料正確，不代表門檻數值本身合理。
+
+---
+
 ## [2026-07-20] 驗證 - TAIEX完全失敗 market_permission() 降級修復（commit 95e18bf）✅
 
 ### 驗證方式

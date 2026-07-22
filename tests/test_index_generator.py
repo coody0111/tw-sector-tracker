@@ -193,3 +193,15 @@ def test_find_anomaly_cards_returns_empty_list_when_nothing_qualifies():
 
     result = find_anomaly_cards(meta_perf, meta_signals, heatgrid_windows)
     assert result == []
+
+
+def test_find_anomaly_cards_silently_excludes_sector_missing_from_signals_and_windows():
+    """meta_perf有這個族群，但meta_signals/heatgrid_windows完全沒有這個族群的key
+    (不是欄位缺值，是整個dict entry都不存在)——這是main.py實際production路徑會發生的情況：
+    calc_meta_performance()跟calc_meta_heatgrid_windows()是獨立呼叫，兩邊的族群集合理論上
+    可能因為各自獨立的失敗模式而不完全一致。要確認這種情況會被安靜排除，不會crash。"""
+    meta_perf = [
+        {"meta_name": "完全缺資料族群", "avg_change_pct": 5.0, "up_count": 1, "down_count": 0, "flat_count": 0},
+    ]
+    result = find_anomaly_cards(meta_perf, meta_signals={}, heatgrid_windows={})
+    assert result == []

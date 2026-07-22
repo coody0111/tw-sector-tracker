@@ -417,6 +417,43 @@ def test_build_stock_detail_data_skips_individual_stock_missing_price():
     assert result["族群C"][0]["stock_id"] == "1000"
 
 
+def test_build_stock_detail_data_attaches_sparkline_when_provided():
+    """Cody回報「個股卡片怎麼不見」——熱區格改版把個股sparkline拿掉了，這裡補回來：
+    stock_sparklines有這支股票的資料時，pcts/dates要正確附加到對應的股票dict上。"""
+    universe_df = pd.DataFrame([
+        {"stock_id": "1000", "stock_name": "股票甲", "meta_sector": "族群A"},
+    ])
+    prices_df = pd.DataFrame([{"stock_id": "1000", "close": 100.0, "change_pct": 2.0}])
+    stock_sparklines = {
+        "1000": {"pcts": [1.0, -0.5, 2.0], "dates": ["7/20", "7/21", "7/22"], "avg_volume": 1000, "vol_ratio": 1.2},
+    }
+
+    result = build_stock_detail_data(universe_df, prices_df, stock_sparklines)
+
+    assert result["族群A"][0]["pcts"] == [1.0, -0.5, 2.0]
+    assert result["族群A"][0]["dates"] == ["7/20", "7/21", "7/22"]
+
+
+def test_build_stock_detail_data_defaults_to_empty_sparkline_when_missing():
+    """stock_sparklines整包沒傳、或這支股票不在裡面時，pcts/dates要是空list，不能crash。"""
+    universe_df = pd.DataFrame([
+        {"stock_id": "1000", "stock_name": "股票甲", "meta_sector": "族群A"},
+        {"stock_id": "1001", "stock_name": "股票乙", "meta_sector": "族群A"},
+    ])
+    prices_df = pd.DataFrame([
+        {"stock_id": "1000", "close": 100.0, "change_pct": 2.0},
+        {"stock_id": "1001", "close": 50.0, "change_pct": 1.0},
+    ])
+
+    result_no_arg = build_stock_detail_data(universe_df, prices_df)
+    result_partial = build_stock_detail_data(universe_df, prices_df, {"1000": {"pcts": [1.0], "dates": ["7/22"]}})
+
+    assert result_no_arg["族群A"][0]["pcts"] == []
+    assert result_no_arg["族群A"][0]["dates"] == []
+    stock_1001 = next(s for s in result_partial["族群A"] if s["stock_id"] == "1001")
+    assert stock_1001["pcts"] == []
+
+
 from datetime import date
 from export.index_generator import generate
 
@@ -582,3 +619,39 @@ def test_generate_renders_populated_tier_temp_badges_and_recap_data(tmp_path):
     assert "近5日→前5日" in html  # 週對比區塊
     assert "強勢族群" in html  # 出現在族群近況hot_top5（accel=5.0升溫）
     assert "轉強訊號" in html  # 轉折點：5天前弱(streak=-2,accel=-2.5)→今天超強
+
+
+def test_generate_embeds_stock_sparklines_and_renders_card_js(tmp_path):
+    """Cody回報「個股卡片怎麼不見」——確認stock_sparklines參數會流進STOCKS JSON，
+    而且前端是card格式(buildSparkline/stock-card)不是舊的table格式。"""
+    output_path = tmp_path / "index.html"
+    meta_perf = [
+        {"meta_name": "族群A", "avg_change_pct": 2.0, "up_count": 1, "down_count": 0, "flat_count": 0},
+    ]
+    universe_df = pd.DataFrame([
+        {"stock_id": "1000", "stock_name": "測試股", "meta_sector": "族群A"},
+    ])
+    prices_df = pd.DataFrame([{"stock_id": "1000", "close": 100.0, "change_pct": 2.0}])
+    stock_sparklines = {"1000": {"pcts": [1.0, 2.0], "dates": ["7/21", "7/22"]}}
+
+    generate(date(2026, 7, 22), meta_perf, universe_df, {}, {}, prices_df, {},
+             stock_sparklines=stock_sparklines, output_path=str(output_path))
+
+    html = output_path.read_text(encoding="utf-8")
+    assert '"pcts": [1.0, 2.0]' in html
+    assert "function buildSparkline" in html
+    assert "stock-cards-wrap" in html
+    assert "stocktable" not in html  # 舊table格式應該完全被card格式取代
+
+
+def test_generate_defaults_stock_sparklines_to_none_without_crashing(tmp_path):
+    """main.py呼叫generate()時萬一stock_sparklines計算失敗傳{}，或呼叫端沒傳這個參數，
+    都不能crash——沿用舊有generator的fail-soft慣例。"""
+    output_path = tmp_path / "index.html"
+    meta_perf = [{"meta_name": "族群A", "avg_change_pct": 2.0, "up_count": 1, "down_count": 0, "flat_count": 0}]
+    universe_df = pd.DataFrame([{"stock_id": "1000", "stock_name": "測試股", "meta_sector": "族群A"}])
+    prices_df = pd.DataFrame([{"stock_id": "1000", "close": 100.0, "change_pct": 2.0}])
+
+    result = generate(date(2026, 7, 22), meta_perf, universe_df, {}, {}, prices_df, {}, output_path=str(output_path))
+
+    assert output_path.exists()

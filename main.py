@@ -16,7 +16,7 @@ from scrapers.chips import fetch_institutional, fetch_institutional_tpex, fetch_
 from scrapers.taiex import fetch_taiex_index
 from scrapers.backfill import backfill_twse_monthly, backfill_institutional, backfill_margin, backfill_yfinance
 from processors.changes import detect_changes
-from processors.performance import calc_sector_performance, calc_meta_performance, calc_universe_performance, calc_cumulative_meta, calc_meta_signals, calc_meta_chips_signals, get_stock_chips_ranking, get_margin_divergence, calc_market_breadth, calc_capital_concentration, classify_market_regime, calc_meta_heatgrid_windows
+from processors.performance import calc_sector_performance, calc_meta_performance, calc_universe_performance, calc_cumulative_meta, calc_meta_signals, calc_meta_chips_signals, get_stock_chips_ranking, get_margin_divergence, calc_market_breadth, calc_capital_concentration, classify_market_regime, calc_meta_heatgrid_windows, calc_stock_sparklines
 from storage.csv_writer import CsvWriter
 from export.index_generator import generate as generate_index_html
 from export.chips_generator import generate as generate_chips_html
@@ -726,12 +726,19 @@ def run(trade_date: date = None, realtime: bool = False) -> None:
             logger.warning("熱區格動能窗口計算失敗，index.html 動能標籤本次不顯示: %s", exc)
             heatgrid_windows = {}
 
+        try:
+            stock_sparklines = calc_stock_sparklines(universe_df) if universe_df is not None else {}
+        except Exception as exc:
+            logger.warning("個股走勢計算失敗，index.html個股卡片本次不顯示sparkline: %s", exc)
+            stock_sparklines = {}
+
         if universe_df is not None:
             generate_index_html(trade_date, meta_perf, universe_df,
                                  meta_signals=meta_signals,
                                  meta_chips=meta_chips,
                                  prices_df=prices_df if prices_df is not None else pd.DataFrame(),
-                                 heatgrid_windows=heatgrid_windows)
+                                 heatgrid_windows=heatgrid_windows,
+                                 stock_sparklines=stock_sparklines)
             logger.info("HTML generated → docs/index.html")
         else:
             logger.warning("universe_df 未載入（data/stock_universe.csv 不存在），本次不產生 docs/index.html")

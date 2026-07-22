@@ -288,11 +288,16 @@ def build_sector_recap(
 def build_stock_detail_data(
     universe_df: pd.DataFrame,
     prices_df: pd.DataFrame,
+    stock_sparklines: Optional[Dict[str, dict]] = None,
 ) -> Dict[str, List[Dict[str, Any]]]:
     """
     個股點開面板資料（視覺 spec §「點開個股清單」）。全部 meta_sector 都要有 key（即使該族群
     沒有任何股票有行情資料，回空 list），族群內依 change_pct 降冪排列。沒行情的個股跳過，不補
     假資料（跟 processors/performance.py 現有 join 慣例一致）。
+
+    stock_sparklines：processors/performance.py::calc_stock_sparklines() 的輸出
+    {stock_id: {"pcts": [...], "dates": [...], ...}}，供前端畫個股卡片的 sparkline 走勢圖。
+    沒有這支股票的資料、或整包沒傳，回傳的 pcts/dates 都是空 list（前端沒有走勢資料就不畫）。
     """
     universe = universe_df[["stock_id", "stock_name", "meta_sector"]].copy()
     universe["stock_id"] = universe["stock_id"].astype(str)
@@ -300,6 +305,7 @@ def build_stock_detail_data(
     if not prices.empty:
         prices["stock_id"] = prices["stock_id"].astype(str)
     prices_map = prices.set_index("stock_id") if not prices.empty else pd.DataFrame()
+    sparklines = stock_sparklines or {}
 
     result: Dict[str, List[Dict[str, Any]]] = {
         meta_name: [] for meta_name in universe["meta_sector"].dropna().unique()
@@ -311,11 +317,14 @@ def build_stock_detail_data(
         if pd.isna(meta_name) or sid not in prices_map.index:
             continue
         p = prices_map.loc[sid]
+        spark = sparklines.get(sid, {})
         result[meta_name].append({
             "stock_id": sid,
             "stock_name": row["stock_name"],
             "close": float(p["close"]),
             "change_pct": float(p["change_pct"]),
+            "pcts": spark.get("pcts", []),
+            "dates": spark.get("dates", []),
         })
 
     for meta_name in result:
@@ -422,17 +431,16 @@ a{color:inherit}
 .detail-head .dpct{font-family:var(--mono);font-size:.98rem;font-weight:700}
 .detail-close{margin-left:auto;font-family:var(--mono);font-size:.68rem;background:none;border:1px solid var(--border);color:var(--ink-3);padding:4px 10px;border-radius:4px;cursor:pointer}
 .detail-sub{font-size:.75rem;color:var(--ink-3);margin-bottom:18px;font-family:var(--mono)}
-.stocktable{width:100%;border-collapse:collapse}
-.stocktable thead th{text-align:left;font-family:var(--mono);font-size:.6rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);padding:0 10px 8px;border-bottom:1px solid var(--ink)}
-.stocktable thead th.num{text-align:right}
-.stocktable tbody td{padding:10px 10px;border-bottom:1px solid var(--border);font-size:.84rem}
-.stocktable tbody tr:hover{background:var(--panel-2)}
-.stocktable .sid{font-family:var(--mono);color:var(--ink-3);font-size:.72rem;margin-right:8px}
-.stocktable .sname{font-family:var(--serif);font-weight:600;color:var(--ink)}
-.stocktable td.num{text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums}
-.stocktable .bar-cell{width:120px}
-.mini-bar{height:6px;border-radius:3px;background:var(--panel-3);position:relative;overflow:hidden}
-.mini-bar span{position:absolute;top:0;bottom:0;left:0;border-radius:3px}
+.stock-cards-wrap{display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:8px}
+.stock-card{border:1px solid var(--border);border-radius:5px;padding:10px 11px;background:var(--panel-3)}
+.sc-header{display:flex;align-items:baseline;gap:6px;margin-bottom:4px}
+.sc-id{font-family:var(--mono);color:var(--ink-3);font-size:.68rem}
+.sc-name{font-family:var(--serif);font-weight:600;color:var(--ink);font-size:.86rem;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sc-body{display:flex;align-items:baseline;justify-content:space-between;font-family:var(--mono);font-variant-numeric:tabular-nums}
+.sc-price{font-size:.86rem;color:var(--ink-2)}
+.sc-pct{font-size:.86rem;font-weight:700}
+.sc-sparkline{margin-top:6px;line-height:0}
+.sc-sparkline svg{width:100%;height:auto;display:block}
 .detail-empty{color:var(--ink-3);font-size:.86rem;padding:20px 0;font-family:var(--serif)}
 
 .ht-top{display:flex;align-items:baseline;gap:8px}
@@ -637,11 +645,16 @@ def generate(
     meta_chips: Dict[str, Dict[str, Any]],
     prices_df: pd.DataFrame,
     heatgrid_windows: Dict[str, Dict[str, Any]],
+    stock_sparklines: Optional[Dict[str, dict]] = None,
     output_path: str = "docs/index.html",
 ) -> None:
     """
     產生 docs/index.html（族群總覽頁熱區格版面）。meta_perf 為空時不寫檔（比照舊
     export/html_generator.py::generate() 既有慣例）。
+
+    stock_sparklines：processors/performance.py::calc_stock_sparklines() 的輸出，供個股
+    卡片畫走勢圖用；None 時個股卡片一樣正常顯示，只是沒有 sparkline（跟舊版
+    html_generator.py::_sparkline() 沒資料時回傳空字串的慣例一致）。
     """
     if not meta_perf:
         return
@@ -652,7 +665,7 @@ def generate(
     cards = build_heatgrid_cards(meta_perf, meta_signals, meta_chips, heatgrid_windows)
     anomaly_cards = find_anomaly_cards(meta_perf, meta_signals, heatgrid_windows)
     recap = build_sector_recap(meta_perf, heatgrid_windows)
-    stock_detail = build_stock_detail_data(universe_df, prices_df)
+    stock_detail = build_stock_detail_data(universe_df, prices_df, stock_sparklines)
 
     stock_detail_js = json.dumps(stock_detail, ensure_ascii=False).replace("</", "<\\/")
     card_meta_js = json.dumps(
@@ -718,6 +731,30 @@ function escHtml(s) {{
   return div.innerHTML;
 }}
 
+// pcts/dates 是 calc_stock_sparklines() 算出的數值/日期字串（"%m/%d"），不是使用者輸入，
+// 不用經過 escHtml 也不會有 XSS 風險——跟這個檔案其他數值型欄位（pct/rank等）的處理一致。
+function buildSparkline(pcts, dates) {{
+  if (!pcts || !pcts.length) return '';
+  const n = pcts.length, chartH = 26, gap = 2;
+  const barW = Math.max(4, Math.floor(140 / n) - gap);
+  const totalW = n * (barW + gap) - gap;
+  const mid = chartH / 2;
+  const maxAbs = Math.max(...pcts.map(p => Math.abs(p))) || 1;
+  let bars = '';
+  for (let i = 0; i < n; i++) {{
+    const pct = pcts[i];
+    const d = (dates && dates[i]) || '';
+    const barH = Math.max(1.5, Math.abs(pct) / maxAbs * (mid - 2));
+    const y = pct >= 0 ? mid - barH : mid;
+    const color = pct > 0 ? 'var(--up)' : (pct < 0 ? 'var(--down)' : 'var(--ink-3)');
+    const x = i * (barW + gap);
+    const sign = pct >= 0 ? '+' : '';
+    bars += `<rect x="${{x}}" y="${{y}}" width="${{barW}}" height="${{barH}}" fill="${{color}}" rx="1"><title>${{d}} ${{sign}}${{pct.toFixed(2)}}%</title></rect>`;
+  }}
+  return `<div class="sc-sparkline"><svg viewBox="0 0 ${{totalW}} ${{chartH}}" xmlns="http://www.w3.org/2000/svg">`
+    + `<line x1="0" y1="${{mid}}" x2="${{totalW}}" y2="${{mid}}" stroke="var(--border)" stroke-width="1"/>${{bars}}</svg></div>`;
+}}
+
 function selectGroup(name) {{
   const existing = document.getElementById('detailPanel');
   if (existing) existing.remove();
@@ -751,23 +788,19 @@ function selectGroup(name) {{
       <div class="detail-sub">▲${{meta.up_count}}檔 ▼${{meta.down_count}}檔</div>
       <div class="detail-empty">這個族群目前沒有個股行情資料。</div>`;
   }} else {{
-    const maxChg = Math.max(...stocks.map(s => Math.abs(s.change_pct)));
-    const rows = stocks.map(s => {{
-      const w = maxChg > 0 ? (Math.abs(s.change_pct) / maxChg * 100).toFixed(0) : 0;
+    const cards = stocks.map(s => {{
       const color = s.change_pct >= 0 ? 'var(--up)' : 'var(--down)';
       const sign = s.change_pct >= 0 ? '+' : '';
-      return `<tr><td><span class="sid">${{escHtml(s.stock_id)}}</span><span class="sname">${{escHtml(s.stock_name)}}</span></td>
-        <td class="num">${{s.close.toFixed(1)}}</td>
-        <td class="num" style="color:${{color}}">${{sign}}${{s.change_pct.toFixed(2)}}%</td>
-        <td class="bar-cell"><div class="mini-bar"><span style="width:${{w}}%;background:${{color}}"></span></div></td></tr>`;
+      const spark = buildSparkline(s.pcts, s.dates);
+      return `<div class="stock-card">
+        <div class="sc-header"><span class="sc-id">${{escHtml(s.stock_id)}}</span><span class="sc-name">${{escHtml(s.stock_name)}}</span></div>
+        <div class="sc-body"><span class="sc-price">${{s.close.toFixed(1)}}</span><span class="sc-pct" style="color:${{color}}">${{sign}}${{s.change_pct.toFixed(2)}}%</span></div>
+        ${{spark}}</div>`;
     }}).join('');
     panel.innerHTML = `
       <div class="detail-head"><h3>${{safeName}}</h3><span class="dpct" style="color:${{pctColor}}">${{pctStr}}</span></div>
       <div class="detail-sub">▲${{meta.up_count}}檔 ▼${{meta.down_count}}檔　・　共 ${{stocks.length}} 檔</div>
-      <table class="stocktable">
-        <thead><tr><th>個股</th><th class="num">收盤</th><th class="num">漲跌%</th><th>幅度</th></tr></thead>
-        <tbody>${{rows}}</tbody>
-      </table>`;
+      <div class="stock-cards-wrap">${{cards}}</div>`;
   }}
   panel.querySelector('.detail-head').appendChild(closeBtn);
 

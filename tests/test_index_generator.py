@@ -1,4 +1,6 @@
-from export.index_generator import classify_tier, classify_temp, heat_bg
+import pandas as pd
+
+from export.index_generator import classify_tier, classify_temp, heat_bg, build_stock_detail_data
 
 
 def test_classify_tier_superweak_when_streak_very_negative():
@@ -369,3 +371,47 @@ def test_build_sector_recap_excludes_stale_sector_from_turning_points():
     assert "有效族群" in turning_names
     valid = next(r for r in recap["turning_points"] if r["meta_name"] == "有效族群")
     assert valid["direction"] == "轉強訊號"
+
+
+def test_build_stock_detail_data_groups_by_meta_and_sorts_by_change_pct():
+    universe_df = pd.DataFrame([
+        {"stock_id": "1000", "stock_name": "股票甲", "meta_sector": "族群A"},
+        {"stock_id": "1001", "stock_name": "股票乙", "meta_sector": "族群A"},
+        {"stock_id": "2000", "stock_name": "股票丙", "meta_sector": "族群B"},
+    ])
+    prices_df = pd.DataFrame([
+        {"stock_id": "1000", "close": 100.0, "change_pct": 2.0},
+        {"stock_id": "1001", "close": 50.0, "change_pct": 5.0},
+        {"stock_id": "2000", "close": 30.0, "change_pct": -1.0},
+    ])
+
+    result = build_stock_detail_data(universe_df, prices_df)
+
+    assert [s["stock_id"] for s in result["族群A"]] == ["1001", "1000"]  # 5.0 > 2.0
+    assert result["族群B"][0]["stock_id"] == "2000"
+
+
+def test_build_stock_detail_data_includes_all_meta_sectors_even_with_no_price_data():
+    """族群存在universe裡但完全沒有對應行情資料時，仍要有這個key(空list)，不能整個族群消失。"""
+    universe_df = pd.DataFrame([
+        {"stock_id": "9999", "stock_name": "無行情股", "meta_sector": "空資料族群"},
+    ])
+    prices_df = pd.DataFrame(columns=["stock_id", "close", "change_pct"])
+
+    result = build_stock_detail_data(universe_df, prices_df)
+
+    assert result["空資料族群"] == []
+
+
+def test_build_stock_detail_data_skips_individual_stock_missing_price():
+    """族群內部分股票有行情、部分沒有：有行情的股票正常列出，沒行情的那檔跳過(不補假資料)。"""
+    universe_df = pd.DataFrame([
+        {"stock_id": "1000", "stock_name": "有行情", "meta_sector": "族群C"},
+        {"stock_id": "1001", "stock_name": "無行情", "meta_sector": "族群C"},
+    ])
+    prices_df = pd.DataFrame([{"stock_id": "1000", "close": 10.0, "change_pct": 1.0}])
+
+    result = build_stock_detail_data(universe_df, prices_df)
+
+    assert len(result["族群C"]) == 1
+    assert result["族群C"][0]["stock_id"] == "1000"

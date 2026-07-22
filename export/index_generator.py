@@ -17,6 +17,8 @@ streak + 5日窗口加速度，不查法人資料，換取 41 個族群卡片能
 """
 from typing import Any, Dict, List, Optional
 
+import pandas as pd
+
 _TIER_LABEL = {"super": "超強", "strong": "強", "mid": "整理", "weak": "弱", "superweak": "超弱"}
 
 # 動能五級/溫度變化門檻：視覺spec定的經驗法則草案，沒有回測驗證（見 Global Constraints）。
@@ -277,3 +279,42 @@ def build_sector_recap(
         "cold_top5": cold_top5,
         "turning_points": find_turning_points(active_windows),
     }
+
+
+def build_stock_detail_data(
+    universe_df: pd.DataFrame,
+    prices_df: pd.DataFrame,
+) -> Dict[str, List[Dict[str, Any]]]:
+    """
+    個股點開面板資料（視覺 spec §「點開個股清單」）。全部 meta_sector 都要有 key（即使該族群
+    沒有任何股票有行情資料，回空 list），族群內依 change_pct 降冪排列。沒行情的個股跳過，不補
+    假資料（跟 processors/performance.py 現有 join 慣例一致）。
+    """
+    universe = universe_df[["stock_id", "stock_name", "meta_sector"]].copy()
+    universe["stock_id"] = universe["stock_id"].astype(str)
+    prices = prices_df.copy()
+    if not prices.empty:
+        prices["stock_id"] = prices["stock_id"].astype(str)
+    prices_map = prices.set_index("stock_id") if not prices.empty else pd.DataFrame()
+
+    result: Dict[str, List[Dict[str, Any]]] = {
+        meta_name: [] for meta_name in universe["meta_sector"].dropna().unique()
+    }
+
+    for _, row in universe.iterrows():
+        sid = row["stock_id"]
+        meta_name = row["meta_sector"]
+        if pd.isna(meta_name) or sid not in prices_map.index:
+            continue
+        p = prices_map.loc[sid]
+        result[meta_name].append({
+            "stock_id": sid,
+            "stock_name": row["stock_name"],
+            "close": float(p["close"]),
+            "change_pct": float(p["change_pct"]),
+        })
+
+    for meta_name in result:
+        result[meta_name].sort(key=lambda s: s["change_pct"], reverse=True)
+
+    return result

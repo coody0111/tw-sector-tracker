@@ -588,6 +588,41 @@ def test_build_stock_detail_data_defaults_rolling_and_chips_to_none_without_data
     assert stock["margin_balance"] is None and stock["margin_change"] is None
 
 
+def test_build_stock_detail_data_attaches_volume_and_vol_ratio():
+    """Cody回報「個股相關量價都不見了」——這裡確認stock_sparklines的volumes(今日成交量)/
+    vol_ratio(今日量/5日均量)有正確附加到對應股票上，不是只有pcts/dates。"""
+    universe_df = pd.DataFrame([
+        {"stock_id": "1000", "stock_name": "股票甲", "meta_sector": "族群A"},
+    ])
+    prices_df = pd.DataFrame([{"stock_id": "1000", "close": 100.0, "change_pct": 2.0}])
+    stock_sparklines = {
+        "1000": {"pcts": [1.0, 2.0], "dates": ["7/21", "7/22"],
+                 "volumes": [800, 1000, 1800], "avg_volume": 900, "vol_ratio": 2.0},
+    }
+
+    stock = build_stock_detail_data(universe_df, prices_df, stock_sparklines=stock_sparklines)["族群A"][0]
+
+    assert stock["volume"] == 1800  # volumes最後一筆(今日)
+    assert stock["vol_ratio"] == 2.0
+
+
+def test_build_stock_detail_data_defaults_volume_and_vol_ratio_to_none_without_sparklines():
+    """stock_sparklines沒傳、或這支股票沒有volumes資料時，volume/vol_ratio要是None，不能
+    crash（例如volumes是空list時不能對負index取值）。"""
+    universe_df = pd.DataFrame([
+        {"stock_id": "1000", "stock_name": "股票甲", "meta_sector": "族群A"},
+    ])
+    prices_df = pd.DataFrame([{"stock_id": "1000", "close": 100.0, "change_pct": 2.0}])
+
+    stock_no_arg = build_stock_detail_data(universe_df, prices_df)["族群A"][0]
+    assert stock_no_arg["volume"] is None and stock_no_arg["vol_ratio"] is None
+
+    stock_empty_volumes = build_stock_detail_data(
+        universe_df, prices_df, stock_sparklines={"1000": {"pcts": [], "dates": [], "volumes": []}},
+    )["族群A"][0]
+    assert stock_empty_volumes["volume"] is None
+
+
 def test_build_stock_detail_data_attaches_sparkline_when_provided():
     """Cody回報「個股卡片怎麼不見」——熱區格改版把個股sparkline拿掉了，這裡補回來：
     stock_sparklines有這支股票的資料時，pcts/dates要正確附加到對應的股票dict上。"""
@@ -792,10 +827,9 @@ def test_generate_renders_populated_tier_temp_badges_and_recap_data(tmp_path):
     assert "轉強訊號" in html  # 轉折點：5天前弱(streak=-2,accel=-2.5)→今天超強
 
 
-def test_generate_embeds_stock_sparklines_and_renders_table_js(tmp_path):
-    """Cody先要求個股卡片(sparkline)，後來又要求改回表格格式（一行一檔股票，5/7/10/14日
-    各自一欄），但sparkline/籌碼徽章要保留在表格欄位裡——確認stock_sparklines參數會流進
-    STOCKS JSON，前端用<table class="stock-table">渲染，不是純.stock-cards-wrap grid。"""
+def test_generate_embeds_stock_sparklines_and_renders_card_js(tmp_path):
+    """Cody回報「個股卡片怎麼不見」——確認stock_sparklines參數會流進STOCKS JSON，
+    而且前端是card格式(buildSparkline/stock-card)不是舊的table格式。"""
     output_path = tmp_path / "index.html"
     meta_perf = [
         {"meta_name": "族群A", "avg_change_pct": 2.0, "up_count": 1, "down_count": 0, "flat_count": 0},
@@ -812,8 +846,8 @@ def test_generate_embeds_stock_sparklines_and_renders_table_js(tmp_path):
     html = output_path.read_text(encoding="utf-8")
     assert '"pcts": [1.0, 2.0]' in html
     assert "function buildSparkline" in html
-    assert 'class="stock-table"' in html
-    assert "stock-cards-wrap" not in html  # 卡片grid格式已經改回表格
+    assert "stock-cards-wrap" in html
+    assert "stocktable" not in html  # 舊table格式應該完全被card格式取代
 
 
 def test_generate_defaults_stock_sparklines_to_none_without_crashing(tmp_path):

@@ -16,9 +16,9 @@ from scrapers.chips import fetch_institutional, fetch_institutional_tpex, fetch_
 from scrapers.taiex import fetch_taiex_index
 from scrapers.backfill import backfill_twse_monthly, backfill_institutional, backfill_margin, backfill_yfinance
 from processors.changes import detect_changes
-from processors.performance import calc_sector_performance, calc_meta_performance, calc_universe_performance, calc_cumulative_meta, calc_meta_signals, calc_meta_chips_signals, calc_stock_sparklines, get_stock_chips_ranking, get_margin_divergence, calc_market_breadth, calc_capital_concentration, classify_market_regime
+from processors.performance import calc_sector_performance, calc_meta_performance, calc_universe_performance, calc_cumulative_meta, calc_meta_signals, calc_meta_chips_signals, calc_stock_sparklines, get_stock_chips_ranking, get_margin_divergence, calc_market_breadth, calc_capital_concentration, classify_market_regime, calc_meta_heatgrid_windows
 from storage.csv_writer import CsvWriter
-from export.html_generator import generate as generate_html
+from export.index_generator import generate as generate_index_html
 from export.chips_generator import generate as generate_chips_html
 from export.momentum_generator import (
     market_permission, classify_sector_state, build_sector_priority,
@@ -734,23 +734,23 @@ def run(trade_date: date = None, realtime: bool = False) -> None:
             )
             observation_scores = calc_meta_observation_scores(obs_universe_df)
         except Exception as exc:
-            logger.warning("觀察分計算失敗，index.html 排序退回avg_change_pct、momentum頁本次不產生: %s", exc)
+            # 注意：observation_scores 現在只服務 momentum.html（index.html 改用熱區格版面
+            # 自己的 classify_tier()，不再依賴 observation_scores 排序，見
+            # docs/superpowers/specs/2026-07-22-sector-overview-heatmap-implementation-design.md）。
+            logger.warning("觀察分計算失敗，momentum頁本次不產生: %s", exc)
             observation_scores = {}
 
-        generate_html(trade_date, pd.DataFrame(perf) if perf else pd.DataFrame(),
-                      sectors_df=sectors_df,
-                      prices_df=prices_df if prices_df is not None else pd.DataFrame(),
-                      chips_df=chips_df,
-                      meta_perf=meta_perf,
-                      universe_df=universe_df,
-                      cum_data=cum_data,
-                      meta_signals=meta_signals,
-                      meta_chips=meta_chips,
-                      stock_sparklines=stock_sparklines,
-                      vol_turnover=vol_signals,
-                      rolling_returns=rolling_returns,
-                      market_regime=market_regime,
-                      observation_scores=observation_scores)
+        try:
+            heatgrid_windows = calc_meta_heatgrid_windows(universe_df) if universe_df is not None else {}
+        except Exception as exc:
+            logger.warning("熱區格動能窗口計算失敗，index.html 動能標籤本次不顯示: %s", exc)
+            heatgrid_windows = {}
+
+        generate_index_html(trade_date, meta_perf, universe_df,
+                             meta_signals=meta_signals,
+                             meta_chips=meta_chips,
+                             prices_df=prices_df if prices_df is not None else pd.DataFrame(),
+                             heatgrid_windows=heatgrid_windows)
         logger.info("HTML generated → docs/index.html")
 
         try:

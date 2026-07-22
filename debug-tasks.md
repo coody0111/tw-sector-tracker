@@ -3070,3 +3070,38 @@ Cody回報實際案例：**功率半導體今日排名#40→#1、+5.66%，卻被
 - main.py新增了4個新的資料計算呼叫(rolling_returns/index_chips_df/vol_turnover_signals
   /沿用既有的cum_data)，都各自獨立try/except，理論上不會互相影響，但實測時留意log
   有沒有異常warning
+
+## [2026-07-23] 個股卡片回到card格式+補量價，emoji全拿掉
+
+### 改了什麼
+- 異動檔案：export/index_generator.py, export/momentum_generator.py, export/patterns_generator.py, tests/test_index_generator.py
+- 邏輯說明：
+  - **emoji/icon全部拿掉**（Cody要求「專業一點」）：index.html的大盤情緒圖示、族群近況6欄
+    標題icon、溫度徽章(🔥❄️)、搜尋框placeholder(🔍)、法人確認符號(✓)；momentum.html決策
+    證據清單的✓/✗（顏色已區分pass/fail，不需要符號）；patterns.html形態徽章跟分頁籤icon。
+    chips.html本來就沒有裝飾性emoji。`classify_temp()`/`_REGIME_TIERS`/`_PATTERN_LABEL`
+    的icon/emoji欄位移除或留空字串，call site不用大改。
+  - **個股列表格式來回調整**：卡片→表格→又改回卡片（Cody中途多次修正方向），最終定案是
+    **卡片格式**，不是表格。過程中一度做了表格版本又整個revert掉（commit `fad7c39`已
+    revert），純表格版沒有留下來。
+  - **補回真正遺漏的量價資料**：Cody回報「個股相關量價都不見了」——確認全面恢復時漏了
+    舊版`_stock_card_html()`的「今日成交量」+「量比」徽章，這次從`calc_stock_sparklines()`
+    既有的`volumes`/`vol_ratio`欄位補上（`build_stock_detail_data()`新增`volume`/
+    `vol_ratio`兩個欄位）。同時補上融資摘要（融資餘額變動%），排序選單加了「量比」選項。
+  - **走勢圖改成點擊展開**：sparkline不再永遠顯示在卡片上，改成「走勢▾」按鈕點擊才展開/
+    收合（`toggleCardSpark()`），減少卡片預設資訊量。
+
+### 資料來源相關（如有異動）
+- 無異動，volume/vol_ratio都是`calc_stock_sparklines()`既有算好的欄位，只是接上而已
+
+### 請 Debugger 驗證
+- [ ] 全部403個測試通過（已本機跑過，全綠）
+- [ ] 個股卡片：今日成交量+量比徽章正確顯示，量比>=1.5x要有強調色
+- [ ] 點擊「走勢▾」按鈕能正確展開/收合sparkline，再點一次能收合
+- [ ] 排序選單新增的「量比」選項能正確排序
+- [ ] 確認四個頁面視覺上沒有裝飾性emoji（大盤情緒/族群近況/溫度徽章/形態徽章等）
+
+### 特別注意
+- 這次個股列表格式反覆調整（卡片→表格→revert回卡片），**最終確定是卡片格式**，
+  不是表格。如果之後又聽到「表格」的需求，要先跟Cody確認是不是要推翻這次的決定，
+  不要直接照字面做，避免又跑一輪來回

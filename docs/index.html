@@ -128,9 +128,6 @@ table.vt-table{width:100%;border-collapse:collapse}
 .detail-head .dpct{font-family:var(--mono);font-size:.98rem;font-weight:700}
 .detail-close{margin-left:auto;font-family:var(--mono);font-size:.68rem;background:none;border:1px solid var(--border);color:var(--ink-3);padding:4px 10px;border-radius:4px;cursor:pointer}
 .detail-sub{font-size:.75rem;color:var(--ink-3);margin-bottom:8px;font-family:var(--mono)}
-.detail-sort{display:flex;align-items:center;gap:6px;margin-bottom:14px}
-.detail-sort label{font-size:.7rem;color:var(--ink-3)}
-.detail-sort select{font-family:var(--mono);font-size:.72rem;background:var(--panel-2);border:1px solid var(--border);color:var(--ink-2);padding:3px 8px;border-radius:4px}
 .meta-sparkline{margin:4px 0 10px;line-height:0}
 .meta-sparkline svg{width:100%;height:auto;display:block;max-width:420px}
 .chips-summary{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:14px;padding:8px 12px;background:var(--panel-2);border-radius:5px;font-size:.76rem}
@@ -140,16 +137,24 @@ table.vt-table{width:100%;border-collapse:collapse}
 .cs-row .cs-streak-up{color:var(--up);font-size:.68rem}
 .cs-row .cs-streak-dn{color:var(--down);font-size:.68rem}
 .cs-row .cs-alert{color:var(--accent);font-size:.68rem;font-weight:700}
-.stock-cards-wrap{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px}
-.stock-item{display:flex;align-items:baseline;gap:8px;border:1px solid var(--border);border-radius:5px;
-  padding:8px 10px;background:var(--panel-3);cursor:pointer;transition:border-color .15s}
-.stock-item:hover{border-color:var(--border-2)}
-.stock-item:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+table.stock-list-table{width:100%;border-collapse:collapse}
+.stock-list-table thead th{text-align:left;padding:0 10px 8px;border-bottom:1px solid var(--border-2)}
+.stock-list-table thead th.num{text-align:right}
+.stock-list-table .sort-button{display:inline-flex;align-items:center;gap:4px;background:none;border:0;
+  padding:0;font-family:var(--mono);font-size:.62rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
+  color:var(--ink-3);cursor:pointer}
+.stock-list-table thead th.num .sort-button{margin-left:auto}
+.stock-list-table .sort-button::after{content:"↕";color:var(--ink-3);font-size:.6rem}
+.stock-list-table th[aria-sort="ascending"] .sort-button::after{content:"↑";color:var(--accent)}
+.stock-list-table th[aria-sort="descending"] .sort-button::after{content:"↓";color:var(--accent)}
+.stock-list-table tbody td{padding:8px 10px;border-bottom:1px solid var(--border);font-size:.82rem}
+.stock-item{cursor:pointer;transition:background .15s}
+.stock-item:hover{background:var(--panel-2)}
+.stock-item:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 .stock-item.no-data{opacity:.5;cursor:default}
-.stock-item .si-id{font-family:var(--mono);color:var(--ink-3);font-size:.66rem}
-.stock-item .si-name{font-family:var(--serif);font-weight:600;color:var(--ink);font-size:.82rem;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.stock-item .si-price{font-family:var(--mono);font-size:.78rem;color:var(--ink-2)}
-.stock-item .si-pct{font-family:var(--mono);font-size:.78rem;font-weight:700}
+.stock-item .si-id{font-family:var(--mono);color:var(--ink-3);font-size:.68rem;margin-right:8px}
+.stock-item .si-name{font-family:var(--serif);font-weight:600;color:var(--ink);font-size:.86rem}
+.stock-item td.num{font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:right}
 
 .stock-card-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:200;
   display:flex;align-items:center;justify-content:center;padding:20px}
@@ -392,16 +397,16 @@ function fmtPrice(v) {
 function renderStockListItem(s) {
   const sid = escHtml(s.stock_id);
   if (s.no_data) {
-    return `<div class="stock-item no-data"><span class="si-id">${sid}</span><span class="si-name">${escHtml(s.stock_name)}</span><span class="si-pct">無行情</span></div>`;
+    return `<tr class="stock-item no-data"><td><span class="si-id">${sid}</span><span class="si-name">${escHtml(s.stock_name)}</span></td><td colspan="2">無行情</td></tr>`;
   }
   const color = s.change_pct >= 0 ? 'var(--up)' : 'var(--down)';
   const sign = s.change_pct >= 0 ? '+' : '';
   const arrow = s.change_pct > 0 ? '▲' : (s.change_pct < 0 ? '▼' : '─');
-  return `<div class="stock-item" role="button" tabindex="0" onclick="openStockCard('${sid}')" `
+  return `<tr class="stock-item" tabindex="0" onclick="openStockCard('${sid}')" `
     + `onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openStockCard('${sid}')}">`
-    + `<span class="si-id">${sid}</span><span class="si-name">${escHtml(s.stock_name)}</span>`
-    + `<span class="si-price">${fmtPrice(s.close)}</span>`
-    + `<span class="si-pct" style="color:${color}">${arrow} ${sign}${s.change_pct.toFixed(2)}%</span></div>`;
+    + `<td><span class="si-id">${sid}</span><span class="si-name">${escHtml(s.stock_name)}</span></td>`
+    + `<td class="num tabular">${fmtPrice(s.close)}</td>`
+    + `<td class="num tabular" style="color:${color}">${arrow} ${sign}${s.change_pct.toFixed(2)}%</td></tr>`;
 }
 
 // 個股卡片：走勢圖(sparkline)+量價(今日成交量/量比)+近5/7/10/14日+外資/投信/融資，
@@ -464,32 +469,40 @@ function closeStockCard() {
   document.removeEventListener('keydown', _stockCardEscHandler);
 }
 
-let _panelStocks = [], _panelSortKey = 'pct';
+let _panelStocks = [], _panelSortKey = 'pct', _panelSortAsc = false;
 
 function _sortValue(s, key) {
   if (key === 'pct') return s.change_pct;
   if (key === 'id') return s.stock_id;
   if (key === 'close') return s.close;
-  if (key === 'vol') return s.vol_ratio;
-  return s['roll' + key];
+  return null;
 }
 
 function renderPanelStocks() {
   const wrap = document.getElementById('panelStocksWrap');
   if (!wrap) return;
-  const key = _panelSortKey;
+  const key = _panelSortKey, asc = _panelSortAsc;
   const sorted = [..._panelStocks].sort((a, b) => {
     const av = _sortValue(a, key), bv = _sortValue(b, key);
     if (av === null || av === undefined) return 1;
     if (bv === null || bv === undefined) return -1;
-    if (key === 'id') return String(av).localeCompare(String(bv));
-    return bv - av;
+    const cmp = key === 'id' ? String(av).localeCompare(String(bv)) : av - bv;
+    return asc ? cmp : -cmp;
   });
   wrap.innerHTML = sorted.map(renderStockListItem).join('');
 }
 
-function sortPanelStocks(sel) {
-  _panelSortKey = sel.value;
+// 點欄位名稱排序（由高到低起手，再點同一欄切換方向）——跟chips.html既有的
+// .sort-button/aria-sort排序慣例一致，取代先前的下拉選單。
+function sortStockList(th, key) {
+  if (_panelSortKey === key) {
+    _panelSortAsc = !_panelSortAsc;
+  } else {
+    _panelSortKey = key;
+    _panelSortAsc = false;
+  }
+  th.closest('table').querySelectorAll('th').forEach(h => h.setAttribute('aria-sort', 'none'));
+  th.setAttribute('aria-sort', _panelSortAsc ? 'ascending' : 'descending');
   renderPanelStocks();
 }
 
@@ -510,6 +523,7 @@ function selectGroup(name) {
   const safeName = escHtml(name);
   _panelStocks = stocks;
   _panelSortKey = 'pct';
+  _panelSortAsc = false;
 
   const panel = document.createElement('div');
   panel.id = 'detailPanel';
@@ -537,14 +551,14 @@ function selectGroup(name) {
       <div class="detail-head"><h3>${safeName}</h3><span class="dpct" style="color:${pctColor}">${pctStr}</span></div>
       <div class="detail-sub">▲${meta.up_count}檔 ▼${meta.down_count}檔　・　共 ${stocks.length} 檔</div>
       ${metaSpark}${chipsSum}
-      <div class="detail-sort"><label for="stockSort">排序</label>
-        <select id="stockSort" onchange="sortPanelStocks(this)">
-          <option value="pct">漲跌%</option><option value="id">代號</option><option value="close">收盤</option>
-          <option value="vol">量比</option>
-          <option value="5">近5日</option><option value="7">近7日</option><option value="10">近10日</option><option value="14">近14日</option>
-        </select>
-      </div>
-      <div class="stock-cards-wrap" id="panelStocksWrap"></div>`;
+      <div class="overflow-wrap"><table class="stock-list-table">
+        <thead><tr>
+          <th aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'id')">股票</button></th>
+          <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'close')">收盤</button></th>
+          <th class="num" aria-sort="descending"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'pct')">漲跌%</button></th>
+        </tr></thead>
+        <tbody id="panelStocksWrap"></tbody>
+      </table></div>`;
   }
   panel.querySelector('.detail-head').appendChild(closeBtn);
   if (stocks.length) renderPanelStocks();

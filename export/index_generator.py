@@ -1354,12 +1354,17 @@ function selectGroup(name) {{
       </table></div>`;
   }}
   panel.querySelector('.detail-head').appendChild(closeBtn);
-  if (stocks.length) renderPanelStocks();
 
   const rowTop = tile.offsetTop;
   const rowTiles = tiles.filter(t => t.offsetTop === rowTop);
   const lastInRow = rowTiles[rowTiles.length - 1];
   lastInRow.insertAdjacentElement('afterend', panel);
+  // renderPanelStocks()一定要在panel插入document「之後」呼叫——它內部用
+  // document.getElementById('panelStocksWrap')找tbody，插入前panel還是離線節點，
+  // document.getElementById找不到，會被wrap===null的guard擋掉，表格永遠是空的
+  // （Cody回報「列表要點欄位才會出現」就是這個bug：點欄位排序時panel已經在document
+  // 裡了，才第一次真的render出東西）。
+  if (stocks.length) renderPanelStocks();
   panel.scrollIntoView({{behavior:'smooth', block:'nearest'}});
 }}
 

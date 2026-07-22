@@ -976,3 +976,30 @@ def test_generate_renders_sortable_column_headers_not_dropdown(tmp_path):
     assert "onclick=\"sortStockList(this.parentElement,'id')\"" in html
     assert "<select" not in html
     assert "sortPanelStocks" not in html  # 下拉選單機制已經整個拿掉
+
+
+def test_generate_calls_render_panel_stocks_after_panel_is_attached_to_dom(tmp_path):
+    """Cody回報「族群點開後列表要點欄位才會出現」——實際用jsdom模擬點擊重現過：
+    renderPanelStocks()在selectGroup()裡原本是在panel.insertAdjacentElement()「之前」
+    呼叫，這時panel還是離線節點，document.getElementById('panelStocksWrap')找不到東西，
+    wrap===null的guard擋掉，表格永遠是空的，直到點擊欄位排序時panel已經在DOM裡、
+    renderPanelStocks()才第一次真的render出東西。這裡用原始碼順序守住這個修正：
+    selectGroup()裡renderPanelStocks()呼叫必須出現在insertAdjacentElement()「之後」。"""
+    output_path = tmp_path / "index.html"
+    meta_perf = [{"meta_name": "族群A", "avg_change_pct": 2.0, "up_count": 1, "down_count": 0, "flat_count": 0}]
+    universe_df = pd.DataFrame([{"stock_id": "1000", "stock_name": "測試股", "meta_sector": "族群A"}])
+    prices_df = pd.DataFrame([{"stock_id": "1000", "close": 100.0, "change_pct": 2.0}])
+
+    generate(date(2026, 7, 22), meta_perf, universe_df, {}, {}, prices_df, {}, output_path=str(output_path))
+
+    html = output_path.read_text(encoding="utf-8")
+    select_group_start = html.index("function selectGroup(")
+    select_group_end = html.index("\n}", html.index("/* ── 個股/族群搜尋 ── */")) if "/* ── 個股/族群搜尋 ── */" in html else len(html)
+    select_group_body = html[select_group_start:select_group_end]
+
+    insert_pos = select_group_body.index("insertAdjacentElement(")
+    render_pos = select_group_body.index("renderPanelStocks();")
+    assert render_pos > insert_pos, (
+        "renderPanelStocks() 必須在 panel.insertAdjacentElement() 之後呼叫，"
+        "否則panel還沒掛進document，document.getElementById找不到tbody，表格永遠是空的"
+    )

@@ -5,6 +5,24 @@
 
 ---
 
+## 2026-07-22 族群總覽頁熱區格改版計畫 Task 1 完成
+
+**完成內容：**
+- 新增 `processors/performance.py::_streak_and_windows_as_of()` 純函式
+- 功能：回推任意時間點（cutoff_index）的 streak/上週/本週 5 日窗口複利報酬
+- 用途：族群總覽頁轉折點回推（不用存歷史快照，直接回推計算）
+
+**測試覆蓋：**
+- ✅ 5 個新單元測試（邊界條件、窗口重疊、streak 方向轉換、零值、insufficient history）
+- ✅ 34 個 test_processors.py 全部通過（無回歸）
+- ✅ 特別驗證：5 天前的 this_week == 今天的 last_week（窗口重疊邏輯保證）
+
+**commit：** `5d1206f`
+
+**下一步：** Task 2-10 待接續（詳見 docs/superpowers/plans/2026-07-22-sector-overview-heatmap.md）
+
+---
+
 ## 待辦（2026-07-08 記錄，換平台後接續）
 
 三件事，優先順序由上到下：

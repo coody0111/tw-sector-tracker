@@ -689,6 +689,7 @@ table.vt-table{width:100%;border-collapse:collapse}
 .cs-row .cs-streak-up{color:var(--up);font-size:.68rem}
 .cs-row .cs-streak-dn{color:var(--down);font-size:.68rem}
 .cs-row .cs-alert{color:var(--accent);font-size:.68rem;font-weight:700}
+.overflow-wrap{overflow-x:auto}
 table.stock-list-table{width:100%;border-collapse:collapse}
 .stock-list-table thead th{text-align:left;padding:0 10px 8px;border-bottom:1px solid var(--border-2)}
 .stock-list-table thead th.num{text-align:right}
@@ -1187,10 +1188,16 @@ function fmtPrice(v) {{
 // 個股列表(.stock-item)只顯示基本資訊(代號/名稱/收盤/漲跌%)，點擊後才彈出「個股卡片」
 // (.stock-card-modal)顯示走勢圖/量價/籌碼等列表之外的詳細資訊——這是Cody要的兩層式設計
 // (列表 vs 卡片是兩個不同東西，卡片是點選後才出現的彈窗，不是列表格子本身)。
+function _rollTd(v) {{
+  if (v === null || v === undefined) return '<td class="num tabular">─</td>';
+  const c = v >= 0 ? 'var(--up)' : 'var(--down)';
+  return `<td class="num tabular" style="color:${{c}}">${{v>=0?'+':''}}${{v.toFixed(2)}}%</td>`;
+}}
+
 function renderStockListItem(s) {{
   const sid = escHtml(s.stock_id);
   if (s.no_data) {{
-    return `<tr class="stock-item no-data"><td><span class="si-id">${{sid}}</span><span class="si-name">${{escHtml(s.stock_name)}}</span></td><td colspan="2">無行情</td></tr>`;
+    return `<tr class="stock-item no-data"><td><span class="si-id">${{sid}}</span><span class="si-name">${{escHtml(s.stock_name)}}</span></td><td colspan="6">無行情</td></tr>`;
   }}
   const color = s.change_pct >= 0 ? 'var(--up)' : 'var(--down)';
   const sign = s.change_pct >= 0 ? '+' : '';
@@ -1199,7 +1206,8 @@ function renderStockListItem(s) {{
     + `onkeydown="if(event.key==='Enter'||event.key===' '){{event.preventDefault();openStockCard('${{sid}}')}}">`
     + `<td><span class="si-id">${{sid}}</span><span class="si-name">${{escHtml(s.stock_name)}}</span></td>`
     + `<td class="num tabular">${{fmtPrice(s.close)}}</td>`
-    + `<td class="num tabular" style="color:${{color}}">${{arrow}} ${{sign}}${{s.change_pct.toFixed(2)}}%</td></tr>`;
+    + `<td class="num tabular" style="color:${{color}}">${{arrow}} ${{sign}}${{s.change_pct.toFixed(2)}}%</td>`
+    + `${{_rollTd(s.roll5)}}${{_rollTd(s.roll7)}}${{_rollTd(s.roll10)}}${{_rollTd(s.roll14)}}</tr>`;
 }}
 
 // 個股卡片：走勢圖(sparkline)+量價(今日成交量/量比)+近5/7/10/14日+外資/投信/融資，
@@ -1268,6 +1276,7 @@ function _sortValue(s, key) {{
   if (key === 'pct') return s.change_pct;
   if (key === 'id') return s.stock_id;
   if (key === 'close') return s.close;
+  if (key === '5' || key === '7' || key === '10' || key === '14') return s['roll' + key];
   return null;
 }}
 
@@ -1349,6 +1358,10 @@ function selectGroup(name) {{
           <th aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'id')">股票</button></th>
           <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'close')">收盤</button></th>
           <th class="num" aria-sort="descending"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'pct')">漲跌%</button></th>
+          <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'5')">5日</button></th>
+          <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'7')">7日</button></th>
+          <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'10')">10日</button></th>
+          <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'14')">14日</button></th>
         </tr></thead>
         <tbody id="panelStocksWrap"></tbody>
       </table></div>`;

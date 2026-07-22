@@ -1003,3 +1003,27 @@ def test_generate_calls_render_panel_stocks_after_panel_is_attached_to_dom(tmp_p
         "renderPanelStocks() 必須在 panel.insertAdjacentElement() 之後呼叫，"
         "否則panel還沒掛進document，document.getElementById找不到tbody，表格永遠是空的"
     )
+
+
+def test_generate_renders_rolling_return_columns_directly_on_stock_list(tmp_path):
+    """Cody要求5/7/10/14日累積漲跌直接顯示在族群個股列表上（不是只藏在點開的
+    個股卡片裡）——確認欄位標題跟資料列都有正確產生，且這4欄也能點標題排序。"""
+    output_path = tmp_path / "index.html"
+    meta_perf = [{"meta_name": "族群A", "avg_change_pct": 2.0, "up_count": 1, "down_count": 0, "flat_count": 0}]
+    universe_df = pd.DataFrame([{"stock_id": "1000", "stock_name": "測試股", "meta_sector": "族群A"}])
+    prices_df = pd.DataFrame([{"stock_id": "1000", "close": 100.0, "change_pct": 2.0}])
+    rolling_returns = {"1000": {5: 0.0, 7: -9.37, 10: -21.39, 14: -6.86}}
+
+    generate(date(2026, 7, 22), meta_perf, universe_df, {}, {}, prices_df, {},
+             rolling_returns=rolling_returns, output_path=str(output_path))
+
+    html = output_path.read_text(encoding="utf-8")
+    assert ">5日</button>" in html
+    assert ">7日</button>" in html
+    assert ">10日</button>" in html
+    assert ">14日</button>" in html
+    assert "onclick=\"sortStockList(this.parentElement,'5')\"" in html
+    assert "onclick=\"sortStockList(this.parentElement,'7')\"" in html
+    assert "onclick=\"sortStockList(this.parentElement,'10')\"" in html
+    assert "onclick=\"sortStockList(this.parentElement,'14')\"" in html
+    assert "function _rollTd" in html

@@ -732,13 +732,37 @@ def run(trade_date: date = None, realtime: bool = False) -> None:
             logger.warning("個股走勢計算失敗，index.html個股卡片本次不顯示sparkline: %s", exc)
             stock_sparklines = {}
 
+        try:
+            from screener.database import get_rolling_returns
+            rolling_returns = get_rolling_returns((5, 7, 10, 14))
+        except Exception as exc:
+            logger.warning("近5/7/10/14日累積漲跌計算失敗，index.html個股卡片本次不顯示: %s", exc)
+            rolling_returns = {}
+
+        try:
+            index_chips_df = get_chips_today(trade_date.isoformat())
+        except Exception as exc:
+            logger.warning("個股籌碼資料計算失敗，index.html個股卡片本次不顯示外資/投信/融資: %s", exc)
+            index_chips_df = pd.DataFrame()
+
+        try:
+            vol_turnover_signals = scan_volume_turnover(trade_date.isoformat()) if universe_df is not None else []
+        except Exception as exc:
+            logger.warning("巨量換手訊號計算失敗，index.html本次不顯示: %s", exc)
+            vol_turnover_signals = []
+
         if universe_df is not None:
             generate_index_html(trade_date, meta_perf, universe_df,
                                  meta_signals=meta_signals,
                                  meta_chips=meta_chips,
                                  prices_df=prices_df if prices_df is not None else pd.DataFrame(),
                                  heatgrid_windows=heatgrid_windows,
-                                 stock_sparklines=stock_sparklines)
+                                 stock_sparklines=stock_sparklines,
+                                 rolling_returns=rolling_returns,
+                                 chips_df=index_chips_df,
+                                 cum_data=cum_data,
+                                 market_regime=market_regime,
+                                 vol_turnover_signals=vol_turnover_signals)
             logger.info("HTML generated → docs/index.html")
         else:
             logger.warning("universe_df 未載入（data/stock_universe.csv 不存在），本次不產生 docs/index.html")

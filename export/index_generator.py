@@ -200,20 +200,151 @@ def find_anomaly_cards(
     return results
 
 
+# 五級大盤方向 → 顯示樣式 + 對應筆記操作提示，從 export/html_generator.py::_REGIME_TIERS 原樣
+# 搬過來（提示文字是既有、已核准的產品文案，不是這次改版新寫的，設計依據見
+# docs/superpowers/specs/2026-07-09-market-regime-dashboard-design.md）。顏色改用新配色的
+# var(--up)/var(--down)/var(--ink-2)，不再用舊版寫死的hex。
+_REGIME_TIERS = {
+    "大漲": {"emoji": "🚀", "color": "var(--up)",
+             "tip": "漲時加碼，找主流族群最強一檔追（可追漲停）。"},
+    "小漲": {"emoji": "🔴", "color": "var(--up)",
+             "tip": "正常操作，續抱強勢股、汰弱留強。"},
+    "持平": {"emoji": "⚪", "color": "var(--ink-2)",
+             "tip": "均線上才買、觸發出場三原則就賣，反覆操作，不提前佈局盤整股。"},
+    "小跌": {"emoji": "🟢", "color": "var(--down)",
+             "tip": "持股健檢：均線空頭排列／下彎／跌破頸線任一成立就先出。"},
+    "大跌": {"emoji": "⛔", "color": "var(--down)",
+             "tip": "只找最後撐住的 5–10 檔換股，不接弱勢、不攤平、不抄底。"},
+}
+
+
+def _market_regime_html(market_regime: Optional[Dict[str, Any]]) -> str:
+    """
+    大盤分級儀表板：五級方向 + 資金集中度診斷 + 對應操作提示，從
+    export/html_generator.py::_market_regime_section() 搬過來並改用新配色 CSS 變數。
+    market_regime 為 None（TAIEX 抓取失敗）時回空字串，整塊不顯示，不擋頁面產生。
+    """
+    if not market_regime:
+        return ""
+
+    tier = market_regime.get("tier", "持平")
+    style = _REGIME_TIERS.get(tier, _REGIME_TIERS["持平"])
+    pct = market_regime.get("taiex_change_pct")
+    pct_txt = f"{pct:+.2f}%" if pct is not None else "—"
+
+    up = market_regime.get("up_count")
+    total = market_regime.get("total")
+    breadth = market_regime.get("breadth_ratio")
+    breadth_html = ""
+    if breadth is not None and total:
+        breadth_html = (
+            f'<span class="regime-breadth">上漲 <b>{up}</b> / 共 {total} 檔'
+            f'（廣度 {breadth*100:.0f}%）</span>'
+        )
+
+    hw = market_regime.get("heavyweight_avg_pct")
+    broad = market_regime.get("broad_avg_pct")
+    conc_html = ""
+    if hw is not None and broad is not None:
+        direction = market_regime.get("concentration_direction")
+        is_conc = market_regime.get("is_concentrated")
+        divergence = market_regime.get("divergence")
+        if is_conc and direction:
+            head = f'<span class="regime-conc-head warn">資金集中 ⚠️ — {_esc(direction)}</span>'
+        else:
+            head = '<span class="regime-conc-head">資金分布均衡</span>'
+        div_txt = f"{divergence:+.2f}" if divergence is not None else "—"
+        hw_color = "var(--up)" if (hw or 0) >= 0 else "var(--down)"
+        broad_color = "var(--up)" if (broad or 0) >= 0 else "var(--down)"
+        conc_html = (
+            '<div class="regime-conc">'
+            f'{head}'
+            '<div class="regime-conc-vals">'
+            f'<span>權值股（前{market_regime.get("heavyweight_count", 20)}大）：'
+            f'<b class="tabular" style="color:{hw_color}">{hw:+.2f}%</b></span>'
+            f'<span>非權值股：<b class="tabular" style="color:{broad_color}">{broad:+.2f}%</b></span>'
+            f'<span>落差：<b class="tabular">{div_txt} 個百分點</b></span>'
+            '</div></div>'
+        )
+
+    return (
+        f'<div class="market-regime" style="border-left-color:{style["color"]}">'
+        '<div class="regime-label">大盤現況</div>'
+        '<div class="regime-head">'
+        f'<span class="regime-tier tabular" style="color:{style["color"]}">{style["emoji"]} {_esc(tier)}</span>'
+        f'<span class="regime-pct tabular" style="color:{style["color"]}">加權指數 {pct_txt}</span>'
+        f'{breadth_html}'
+        '</div>'
+        f'<div class="regime-tip">💡 {_esc(style["tip"])}</div>'
+        f'{conc_html}'
+        '</div>'
+    )
+
+
+def _vol_turnover_html(vol_turnover_signals: Optional[List[Dict[str, Any]]]) -> str:
+    """
+    巨量換手訊號（前日漲停→今日爆量收跌+三大法人確認），從
+    export/html_generator.py::_vol_turnover_section() 搬過來並改用新配色 CSS 變數。
+    沒有訊號時回空字串，不顯示這個區塊。
+    """
+    if not vol_turnover_signals:
+        return ""
+
+    rows = []
+    for s in vol_turnover_signals:
+        chg = s.get("change_pct") or 0
+        chg_color = "var(--up)" if chg >= 0 else "var(--down)"
+        f_net = s.get("foreign_net")
+        confirmed = s.get("inst_confirmed", False)
+        inst_badge = '<span class="badge foreign">外資+投信✓</span>' if confirmed else ""
+        if f_net and f_net > 0:
+            f_html = f'<span class="tabular" style="color:var(--up)">+{f_net // 1000:,}張</span>'
+        elif f_net and f_net < 0:
+            f_html = f'<span class="tabular" style="color:var(--down)">{f_net // 1000:,}張</span>'
+        else:
+            f_html = '<span class="tabular" style="color:var(--ink-3)">─</span>'
+        rows.append(
+            '<tr>'
+            f'<td><span class="tabular" style="color:var(--ink-3)">{_esc(s["stock_id"])}</span> '
+            f'<span>{_esc(s.get("stock_name", ""))}</span></td>'
+            f'<td class="vt-sector">{_esc(s.get("meta_sector", ""))}</td>'
+            f'<td class="tabular" style="color:{chg_color};font-weight:700">{chg:+.2f}%</td>'
+            f'<td class="tabular" style="color:var(--accent);font-weight:700">{s["vol_multiple"]}x</td>'
+            f'<td>{f_html}</td>'
+            f'<td>{inst_badge}</td>'
+            '</tr>'
+        )
+    return (
+        '<div class="vol-turnover">'
+        f'<div class="regime-label">⚡ 巨量換手訊號（前日漲停 → 今日爆量收跌，共 {len(vol_turnover_signals)} 檔）</div>'
+        '<div class="overflow-wrap"><table class="vt-table">'
+        '<thead><tr><th>代號 / 名稱</th><th>族群</th><th>今日漲跌</th><th>量倍數</th><th>外資</th><th>確認</th></tr></thead>'
+        f'<tbody>{"".join(rows)}</tbody>'
+        '</table></div></div>'
+    )
+
+
 def build_heatgrid_cards(
     meta_perf: List[Dict[str, Any]],
     meta_signals: Dict[str, Dict[str, Any]],
     meta_chips: Dict[str, Dict[str, Any]],
     heatgrid_windows: Dict[str, Dict[str, Any]],
+    cum_data: Optional[List[Dict[str, Any]]] = None,
 ) -> List[Dict[str, Any]]:
     """
     熱區格 41 張卡片資料（視覺 spec §3「族群排行」），依 avg_change_pct 降冪排列。組合
-    meta_perf（今日漲跌/家數）+ meta_signals（量比，既有函式）+ meta_chips（外資/投信連買
-    天數，既有函式）+ heatgrid_windows（processors/performance.py::calc_meta_heatgrid_windows()
-    算的原始窗口值，這裡才做 classify_tier/classify_temp 分類）。
+    meta_perf（今日漲跌/家數）+ meta_signals（量比+昨日排名，既有函式）+ meta_chips（外資/
+    投信連買天數，既有函式）+ heatgrid_windows（processors/performance.py::calc_meta_heatgrid_windows()
+    算的原始窗口值，這裡才做 classify_tier/classify_temp 分類）+ cum_data
+    （processors/performance.py::calc_cumulative_meta() 的原始 list，這裡轉成 dict 查表）。
+
+    cum_data 沒傳、或某族群沒有對應資料時，cum3/cum5/cum7 都是 None（前端不顯示該badge，
+    不補假資料）。排名升降用 meta_signals 既有的 yesterday_rank 跟這次算出的今日排名比較，
+    yesterday_rank 缺值時不顯示排名箭頭。
     """
     ranked = sorted(meta_perf, key=lambda r: r["avg_change_pct"], reverse=True)
     max_abs_pct = max((abs(r["avg_change_pct"]) for r in ranked), default=0.0)
+    cum_map = {row["meta_name"]: row for row in (cum_data or [])}
 
     cards = []
     for i, row in enumerate(ranked):
@@ -221,11 +352,15 @@ def build_heatgrid_cards(
         sig = meta_signals.get(meta_name, {})
         chips = meta_chips.get(meta_name, {})
         window_data = heatgrid_windows.get(meta_name, {})
+        cum = cum_map.get(meta_name, {})
         pct = row["avg_change_pct"]
         accel = _accel_from_windows(window_data)
+        today_rank = i + 1
+        yesterday_rank = sig.get("yesterday_rank")
+        rank_delta = (yesterday_rank - today_rank) if yesterday_rank is not None else None
 
         cards.append({
-            "rank": i + 1,
+            "rank": today_rank,
             "meta_name": meta_name,
             "pct": pct,
             "up_count": row["up_count"],
@@ -244,6 +379,10 @@ def build_heatgrid_cards(
             ),
             "temp": classify_temp(accel),
             "heat_bg": heat_bg(pct, max_abs_pct),
+            "cum3": cum.get("cum3"),
+            "cum5": cum.get("cum5"),
+            "cum7": cum.get("cum7"),
+            "rank_delta": rank_delta,
         })
     return cards
 
@@ -285,19 +424,32 @@ def build_sector_recap(
     }
 
 
+def _chips_num(value) -> Optional[int]:
+    if value is None or pd.isna(value):
+        return None
+    return int(value)
+
+
 def build_stock_detail_data(
     universe_df: pd.DataFrame,
     prices_df: pd.DataFrame,
     stock_sparklines: Optional[Dict[str, dict]] = None,
+    rolling_returns: Optional[Dict[str, dict]] = None,
+    chips_df: Optional[pd.DataFrame] = None,
 ) -> Dict[str, List[Dict[str, Any]]]:
     """
     個股點開面板資料（視覺 spec §「點開個股清單」）。全部 meta_sector 都要有 key（即使該族群
-    沒有任何股票有行情資料，回空 list），族群內依 change_pct 降冪排列。沒行情的個股跳過，不補
-    假資料（跟 processors/performance.py 現有 join 慣例一致）。
+    沒有任何股票有行情資料，回空 list），族群內依 change_pct 降冪排列（無行情的排在最後）。
 
-    stock_sparklines：processors/performance.py::calc_stock_sparklines() 的輸出
-    {stock_id: {"pcts": [...], "dates": [...], ...}}，供前端畫個股卡片的 sparkline 走勢圖。
-    沒有這支股票的資料、或整包沒傳，回傳的 pcts/dates 都是空 list（前端沒有走勢資料就不畫）。
+    stock_sparklines：processors/performance.py::calc_stock_sparklines() 的輸出，供畫走勢圖。
+    rolling_returns：screener/database.py::get_rolling_returns((5,7,10,14)) 的輸出
+    {stock_id: {5:pct或None, 7:.., 10:.., 14:..}}，跟chips.html「近N日」算法一致。
+    chips_df：screener/database.py::get_chips_today() 的輸出（stock_id欄位，非index），
+    供外資/投信/融資卡片摘要。以上三者任一沒傳、或這支股票沒有對應資料，都回傳None/空list，
+    不補假資料、不crash。
+
+    無行情的個股不再跳過——改成標記 no_data=True（比照舊版html_generator.py的「無行情」
+    佔位符慣例），close/change_pct/pcts/dates/roll*/chips都是None/空，前端顯示成灰階佔位卡。
     """
     universe = universe_df[["stock_id", "stock_name", "meta_sector"]].copy()
     universe["stock_id"] = universe["stock_id"].astype(str)
@@ -306,6 +458,11 @@ def build_stock_detail_data(
         prices["stock_id"] = prices["stock_id"].astype(str)
     prices_map = prices.set_index("stock_id") if not prices.empty else pd.DataFrame()
     sparklines = stock_sparklines or {}
+    rolling = rolling_returns or {}
+    chips = chips_df.copy() if chips_df is not None and not chips_df.empty else pd.DataFrame()
+    if not chips.empty:
+        chips["stock_id"] = chips["stock_id"].astype(str)
+    chips_map = chips.set_index("stock_id") if not chips.empty else pd.DataFrame()
 
     result: Dict[str, List[Dict[str, Any]]] = {
         meta_name: [] for meta_name in universe["meta_sector"].dropna().unique()
@@ -314,21 +471,33 @@ def build_stock_detail_data(
     for _, row in universe.iterrows():
         sid = row["stock_id"]
         meta_name = row["meta_sector"]
-        if pd.isna(meta_name) or sid not in prices_map.index:
+        if pd.isna(meta_name):
             continue
-        p = prices_map.loc[sid]
+        has_price = sid in prices_map.index
         spark = sparklines.get(sid, {})
-        result[meta_name].append({
+        roll = rolling.get(sid, {})
+        c = chips_map.loc[sid] if sid in chips_map.index else None
+        entry: Dict[str, Any] = {
             "stock_id": sid,
             "stock_name": row["stock_name"],
-            "close": float(p["close"]),
-            "change_pct": float(p["change_pct"]),
+            "no_data": not has_price,
+            "close": float(prices_map.loc[sid]["close"]) if has_price else None,
+            "change_pct": float(prices_map.loc[sid]["change_pct"]) if has_price else None,
             "pcts": spark.get("pcts", []),
             "dates": spark.get("dates", []),
-        })
+            "roll5": roll.get(5), "roll7": roll.get(7), "roll10": roll.get(10), "roll14": roll.get(14),
+            "foreign_net": _chips_num(c["foreign_net"]) if c is not None else None,
+            "trust_net": _chips_num(c["trust_net"]) if c is not None else None,
+            "margin_balance": _chips_num(c["margin_balance"]) if c is not None else None,
+            "margin_change": _chips_num(c["margin_change"]) if c is not None else None,
+        }
+        result[meta_name].append(entry)
 
     for meta_name in result:
-        result[meta_name].sort(key=lambda s: s["change_pct"], reverse=True)
+        result[meta_name].sort(
+            key=lambda s: s["change_pct"] if s["change_pct"] is not None else float("-inf"),
+            reverse=True,
+        )
 
     return result
 
@@ -381,6 +550,17 @@ a{color:inherit}
 .topbar .kicker{font-size:.62rem;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--accent)}
 .topbar .updated{font-size:.72rem;color:var(--ink-3);margin-left:auto;font-family:var(--mono)}
 .topbar button{font-family:var(--mono);font-size:.68rem;background:var(--panel-2);border:1px solid var(--border);color:var(--ink-2);padding:5px 12px;border-radius:4px;cursor:pointer}
+.search-wrap{position:relative;flex:1;min-width:160px;max-width:320px}
+.stock-search{width:100%;background:var(--panel-2);border:1px solid var(--border);border-radius:6px;padding:6px 12px;color:var(--ink);font-family:var(--sans);font-size:.8rem;outline:none}
+.stock-search:focus{border-color:var(--border-2)}
+.search-dropdown{position:absolute;top:calc(100% + 4px);left:0;right:0;background:var(--panel-2);border:1px solid var(--border-2);border-radius:6px;box-shadow:var(--shadow-2);z-index:50;max-height:360px;overflow-y:auto}
+.search-item{display:flex;align-items:center;gap:8px;padding:8px 12px;cursor:pointer;font-size:.8rem}
+.search-item:hover{background:var(--panel-3)}
+.search-item .si-id{font-family:var(--mono);color:var(--ink-3);font-size:.72rem;flex-shrink:0}
+.search-item .si-meta-icon{color:var(--accent)}
+.search-item .si-name{font-family:var(--serif);font-weight:600;color:var(--ink);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.search-item .si-meta{color:var(--ink-3);font-size:.7rem;flex-shrink:0}
+.search-item .si-pct{font-family:var(--mono);font-weight:700;flex-shrink:0}
 .nav-links{display:flex;gap:8px}
 .nav-link{font-size:.78rem;padding:5px 14px;border-radius:6px;border:1px solid var(--border);color:var(--ink-2);text-decoration:none}
 .nav-link:hover{border-color:var(--ink-2);color:var(--ink)}
@@ -407,6 +587,26 @@ a{color:inherit}
 .anomaly-reason{margin-top:10px;font-size:.72rem;color:var(--ink-2);line-height:1.6;padding-top:9px;border-top:1px solid var(--border)}
 .anomaly-empty{color:var(--ink-3);font-size:.82rem;font-style:italic;padding:8px 2px}
 
+.market-regime{margin:0 26px 20px;padding:16px 18px;background:var(--panel);border:1px solid var(--border);border-left:3px solid var(--ink-3);border-radius:8px}
+.regime-label{font-family:var(--mono);font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3);margin-bottom:8px}
+.regime-head{display:flex;align-items:baseline;flex-wrap:wrap;gap:12px}
+.regime-tier{font-size:1.3rem;font-weight:800}
+.regime-pct{font-size:1rem;font-weight:700}
+.regime-breadth{color:var(--ink-2);font-size:.8rem}
+.regime-breadth b{color:var(--up)}
+.regime-tip{margin-top:8px;font-size:.86rem;color:var(--ink-2)}
+.regime-conc{margin-top:10px;padding-top:10px;border-top:1px solid var(--border);font-size:.82rem}
+.regime-conc-head{font-weight:700;color:var(--ink-2)}
+.regime-conc-head.warn{color:var(--accent)}
+.regime-conc-vals{display:flex;gap:18px;margin-top:6px;color:var(--ink-2);flex-wrap:wrap}
+.regime-conc-vals b{color:var(--ink)}
+
+.vol-turnover{margin:0 26px 20px;padding:14px 16px;background:var(--panel);border:1px solid var(--border);border-radius:8px}
+table.vt-table{width:100%;border-collapse:collapse}
+.vt-table th{text-align:left;padding:4px 8px;font-size:.65rem;color:var(--ink-3);border-bottom:1px solid var(--border)}
+.vt-table td{padding:6px 8px;font-size:.8rem;border-bottom:1px solid var(--border)}
+.vt-sector{color:var(--ink-3);font-size:.72rem;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
 .tier-legend{display:flex;gap:16px;padding:0 26px 16px;font-size:.68rem;color:var(--ink-2);flex-wrap:wrap;font-family:var(--mono)}
 .tier-legend span{display:inline-flex;align-items:center;gap:5px}
 .tier-legend .dot{width:8px;height:8px;border-radius:2px}
@@ -430,9 +630,22 @@ a{color:inherit}
 .detail-head h3{font-family:var(--serif);font-size:1.22rem;font-weight:600;margin:0;color:var(--ink)}
 .detail-head .dpct{font-family:var(--mono);font-size:.98rem;font-weight:700}
 .detail-close{margin-left:auto;font-family:var(--mono);font-size:.68rem;background:none;border:1px solid var(--border);color:var(--ink-3);padding:4px 10px;border-radius:4px;cursor:pointer}
-.detail-sub{font-size:.75rem;color:var(--ink-3);margin-bottom:18px;font-family:var(--mono)}
+.detail-sub{font-size:.75rem;color:var(--ink-3);margin-bottom:8px;font-family:var(--mono)}
+.detail-sort{display:flex;align-items:center;gap:6px;margin-bottom:14px}
+.detail-sort label{font-size:.7rem;color:var(--ink-3)}
+.detail-sort select{font-family:var(--mono);font-size:.72rem;background:var(--panel-2);border:1px solid var(--border);color:var(--ink-2);padding:3px 8px;border-radius:4px}
+.meta-sparkline{margin:4px 0 10px;line-height:0}
+.meta-sparkline svg{width:100%;height:auto;display:block;max-width:420px}
+.chips-summary{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:14px;padding:8px 12px;background:var(--panel-2);border-radius:5px;font-size:.76rem}
+.cs-row{display:flex;align-items:center;gap:6px}
+.cs-row .cs-label{color:var(--ink-3)}
+.cs-row .cs-sub{color:var(--ink-3);font-size:.68rem}
+.cs-row .cs-streak-up{color:var(--up);font-size:.68rem}
+.cs-row .cs-streak-dn{color:var(--down);font-size:.68rem}
+.cs-row .cs-alert{color:var(--accent);font-size:.68rem;font-weight:700}
 .stock-cards-wrap{display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:8px}
 .stock-card{border:1px solid var(--border);border-radius:5px;padding:10px 11px;background:var(--panel-3)}
+.stock-card.no-data{opacity:.5}
 .sc-header{display:flex;align-items:baseline;gap:6px;margin-bottom:4px}
 .sc-id{font-family:var(--mono);color:var(--ink-3);font-size:.68rem}
 .sc-name{font-family:var(--serif);font-weight:600;color:var(--ink);font-size:.86rem;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -441,6 +654,9 @@ a{color:inherit}
 .sc-pct{font-size:.86rem;font-weight:700}
 .sc-sparkline{margin-top:6px;line-height:0}
 .sc-sparkline svg{width:100%;height:auto;display:block}
+.sc-roll{display:flex;gap:6px;margin-top:6px;font-family:var(--mono);font-size:.62rem;flex-wrap:wrap}
+.sc-roll-item .lbl{color:var(--ink-3);margin-right:2px}
+.sc-chips{display:flex;gap:8px;margin-top:5px;font-family:var(--mono);font-size:.62rem;flex-wrap:wrap;color:var(--ink-3)}
 .detail-empty{color:var(--ink-3);font-size:.86rem;padding:20px 0;font-family:var(--serif)}
 
 .ht-top{display:flex;align-items:baseline;gap:8px}
@@ -465,6 +681,12 @@ a{color:inherit}
 .ht-week{display:flex;align-items:center;justify-content:space-between;margin-top:9px;padding-top:8px;border-top:1px solid rgba(255,255,255,.08);font-family:var(--mono);font-size:.62rem}
 .ht-week .lbl{color:var(--ink-3)}
 .ht-week .vals{font-weight:700}
+.ht-rank-delta{font-size:.6rem;font-weight:700}
+.ht-rank-delta.up{color:var(--up)}
+.ht-rank-delta.down{color:var(--down)}
+.ht-cum{display:flex;gap:8px;margin-top:6px;font-family:var(--mono);font-size:.62rem}
+.ht-cum-item{display:flex;align-items:center;gap:3px}
+.ht-cum-item .lbl{color:var(--ink-3)}
 .legend-note{padding:14px 26px 0;font-size:.7rem;color:var(--ink-3);max-width:760px}
 
 .role-note{margin:0 26px 20px;padding:11px 15px;background:var(--panel);border:1px solid var(--border);border-radius:4px;font-size:.74rem;color:var(--ink-2);display:flex;gap:18px;flex-wrap:wrap}
@@ -572,6 +794,27 @@ def _heatgrid_html(cards: List[Dict[str, Any]]) -> str:
                 f'<span class="lbl">→</span><span style="color:{tw_color}">{_pct_str(tw)}</span></span></div>'
             )
 
+        rank_delta = c.get("rank_delta")
+        if rank_delta is None:
+            rank_html = f'#{c["rank"]}'
+        elif rank_delta > 0:
+            rank_html = f'#{c["rank"]} <span class="ht-rank-delta up" title="昨日#{c["rank"]+rank_delta}">↑{rank_delta}</span>'
+        elif rank_delta < 0:
+            rank_html = f'#{c["rank"]} <span class="ht-rank-delta down" title="昨日#{c["rank"]+rank_delta}">↓{abs(rank_delta)}</span>'
+        else:
+            rank_html = f'#{c["rank"]}'
+
+        cum_parts = []
+        for period_label, val in (("3d", c.get("cum3")), ("5d", c.get("cum5")), ("7d", c.get("cum7"))):
+            if val is None:
+                continue
+            val_color = "var(--up)" if val >= 0 else "var(--down)"
+            cum_parts.append(
+                f'<span class="ht-cum-item"><span class="lbl">{period_label}</span>'
+                f'<span class="tabular" style="color:{val_color}">{_pct_str(val)}</span></span>'
+            )
+        cum_html = f'<div class="ht-cum">{"".join(cum_parts)}</div>' if cum_parts else ""
+
         pct_color = "var(--up)" if c["pct"] >= 0 else "var(--down)"
         meta_name_safe = _esc(c["meta_name"])
         tiles.append(
@@ -579,13 +822,14 @@ def _heatgrid_html(cards: List[Dict[str, Any]]) -> str:
             f'role="button" tabindex="0" onclick="selectGroup(this.dataset.metaName)" '
             f'onkeydown="if(event.key===\'Enter\'||event.key===\' \'){{event.preventDefault();selectGroup(this.dataset.metaName)}}" '
             f'style="background:{c["heat_bg"]};border-top-color:{_TIER_COLOR_VAR[tier["key"]] if tier else "transparent"}">'
-            f'<div class="ht-top"><span class="ht-rank tabular">#{c["rank"]}</span>'
+            f'<div class="ht-top"><span class="ht-rank tabular">{rank_html}</span>'
             f'<span class="ht-name" title="{meta_name_safe}">{meta_name_safe}</span>'
             f'<span class="ht-pct tabular" style="color:{pct_color}">{_pct_str(c["pct"])}</span></div>'
             f'<div class="ht-status-row">{tier_html}{temp_html}</div>'
             f'<div class="ht-streak">{streak_html}<span class="cnt">　'
             f'<span style="color:var(--up)">▲{c["up_count"]}檔</span> '
             f'<span style="color:var(--down)">▼{c["down_count"]}檔</span></span></div>'
+            f'{cum_html}'
             f'{badges_html}{week_html}</div>'
         )
     return "".join(tiles)
@@ -646,15 +890,25 @@ def generate(
     prices_df: pd.DataFrame,
     heatgrid_windows: Dict[str, Dict[str, Any]],
     stock_sparklines: Optional[Dict[str, dict]] = None,
+    rolling_returns: Optional[Dict[str, dict]] = None,
+    chips_df: Optional[pd.DataFrame] = None,
+    cum_data: Optional[List[Dict[str, Any]]] = None,
+    market_regime: Optional[Dict[str, Any]] = None,
+    vol_turnover_signals: Optional[List[Dict[str, Any]]] = None,
     output_path: str = "docs/index.html",
 ) -> None:
     """
     產生 docs/index.html（族群總覽頁熱區格版面）。meta_perf 為空時不寫檔（比照舊
     export/html_generator.py::generate() 既有慣例）。
 
-    stock_sparklines：processors/performance.py::calc_stock_sparklines() 的輸出，供個股
-    卡片畫走勢圖用；None 時個股卡片一樣正常顯示，只是沒有 sparkline（跟舊版
-    html_generator.py::_sparkline() 沒資料時回傳空字串的慣例一致）。
+    以下都是「有就顯示、沒有就不顯示」的補充資料，全部None-safe，任何一個沒傳都不影響
+    其餘部分正常產生（比照舊版 html_generator.py 各區塊的 fail-soft 慣例）：
+    - stock_sparklines：calc_stock_sparklines() 輸出，個股卡片sparkline走勢圖。
+    - rolling_returns：get_rolling_returns((5,7,10,14)) 輸出，個股卡片近5/7/10/14日。
+    - chips_df：get_chips_today() 輸出，個股卡片外資/投信/融資摘要。
+    - cum_data：calc_cumulative_meta() 輸出(list)，熱區格3/5/7日累積漲跌badge。
+    - market_regime：main.py 算好的大盤分級dict，大盤現況儀表板。
+    - vol_turnover_signals：scan_volume_turnover() 輸出(list)，巨量換手訊號區塊。
     """
     if not meta_perf:
         return
@@ -662,16 +916,39 @@ def generate(
     date_str = trade_date.strftime("%Y-%m-%d")
     weekday = ["一", "二", "三", "四", "五", "六", "日"][trade_date.weekday()]
 
-    cards = build_heatgrid_cards(meta_perf, meta_signals, meta_chips, heatgrid_windows)
+    cards = build_heatgrid_cards(meta_perf, meta_signals, meta_chips, heatgrid_windows, cum_data)
     anomaly_cards = find_anomaly_cards(meta_perf, meta_signals, heatgrid_windows)
     recap = build_sector_recap(meta_perf, heatgrid_windows)
-    stock_detail = build_stock_detail_data(universe_df, prices_df, stock_sparklines)
+    stock_detail = build_stock_detail_data(universe_df, prices_df, stock_sparklines, rolling_returns, chips_df)
 
     stock_detail_js = json.dumps(stock_detail, ensure_ascii=False).replace("</", "<\\/")
-    card_meta_js = json.dumps(
-        {c["meta_name"]: {"pct": c["pct"], "up_count": c["up_count"], "down_count": c["down_count"]} for c in cards},
-        ensure_ascii=False,
-    ).replace("</", "<\\/")
+    card_meta = {}
+    for c in cards:
+        meta_name = c["meta_name"]
+        sig = meta_signals.get(meta_name, {})
+        chips = meta_chips.get(meta_name, {})
+        card_meta[meta_name] = {
+            "pct": c["pct"], "up_count": c["up_count"], "down_count": c["down_count"],
+            "daily_pct": sig.get("daily_pct", []), "dates": sig.get("dates", []),
+            "foreign_net_today": chips.get("foreign_net_today", 0),
+            "trust_net_today": chips.get("trust_net_today", 0),
+            "foreign_buy_count": chips.get("foreign_buy_count", 0),
+            "total_stocks": chips.get("total_stocks", 0),
+            "foreign_streak": chips.get("foreign_streak", 0),
+            "trust_streak": chips.get("trust_streak", 0),
+            "margin_change_today": chips.get("margin_change_today", 0),
+            "margin_balance_today": chips.get("margin_balance_today", 0),
+            "margin_alert": bool(chips.get("margin_alert", False)),
+        }
+    card_meta_js = json.dumps(card_meta, ensure_ascii=False).replace("</", "<\\/")
+
+    stock_index = [
+        {"id": s["stock_id"], "name": s["stock_name"], "meta": meta_name, "pct": s["change_pct"] or 0.0}
+        for meta_name, stocks in stock_detail.items() for s in stocks if not s["no_data"]
+    ]
+    meta_index = [{"name": c["meta_name"], "pct": c["pct"]} for c in cards]
+    stock_index_js = json.dumps(stock_index, ensure_ascii=False).replace("</", "<\\/")
+    meta_index_js = json.dumps(meta_index, ensure_ascii=False).replace("</", "<\\/")
 
     html = f"""<!doctype html>
 <html lang="zh-Hant"><head><meta charset="utf-8">
@@ -685,6 +962,11 @@ def generate(
 <a class="skip-link" href="#main-content">跳到主要內容</a>
 <header class="topbar">
   <div><div class="kicker">台股電子半導體族群追蹤</div><h1>族群總覽</h1></div>
+  <div class="search-wrap">
+    <input id="stock-search" class="stock-search" placeholder="🔍 搜尋股票代號 / 名稱 / 族群…"
+      oninput="searchStocks(this.value)" onblur="setTimeout(hideSearch,200)" autocomplete="off">
+    <div id="search-dropdown" class="search-dropdown" hidden></div>
+  </div>
   <button onclick="toggleTheme()" id="themeToggle">切換亮色預覽</button>
   <div class="updated">{date_str}（週{weekday}）更新</div>
   <nav class="nav-links" aria-label="主要功能">
@@ -695,6 +977,8 @@ def generate(
   </nav>
 </header>
 <main id="main-content">
+{_market_regime_html(market_regime)}
+{_vol_turnover_html(vol_turnover_signals)}
 <div class="section-head"><h2>⚡ 異動族群</h2><span class="count">{len(anomaly_cards)} 檔符合</span></div>
 <div class="section-sub">「現在正在發生」的瞬間訊號——爆量排名跳動、或連續多週噴出。跟下面「族群近況」不同：這裡是單日事件，族群近況是週度趨勢。</div>
 <div class="anomaly-wrap"><div class="anomaly-strip">{_anomaly_cards_html(anomaly_cards)}</div></div>
@@ -717,6 +1001,8 @@ def generate(
 <script>
 const STOCKS = {stock_detail_js};
 const CARD_META = {card_meta_js};
+const STOCK_INDEX = {stock_index_js};
+const META_INDEX = {meta_index_js};
 
 // escHtml：innerHTML拼字串前一律過這支，把字串當純文字塞進暫時的div再讀回escape過的innerHTML。
 // 這裡一定要用，不能省——name(族群名)是從data-meta-name屬性讀回來的(瀏覽器解析HTML屬性時
@@ -733,8 +1019,9 @@ function escHtml(s) {{
 
 // pcts/dates 是 calc_stock_sparklines() 算出的數值/日期字串（"%m/%d"），不是使用者輸入，
 // 不用經過 escHtml 也不會有 XSS 風險——跟這個檔案其他數值型欄位（pct/rank等）的處理一致。
-function buildSparkline(pcts, dates) {{
+function buildSparkline(pcts, dates, cls) {{
   if (!pcts || !pcts.length) return '';
+  cls = cls || 'sc-sparkline';
   const n = pcts.length, chartH = 26, gap = 2;
   const barW = Math.max(4, Math.floor(140 / n) - gap);
   const totalW = n * (barW + gap) - gap;
@@ -751,8 +1038,102 @@ function buildSparkline(pcts, dates) {{
     const sign = pct >= 0 ? '+' : '';
     bars += `<rect x="${{x}}" y="${{y}}" width="${{barW}}" height="${{barH}}" fill="${{color}}" rx="1"><title>${{d}} ${{sign}}${{pct.toFixed(2)}}%</title></rect>`;
   }}
-  return `<div class="sc-sparkline"><svg viewBox="0 0 ${{totalW}} ${{chartH}}" xmlns="http://www.w3.org/2000/svg">`
+  return `<div class="${{cls}}"><svg viewBox="0 0 ${{totalW}} ${{chartH}}" xmlns="http://www.w3.org/2000/svg">`
     + `<line x1="0" y1="${{mid}}" x2="${{totalW}}" y2="${{mid}}" stroke="var(--border)" stroke-width="1"/>${{bars}}</svg></div>`;
+}}
+
+// meta是CARD_META[name]，所有欄位都是Python端算好的數值/bool，不是使用者輸入，不用escHtml。
+function buildChipsSummary(meta) {{
+  const rows = [];
+  if (meta.foreign_net_today) {{
+    const fn = meta.foreign_net_today, k = Math.trunc(fn / 1000);
+    const color = fn > 0 ? 'var(--up)' : 'var(--down)';
+    const sign = fn > 0 ? '+' : '';
+    let sub = '';
+    if (fn > 0 && meta.total_stocks > 0) sub = `<span class="cs-sub">買超${{meta.foreign_buy_count}}/${{meta.total_stocks}}股</span>`;
+    else if (fn < 0 && meta.total_stocks > 0) sub = `<span class="cs-sub">賣超${{meta.total_stocks - meta.foreign_buy_count}}/${{meta.total_stocks}}股</span>`;
+    let streak = '';
+    if (Math.abs(meta.foreign_streak) >= 2) {{
+      const cls = meta.foreign_streak > 0 ? 'cs-streak-up' : 'cs-streak-dn';
+      const word = meta.foreign_streak > 0 ? `連買${{meta.foreign_streak}}日` : `連賣${{Math.abs(meta.foreign_streak)}}日`;
+      streak = `<span class="${{cls}}">${{word}}</span>`;
+    }}
+    rows.push(`<div class="cs-row"><span class="cs-label">外資</span><span style="color:${{color}};font-weight:700">${{sign}}${{k.toLocaleString()}}張</span>${{sub}}${{streak}}</div>`);
+  }}
+  if (meta.trust_net_today) {{
+    const tn = meta.trust_net_today, k = Math.trunc(tn / 1000);
+    const color = tn > 0 ? 'var(--up)' : 'var(--down)';
+    const sign = tn > 0 ? '+' : '';
+    let streak = '';
+    if (Math.abs(meta.trust_streak) >= 2) {{
+      const cls = meta.trust_streak > 0 ? 'cs-streak-up' : 'cs-streak-dn';
+      const word = meta.trust_streak > 0 ? `連買${{meta.trust_streak}}日` : `連賣${{Math.abs(meta.trust_streak)}}日`;
+      streak = `<span class="${{cls}}">${{word}}</span>`;
+    }}
+    rows.push(`<div class="cs-row"><span class="cs-label">投信</span><span style="color:${{color}};font-weight:700">${{sign}}${{k.toLocaleString()}}張</span>${{streak}}</div>`);
+  }}
+  if (meta.margin_change_today && meta.margin_balance_today > 0) {{
+    const pct = meta.margin_change_today / meta.margin_balance_today * 100;
+    const arrow = meta.margin_change_today > 0 ? '↑' : '↓';
+    const color = meta.margin_change_today > 0 ? 'var(--accent)' : 'var(--ink-3)';
+    const alert = meta.margin_alert ? '<span class="cs-alert">融資擴張</span>' : '';
+    rows.push(`<div class="cs-row"><span class="cs-label">融資</span><span style="color:${{color}};font-weight:700">${{arrow}}${{Math.abs(pct).toFixed(1)}}%</span>${{alert}}</div>`);
+  }}
+  return rows.length ? `<div class="chips-summary">${{rows.join('')}}</div>` : '';
+}}
+
+function renderStockCard(s) {{
+  if (s.no_data) {{
+    return `<div class="stock-card no-data">
+      <div class="sc-header"><span class="sc-id">${{escHtml(s.stock_id)}}</span><span class="sc-name">${{escHtml(s.stock_name)}}</span></div>
+      <div class="sc-body"><span class="sc-price">無行情</span></div></div>`;
+  }}
+  const color = s.change_pct >= 0 ? 'var(--up)' : 'var(--down)';
+  const sign = s.change_pct >= 0 ? '+' : '';
+  const spark = buildSparkline(s.pcts, s.dates);
+  const rollItems = [['5日', s.roll5], ['7日', s.roll7], ['10日', s.roll10], ['14日', s.roll14]]
+    .filter(([, v]) => v !== null && v !== undefined)
+    .map(([lbl, v]) => {{
+      const c = v >= 0 ? 'var(--up)' : 'var(--down)';
+      return `<span class="sc-roll-item"><span class="lbl">${{lbl}}</span><span class="tabular" style="color:${{c}}">${{v>=0?'+':''}}${{v.toFixed(2)}}%</span></span>`;
+    }}).join('');
+  const rollHtml = rollItems ? `<div class="sc-roll">${{rollItems}}</div>` : '';
+  const chipsParts = [];
+  if (s.foreign_net) chipsParts.push(`<span style="color:${{s.foreign_net>0?'var(--up)':'var(--down)'}}">外資${{s.foreign_net>0?'+':''}}${{Math.trunc(s.foreign_net/1000).toLocaleString()}}張</span>`);
+  if (s.trust_net) chipsParts.push(`<span style="color:${{s.trust_net>0?'var(--up)':'var(--down)'}}">投信${{s.trust_net>0?'+':''}}${{Math.trunc(s.trust_net/1000).toLocaleString()}}張</span>`);
+  const chipsHtml = chipsParts.length ? `<div class="sc-chips">${{chipsParts.join('')}}</div>` : '';
+  return `<div class="stock-card">
+    <div class="sc-header"><span class="sc-id">${{escHtml(s.stock_id)}}</span><span class="sc-name">${{escHtml(s.stock_name)}}</span></div>
+    <div class="sc-body"><span class="sc-price">${{s.close.toFixed(1)}}</span><span class="sc-pct" style="color:${{color}}">${{sign}}${{s.change_pct.toFixed(2)}}%</span></div>
+    ${{spark}}${{rollHtml}}${{chipsHtml}}</div>`;
+}}
+
+let _panelStocks = [], _panelSortKey = 'pct';
+
+function _sortValue(s, key) {{
+  if (key === 'pct') return s.change_pct;
+  if (key === 'id') return s.stock_id;
+  if (key === 'close') return s.close;
+  return s['roll' + key];
+}}
+
+function renderPanelStocks() {{
+  const wrap = document.getElementById('panelStocksWrap');
+  if (!wrap) return;
+  const key = _panelSortKey;
+  const sorted = [..._panelStocks].sort((a, b) => {{
+    const av = _sortValue(a, key), bv = _sortValue(b, key);
+    if (av === null || av === undefined) return 1;
+    if (bv === null || bv === undefined) return -1;
+    if (key === 'id') return String(av).localeCompare(String(bv));
+    return bv - av;
+  }});
+  wrap.innerHTML = sorted.map(renderStockCard).join('');
+}}
+
+function sortPanelStocks(sel) {{
+  _panelSortKey = sel.value;
+  renderPanelStocks();
 }}
 
 function selectGroup(name) {{
@@ -769,6 +1150,8 @@ function selectGroup(name) {{
   if (!meta) return;
   const stocks = STOCKS[name] || [];
   const safeName = escHtml(name);
+  _panelStocks = stocks;
+  _panelSortKey = 'pct';
 
   const panel = document.createElement('div');
   panel.id = 'detailPanel';
@@ -782,27 +1165,30 @@ function selectGroup(name) {{
   closeBtn.textContent = '收合';
   closeBtn.onclick = () => selectGroup(name);
 
+  const metaSpark = buildSparkline(meta.daily_pct, meta.dates, 'meta-sparkline');
+  const chipsSum = buildChipsSummary(meta);
+
   if (!stocks.length) {{
     panel.innerHTML = `
       <div class="detail-head"><h3>${{safeName}}</h3><span class="dpct" style="color:${{pctColor}}">${{pctStr}}</span></div>
       <div class="detail-sub">▲${{meta.up_count}}檔 ▼${{meta.down_count}}檔</div>
+      ${{metaSpark}}${{chipsSum}}
       <div class="detail-empty">這個族群目前沒有個股行情資料。</div>`;
   }} else {{
-    const cards = stocks.map(s => {{
-      const color = s.change_pct >= 0 ? 'var(--up)' : 'var(--down)';
-      const sign = s.change_pct >= 0 ? '+' : '';
-      const spark = buildSparkline(s.pcts, s.dates);
-      return `<div class="stock-card">
-        <div class="sc-header"><span class="sc-id">${{escHtml(s.stock_id)}}</span><span class="sc-name">${{escHtml(s.stock_name)}}</span></div>
-        <div class="sc-body"><span class="sc-price">${{s.close.toFixed(1)}}</span><span class="sc-pct" style="color:${{color}}">${{sign}}${{s.change_pct.toFixed(2)}}%</span></div>
-        ${{spark}}</div>`;
-    }}).join('');
     panel.innerHTML = `
       <div class="detail-head"><h3>${{safeName}}</h3><span class="dpct" style="color:${{pctColor}}">${{pctStr}}</span></div>
       <div class="detail-sub">▲${{meta.up_count}}檔 ▼${{meta.down_count}}檔　・　共 ${{stocks.length}} 檔</div>
-      <div class="stock-cards-wrap">${{cards}}</div>`;
+      ${{metaSpark}}${{chipsSum}}
+      <div class="detail-sort"><label for="stockSort">排序</label>
+        <select id="stockSort" onchange="sortPanelStocks(this)">
+          <option value="pct">漲跌%</option><option value="id">代號</option><option value="close">收盤</option>
+          <option value="5">近5日</option><option value="7">近7日</option><option value="10">近10日</option><option value="14">近14日</option>
+        </select>
+      </div>
+      <div class="stock-cards-wrap" id="panelStocksWrap"></div>`;
   }}
   panel.querySelector('.detail-head').appendChild(closeBtn);
+  if (stocks.length) renderPanelStocks();
 
   const rowTop = tile.offsetTop;
   const rowTiles = tiles.filter(t => t.offsetTop === rowTop);
@@ -811,12 +1197,61 @@ function selectGroup(name) {{
   panel.scrollIntoView({{behavior:'smooth', block:'nearest'}});
 }}
 
+/* ── 個股/族群搜尋 ── */
+function searchStocks(q) {{
+  const dd = document.getElementById('search-dropdown');
+  q = q.trim();
+  if (!q) {{ dd.hidden = true; return; }}
+
+  const stockMatches = STOCK_INDEX.filter(s => s.id.startsWith(q) || s.name.includes(q)).slice(0, 6);
+  const metaMatches = META_INDEX.filter(m => m.name.includes(q)).slice(0, 5);
+  if (!stockMatches.length && !metaMatches.length) {{ dd.hidden = true; return; }}
+
+  const stockHtml = stockMatches.map(s => {{
+    const col = s.pct > 0 ? 'var(--up)' : (s.pct < 0 ? 'var(--down)' : 'var(--ink-3)');
+    const sign = s.pct >= 0 ? '+' : '';
+    return `<div class="search-item" onmousedown="selectSearchStock('${{s.id}}')">`
+      + `<span class="si-id">${{escHtml(s.id)}}</span><span class="si-name">${{escHtml(s.name)}}</span>`
+      + `<span class="si-meta">${{escHtml(s.meta)}}</span>`
+      + `<span class="si-pct" style="color:${{col}}">${{sign}}${{s.pct.toFixed(2)}}%</span></div>`;
+  }}).join('');
+  const metaHtml = metaMatches.map(m => {{
+    const col = m.pct > 0 ? 'var(--up)' : (m.pct < 0 ? 'var(--down)' : 'var(--ink-3)');
+    const sign = m.pct >= 0 ? '+' : '';
+    return `<div class="search-item" onmousedown="selectSearchMeta('${{m.name.replace(/'/g, "\\\\'")}}')">`
+      + `<span class="si-id si-meta-icon">族群</span><span class="si-name">${{escHtml(m.name)}}</span>`
+      + `<span class="si-pct" style="color:${{col}}">${{sign}}${{m.pct.toFixed(2)}}%</span></div>`;
+  }}).join('');
+  dd.innerHTML = stockHtml + metaHtml;
+  dd.hidden = false;
+}}
+function hideSearch() {{ document.getElementById('search-dropdown').hidden = true; }}
+function selectSearchMeta(name) {{
+  document.getElementById('search-dropdown').hidden = true;
+  document.getElementById('stock-search').value = '';
+  selectGroup(name);
+}}
+function selectSearchStock(sid) {{
+  document.getElementById('search-dropdown').hidden = true;
+  document.getElementById('stock-search').value = '';
+  const entry = STOCK_INDEX.find(s => s.id === sid);
+  if (entry) selectGroup(entry.meta);
+}}
+
 function toggleTheme() {{
   const root = document.documentElement;
   const isLight = root.getAttribute('data-theme') === 'light';
   root.setAttribute('data-theme', isLight ? 'dark' : 'light');
   document.getElementById('themeToggle').textContent = isLight ? '切換亮色預覽' : '切換深色預覽';
 }}
+
+// chips.html的外資/投信連買族群連結會產生 index.html#meta=族群名（見
+// export/chips_generator.py），舊版html_generator.py靠這段IIFE在載入時自動展開對應面板，
+// 這次改版漏掉了，造成從chips.html點連結進來會停在空白頁——補回同等行為。
+(function() {{
+  const h = decodeURIComponent(location.hash);
+  if (h.startsWith('#meta=')) selectGroup(h.slice(6));
+}})();
 </script>
 </body></html>"""
 

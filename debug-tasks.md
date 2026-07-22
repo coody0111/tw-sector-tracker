@@ -2942,3 +2942,40 @@ BIGINT 欄位變成 **nullable `pd.NA`**（不是 `float('nan')`）。`data_gene
 - 這次改動範圍限定在 momentum_generator.py 本身，沒有動 export/index_generator.py 或排序邏輯
 - 對應今天稍早 `python main.py` 已經 push 到 origin 的 `0e9304d`——這次的收合修正**還沒有**
   重新產生頁面，`docs/momentum.html` 目前線上還是未收合的舊版，下次跑 main.py 時才會套用
+
+## [2026-07-22] 籌碼頁/型態頁視覺配色對齊熱區格改版
+
+### 改了什麼
+- 異動檔案：export/chips_generator.py, export/patterns_generator.py
+- 邏輯說明：
+  - Cody 反映 chips.html/patterns.html 的 UI 設計要對齊 index.html（熱區格改版後的新視覺）。
+    核對發現全站原本有3套視覺語言：index.html+momentum.html（新版 #080B12 深色+金色accent）、
+    chips.html（舊版 #08101c 藍色accent）、patterns.html（另一套舊版 #0b0f18 藍色accent，
+    還是寫死hex沒用CSS變數）。
+  - chips_generator.py：只改 `:root{}` 這行 CSS 變數的值（bg/surface/border/text/accent/
+    up/down），變數名稱不動，然後把散落在檔案各處、源自舊配色的少數寫死hex（topbar/
+    section-nav背景、table邊框/斑馬紋等）一併對齊。紅漲綠跌(#f87171/#4ade80→#E6432F/
+    #37B25C)跟琥珀警示(#fbbf24→#F0BB55金色accent)是全域替換(共39處)，量最大、視覺影響也最大。
+  - patterns_generator.py：沒有CSS變數系統，全部用python字串全域替換寫死的hex（bg/surface/
+    border/text/muted/accent/up/down，共15組替換）。有踩到一個坑：`#60a5fa`同時被用在
+    "tab-btn.active的accent" 跟 "TWSE市場徽章文字色" 兩種不同語意上，全域替換後TWSE徽章
+    變成「金色文字配藍色邊框」的不協調組合——修正成跟chips.html一致的TWSE/TPEx徽章配色
+    (`#9bc7ff`/`#416d9f`、`#cabaff`/`#6e5999`)，兩頁徽章色也順便對齊了。
+  - **刻意不動**的部分：TWSE/TPEx市場徽章、pattern類型色碼字典（雙底/頭肩底/VCP突破等8種
+    圖形各自的顏色）、少數低頻率的分類用色（如投信連賣的藍色徽章）——這些是分類用途的色碼，
+    不是品牌強調色，跟其他頁面不用強求完全一致。
+
+### 資料來源相關（如有異動）
+- 上市資料（TWSE）：無異動，純CSS/顏色調整
+- 上櫃資料（TPEx / FinMind）：無異動
+
+### 請 Debugger 驗證
+- [ ] 全部387個測試通過（已本機跑過，全綠，包含chips_generator 36個+patterns_generator 3個）
+- [ ] 實際瀏覽器開 chips.html/patterns.html，視覺上跟 index.html/momentum.html 感覺像同一個網站
+- [ ] chips.html 的 TWSE/TPEx 徽章、紅漲綠跌數字、投信/外資連買連賣徽章顏色顯示正常
+- [ ] patterns.html 的 TWSE/TPEx 徽章顏色正確（這次修正的重點，不應該是金色文字配藍色邊框）
+- [ ] patterns.html 的8種圖形類型色碼（雙底/頭肩底等）維持原本沒動過
+
+### 特別注意
+- 這次改動範圍限定在這兩個檔案的CSS/顏色，沒有動任何邏輯/資料處理
+- 這是 Cody 明確指示「不用brainstorming直接改」略過的一次，範圍相對單純（純視覺配色替換）

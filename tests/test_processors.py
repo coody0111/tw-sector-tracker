@@ -638,3 +638,22 @@ def test_calc_meta_heatgrid_windows_returns_empty_dict_when_no_price_data(tmp_pa
 
     result = calc_meta_heatgrid_windows(universe, db_path=str(db_path))
     assert result == {}
+
+
+def test_calc_meta_heatgrid_windows_none_when_sector_has_real_gap_inside_window(tmp_path):
+    """族群在today_index往前10天的視窗內有真實缺值(例如剛掛牌，之前完全沒交易)時，
+    不能被fillna(0.0)悄悄頂替成假的平盤天數算出看似有效的streak/window_pct——
+    這是code review抓到的問題：Task 1的cutoff_index<9只防「歷史太短」，不防
+    「全市場聯集夠長，但這個族群自己在視窗內有缺值」這種情況。"""
+    db_path = tmp_path / "test.db"
+    # 全市場有20天資料(足夠長)，但這個族群只在最近8天有交易(前12天完全沒進DB)，
+    # 今天視窗(today_index往前10天)會涵蓋到這個族群還沒交易的日子 → 應該是None
+    rows = [("4000", f"2026-06-{d:02d}", 1.0) for d in range(13, 21)]  # 只有8天
+    _seed_heatgrid_db(db_path, rows)
+    universe = pd.DataFrame([{"stock_id": "4000", "meta_sector": "剛掛牌族群"}])
+
+    result = calc_meta_heatgrid_windows(universe, db_path=str(db_path))
+
+    row = result["剛掛牌族群"]
+    assert row["streak_today"] is None
+    assert row["this_week_pct_today"] is None

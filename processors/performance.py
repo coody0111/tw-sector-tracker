@@ -944,6 +944,8 @@ def calc_meta_heatgrid_windows(
             "SELECT stock_id, date, change_pct FROM daily_prices WHERE date >= ?",
             [min_date],
         ).fetchdf()
+    except Exception:
+        return {}
     finally:
         con.close()
 
@@ -971,12 +973,25 @@ def calc_meta_heatgrid_windows(
 
     results: Dict[str, Dict[str, Any]] = {}
     for meta_name in pct_pivot.index:
-        daily_pcts = [
-            float(v) if pd.notna(v) else 0.0
-            for v in pct_pivot.loc[meta_name].tolist()
-        ]
+        raw_series = pct_pivot.loc[meta_name]
+        valid_flags = raw_series.notna().tolist()
+        daily_pcts = [float(v) if pd.notna(v) else 0.0 for v in raw_series.tolist()]
 
-        today_calc = _streak_and_windows_as_of(daily_pcts, today_index)
+        def _window_is_real(cutoff_index: int) -> bool:
+            # _streak_and_windows_as_of() 用的10天視窗(this_week+last_week)必須全部是真實
+            # 資料，不能有被fillna(0.0)頂替的假資料混進去——否則streak/window_pct會悄悄用
+            # 「這個族群當時根本還沒交易/沒資料」的偽造平盤天數算出「看起來有效但其實是假
+            # 資料」的結果，違反Global Constraints「資料不足時回None，不硬湊」（code review
+            # 抓到：這個風險是Task 1 bounds-check防不到的，因為len(all_dates)是全市場聯集，
+            # 不代表這個族群本身有那麼長的真實歷史）。
+            if cutoff_index < 9:
+                return False
+            return all(valid_flags[cutoff_index - 9: cutoff_index + 1])
+
+        today_calc = (
+            _streak_and_windows_as_of(daily_pcts, today_index)
+            if _window_is_real(today_index) else None
+        )
         if today_calc is None:
             results[meta_name] = {
                 "streak_today": None, "last_week_pct_today": None, "this_week_pct_today": None,
@@ -986,7 +1001,7 @@ def calc_meta_heatgrid_windows(
 
         five_days_ago_calc = (
             _streak_and_windows_as_of(daily_pcts, five_days_ago_index)
-            if five_days_ago_index >= 0 else None
+            if five_days_ago_index >= 0 and _window_is_real(five_days_ago_index) else None
         )
 
         results[meta_name] = {

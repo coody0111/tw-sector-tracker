@@ -552,3 +552,12 @@ def test_streak_and_windows_as_of_five_days_ago_reuses_todays_last_week_as_this_
     five_days_ago = _streak_and_windows_as_of(daily_pcts, cutoff_index=9)
     assert five_days_ago is not None
     assert five_days_ago["this_week_pct"] == today["last_week_pct"]
+
+
+def test_streak_and_windows_as_of_returns_none_when_cutoff_index_out_of_bounds():
+    """cutoff_index超過daily_pcts實際長度時(呼叫端參數對不上)，要回None，不能讓切片
+    悄悄回傳過短/空的窗口、_compound()對空list算出0.0這種「看起來有效但其實是假資料」
+    的結果（code review抓到：這違反Global Constraints「資料不足時回None，不硬湊」）。"""
+    daily_pcts = [1.0] * 5  # 只有5天資料
+    result = _streak_and_windows_as_of(daily_pcts, cutoff_index=9)
+    assert result is None

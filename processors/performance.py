@@ -888,9 +888,10 @@ def _streak_and_windows_as_of(daily_pcts: List[float], cutoff_index: int) -> Opt
     Returns
     -------
     {"streak": int, "last_week_pct": float, "this_week_pct": float} 或
-    None（cutoff_index < 9，可用歷史不足10天，無法同時算出兩個5日窗口）
+    None（cutoff_index < 9，可用歷史不足10天，無法同時算出兩個5日窗口；或
+    cutoff_index >= len(daily_pcts)，代表呼叫端傳入的cutoff_index跟daily_pcts長度對不上）
     """
-    if cutoff_index < 9:
+    if cutoff_index < 9 or cutoff_index >= len(daily_pcts):
         return None
 
     this_week_window = daily_pcts[cutoff_index - 4: cutoff_index + 1]

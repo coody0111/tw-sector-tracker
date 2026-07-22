@@ -490,8 +490,7 @@ _TIER_COLOR_VAR = {
 
 
 def _pct_str(pct: float) -> str:
-    sign = "+" if pct >= 0 else ""
-    return f"{sign}{pct:.2f}%"
+    return f"{pct:+.2f}%"
 
 
 def _anomaly_cards_html(anomaly_cards: List[Dict[str, Any]]) -> str:
@@ -502,7 +501,8 @@ def _anomaly_cards_html(anomaly_cards: List[Dict[str, Any]]) -> str:
         kind_label = "爆量暴衝" if c["kind"] == "burst" else "連續噴出"
         cards.append(
             f'<div class="anomaly-card {c["kind"]}" data-meta-name="{_esc(c["meta_name"])}" '
-            f'onclick="selectGroup(this.dataset.metaName)" tabindex="0">'
+            f'role="button" tabindex="0" onclick="selectGroup(this.dataset.metaName)" '
+            f'onkeydown="if(event.key===\'Enter\'||event.key===\' \'){{event.preventDefault();selectGroup(this.dataset.metaName)}}">'
             f'<div class="anomaly-kind {c["kind"]}">{kind_label}</div>'
             f'<span class="anomaly-pct tabular">{_pct_str(c["pct"])}</span>'
             f'<div class="anomaly-name">{_esc(c["meta_name"])}</div>'
@@ -568,7 +568,8 @@ def _heatgrid_html(cards: List[Dict[str, Any]]) -> str:
         meta_name_safe = _esc(c["meta_name"])
         tiles.append(
             f'<div class="heat-tile" data-meta-name="{meta_name_safe}" '
-            f'onclick="selectGroup(this.dataset.metaName)" tabindex="0" '
+            f'role="button" tabindex="0" onclick="selectGroup(this.dataset.metaName)" '
+            f'onkeydown="if(event.key===\'Enter\'||event.key===\' \'){{event.preventDefault();selectGroup(this.dataset.metaName)}}" '
             f'style="background:{c["heat_bg"]};border-top-color:{_TIER_COLOR_VAR[tier["key"]] if tier else "transparent"}">'
             f'<div class="ht-top"><span class="ht-rank tabular">#{c["rank"]}</span>'
             f'<span class="ht-name" title="{meta_name_safe}">{meta_name_safe}</span>'
@@ -585,12 +586,11 @@ def _heatgrid_html(cards: List[Dict[str, Any]]) -> str:
 def _sector_recap_html(recap: Dict[str, Any]) -> str:
     def _status_row(r: Dict[str, Any], is_hot: bool) -> str:
         color = "var(--heat-hot)" if is_hot else "var(--heat-cold)"
-        sign = "+" if r["accel"] >= 0 else ""
         pct_color = "var(--up)" if r["pct"] >= 0 else "var(--down)"
         return (
             f'<div class="status-row"><span class="sr-name">{_esc(r["meta_name"])}</span>'
             f'<span class="sr-today tabular" style="color:{pct_color}">{_pct_str(r["pct"])}</span>'
-            f'<span class="sr-pt tabular" style="color:{color}">{sign}{r["accel"]:.1f}pt</span></div>'
+            f'<span class="sr-pt tabular" style="color:{color}">{r["accel"]:+.1f}pt</span></div>'
         )
 
     hot_html = "".join(_status_row(r, True) for r in recap["hot_top5"]) or '<div class="detail-empty">資料不足</div>'

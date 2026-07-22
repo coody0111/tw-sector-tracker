@@ -541,3 +541,44 @@ def test_generate_renders_anomaly_section_empty_state_when_no_cards_qualify(tmp_
 
     html = output_path.read_text(encoding="utf-8")
     assert "目前沒有族群符合" in html  # 0張異動族群卡片時的誠實空狀態文案
+
+
+def test_pct_str_does_not_double_sign_negative_zero():
+    """pct=-0.0(浮點數負零，例如round(-0.001,2)產生的值)不能render成"+-0.00%"這種
+    語法上矛盾的雙重符號——code review抓到：手動組"+"字串再讓:.2f格式化仍帶負號的
+    浮點數會產生這個bug，改用Python原生:+.2f格式旗標可以避免。"""
+    from export.index_generator import _pct_str
+    assert _pct_str(-0.0) == "-0.00%"
+    assert "+-" not in _pct_str(-0.0)
+
+
+def test_generate_renders_populated_tier_temp_badges_and_recap_data(tmp_path):
+    """所有前7個Task組裝出來的「有資料」分支都要至少被render一次，不能只測「沒資料」
+    的空狀態分支——code review抓到：先前6個測試全部傳{}給meta_signals/meta_chips/
+    heatgrid_windows，導致tier徽章/temp徽章/法人badge/週對比/異動族群populated分支/
+    族群近況populated分支完全沒有測試覆蓋，dict key對不上都不會被抓到。"""
+    output_path = tmp_path / "index.html"
+    meta_perf = [
+        {"meta_name": "強勢族群", "avg_change_pct": 5.0, "up_count": 10, "down_count": 1, "flat_count": 0},
+    ]
+    universe_df = pd.DataFrame([
+        {"stock_id": "1000", "stock_name": "測試股", "meta_sector": "強勢族群"},
+    ])
+    prices_df = pd.DataFrame([{"stock_id": "1000", "close": 100.0, "change_pct": 5.0}])
+    meta_signals = {"強勢族群": {"vol_ratio": 1.8, "yesterday_rank": 20}}
+    meta_chips = {"強勢族群": {"foreign_streak": 3, "trust_streak": 2}}
+    heatgrid_windows = {
+        "強勢族群": {"streak_today": 3, "last_week_pct_today": 1.0, "this_week_pct_today": 6.0,
+                    "streak_5d_ago": -2, "last_week_pct_5d_ago": 3.5},
+    }
+
+    generate(date(2026, 7, 22), meta_perf, universe_df, meta_signals, meta_chips, prices_df, heatgrid_windows, output_path=str(output_path))
+
+    html = output_path.read_text(encoding="utf-8")
+    assert "超強" in html  # tier badge：streak=3>0, accel=6.0-1.0=5.0>3 → super
+    assert "增溫" in html  # temp badge：accel=5.0達hot門檻
+    assert "外資連買3日" in html  # 法人badge
+    assert "投信連買2日" in html
+    assert "近5日→前5日" in html  # 週對比區塊
+    assert "強勢族群" in html  # 出現在族群近況hot_top5（accel=5.0升溫）
+    assert "轉強訊號" in html  # 轉折點：5天前弱(streak=-2,accel=-2.5)→今天超強

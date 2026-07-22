@@ -1,3 +1,98 @@
+## [2026-07-22] 族群總覽頁（index.html）熱區格改版完成：新建 export/index_generator.py 取代 export/html_generator.py
+
+### 背景
+`docs/index.html` 從卡片式版面改成熱區格（heatmap grid）版面。視覺/互動設計定案於
+`docs/superpowers/specs/2026-07-15-sector-overview-heatmap-redesign.md`（Cody 核准過的 mockup
+v16/v18），這次補上技術落地決策（`docs/superpowers/specs/2026-07-22-sector-overview-heatmap-implementation-design.md`）並拆成 10-task plan（`docs/superpowers/plans/2026-07-22-sector-overview-heatmap.md`），全部走 subagent-driven-development（implementer → spec-compliance review → code-quality review，每個 Task 都過兩階段）。
+
+### 改了什麼
+- 新增檔案：`export/index_generator.py`（取代 `export/html_generator.py` 在 `main.py::run()` 的
+  角色，但**舊檔案本身不刪**——沒有其他模組依賴它，保留當 rollback 用，之後想刪是獨立任務）、
+  `tests/test_index_generator.py`（新檔，62 個測試）。
+- 異動檔案：`processors/performance.py`（新增 `_streak_and_windows_as_of()` + 
+  `calc_meta_heatgrid_windows()`，DB 查詢邏輯照專案既有分層慣例放這裡，不放 export/）、
+  `main.py`（掛接新 generator，移除舊 generator 專用但現在沒人消費的死程式碼）、`DESIGN.md`
+  （更新視覺規範/設計語言/版面結構反映新版面）、`screener/database.py`（修正一處過時的
+  docstring）。
+- 邏輯說明：
+  - 轉折點偵測（族群近況「等級真的翻轉」）用**回推同一套算法**（`_streak_and_windows_as_of()`
+    在「今天」跟「5個交易日前」兩個時間點各算一次），不開新的歷史快照表——這是 brainstorming
+    階段跟 Cody 討論定案的技術決策。
+  - `classify_tier()`（族群動能五級）是**第三套獨立分類邏輯**，跟 `scan_momentum_health()` 的
+    `strength_tier`、`momentum_generator.py::classify_sector_state()` 都不共用計算依據（刻意
+    設計，只吃 streak+5日窗口加速度，不查法人資料，換取41族群能快速全部算完）。
+  - 異動族群快報改成**動態張數**（符合條件有幾檔顯示幾檔），不是舊 mockup 那種固定5張示範卡。
+  - `generate()` 產生完整 `docs/index.html`（CSS/HTML/JS 一次組裝），個股點開面板走原生
+    `<details>` 展開邏輯 + JS `selectGroup()` 原地插入到被點卡片那一整排正下方。
+- 這次 review 迴圈抓到並修好的問題（比照逆轟策略 v2 的模式，每個都是真的 bug，不是吹毛求疵）：
+  1. **Task 1**：`_streak_and_windows_as_of()` 只防「歷史太短」，沒防 `cutoff_index` 跟
+     `daily_pcts` 長度對不上的情況，會悄悄回傳假資料而非 `None`——已補邊界防呆。
+  2. **Task 2**：`calc_meta_heatgrid_windows()` 的 `fillna(0.0)` 會讓剛掛牌、視窗內有真實缺值
+     的族群被當成「有平盤資料」算出看似有效但其實是假數字的 streak/window_pct——已補
+     `_window_is_real()` 逐視窗真實性檢查；同時補上跟其他姊妹函式一致的 DB 查詢 fail-soft。
+  3. **Task 3**：`classify_tier()` 的 `accel>=-2`（強）跟 `accel<-2`（弱）在 `accel==-2.0` 時
+     依 streak 正負會產生不對稱結果——已補邊界值回歸測試鎖住這個行為，避免以後被誤「統一」
+     運算子改壞。
+  4. **Task 4**：implementer 自己抓到並回報一個我（規劃者）寫在 plan 裡的測試資料 bug（數字
+     湊不出預期的 tier），已確認並修正測資，不是隱瞞硬過。同時補了「族群完全缺 signals/windows
+     資料」的回歸測試。
+  5. **Task 4→Task 6（跨 Task 提前發現）**：`build_sector_recap()` 原規格讓
+     `turning_points` 吃未過濾的 `heatgrid_windows`，會跟已經用 `meta_perf` 過濾過的
+     `hot_top5`/`cold_top5` 產生「同一個回傳值裡對『族群是否還在追蹤』認定自相矛盾」的情況——
+     Task 6 開始實作前就先把 plan 規格修正掉，沒有等實作完才回頭補。
+  6. **Task 8（最大、安全性最重要的 Task）**：
+     - 一開始 implementer 正確擋下一個 plan 自己的測試 bug——`stock_name` 故意不做 Python 端
+       HTML escape、只靠 `<script>` 標籤邊界安全 + JS 端 `escHtml()` 在真正插入 DOM 前才轉義
+       （這是防禦層次正確的設計，跟 `chips_generator.py`/`html_generator.py` 既有慣例一致），
+       但原本的測試斷言「這個字串完全不能出現在整份文件裡」，忽略了它安全地出現在
+       `<script>` 內嵌 JSON 資料裡是預期行為——已確認並修正測試，不是改設計。
+     - Code quality review 額外抓到 3 個真的問題：`.heat-tile`/`.anomaly-card` 只有
+       `onclick` 沒有 `onkeydown`，鍵盤使用者對不到（跟 `html_generator.py` 既有的
+       `role="button"+onkeydown` 慣例是倒退）——已補上；`-0.0`（浮點負零）手動組
+       `"+"` 符號再讓 `:.2f` 格式化會產生 `"+-0.00%"` 這種語法矛盾的雙重符號——已改用
+       Python 原生 `:+.2f` 格式旗標；6 個 `generate()` 測試全部只測「沒資料」空狀態分支，
+       tier/temp/法人badge/週對比等 populated 分支完全沒被測到——已補測試。
+  7. **Task 9**：main.py 接線後，`stock_sparklines`/`rolling_returns`/`vol_signals`
+     三段計算變成沒人消費的死程式碼（舊 generator 的參數，新 generator 不吃）——已移除；
+     `universe_df` 可能是 `None`（`data/stock_universe.csv` 不存在時），新 `generate()`
+     沒有 None 防呆會直接 crash（舊版有）——已在呼叫端補 guard。
+  8. **收尾 holistic review**：發現並修正 2 處文件不準確——`DESIGN.md` 的 border-2 hover
+     色碼誤打成 `--down` 的綠色值；`get_rolling_returns()` docstring 宣稱 index.html 仍呼叫
+     本函式，但新版 `build_stock_detail_data()` 已改用單日 `change_pct`，不再呼叫。
+- 最終 `tests/test_index_generator.py`：**62 passed**；`tests/test_processors.py`：**40 passed**
+  （含新增的 `_streak_and_windows_as_of`/`calc_meta_heatgrid_windows` 相關測試）；全 repo 測試
+  套件：**385 passed**（1個既有跟這次改動無關的 pandas FutureWarning）。
+
+### 資料來源相關（如有異動）
+- 上市資料（TWSE）：無新資料來源異動，純計算邏輯+HTML組裝，讀既有 `daily_prices` 表。
+- 上櫃資料（TPEx / FinMind）：同上，無異動。
+
+### 請 Debugger 驗證
+- [ ] `docs/index.html` 實際跑一次 `python main.py` 產生真實頁面後肉眼檢查（debug worktree
+      沒有 `data/screener.db`，這步可能又要等桌電真實資料，跟逆轟策略 v2 那次一樣的限制）：
+  - 41 個族群熱區格全部有卡片，點擊能正確展開個股清單
+  - 動能五級標籤（超強/強/整理/弱/超弱）跟溫度變化徽章（🔥/❄️）看起來合理
+  - 異動族群快報、族群近況（升溫/退燒Top5+轉折點）有沒有資料都不出錯
+  - 鍵盤操作：Tab focus 到熱區格卡片後按 Enter/Space 能不能正確展開（這是這次 review 抓到
+    才補上的功能，麻煩實際測一次，不要只看程式碼）
+- [ ] 4 個頁面（index/chips/patterns/momentum）nav 互連是否還正常（這次沒動 nav，理論上不受
+      影響，但改了 index.html 的 generator 保險起見確認一次）
+- [ ] `python -m pytest tests/test_index_generator.py tests/test_processors.py -q` 跑一次確認
+      62 + 40 passed
+- [ ] `python -m pytest -q` 全套件確認 385 passed
+
+### 特別注意
+- **`export/html_generator.py` 保留、沒刪**：目前沒有任何程式碼路徑呼叫它了（`main.py` 已
+  改呼叫新的 `index_generator.py`），純粹當 rollback 用。如果新版跑一陣子確認沒問題，之後
+  可以開一個獨立任務把它跟 `tests/test_html_generator.py` 一起刪掉，這次沒做。
+- `classify_tier`/`classify_temp`/異動族群三個門檻（量比≥1.5x、排名跳動≥10、streak≥5）全部
+  是視覺 spec 定的經驗法則草案，**沒有回測驗證**，跟逆轟策略 v2 的草案門檻同一個立場——
+  這次只驗證程式邏輯符合 spec，不代表門檻數值本身合理。
+- 過程中發現一個第三方工具安裝的插曲（跟這次程式改動無關，純記錄）：桌電裝了 `claude-swap`
+  （`cswap` 指令）方便切換多個 Claude Code 帳號，跟這次程式碼變動無關，不用管。
+
+---
+
 ## [2026-07-20] 修 - TAIEX完全抓取失敗時market_permission()誤判selective（Debugger回報，已修）
 
 ### 背景

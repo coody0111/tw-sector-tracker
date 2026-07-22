@@ -487,8 +487,10 @@ def build_stock_detail_data(
     沒有任何股票有行情資料，回空 list），族群內依 change_pct 降冪排列（無行情的排在最後）。
 
     stock_sparklines：processors/performance.py::calc_stock_sparklines() 的輸出，供畫走勢圖，
-    也是 volume（今日成交量）/vol_ratio（今日量/5日均量）的來源——沿用舊版
-    html_generator.py::_stock_card_html() 的資料來源，不重算。
+    也是 volumes（近11日成交量歷史，供個股卡片走勢圖下方疊加量能柱狀圖）/volume（今日
+    成交量，即volumes最後一筆）/vol_ratio（今日量/前10日均量，注意不是MA20，跟
+    patterns.html的量比算法不同）的來源——沿用舊版html_generator.py::_stock_card_html()
+    的資料來源，不重算。
     rolling_returns：screener/database.py::get_rolling_returns((5,7,10,14)) 的輸出
     {stock_id: {5:pct或None, 7:.., 10:.., 14:..}}，跟chips.html「近N日」算法一致。
     chips_df：screener/database.py::get_chips_today() 的輸出（stock_id欄位，非index），
@@ -532,6 +534,7 @@ def build_stock_detail_data(
             "change_pct": float(prices_map.loc[sid]["change_pct"]) if has_price else None,
             "pcts": spark.get("pcts", []),
             "dates": spark.get("dates", []),
+            "volumes": spark.get("volumes", []),
             "volume": spark.get("volumes", [None])[-1] if spark.get("volumes") else None,
             "vol_ratio": spark.get("vol_ratio"),
             "roll5": roll.get(5), "roll7": roll.get(7), "roll10": roll.get(10), "roll14": roll.get(14),
@@ -1115,17 +1118,23 @@ function escHtml(s) {{
   return div.innerHTML;
 }}
 
-// pcts/dates 是 calc_stock_sparklines() 算出的數值/日期字串（"%m/%d"），不是使用者輸入，
-// 不用經過 escHtml 也不會有 XSS 風險——跟這個檔案其他數值型欄位（pct/rank等）的處理一致。
-function buildSparkline(pcts, dates, cls) {{
+// pcts/dates/volumes 是 calc_stock_sparklines() 算出的數值/日期字串（"%m/%d"），不是使用者
+// 輸入，不用經過 escHtml 也不會有 XSS 風險——跟這個檔案其他數值型欄位（pct/rank等）的處理
+// 一致。volumes 是選填的第4個參數，只有個股卡片會傳（族群層級的sparkline沒有量能資料，
+// 呼叫端不傳這個參數，函式自動退回原本只畫價格的版本，不影響既有呼叫）。
+function buildSparkline(pcts, dates, cls, volumes) {{
   if (!pcts || !pcts.length) return '';
   cls = cls || 'sc-sparkline';
-  const n = pcts.length, chartH = 26, gap = 2;
+  const n = pcts.length, priceH = 26, gap = 2;
+  const hasVol = volumes && volumes.length === n;
+  const volH = hasVol ? 16 : 0, volGap = hasVol ? 4 : 0;
   const barW = Math.max(4, Math.floor(140 / n) - gap);
   const totalW = n * (barW + gap) - gap;
-  const mid = chartH / 2;
+  const totalH = priceH + volGap + volH;
+  const mid = priceH / 2;
   const maxAbs = Math.max(...pcts.map(p => Math.abs(p))) || 1;
-  let bars = '';
+  const maxVol = hasVol ? (Math.max(...volumes) || 1) : 1;
+  let priceBars = '', volBars = '';
   for (let i = 0; i < n; i++) {{
     const pct = pcts[i];
     const d = (dates && dates[i]) || '';
@@ -1134,10 +1143,16 @@ function buildSparkline(pcts, dates, cls) {{
     const color = pct > 0 ? 'var(--up)' : (pct < 0 ? 'var(--down)' : 'var(--ink-3)');
     const x = i * (barW + gap);
     const sign = pct >= 0 ? '+' : '';
-    bars += `<rect x="${{x}}" y="${{y}}" width="${{barW}}" height="${{barH}}" fill="${{color}}" rx="1"><title>${{d}} ${{sign}}${{pct.toFixed(2)}}%</title></rect>`;
+    priceBars += `<rect x="${{x}}" y="${{y}}" width="${{barW}}" height="${{barH}}" fill="${{color}}" rx="1"><title>${{d}} ${{sign}}${{pct.toFixed(2)}}%</title></rect>`;
+    if (hasVol) {{
+      const vol = volumes[i] || 0;
+      const vBarH = Math.max(1, vol / maxVol * (volH - 1));
+      const vY = priceH + volGap + (volH - vBarH);
+      volBars += `<rect x="${{x}}" y="${{vY}}" width="${{barW}}" height="${{vBarH}}" fill="${{color}}" opacity="0.5" rx="1"><title>${{d}} 量 ${{vol.toLocaleString()}}張</title></rect>`;
+    }}
   }}
-  return `<div class="${{cls}}"><svg viewBox="0 0 ${{totalW}} ${{chartH}}" xmlns="http://www.w3.org/2000/svg">`
-    + `<line x1="0" y1="${{mid}}" x2="${{totalW}}" y2="${{mid}}" stroke="var(--border)" stroke-width="1"/>${{bars}}</svg></div>`;
+  return `<div class="${{cls}}"><svg viewBox="0 0 ${{totalW}} ${{totalH}}" xmlns="http://www.w3.org/2000/svg">`
+    + `<line x1="0" y1="${{mid}}" x2="${{totalW}}" y2="${{mid}}" stroke="var(--border)" stroke-width="1"/>${{priceBars}}${{volBars}}</svg></div>`;
 }}
 
 // meta是CARD_META[name]，所有欄位都是Python端算好的數值/bool，不是使用者輸入，不用escHtml。
@@ -1233,7 +1248,7 @@ function openStockCard(sid) {{
   const color = s.change_pct >= 0 ? 'var(--up)' : 'var(--down)';
   const sign = s.change_pct >= 0 ? '+' : '';
   const arrow = s.change_pct > 0 ? '▲' : (s.change_pct < 0 ? '▼' : '─');
-  const spark = buildSparkline(s.pcts, s.dates) || '<div class="sc-spark-empty">走勢資料不足</div>';
+  const spark = buildSparkline(s.pcts, s.dates, undefined, s.volumes) || '<div class="sc-spark-empty">走勢資料不足</div>';
   const rollItems = [['5日', s.roll5], ['7日', s.roll7], ['10日', s.roll10], ['14日', s.roll14]]
     .filter(([, v]) => v !== null && v !== undefined)
     .map(([lbl, v]) => {{

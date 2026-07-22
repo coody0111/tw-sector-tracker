@@ -828,8 +828,9 @@ def test_generate_renders_populated_tier_temp_badges_and_recap_data(tmp_path):
 
 
 def test_generate_embeds_stock_sparklines_and_renders_card_js(tmp_path):
-    """Cody回報「個股卡片怎麼不見」——確認stock_sparklines參數會流進STOCKS JSON，
-    而且前端是card格式(buildSparkline/stock-card)不是舊的table格式。"""
+    """Cody回報「個股卡片怎麼不見」，確認stock_sparklines參數會流進STOCKS JSON、
+    sparkline有render在個股卡片(彈窗)裡。個股列表(不是卡片)是可排序的<table>，
+    用來承載代號/收盤/漲跌%，跟卡片彈窗是兩個不同的東西。"""
     output_path = tmp_path / "index.html"
     meta_perf = [
         {"meta_name": "族群A", "avg_change_pct": 2.0, "up_count": 1, "down_count": 0, "flat_count": 0},
@@ -846,8 +847,7 @@ def test_generate_embeds_stock_sparklines_and_renders_card_js(tmp_path):
     html = output_path.read_text(encoding="utf-8")
     assert '"pcts": [1.0, 2.0]' in html
     assert "function buildSparkline" in html
-    assert "stock-cards-wrap" in html
-    assert "stocktable" not in html  # 舊table格式應該完全被card格式取代
+    assert 'class="stock-list-table"' in html
 
 
 def test_generate_defaults_stock_sparklines_to_none_without_crashing(tmp_path):
@@ -956,3 +956,23 @@ def test_generate_renders_stock_list_items_with_click_to_open_card(tmp_path):
     assert "stock-card-backdrop" in html
     assert "stock-card-modal" in html
     assert "onclick=\"openStockCard(" in html
+
+
+def test_generate_renders_sortable_column_headers_not_dropdown(tmp_path):
+    """Cody明確要求拿掉排序下拉選單，改成「點選欄位名稱就排序」——確認個股列表是
+    <table>搭配可點擊的欄位標題(sortStockList)，不是<select>下拉選單。"""
+    output_path = tmp_path / "index.html"
+    meta_perf = [{"meta_name": "族群A", "avg_change_pct": 2.0, "up_count": 1, "down_count": 0, "flat_count": 0}]
+    universe_df = pd.DataFrame([{"stock_id": "1000", "stock_name": "測試股", "meta_sector": "族群A"}])
+    prices_df = pd.DataFrame([{"stock_id": "1000", "close": 100.0, "change_pct": 2.0}])
+
+    generate(date(2026, 7, 22), meta_perf, universe_df, {}, {}, prices_df, {}, output_path=str(output_path))
+
+    html = output_path.read_text(encoding="utf-8")
+    assert "function sortStockList" in html
+    assert 'class="stock-list-table"' in html
+    assert "onclick=\"sortStockList(this.parentElement,'pct')\"" in html
+    assert "onclick=\"sortStockList(this.parentElement,'close')\"" in html
+    assert "onclick=\"sortStockList(this.parentElement,'id')\"" in html
+    assert "<select" not in html
+    assert "sortPanelStocks" not in html  # 下拉選單機制已經整個拿掉

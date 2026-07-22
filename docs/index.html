@@ -140,26 +140,36 @@ table.vt-table{width:100%;border-collapse:collapse}
 .cs-row .cs-streak-up{color:var(--up);font-size:.68rem}
 .cs-row .cs-streak-dn{color:var(--down);font-size:.68rem}
 .cs-row .cs-alert{color:var(--accent);font-size:.68rem;font-weight:700}
-.stock-cards-wrap{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px}
-.stock-card{border:1px solid var(--border);border-radius:5px;padding:10px 11px;background:var(--panel-3)}
-.stock-card.no-data{opacity:.5}
-.sc-header{display:flex;align-items:baseline;gap:6px;margin-bottom:4px}
-.sc-id{font-family:var(--mono);color:var(--ink-3);font-size:.68rem}
-.sc-name{font-family:var(--serif);font-weight:600;color:var(--ink);font-size:.86rem;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.sc-body{display:flex;align-items:baseline;justify-content:space-between;font-family:var(--mono);font-variant-numeric:tabular-nums}
-.sc-price{font-size:.86rem;color:var(--ink-2)}
-.sc-pct{font-size:.86rem;font-weight:700}
-.sc-volume-row{display:flex;align-items:center;gap:6px;margin-top:6px;font-family:var(--mono);font-size:.66rem;color:var(--ink-3);flex-wrap:wrap}
+.stock-cards-wrap{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px}
+.stock-item{display:flex;align-items:baseline;gap:8px;border:1px solid var(--border);border-radius:5px;
+  padding:8px 10px;background:var(--panel-3);cursor:pointer;transition:border-color .15s}
+.stock-item:hover{border-color:var(--border-2)}
+.stock-item:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.stock-item.no-data{opacity:.5;cursor:default}
+.stock-item .si-id{font-family:var(--mono);color:var(--ink-3);font-size:.66rem}
+.stock-item .si-name{font-family:var(--serif);font-weight:600;color:var(--ink);font-size:.82rem;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.stock-item .si-price{font-family:var(--mono);font-size:.78rem;color:var(--ink-2)}
+.stock-item .si-pct{font-family:var(--mono);font-size:.78rem;font-weight:700}
+
+.stock-card-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:200;
+  display:flex;align-items:center;justify-content:center;padding:20px}
+.stock-card-modal{background:var(--panel);border:1px solid var(--border-2);border-radius:8px;
+  padding:22px 24px;box-shadow:var(--shadow-2);max-width:400px;width:100%;max-height:82vh;overflow-y:auto}
+.stock-card-modal .sc-header{display:flex;align-items:baseline;gap:8px;margin-bottom:6px}
+.stock-card-modal .sc-id{font-family:var(--mono);color:var(--ink-3);font-size:.72rem}
+.stock-card-modal .sc-name{font-family:var(--serif);font-weight:700;color:var(--ink);font-size:1.05rem;flex:1;min-width:0}
+.stock-card-modal .sc-body{display:flex;align-items:baseline;gap:12px;font-family:var(--mono);font-variant-numeric:tabular-nums;margin-bottom:10px}
+.stock-card-modal .sc-price{font-size:1rem;color:var(--ink-2)}
+.stock-card-modal .sc-pct{font-size:1rem;font-weight:700}
+.sc-volume-row{display:flex;align-items:center;gap:10px;margin-bottom:10px;font-family:var(--mono);font-size:.76rem;color:var(--ink-3);flex-wrap:wrap}
 .vol-ratio{color:var(--ink-3)}
 .vol-ratio.strong{color:var(--accent);font-weight:700}
-.sc-spark-toggle{margin-left:auto;background:none;border:0;color:var(--ink-3);font-family:var(--mono);font-size:.64rem;cursor:pointer;padding:0}
-.sc-spark-toggle:hover{color:var(--ink)}
-.sc-spark-slot{line-height:0}
-.sc-spark-slot svg{width:100%;height:auto;display:block;margin-top:4px}
-.sc-spark-empty{display:block;margin-top:4px;font-size:.64rem;color:var(--ink-3);font-family:var(--serif)}
-.sc-roll{display:flex;gap:6px;margin-top:6px;font-family:var(--mono);font-size:.62rem;flex-wrap:wrap}
-.sc-roll-item .lbl{color:var(--ink-3);margin-right:2px}
-.sc-chips{display:flex;gap:8px;margin-top:5px;font-family:var(--mono);font-size:.62rem;flex-wrap:wrap;color:var(--ink-3)}
+.sc-spark-empty{display:block;margin-bottom:10px;font-size:.76rem;color:var(--ink-3);font-family:var(--serif)}
+.sc-sparkline{margin-bottom:10px;line-height:0}
+.sc-sparkline svg{width:100%;height:auto;display:block}
+.sc-roll{display:flex;gap:10px;margin-bottom:10px;font-family:var(--mono);font-size:.72rem;flex-wrap:wrap}
+.sc-roll-item .lbl{color:var(--ink-3);margin-right:3px}
+.sc-chips{display:flex;gap:10px;font-family:var(--mono);font-size:.72rem;flex-wrap:wrap;color:var(--ink-3)}
 .detail-empty{color:var(--ink-3);font-size:.86rem;padding:20px 0;font-family:var(--serif)}
 
 .ht-top{display:flex;align-items:baseline;gap:8px}
@@ -376,28 +386,36 @@ function fmtPrice(v) {
   return v.toFixed(2);
 }
 
-function toggleCardSpark(card, sid) {
-  const slot = card.querySelector('.sc-spark-slot');
-  if (!slot) return;
-  if (slot.dataset.open === '1') {
-    slot.innerHTML = '';
-    slot.dataset.open = '0';
-    return;
-  }
-  const s = _panelStocks.find(x => x.stock_id === sid);
-  slot.innerHTML = (s && buildSparkline(s.pcts, s.dates)) || '<span class="sc-spark-empty">走勢資料不足</span>';
-  slot.dataset.open = '1';
-}
-
-function renderStockCard(s) {
+// 個股列表(.stock-item)只顯示基本資訊(代號/名稱/收盤/漲跌%)，點擊後才彈出「個股卡片」
+// (.stock-card-modal)顯示走勢圖/量價/籌碼等列表之外的詳細資訊——這是Cody要的兩層式設計
+// (列表 vs 卡片是兩個不同東西，卡片是點選後才出現的彈窗，不是列表格子本身)。
+function renderStockListItem(s) {
+  const sid = escHtml(s.stock_id);
   if (s.no_data) {
-    return `<div class="stock-card no-data">
-      <div class="sc-header"><span class="sc-id">${escHtml(s.stock_id)}</span><span class="sc-name">${escHtml(s.stock_name)}</span></div>
-      <div class="sc-body"><span class="sc-price">無行情</span></div></div>`;
+    return `<div class="stock-item no-data"><span class="si-id">${sid}</span><span class="si-name">${escHtml(s.stock_name)}</span><span class="si-pct">無行情</span></div>`;
   }
   const color = s.change_pct >= 0 ? 'var(--up)' : 'var(--down)';
   const sign = s.change_pct >= 0 ? '+' : '';
   const arrow = s.change_pct > 0 ? '▲' : (s.change_pct < 0 ? '▼' : '─');
+  return `<div class="stock-item" role="button" tabindex="0" onclick="openStockCard('${sid}')" `
+    + `onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openStockCard('${sid}')}">`
+    + `<span class="si-id">${sid}</span><span class="si-name">${escHtml(s.stock_name)}</span>`
+    + `<span class="si-price">${fmtPrice(s.close)}</span>`
+    + `<span class="si-pct" style="color:${color}">${arrow} ${sign}${s.change_pct.toFixed(2)}%</span></div>`;
+}
+
+// 個股卡片：走勢圖(sparkline)+量價(今日成交量/量比)+近5/7/10/14日+外資/投信/融資，
+// 點列表項目才彈出，跟舊版html_generator.py::openStockModal()同樣的「列表→點選→詳細卡片」
+// 兩層式互動，不是永遠顯示在列表格子上。
+function openStockCard(sid) {
+  const s = _panelStocks.find(x => x.stock_id === sid);
+  if (!s || s.no_data) return;
+  closeStockCard();
+
+  const color = s.change_pct >= 0 ? 'var(--up)' : 'var(--down)';
+  const sign = s.change_pct >= 0 ? '+' : '';
+  const arrow = s.change_pct > 0 ? '▲' : (s.change_pct < 0 ? '▼' : '─');
+  const spark = buildSparkline(s.pcts, s.dates) || '<div class="sc-spark-empty">走勢資料不足</div>';
   const rollItems = [['5日', s.roll5], ['7日', s.roll7], ['10日', s.roll10], ['14日', s.roll14]]
     .filter(([, v]) => v !== null && v !== undefined)
     .map(([lbl, v]) => {
@@ -420,15 +438,30 @@ function renderStockCard(s) {
     chipsParts.push(`<span style="color:var(--accent)">融資${marginArrow}${Math.abs(pct).toFixed(1)}%</span>`);
   }
   const chipsHtml = chipsParts.length ? `<div class="sc-chips">${chipsParts.join('')}</div>` : '';
-  const sid = escHtml(s.stock_id);
-  return `<div class="stock-card">
-    <div class="sc-header"><span class="sc-id">${sid}</span><span class="sc-name">${escHtml(s.stock_name)}</span></div>
-    <div class="sc-body"><span class="sc-price">${fmtPrice(s.close)}</span><span class="sc-pct" style="color:${color}">${arrow} ${sign}${s.change_pct.toFixed(2)}%</span></div>
-    <div class="sc-volume-row">${volHtml}${volRatioHtml}
-      <button type="button" class="sc-spark-toggle" onclick="toggleCardSpark(this.closest('.stock-card'),'${sid}')">走勢 ▾</button>
-    </div>
-    <div class="sc-spark-slot" data-open="0"></div>
-    ${rollHtml}${chipsHtml}</div>`;
+
+  const backdrop = document.createElement('div');
+  backdrop.id = 'stockCardBackdrop';
+  backdrop.className = 'stock-card-backdrop';
+  backdrop.onclick = (e) => { if (e.target === backdrop) closeStockCard(); };
+  backdrop.innerHTML = `<div class="stock-card-modal" role="dialog" aria-modal="true">
+      <div class="sc-header"><span class="sc-id">${escHtml(sid)}</span><span class="sc-name">${escHtml(s.stock_name)}</span>
+        <button type="button" class="detail-close" onclick="closeStockCard()">收合</button></div>
+      <div class="sc-body"><span class="sc-price">${fmtPrice(s.close)}</span><span class="sc-pct" style="color:${color}">${arrow} ${sign}${s.change_pct.toFixed(2)}%</span></div>
+      <div class="sc-volume-row">${volHtml}${volRatioHtml}</div>
+      ${spark}${rollHtml}${chipsHtml}
+    </div>`;
+  document.body.appendChild(backdrop);
+  document.addEventListener('keydown', _stockCardEscHandler);
+}
+
+function _stockCardEscHandler(e) {
+  if (e.key === 'Escape') closeStockCard();
+}
+
+function closeStockCard() {
+  const el = document.getElementById('stockCardBackdrop');
+  if (el) el.remove();
+  document.removeEventListener('keydown', _stockCardEscHandler);
 }
 
 let _panelStocks = [], _panelSortKey = 'pct';
@@ -452,7 +485,7 @@ function renderPanelStocks() {
     if (key === 'id') return String(av).localeCompare(String(bv));
     return bv - av;
   });
-  wrap.innerHTML = sorted.map(renderStockCard).join('');
+  wrap.innerHTML = sorted.map(renderStockListItem).join('');
 }
 
 function sortPanelStocks(sel) {
@@ -461,6 +494,7 @@ function sortPanelStocks(sel) {
 }
 
 function selectGroup(name) {
+  closeStockCard();
   const existing = document.getElementById('detailPanel');
   if (existing) existing.remove();
   document.querySelectorAll('.heat-tile').forEach(t => t.classList.remove('active'));

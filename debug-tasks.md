@@ -3214,3 +3214,53 @@ build 指令，不在每日 `main.py` 流程裡，需要 Cody 自己在 terminal
       應該輸出 `工業電腦`
 - [ ] Cody重跑`build_universe.py`後，確認樺漢/研華/凌華等IPC股的meta_sector
       欄位變成「工業電腦」，不再是「電腦周邊」
+
+## [2026-07-23] 工業電腦資料落地 + build_universe.py 過時警告 + 列表新增5/7/10/14日欄位
+
+### 改了什麼
+- 異動檔案：data/stock_universe.csv, export/index_generator.py, tests/test_index_generator.py
+
+### ⚠️ 重要發現：scripts/build_universe.py 已過時，不要直接重跑
+Cody要工業電腦分類落地，照原本計畫要跑 `python scripts/build_universe.py` 重建
+`stock_universe.csv`。**實際執行後發現這支腳本產出的檔案有兩個嚴重問題**：
+1. **完全沒有 `exchange` 欄位**——正式版是6欄(`stock_id,stock_name,exchange,
+   meta_sector,sub_sector,note`)，腳本產出只有5欄，少了`exchange`。
+   `calc_meta_observation_scores()`內部`_calc_chips_factor()`依賴這個欄位，
+   沒有會直接KeyError。
+2. **洗掉手動修正的分類override**——例如「廣宇」原本被手動改成「連接器」
+   (note寫「廣宇主業連接器/線材，手動移出AI伺服器」)，腳本重跑後打回「AI伺服器」；
+   「奇鋐」也一樣被打回錯誤分類。
+
+**已避開這個問題**：沒有採用腳本產出的檔案（已用`git checkout`撤銷），改用針對性
+更新——只把`meta_sector='電腦周邊'`且`sub_sector`屬於新工業電腦關鍵字
+(工業電腦/掌上型工業電腦/自動資料收集產品/條碼掃描器)的38列改`meta_sector`，
+其餘欄位(`exchange`、手動override的note)完全不動。已驗證`exchange`欄位完整、
+廣宇/奇鋐等手動override保留。
+
+**這支腳本本身沒有修**——如果之後又有人直接重跑`build_universe.py`不做防呆，
+會再次踩到同樣的坑。建議之後找時間讓這支腳本：(a) 補上exchange欄位計算邏輯，
+(b) 重跑前備份既有note/手動override並在重建後套用回去，或乾脆改成「只新增
+新股、不動既有分類」的incremental腳本。這次先手動繞過，沒有動腳本本身。
+
+### 個股列表新增5/7/10/14日欄位
+Cody要求近5/7/10/14日不要只藏在個股卡片(彈窗)裡，要直接顯示在族群個股列表上。
+列表從3欄(股票/收盤/漲跌%)擴充成7欄，新增的4欄一樣可以點標題排序。同時補上
+一個潛藏的CSS bug：`.overflow-wrap`這個class從巨量換手訊號區塊(`vt-table`)
+就在用，但這個檔案本來沒有定義對應的CSS規則(`overflow-x:auto`)——這次一併補上。
+
+### 資料來源相關（如有異動）
+- data/stock_universe.csv：38檔個股meta_sector改成工業電腦，其餘欄位不動
+- 上市資料（TWSE）/上櫃資料（TPEx）：無異動
+
+### 請 Debugger 驗證
+- [ ] 全部407個測試通過（已本機跑過，全綠）
+- [ ] `data/stock_universe.csv` 確認exchange欄位存在、廣宇=連接器、奇鋐=散熱
+      （這兩個手動override沒有被誤動）
+- [ ] 個股列表顯示7欄(股票/收盤/漲跌%/5日/7日/10日/14日)，4個新欄位都能點
+      標題排序
+- [ ] 巨量換手訊號區塊(vt-table)如果曾經跑版，這次補的.overflow-wrap應該
+      修好了，確認寬螢幕/窄螢幕都正常
+
+### 特別注意
+- **千萬不要在沒有防呆的情況下重跑`scripts/build_universe.py`**——會洗掉
+  exchange欄位跟手動override，這次已經吃過一次虧（好在還沒commit就發現撤銷了）

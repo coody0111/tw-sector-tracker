@@ -936,3 +936,23 @@ def test_generate_includes_search_box_and_meta_hash_routing(tmp_path):
     assert "const META_INDEX" in html
     assert "decodeURIComponent(location.hash)" in html
     assert "h.startsWith('#meta=')" in html
+
+
+def test_generate_renders_stock_list_items_with_click_to_open_card(tmp_path):
+    """Cody釐清「卡片」的意思：個股列表本身只顯示基本資訊(代號/名稱/收盤/漲跌%)，
+    點擊才彈出「個股卡片」(彈窗)顯示走勢圖/量價/籌碼等列表之外的詳細資訊——兩層式設計，
+    不是把所有資訊都塞在列表格子上。這裡確認list item跟modal彈窗的JS函式都有正確產生。"""
+    output_path = tmp_path / "index.html"
+    meta_perf = [{"meta_name": "族群A", "avg_change_pct": 2.0, "up_count": 1, "down_count": 0, "flat_count": 0}]
+    universe_df = pd.DataFrame([{"stock_id": "1000", "stock_name": "測試股", "meta_sector": "族群A"}])
+    prices_df = pd.DataFrame([{"stock_id": "1000", "close": 100.0, "change_pct": 2.0}])
+
+    generate(date(2026, 7, 22), meta_perf, universe_df, {}, {}, prices_df, {}, output_path=str(output_path))
+
+    html = output_path.read_text(encoding="utf-8")
+    assert "function renderStockListItem" in html
+    assert "function openStockCard" in html
+    assert "function closeStockCard" in html
+    assert "stock-card-backdrop" in html
+    assert "stock-card-modal" in html
+    assert "onclick=\"openStockCard(" in html

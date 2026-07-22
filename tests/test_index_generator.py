@@ -282,7 +282,48 @@ def test_build_heatgrid_cards_handles_missing_signals_gracefully():
     assert card["vol_ratio"] is None
     assert card["last_week_pct"] is None and card["this_week_pct"] is None
     assert card["accel"] is None
+    assert card["cum3"] is None and card["cum5"] is None and card["cum7"] is None
+    assert card["rank_delta"] is None
     assert "color-mix" in card["heat_bg"]  # 就算完全沒有enrichment資料，heat_bg仍要能算(靠pct本身)
+
+
+def test_build_heatgrid_cards_attaches_cum_badges_and_rank_delta():
+    """Cody回報「族群近況都是錯誤的」之前，先確認稽核發現的3/5/7日累積漲跌badge+排名
+    升降箭頭有正確接上：cum_data是calc_cumulative_meta()的原始list，這裡轉成dict查表；
+    排名升降是拿meta_signals既有的yesterday_rank跟這次算出的今日排名比較。"""
+    meta_perf = [
+        {"meta_name": "族群A", "avg_change_pct": 5.0, "up_count": 10, "down_count": 2, "flat_count": 1},
+        {"meta_name": "族群B", "avg_change_pct": -3.0, "up_count": 2, "down_count": 10, "flat_count": 0},
+    ]
+    meta_signals = {
+        "族群A": {"yesterday_rank": 3},  # 今天#1，昨天#3 → 排名進步2名
+        "族群B": {"yesterday_rank": 1},  # 今天#2，昨天#1 → 排名退步1名
+    }
+    cum_data = [
+        {"meta_name": "族群A", "cum1": 1.0, "cum3": 8.0, "cum5": 10.0, "cum7": None},
+        {"meta_name": "族群B", "cum1": -1.0, "cum3": -5.0, "cum5": None, "cum7": -9.0},
+    ]
+
+    cards = build_heatgrid_cards(meta_perf, meta_signals, {}, {}, cum_data)
+
+    a = next(c for c in cards if c["meta_name"] == "族群A")
+    assert a["cum3"] == 8.0 and a["cum5"] == 10.0 and a["cum7"] is None
+    assert a["rank_delta"] == 2  # yesterday_rank(3) - today_rank(1)
+
+    b = next(c for c in cards if c["meta_name"] == "族群B")
+    assert b["cum3"] == -5.0 and b["cum5"] is None and b["cum7"] == -9.0
+    assert b["rank_delta"] == -1  # yesterday_rank(1) - today_rank(2)
+
+
+def test_build_heatgrid_cards_defaults_cum_to_none_without_cum_data():
+    """cum_data沒傳(None)時cum3/5/7都要是None，不能crash——跟其他enrichment參數的
+    fail-soft慣例一致。"""
+    meta_perf = [
+        {"meta_name": "族群A", "avg_change_pct": 1.0, "up_count": 1, "down_count": 0, "flat_count": 0},
+    ]
+    cards = build_heatgrid_cards(meta_perf, {}, {}, {})
+
+    assert cards[0]["cum3"] is None and cards[0]["cum5"] is None and cards[0]["cum7"] is None
 
 
 from export.index_generator import build_sector_recap
@@ -303,7 +344,8 @@ def test_build_sector_recap_sorts_hot_and_cold_by_accel():
                     "streak_5d_ago": None, "last_week_pct_5d_ago": None},  # accel=0.5
     }
 
-    recap = build_sector_recap(meta_perf, heatgrid_windows)
+    cards = build_heatgrid_cards(meta_perf, {}, {}, heatgrid_windows)
+    recap = build_sector_recap(cards, heatgrid_windows)
 
     assert recap["hot_top5"][0]["meta_name"] == "升溫族群"
     assert recap["cold_top5"][0]["meta_name"] == "退燒族群"
@@ -321,7 +363,8 @@ def test_build_sector_recap_excludes_none_accel_from_hot_cold_ranking():
                     "streak_5d_ago": None, "last_week_pct_5d_ago": None},
     }
 
-    recap = build_sector_recap(meta_perf, heatgrid_windows)
+    cards = build_heatgrid_cards(meta_perf, {}, {}, heatgrid_windows)
+    recap = build_sector_recap(cards, heatgrid_windows)
 
     hot_names = [r["meta_name"] for r in recap["hot_top5"]]
     assert "資料不足" not in hot_names
@@ -336,7 +379,8 @@ def test_build_sector_recap_includes_turning_points():
         "翻轉族群": {"streak_today": 3, "last_week_pct_today": 1.0, "this_week_pct_today": 6.0,
                     "streak_5d_ago": -2, "last_week_pct_5d_ago": 3.5},
     }
-    recap = build_sector_recap(meta_perf, heatgrid_windows)
+    cards = build_heatgrid_cards(meta_perf, {}, {}, heatgrid_windows)
+    recap = build_sector_recap(cards, heatgrid_windows)
     assert recap["turning_points"][0]["meta_name"] == "翻轉族群"
     assert recap["turning_points"][0]["direction"] == "轉強訊號"
 
@@ -364,13 +408,93 @@ def test_build_sector_recap_excludes_stale_sector_from_turning_points():
             "streak_5d_ago": -2, "last_week_pct_5d_ago": 3.5,
         },
     }
-    recap = build_sector_recap(meta_perf, heatgrid_windows)
+    cards = build_heatgrid_cards(meta_perf, {}, {}, heatgrid_windows)
+    recap = build_sector_recap(cards, heatgrid_windows)
     turning_names = [r["meta_name"] for r in recap["turning_points"]]
 
     assert "已下架族群" not in turning_names
     assert "有效族群" in turning_names
     valid = next(r for r in recap["turning_points"] if r["meta_name"] == "有效族群")
     assert valid["direction"] == "轉強訊號"
+
+
+def test_build_sector_recap_excludes_today_breakout_sector_from_cold_top5():
+    """Cody回報實際案例：功率半導體今日排名#40→#1、+5.66%，卻被歸類成「退燒」——
+    因為accel(週對週5日滾動窗比較)本質上跟「今天是不是正在發生大事」是兩個不同問題，
+    兩者合法地可以背離。修法：新增「今日爆發」類別(只看排名跳動+今日漲跌，不要求
+    量比)，並且cold_top5要排除掉「今日爆發」的族群——不能讓同一族群同時被講成
+    「退燒」又「今日爆發」，這對使用者是矛盾的訊號。"""
+    meta_perf = [
+        {"meta_name": "功率半導體", "avg_change_pct": 5.66, "up_count": 30, "down_count": 5, "flat_count": 0},
+        {"meta_name": "真退燒族群", "avg_change_pct": -1.0, "up_count": 2, "down_count": 20, "flat_count": 0},
+    ]
+    meta_signals = {
+        "功率半導體": {"yesterday_rank": 40},  # 今天#1(avg_change_pct最高) → rank_delta = 40-1 = 39
+        "真退燒族群": {"yesterday_rank": 2},   # 今天#2 → rank_delta = 2-2 = 0，不算爆發
+    }
+    heatgrid_windows = {
+        "功率半導體": {"streak_today": 1, "last_week_pct_today": 20.0, "this_week_pct_today": 5.0,
+                     "streak_5d_ago": None, "last_week_pct_5d_ago": None},  # accel=-15.0，本來會被算成退燒
+        "真退燒族群": {"streak_today": -3, "last_week_pct_today": 1.0, "this_week_pct_today": -5.0,
+                     "streak_5d_ago": None, "last_week_pct_5d_ago": None},  # accel=-6.0，真的退燒
+    }
+
+    cards = build_heatgrid_cards(meta_perf, meta_signals, {}, heatgrid_windows)
+    recap = build_sector_recap(cards, heatgrid_windows)
+
+    cold_names = [r["meta_name"] for r in recap["cold_top5"]]
+    assert "功率半導體" not in cold_names  # 今日爆發的族群不該同時被講成退燒
+    assert "真退燒族群" in cold_names  # 真正退燒的族群還是要留著
+
+    breakout_names = [r["meta_name"] for r in recap["today_breakout"]]
+    assert "功率半導體" in breakout_names
+    assert "真退燒族群" not in breakout_names
+    breakout_row = next(r for r in recap["today_breakout"] if r["meta_name"] == "功率半導體")
+    assert breakout_row["rank_delta"] == 39
+
+
+def test_build_sector_recap_identifies_foreign_and_trust_stealth_accumulation():
+    """Cody要求新增「外資悄悄佈局/投信悄悄佈局」——股價還沒明顯反應但法人連買好幾天的
+    族群，用既有的meta_chips(foreign_streak/trust_streak)資料，不需要新的資料來源。"""
+    meta_perf = [
+        {"meta_name": "外資佈局中", "avg_change_pct": 0.3, "up_count": 5, "down_count": 5, "flat_count": 0},
+        {"meta_name": "投信佈局中", "avg_change_pct": -0.5, "up_count": 3, "down_count": 7, "flat_count": 0},
+        {"meta_name": "已經噴出", "avg_change_pct": 5.0, "up_count": 10, "down_count": 0, "flat_count": 0},
+    ]
+    meta_chips = {
+        "外資佈局中": {"foreign_streak": 5, "trust_streak": 0},
+        "投信佈局中": {"foreign_streak": 0, "trust_streak": 4},
+        "已經噴出": {"foreign_streak": 6, "trust_streak": 5},  # 連買天數更高，但股價已經噴出，不算「悄悄」
+    }
+
+    cards = build_heatgrid_cards(meta_perf, {}, meta_chips, {})
+    recap = build_sector_recap(cards, {})
+
+    foreign_names = [r["meta_name"] for r in recap["foreign_stealth"]]
+    trust_names = [r["meta_name"] for r in recap["trust_stealth"]]
+    assert "外資佈局中" in foreign_names
+    assert "已經噴出" not in foreign_names  # 股價已經動了(+5%)，不算悄悄佈局
+    assert "投信佈局中" in trust_names
+    assert "已經噴出" not in trust_names
+
+
+def test_build_sector_recap_identifies_volume_anomaly():
+    """量能異常：今日量比高但股價還沒明顯反應。"""
+    meta_perf = [
+        {"meta_name": "量能異常族群", "avg_change_pct": 0.8, "up_count": 5, "down_count": 5, "flat_count": 0},
+        {"meta_name": "正常量能族群", "avg_change_pct": 0.5, "up_count": 5, "down_count": 5, "flat_count": 0},
+    ]
+    meta_signals = {
+        "量能異常族群": {"vol_ratio": 2.5},
+        "正常量能族群": {"vol_ratio": 1.0},
+    }
+
+    cards = build_heatgrid_cards(meta_perf, meta_signals, {}, {})
+    recap = build_sector_recap(cards, {})
+
+    volume_names = [r["meta_name"] for r in recap["volume_anomaly"]]
+    assert "量能異常族群" in volume_names
+    assert "正常量能族群" not in volume_names
 
 
 def test_build_stock_detail_data_groups_by_meta_and_sorts_by_change_pct():
@@ -392,7 +516,9 @@ def test_build_stock_detail_data_groups_by_meta_and_sorts_by_change_pct():
 
 
 def test_build_stock_detail_data_includes_all_meta_sectors_even_with_no_price_data():
-    """族群存在universe裡但完全沒有對應行情資料時，仍要有這個key(空list)，不能整個族群消失。"""
+    """族群存在universe裡但完全沒有對應行情資料時，仍要有這個key，個股以no_data=True
+    佔位卡呈現（比照舊版html_generator.py「無行情」佔位符慣例，Cody回報這點也是這次
+    改版遺漏的項目之一），不能整個族群消失，也不能整檔股票消失。"""
     universe_df = pd.DataFrame([
         {"stock_id": "9999", "stock_name": "無行情股", "meta_sector": "空資料族群"},
     ])
@@ -400,11 +526,15 @@ def test_build_stock_detail_data_includes_all_meta_sectors_even_with_no_price_da
 
     result = build_stock_detail_data(universe_df, prices_df)
 
-    assert result["空資料族群"] == []
+    assert len(result["空資料族群"]) == 1
+    assert result["空資料族群"][0]["no_data"] is True
+    assert result["空資料族群"][0]["close"] is None
+    assert result["空資料族群"][0]["change_pct"] is None
 
 
-def test_build_stock_detail_data_skips_individual_stock_missing_price():
-    """族群內部分股票有行情、部分沒有：有行情的股票正常列出，沒行情的那檔跳過(不補假資料)。"""
+def test_build_stock_detail_data_marks_individual_stock_missing_price_as_no_data():
+    """族群內部分股票有行情、部分沒有：有行情的股票正常列出(no_data=False)，沒行情的
+    那檔標記no_data=True但仍然出現在清單裡(不再跳過)，且排在有行情的股票後面。"""
     universe_df = pd.DataFrame([
         {"stock_id": "1000", "stock_name": "有行情", "meta_sector": "族群C"},
         {"stock_id": "1001", "stock_name": "無行情", "meta_sector": "族群C"},
@@ -413,8 +543,49 @@ def test_build_stock_detail_data_skips_individual_stock_missing_price():
 
     result = build_stock_detail_data(universe_df, prices_df)
 
-    assert len(result["族群C"]) == 1
+    assert len(result["族群C"]) == 2
     assert result["族群C"][0]["stock_id"] == "1000"
+    assert result["族群C"][0]["no_data"] is False
+    assert result["族群C"][1]["stock_id"] == "1001"
+    assert result["族群C"][1]["no_data"] is True
+
+
+def test_build_stock_detail_data_attaches_rolling_returns_and_chips():
+    """Cody回報「近5/7/10/14天都不見了」跟個股外資/投信摘要——這裡確認
+    rolling_returns(get_rolling_returns()格式)跟chips_df(get_chips_today()格式)
+    都有正確附加到對應股票上。"""
+    universe_df = pd.DataFrame([
+        {"stock_id": "1000", "stock_name": "股票甲", "meta_sector": "族群A"},
+    ])
+    prices_df = pd.DataFrame([{"stock_id": "1000", "close": 100.0, "change_pct": 2.0}])
+    rolling_returns = {"1000": {5: 3.0, 7: 4.0, 10: None, 14: 6.0}}
+    chips_df = pd.DataFrame([
+        {"stock_id": "1000", "foreign_net": 500000, "trust_net": -200000,
+         "margin_balance": 1000000, "margin_change": 50000},
+    ])
+
+    result = build_stock_detail_data(universe_df, prices_df, rolling_returns=rolling_returns, chips_df=chips_df)
+
+    stock = result["族群A"][0]
+    assert stock["roll5"] == 3.0 and stock["roll7"] == 4.0 and stock["roll10"] is None and stock["roll14"] == 6.0
+    assert stock["foreign_net"] == 500000
+    assert stock["trust_net"] == -200000
+    assert stock["margin_balance"] == 1000000
+    assert stock["margin_change"] == 50000
+
+
+def test_build_stock_detail_data_defaults_rolling_and_chips_to_none_without_data():
+    """rolling_returns/chips_df沒傳、或這支股票不在裡面時，都要是None，不能crash。"""
+    universe_df = pd.DataFrame([
+        {"stock_id": "1000", "stock_name": "股票甲", "meta_sector": "族群A"},
+    ])
+    prices_df = pd.DataFrame([{"stock_id": "1000", "close": 100.0, "change_pct": 2.0}])
+
+    stock = build_stock_detail_data(universe_df, prices_df)["族群A"][0]
+
+    assert stock["roll5"] is None and stock["roll7"] is None
+    assert stock["foreign_net"] is None and stock["trust_net"] is None
+    assert stock["margin_balance"] is None and stock["margin_change"] is None
 
 
 def test_build_stock_detail_data_attaches_sparkline_when_provided():
@@ -655,3 +826,78 @@ def test_generate_defaults_stock_sparklines_to_none_without_crashing(tmp_path):
     result = generate(date(2026, 7, 22), meta_perf, universe_df, {}, {}, prices_df, {}, output_path=str(output_path))
 
     assert output_path.exists()
+
+
+def test_generate_renders_market_regime_dashboard_when_provided(tmp_path):
+    """Cody稽核發現的大盤分級儀表板——market_regime有傳時要render對應的五級方向+
+    操作提示；沒傳(None)時整塊不顯示（比照舊版html_generator.py::_market_regime_section()
+    TAIEX抓取失敗時的fail-soft行為）。"""
+    output_path = tmp_path / "index.html"
+    meta_perf = [{"meta_name": "族群A", "avg_change_pct": 2.0, "up_count": 1, "down_count": 0, "flat_count": 0}]
+    universe_df = pd.DataFrame([{"stock_id": "1000", "stock_name": "測試股", "meta_sector": "族群A"}])
+    prices_df = pd.DataFrame([{"stock_id": "1000", "close": 100.0, "change_pct": 2.0}])
+    market_regime = {
+        "tier": "小漲", "taiex_change_pct": 0.5, "up_count": 600, "total": 1000, "breadth_ratio": 0.6,
+        "heavyweight_avg_pct": 0.3, "broad_avg_pct": 0.8, "divergence": -0.5,
+        "concentration_direction": None, "is_concentrated": False, "heavyweight_count": 20,
+    }
+
+    generate(date(2026, 7, 22), meta_perf, universe_df, {}, {}, prices_df, {},
+             market_regime=market_regime, output_path=str(output_path))
+    html = output_path.read_text(encoding="utf-8")
+    assert "大盤現況" in html
+    assert "小漲" in html
+    assert "資金分布均衡" in html
+
+    output_path2 = tmp_path / "index2.html"
+    generate(date(2026, 7, 22), meta_perf, universe_df, {}, {}, prices_df, {},
+             market_regime=None, output_path=str(output_path2))
+    html2 = output_path2.read_text(encoding="utf-8")
+    assert "大盤現況" not in html2
+
+
+def test_generate_renders_volume_turnover_section_when_provided(tmp_path):
+    """Cody稽核發現的巨量換手訊號區塊——vol_turnover_signals有資料時要render表格，
+    空list或None時整塊不顯示。"""
+    output_path = tmp_path / "index.html"
+    meta_perf = [{"meta_name": "族群A", "avg_change_pct": 2.0, "up_count": 1, "down_count": 0, "flat_count": 0}]
+    universe_df = pd.DataFrame([{"stock_id": "1000", "stock_name": "測試股", "meta_sector": "族群A"}])
+    prices_df = pd.DataFrame([{"stock_id": "1000", "close": 100.0, "change_pct": 2.0}])
+    vol_turnover_signals = [
+        {"stock_id": "2330", "stock_name": "台積電", "meta_sector": "半導體", "change_pct": -3.5,
+         "vol_multiple": 4.2, "foreign_net": -500000, "inst_confirmed": True},
+    ]
+
+    generate(date(2026, 7, 22), meta_perf, universe_df, {}, {}, prices_df, {},
+             vol_turnover_signals=vol_turnover_signals, output_path=str(output_path))
+    html = output_path.read_text(encoding="utf-8")
+    assert "巨量換手訊號" in html
+    assert "台積電" in html
+    assert "外資+投信✓" in html
+
+    output_path2 = tmp_path / "index2.html"
+    generate(date(2026, 7, 22), meta_perf, universe_df, {}, {}, prices_df, {},
+             vol_turnover_signals=[], output_path=str(output_path2))
+    html2 = output_path2.read_text(encoding="utf-8")
+    assert "巨量換手訊號" not in html2
+
+
+def test_generate_includes_search_box_and_meta_hash_routing(tmp_path):
+    """Cody稽核發現的兩個項目：(1)個股搜尋框不見了 (2)chips.html的#meta=連結深連結失效
+    （chips_generator.py:_meta_link()還在產生index.html#meta={name}格式的連結，但舊版
+    selectGroup()進來讀取location.hash的IIFE在改版時漏掉了）。這裡確認搜尋框HTML跟
+    hash-routing的JS都有正確產生。"""
+    output_path = tmp_path / "index.html"
+    meta_perf = [{"meta_name": "族群A", "avg_change_pct": 2.0, "up_count": 1, "down_count": 0, "flat_count": 0}]
+    universe_df = pd.DataFrame([{"stock_id": "1000", "stock_name": "測試股", "meta_sector": "族群A"}])
+    prices_df = pd.DataFrame([{"stock_id": "1000", "close": 100.0, "change_pct": 2.0}])
+
+    generate(date(2026, 7, 22), meta_perf, universe_df, {}, {}, prices_df, {}, output_path=str(output_path))
+
+    html = output_path.read_text(encoding="utf-8")
+    assert 'id="stock-search"' in html
+    assert "function searchStocks" in html
+    assert "const STOCK_INDEX" in html
+    assert "const META_INDEX" in html
+    assert "decodeURIComponent(location.hash)" in html
+    assert "h.startsWith('#meta=')" in html

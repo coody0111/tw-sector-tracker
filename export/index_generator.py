@@ -722,6 +722,8 @@ table.stock-list-table{width:100%;border-collapse:collapse}
 .sc-volume-row{display:flex;align-items:center;gap:10px;margin-bottom:10px;font-family:var(--mono);font-size:.76rem;color:var(--ink-3);flex-wrap:wrap}
 .vol-ratio{color:var(--ink-3)}
 .vol-ratio.strong{color:var(--accent);font-weight:700}
+.vol-burst-badge{display:inline-block;padding:1px 5px;border-radius:3px;font-size:.68rem;font-weight:700;
+  background:color-mix(in srgb, var(--accent) 20%, transparent);color:var(--accent);vertical-align:middle}
 .sc-spark-empty{display:block;margin-bottom:10px;font-size:.76rem;color:var(--ink-3);font-family:var(--serif)}
 .sc-sparkline{margin-bottom:10px;line-height:0}
 .sc-sparkline svg{width:100%;height:auto;display:block}
@@ -1194,10 +1196,19 @@ function _rollTd(v) {{
   return `<td class="num tabular" style="color:${{c}}">${{v>=0?'+':''}}${{v.toFixed(2)}}%</td>`;
 }}
 
+// 量比>=1.5x視為「爆大量」，用強調色+粗體+文字徽章明確標示，不是只靠數字大小自己判斷。
+function _volTd(v) {{
+  if (v === null || v === undefined) return '<td class="num tabular">─</td>';
+  const isBurst = v >= 1.5;
+  const style = isBurst ? 'color:var(--accent);font-weight:700' : 'color:var(--ink-3)';
+  const badge = isBurst ? ' <span class="vol-burst-badge">爆量</span>' : '';
+  return `<td class="num tabular" style="${{style}}">${{v.toFixed(2)}}x${{badge}}</td>`;
+}}
+
 function renderStockListItem(s) {{
   const sid = escHtml(s.stock_id);
   if (s.no_data) {{
-    return `<tr class="stock-item no-data"><td><span class="si-id">${{sid}}</span><span class="si-name">${{escHtml(s.stock_name)}}</span></td><td colspan="6">無行情</td></tr>`;
+    return `<tr class="stock-item no-data"><td><span class="si-id">${{sid}}</span><span class="si-name">${{escHtml(s.stock_name)}}</span></td><td colspan="7">無行情</td></tr>`;
   }}
   const color = s.change_pct >= 0 ? 'var(--up)' : 'var(--down)';
   const sign = s.change_pct >= 0 ? '+' : '';
@@ -1207,6 +1218,7 @@ function renderStockListItem(s) {{
     + `<td><span class="si-id">${{sid}}</span><span class="si-name">${{escHtml(s.stock_name)}}</span></td>`
     + `<td class="num tabular">${{fmtPrice(s.close)}}</td>`
     + `<td class="num tabular" style="color:${{color}}">${{arrow}} ${{sign}}${{s.change_pct.toFixed(2)}}%</td>`
+    + `${{_volTd(s.vol_ratio)}}`
     + `${{_rollTd(s.roll5)}}${{_rollTd(s.roll7)}}${{_rollTd(s.roll10)}}${{_rollTd(s.roll14)}}</tr>`;
 }}
 
@@ -1276,6 +1288,7 @@ function _sortValue(s, key) {{
   if (key === 'pct') return s.change_pct;
   if (key === 'id') return s.stock_id;
   if (key === 'close') return s.close;
+  if (key === 'vol') return s.vol_ratio;
   if (key === '5' || key === '7' || key === '10' || key === '14') return s['roll' + key];
   return null;
 }}
@@ -1358,6 +1371,7 @@ function selectGroup(name) {{
           <th aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'id')">股票</button></th>
           <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'close')">收盤</button></th>
           <th class="num" aria-sort="descending"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'pct')">漲跌%</button></th>
+          <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'vol')">量比</button></th>
           <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'5')">5日</button></th>
           <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'7')">7日</button></th>
           <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'10')">10日</button></th>

@@ -1027,3 +1027,32 @@ def test_generate_renders_rolling_return_columns_directly_on_stock_list(tmp_path
     assert "onclick=\"sortStockList(this.parentElement,'10')\"" in html
     assert "onclick=\"sortStockList(this.parentElement,'14')\"" in html
     assert "function _rollTd" in html
+
+
+def test_generate_renders_volume_ratio_column_with_burst_badge(tmp_path):
+    """Cody問「個股列表有沒有量能表現」，說明白一點是想知道「是否有爆大量」——
+    加一欄量比(vol_ratio)，>=1.5x視為爆大量，要有明確的視覺標示(強調色+「爆量」
+    文字徽章)，不能只靠數字大小自己判斷。"""
+    output_path = tmp_path / "index.html"
+    meta_perf = [{"meta_name": "族群A", "avg_change_pct": 2.0, "up_count": 2, "down_count": 0, "flat_count": 0}]
+    universe_df = pd.DataFrame([
+        {"stock_id": "1000", "stock_name": "爆量股", "meta_sector": "族群A"},
+        {"stock_id": "1001", "stock_name": "正常股", "meta_sector": "族群A"},
+    ])
+    prices_df = pd.DataFrame([
+        {"stock_id": "1000", "close": 100.0, "change_pct": 2.0},
+        {"stock_id": "1001", "close": 50.0, "change_pct": 1.0},
+    ])
+    stock_sparklines = {
+        "1000": {"pcts": [], "dates": [], "volumes": [1000], "vol_ratio": 2.5},
+        "1001": {"pcts": [], "dates": [], "volumes": [1000], "vol_ratio": 1.0},
+    }
+
+    generate(date(2026, 7, 22), meta_perf, universe_df, {}, {}, prices_df, {},
+             stock_sparklines=stock_sparklines, output_path=str(output_path))
+
+    html = output_path.read_text(encoding="utf-8")
+    assert ">量比</button>" in html
+    assert "onclick=\"sortStockList(this.parentElement,'vol')\"" in html
+    assert "function _volTd" in html
+    assert "vol-burst-badge" in html

@@ -343,13 +343,20 @@ def test_build_sector_recap_excludes_stale_sector_from_turning_points():
     """heatgrid_windows有某族群的翻轉資料，但meta_perf(當下有效族群清單)已經不包含它
     (例如calc_meta_performance()跟calc_meta_heatgrid_windows()兩個獨立呼叫，某次族群集合
     不一致)——turning_points不能顯示這個已經不在meta_perf裡的族群，要跟hot_top5/cold_top5
-    的過濾邏輯一致(這是Task 4 code review提前發現的落地前風險，Task 6一開始就要防)。"""
+    的過濾邏輯一致(這是Task 4 code review提前發現的落地前風險，Task 6一開始就要防)。
+
+    同時驗證正面案例：仍在meta_perf裡的「有效族群」若真的有翻轉，要正確出現在turning_points
+    （不能因為過濾邏輯寫錯、把active_windows整個濾成空的，導致這個測試表面上通過但其實
+    什麼都沒篩選對——code review抓到：只斷言「已下架族群不在」無法區分「正確過濾」跟
+    「過濾過頭變空dict」這兩種情況，因為兩者都會讓「已下架族群 not in []」成立）。"""
     meta_perf = [
         {"meta_name": "有效族群", "avg_change_pct": 1.0, "up_count": 1, "down_count": 0, "flat_count": 0},
     ]
     heatgrid_windows = {
-        "有效族群": {"streak_today": 1, "last_week_pct_today": 1.0, "this_week_pct_today": 1.5,
-                    "streak_5d_ago": None, "last_week_pct_5d_ago": None},
+        "有效族群": {  # 也有真實翻轉(弱→超強)，且仍在meta_perf裡，應該要出現在turning_points
+            "streak_today": 3, "last_week_pct_today": 1.0, "this_week_pct_today": 6.0,
+            "streak_5d_ago": -2, "last_week_pct_5d_ago": 3.5,
+        },
         "已下架族群": {  # 有真實翻轉(弱→超強)，但不在meta_perf裡
             "streak_today": 3, "last_week_pct_today": 1.0, "this_week_pct_today": 6.0,
             "streak_5d_ago": -2, "last_week_pct_5d_ago": 3.5,
@@ -357,4 +364,8 @@ def test_build_sector_recap_excludes_stale_sector_from_turning_points():
     }
     recap = build_sector_recap(meta_perf, heatgrid_windows)
     turning_names = [r["meta_name"] for r in recap["turning_points"]]
+
     assert "已下架族群" not in turning_names
+    assert "有效族群" in turning_names
+    valid = next(r for r in recap["turning_points"] if r["meta_name"] == "有效族群")
+    assert valid["direction"] == "轉強訊號"

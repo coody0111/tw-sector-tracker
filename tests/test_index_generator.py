@@ -792,9 +792,10 @@ def test_generate_renders_populated_tier_temp_badges_and_recap_data(tmp_path):
     assert "轉強訊號" in html  # 轉折點：5天前弱(streak=-2,accel=-2.5)→今天超強
 
 
-def test_generate_embeds_stock_sparklines_and_renders_card_js(tmp_path):
-    """Cody回報「個股卡片怎麼不見」——確認stock_sparklines參數會流進STOCKS JSON，
-    而且前端是card格式(buildSparkline/stock-card)不是舊的table格式。"""
+def test_generate_embeds_stock_sparklines_and_renders_table_js(tmp_path):
+    """Cody先要求個股卡片(sparkline)，後來又要求改回表格格式（一行一檔股票，5/7/10/14日
+    各自一欄），但sparkline/籌碼徽章要保留在表格欄位裡——確認stock_sparklines參數會流進
+    STOCKS JSON，前端用<table class="stock-table">渲染，不是純.stock-cards-wrap grid。"""
     output_path = tmp_path / "index.html"
     meta_perf = [
         {"meta_name": "族群A", "avg_change_pct": 2.0, "up_count": 1, "down_count": 0, "flat_count": 0},
@@ -811,8 +812,8 @@ def test_generate_embeds_stock_sparklines_and_renders_card_js(tmp_path):
     html = output_path.read_text(encoding="utf-8")
     assert '"pcts": [1.0, 2.0]' in html
     assert "function buildSparkline" in html
-    assert "stock-cards-wrap" in html
-    assert "stocktable" not in html  # 舊table格式應該完全被card格式取代
+    assert 'class="stock-table"' in html
+    assert "stock-cards-wrap" not in html  # 卡片grid格式已經改回表格
 
 
 def test_generate_defaults_stock_sparklines_to_none_without_crashing(tmp_path):

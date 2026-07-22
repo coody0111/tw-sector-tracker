@@ -235,13 +235,31 @@ def test_build_heatgrid_cards_ranks_by_avg_change_pct_and_includes_all_fields():
     assert [c["meta_name"] for c in cards] == ["族群A", "族群B"]
     assert cards[0]["rank"] == 1
     assert cards[1]["rank"] == 2
+
     a = cards[0]
     assert a["pct"] == 5.0
     assert a["up_count"] == 10 and a["down_count"] == 2
+    assert a["streak"] == 3  # window_data["streak_today"]，不是meta_signals的streak(5)
+    assert a["vol_ratio"] == 1.8
     assert a["tier"] == {"key": "super", "label": "超強"}  # streak=3>0, accel=6.0-1.0=5.0>3
+    assert a["temp"] == {"key": "hot", "label": "增溫 +5.0pt", "icon": "🔥"}  # accel=5.0>=5.0門檻
     assert a["foreign_streak"] == 3 and a["trust_streak"] == 0
     assert a["last_week_pct"] == 1.0 and a["this_week_pct"] == 6.0
+    assert a["accel"] == 5.0
     assert "color-mix" in a["heat_bg"]
+
+    b = cards[1]
+    assert b["pct"] == -3.0
+    assert b["up_count"] == 2 and b["down_count"] == 10
+    assert b["streak"] == -2
+    assert b["vol_ratio"] == 1.1
+    # streak=-2<0, accel=-3.5-(-1.0)=-2.5 < -2 → weak（走跟族群A完全不同的分支）
+    assert b["tier"] == {"key": "weak", "label": "弱"}
+    assert b["temp"] is None  # |accel|=2.5 < 5.0門檻，不顯示徽章
+    assert b["foreign_streak"] == -1 and b["trust_streak"] == 2
+    assert b["last_week_pct"] == -1.0 and b["this_week_pct"] == -3.5
+    assert b["accel"] == -2.5
+    assert "color-mix" in b["heat_bg"]
 
 
 def test_build_heatgrid_cards_handles_missing_signals_gracefully():
@@ -252,7 +270,14 @@ def test_build_heatgrid_cards_handles_missing_signals_gracefully():
     ]
     cards = build_heatgrid_cards(meta_perf, {}, {}, {})
 
-    assert cards[0]["meta_name"] == "新族群"
-    assert cards[0]["tier"] is None
-    assert cards[0]["foreign_streak"] is None
-    assert cards[0]["streak"] is None
+    card = cards[0]
+    assert card["meta_name"] == "新族群"
+    assert card["tier"] is None
+    assert card["temp"] is None
+    assert card["foreign_streak"] is None
+    assert card["trust_streak"] is None
+    assert card["streak"] is None
+    assert card["vol_ratio"] is None
+    assert card["last_week_pct"] is None and card["this_week_pct"] is None
+    assert card["accel"] is None
+    assert "color-mix" in card["heat_bg"]  # 就算完全沒有enrichment資料，heat_bg仍要能算(靠pct本身)

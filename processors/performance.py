@@ -908,3 +908,93 @@ def _streak_and_windows_as_of(daily_pcts: List[float], cutoff_index: int) -> Opt
     streak = _streak(daily_pcts[:cutoff_index + 1])
 
     return {"streak": streak, "last_week_pct": last_week_pct, "this_week_pct": this_week_pct}
+
+
+_HEATGRID_LOOKBACK_DAYS = 20  # 涵蓋今天(cutoff=最新)+5天前(cutoff=最新-5)都需要的15天history，留5天餘裕
+
+
+def calc_meta_heatgrid_windows(
+    universe_df: pd.DataFrame,
+    db_path: str = "data/screener.db",
+) -> Dict[str, Dict[str, Any]]:
+    """
+    對每個 meta_sector 算「今天」跟「5個交易日前」的 streak/上週/本週窗口原始數值，供族群總覽頁
+    熱區格改版使用。**只回傳原始數值，不做五級分類**——分類邏輯（classify_tier）在
+    export/index_generator.py，這支函式只負責查資料庫、算數字（跟 observation_scores.py 算原始
+    rs_raw/breadth_raw 等因子、分類邏輯留給消費端的分工一致）。
+
+    Returns
+    -------
+    {meta_name: {
+        "streak_today": int, "last_week_pct_today": float, "this_week_pct_today": float,
+        "streak_5d_ago": int | None, "last_week_pct_5d_ago": float | None,
+    }}
+    `this_week_pct_5d_ago` 不回傳：它等於 last_week_pct_today（見 Task 1 驗證過的窗口重疊
+    關係），消費端直接重用 last_week_pct_today 即可，不用多存一份重複資料。
+    """
+    con = duckdb.connect(db_path, read_only=True)
+    try:
+        dates_df = con.execute(
+            f"SELECT DISTINCT date FROM daily_prices ORDER BY date DESC LIMIT {_HEATGRID_LOOKBACK_DAYS}"
+        ).fetchdf()
+        if dates_df.empty:
+            return {}
+        min_date = dates_df["date"].min()
+        price_df = con.execute(
+            "SELECT stock_id, date, change_pct FROM daily_prices WHERE date >= ?",
+            [min_date],
+        ).fetchdf()
+    finally:
+        con.close()
+
+    if price_df.empty:
+        return {}
+
+    universe = universe_df[["stock_id", "meta_sector"]].copy()
+    universe["stock_id"] = universe["stock_id"].astype(str)
+    price_df["stock_id"] = price_df["stock_id"].astype(str)
+
+    merged = price_df.merge(universe, on="stock_id", how="inner")
+    merged = merged.dropna(subset=["change_pct", "meta_sector"])
+    if merged.empty:
+        return {}
+
+    all_dates = sorted(merged["date"].unique())
+    pct_pivot = (
+        merged.groupby(["meta_sector", "date"])["change_pct"].mean()
+        .unstack(level="date")
+        .reindex(columns=all_dates)
+    )
+
+    today_index = len(all_dates) - 1
+    five_days_ago_index = today_index - 5
+
+    results: Dict[str, Dict[str, Any]] = {}
+    for meta_name in pct_pivot.index:
+        daily_pcts = [
+            float(v) if pd.notna(v) else 0.0
+            for v in pct_pivot.loc[meta_name].tolist()
+        ]
+
+        today_calc = _streak_and_windows_as_of(daily_pcts, today_index)
+        if today_calc is None:
+            results[meta_name] = {
+                "streak_today": None, "last_week_pct_today": None, "this_week_pct_today": None,
+                "streak_5d_ago": None, "last_week_pct_5d_ago": None,
+            }
+            continue
+
+        five_days_ago_calc = (
+            _streak_and_windows_as_of(daily_pcts, five_days_ago_index)
+            if five_days_ago_index >= 0 else None
+        )
+
+        results[meta_name] = {
+            "streak_today": today_calc["streak"],
+            "last_week_pct_today": today_calc["last_week_pct"],
+            "this_week_pct_today": today_calc["this_week_pct"],
+            "streak_5d_ago": five_days_ago_calc["streak"] if five_days_ago_calc else None,
+            "last_week_pct_5d_ago": five_days_ago_calc["last_week_pct"] if five_days_ago_calc else None,
+        }
+
+    return results

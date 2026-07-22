@@ -561,3 +561,80 @@ def test_streak_and_windows_as_of_returns_none_when_cutoff_index_out_of_bounds()
     daily_pcts = [1.0] * 5  # 只有5天資料
     result = _streak_and_windows_as_of(daily_pcts, cutoff_index=9)
     assert result is None
+
+
+# ── calc_meta_heatgrid_windows（族群熱區格每日窗口 + 5天前回推）──────────
+import duckdb
+from processors.performance import calc_meta_heatgrid_windows
+
+
+def _seed_heatgrid_db(db_path, price_rows):
+    """price_rows: list of (stock_id, date, change_pct)"""
+    con = duckdb.connect(str(db_path))
+    con.execute("CREATE TABLE daily_prices (stock_id VARCHAR, date DATE, change_pct DOUBLE)")
+    con.executemany("INSERT INTO daily_prices VALUES (?, ?, ?)", price_rows)
+    con.close()
+
+
+def test_calc_meta_heatgrid_windows_computes_today_and_five_days_ago(tmp_path):
+    """15天歷史，單一族群單一股票，全部+1.0%（連漲）：today跟5天前都應該算得出來(不是None)。"""
+    db_path = tmp_path / "test.db"
+    rows = [("1000", f"2026-06-{d:02d}", 1.0) for d in range(1, 16)]  # 06-01~06-15，15天
+    _seed_heatgrid_db(db_path, rows)
+    universe = pd.DataFrame([{"stock_id": "1000", "meta_sector": "測試族群"}])
+
+    result = calc_meta_heatgrid_windows(universe, db_path=str(db_path))
+
+    assert "測試族群" in result
+    row = result["測試族群"]
+    assert row["streak_today"] == 15
+    assert row["streak_5d_ago"] == 10
+    assert row["this_week_pct_today"] is not None
+    assert row["last_week_pct_5d_ago"] is not None
+
+
+def test_calc_meta_heatgrid_windows_five_days_ago_none_when_insufficient_history(tmp_path):
+    """只有10天歷史：today算得出來(剛好卡在邊界)，5天前不足9天(_streak_and_windows_as_of的
+    cutoff_index=4<9)，5天前的欄位應該是None，但不影響today的值。"""
+    db_path = tmp_path / "test.db"
+    rows = [("2000", f"2026-06-{d:02d}", 1.0) for d in range(1, 11)]  # 10天
+    _seed_heatgrid_db(db_path, rows)
+    universe = pd.DataFrame([{"stock_id": "2000", "meta_sector": "資料不足族群"}])
+
+    result = calc_meta_heatgrid_windows(universe, db_path=str(db_path))
+
+    row = result["資料不足族群"]
+    assert row["streak_today"] == 10
+    assert row["this_week_pct_today"] is not None
+    assert row["streak_5d_ago"] is None
+    assert row["last_week_pct_5d_ago"] is None
+
+
+def test_calc_meta_heatgrid_windows_averages_multiple_stocks_in_same_meta(tmp_path):
+    """族群內兩檔股票，每日取平均漲跌%再算streak/window，不是逐股各自算。"""
+    db_path = tmp_path / "test.db"
+    rows = []
+    for d in range(1, 16):
+        rows.append(("3000", f"2026-06-{d:02d}", 2.0))
+        rows.append(("3001", f"2026-06-{d:02d}", 0.0))
+    _seed_heatgrid_db(db_path, rows)
+    universe = pd.DataFrame([
+        {"stock_id": "3000", "meta_sector": "混合族群"},
+        {"stock_id": "3001", "meta_sector": "混合族群"},
+    ])
+
+    result = calc_meta_heatgrid_windows(universe, db_path=str(db_path))
+
+    # 每日平均 = (2.0+0.0)/2 = 1.0，15天複利 this_week_today ≈ (1.01^5-1)*100 = 5.10
+    assert result["混合族群"]["this_week_pct_today"] == 5.1
+
+
+def test_calc_meta_heatgrid_windows_returns_empty_dict_when_no_price_data(tmp_path):
+    db_path = tmp_path / "empty.db"
+    con = duckdb.connect(str(db_path))
+    con.execute("CREATE TABLE daily_prices (stock_id VARCHAR, date DATE, change_pct DOUBLE)")
+    con.close()
+    universe = pd.DataFrame([{"stock_id": "1000", "meta_sector": "測試族群"}])
+
+    result = calc_meta_heatgrid_windows(universe, db_path=str(db_path))
+    assert result == {}

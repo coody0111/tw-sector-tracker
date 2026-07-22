@@ -418,6 +418,11 @@ details.evidence summary{cursor:pointer;font-size:.76rem;color:var(--ink-2)}
 .streak-grid{display:flex;gap:10px;flex-wrap:wrap;margin:0 24px}
 .streak-card{border:1px solid var(--border);border-radius:8px;padding:10px 14px;background:var(--panel)}
 .overflow-wrap{overflow-x:auto}
+tbody[hidden]{display:none}
+.decision-toggle-row td{text-align:center;padding:10px;border-bottom:none}
+.decision-toggle-btn{background:var(--panel-2);border:1px solid var(--border);color:var(--ink-2);
+  padding:6px 16px;border-radius:6px;font-size:.8rem;font-family:inherit;cursor:pointer}
+.decision-toggle-btn:hover{border-color:var(--ink-2);color:var(--ink)}
 """
 
 
@@ -459,6 +464,12 @@ def _sector_priority_html(sector_priority: list) -> str:
     )
 
 
+# Debugger回報：全表1036檔中94.6%落在這兩個標籤(等待確認646+風險升高334)，決策支援頁
+# 被非行動訊號的噪音淹沒。這兩個標籤預設收合、其餘4個(進場候選/出場條件命中/續強觀察/
+# 跌停風險)維持顯示——資料不丟，只是預設不佔版面（2026-07-22 Cody 確認採用此方案）。
+_DECISION_TABLE_COLLAPSED_LABELS = {"等待確認", "風險升高"}
+
+
 def _decision_table_html(decision_table: list) -> str:
     rows = []
     for row in decision_table:
@@ -482,6 +493,34 @@ def _decision_table_html(decision_table: list) -> str:
             "</details></td></tr>"
         )
     return "".join(rows)
+
+
+def _decision_table_section_html(decision_table: list) -> str:
+    """
+    決策主表 tbody 區塊。等待確認/風險升高預設收合進獨立 tbody（hidden 屬性），用原生
+    button 展開，不用 details/summary——table 結構下 details 不能合法包住 tbody。沒有
+    需要收合的列時（例如測試 fixture 只給進場候選）就不產生 toggle 列，避免多一個
+    無意義的空 tbody。
+    """
+    highlighted = [r for r in decision_table if r["final_label"] not in _DECISION_TABLE_COLLAPSED_LABELS]
+    collapsed = [r for r in decision_table if r["final_label"] in _DECISION_TABLE_COLLAPSED_LABELS]
+
+    highlighted_html = f"<tbody>{_decision_table_html(highlighted)}</tbody>"
+    if not collapsed:
+        return highlighted_html
+
+    collapsed_text = _esc(f"顯示其餘 {len(collapsed)} 檔（等待確認／風險升高）▾")
+    expanded_text = _esc("收合等待確認／風險升高 ▲")
+    toggle_html = (
+        '<tbody><tr class="decision-toggle-row"><td colspan="6">'
+        '<button type="button" class="decision-toggle-btn" id="decision-toggle-btn" '
+        'aria-expanded="false" aria-controls="decision-collapsed" '
+        f'data-collapsed-text="{collapsed_text}" data-expanded-text="{expanded_text}" '
+        f'onclick="toggleDecisionCollapsed()">{collapsed_text}</button>'
+        '</td></tr></tbody>'
+    )
+    collapsed_html = f'<tbody id="decision-collapsed" hidden>{_decision_table_html(collapsed)}</tbody>'
+    return highlighted_html + toggle_html + collapsed_html
 
 
 def _risk_zone_html(risk_zone: dict) -> str:
@@ -589,12 +628,23 @@ def generate(
 <div class="overflow-wrap">
 <table class="decision-table">
 <thead><tr><th>股票</th><th>技術狀態</th><th>族群內RS（信心）</th><th>今日抗跌差</th><th>最終標籤</th><th>證據</th></tr></thead>
-<tbody>{_decision_table_html(decision_table)}</tbody>
+{_decision_table_section_html(decision_table)}
 </table>
 </div>
 {risk_zone_html}
 {_streak_cards_html(streak_cards)}
 </main>
+<script>
+function toggleDecisionCollapsed(){{
+  var body = document.getElementById('decision-collapsed');
+  var btn = document.getElementById('decision-toggle-btn');
+  if (!body || !btn) return;
+  var willExpand = body.hasAttribute('hidden');
+  if (willExpand) {{ body.removeAttribute('hidden'); }} else {{ body.setAttribute('hidden', ''); }}
+  btn.setAttribute('aria-expanded', willExpand ? 'true' : 'false');
+  btn.textContent = willExpand ? btn.dataset.expandedText : btn.dataset.collapsedText;
+}}
+</script>
 </body></html>"""
 
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)

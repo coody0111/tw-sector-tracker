@@ -476,3 +476,47 @@ def test_generate_unknown_permission_suppresses_advice_text(tmp_path):
 
     html = output_path.read_text(encoding="utf-8")
     assert "資料日期不一致" in html
+
+
+def test_generate_collapses_waiting_and_risk_labels_by_default(tmp_path):
+    """Cody回報決策表格「超級多檔」，全表1036檔94.6%是等待確認/風險升高的噪音——這兩個
+    標籤預設收合進獨立 tbody（hidden 屬性），只有進場候選/出場條件命中/續強觀察/跌停風險
+    這4個有意義標籤預設顯示。資料不丟，展開按鈕文字要顯示正確的收合檔數。"""
+    output_path = tmp_path / "momentum.html"
+    permission = {"permission": "normal", "tier_text": "小漲", "divergence_text": "", "advice_text": ""}
+    decision_table = [
+        _sample_decision_row(stock_id="2330", stock_name="台積電", final_label="進場候選"),
+        _sample_decision_row(stock_id="2454", stock_name="聯發科", final_label="等待確認"),
+        _sample_decision_row(stock_id="2317", stock_name="鴻海", final_label="等待確認"),
+        _sample_decision_row(stock_id="1101", stock_name="台泥", final_label="風險升高"),
+    ]
+
+    result = generate(date(2026, 7, 19), permission, [], decision_table, {}, [], output_path=str(output_path))
+
+    assert result is True
+    html = output_path.read_text(encoding="utf-8")
+    assert "台積電" in html
+    assert "聯發科" in html
+    assert "鴻海" in html
+    assert "台泥" in html
+    assert 'id="decision-collapsed" hidden' in html
+    assert "顯示其餘 3 檔" in html  # 2檔等待確認 + 1檔風險升高
+    assert 'onclick="toggleDecisionCollapsed()"' in html
+
+
+def test_generate_omits_collapse_toggle_when_no_waiting_or_risk_rows(tmp_path):
+    """全部都是有意義標籤時（沒有等待確認/風險升高），不應該產生多餘的收合區塊/按鈕——
+    比照 test_generate_renders_none_rs_rank_pct_alongside_populated_row 既有的 <tr> 數量斷言，
+    確保新增的收合邏輯不會影響原本只有4個有意義標籤的頁面。"""
+    output_path = tmp_path / "momentum.html"
+    permission = {"permission": "normal", "tier_text": "小漲", "divergence_text": "", "advice_text": ""}
+    decision_table = [
+        _sample_decision_row(stock_id="2330", stock_name="台積電", final_label="進場候選"),
+        _sample_decision_row(stock_id="2454", stock_name="聯發科", final_label="出場條件命中"),
+    ]
+
+    generate(date(2026, 7, 19), permission, [], decision_table, {}, [], output_path=str(output_path))
+
+    html = output_path.read_text(encoding="utf-8")
+    assert "id=\"decision-collapsed\"" not in html
+    assert 'id="decision-toggle-btn"' not in html  # CSS 規則本身一定存在，這裡驗證的是按鈕元素沒有被產生

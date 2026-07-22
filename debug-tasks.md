@@ -2909,3 +2909,36 @@ BIGINT 欄位變成 **nullable `pd.NA`**（不是 `float('nan')`）。`data_gene
 - 這不是程式碼修復，純資料修正，git 不會有 diff（`data/` 已 gitignore）
 - bug-reports.md 對應的 🟡 建議改善（`2321` 即時行情 close=0 瑕疵、`生物辨識` 族群僅 2 檔）尚未處理
   - ⚠️ **Debugger 2026-07-03 複驗發現此修正在 `codyliu` 筆電上從未生效**：`data/daily_prices/2025-04-25.csv` 仍是髒值 `2118.96`（`data/` gitignored 不隨 git 同步，修正只做在桌電）。已由 Cody 授權在筆電重修（close→`21.19`、change/pct 重算、reimport 完成），兩台現在一致。**`2321` close=0 已一併修好（見 Task ③ 註記）**。全表資料品質稽核（37 萬筆）確認硬錯誤僅 3114+2321、均已修，詳見 bug-reports.md。
+
+## [2026-07-22] 個股決策主表收合「等待確認/風險升高」噪音
+
+### 改了什麼
+- 異動檔案：export/momentum_generator.py, tests/test_momentum_generator.py
+- 邏輯說明：
+  - Cody 實跑 `python main.py` 看到今天真實 momentum.html 後回報「個股決策那個有超級多檔」——
+    實際統計全表 1036 檔：等待確認 646（62%）+ 風險升高 334（32%）= 94.6% 是非行動訊號的噪音，
+    真正有意義的只有進場候選 8 + 出場條件命中 18 + 續強觀察 28 + 跌停風險 2 = 56 檔（5.4%）。
+  - 新增 `_DECISION_TABLE_COLLAPSED_LABELS = {"等待確認", "風險升高"}`，`_decision_table_section_html()`
+    把 decision_table 拆成 highlighted（4個有意義標籤，一律顯示）+ collapsed（這兩個標籤，預設收合）。
+  - 用原生 `<button>` + `hidden` 屬性 toggle 第二個 `<tbody id="decision-collapsed">`（table 結構下
+    details/summary 不能合法包住 tbody，改用 button 較簡單；button 天生鍵盤可達，不用額外
+    role/onkeydown）。按鈕文字顯示實際收合檔數（例：「顯示其餘982檔（等待確認／風險升高）▾」）。
+  - 資料完全不丟，只是預設不佔版面；collapsed 為空時（例如全部都是有意義標籤）不產生
+    toggle 按鈕與空 tbody，避免多餘 DOM。
+  - 排序邏輯（族群排序 avg_change_pct）Cody 確認維持現狀不變，不用改。
+
+### 資料來源相關（如有異動）
+- 上市資料（TWSE）：無異動，純前端渲染邏輯
+- 上櫃資料（TPEx / FinMind）：無異動
+
+### 請 Debugger 驗證
+- [ ] 全部45個momentum_generator測試 + 全專案387個測試通過（已本機跑過，全綠）
+- [ ] 實際瀏覽器測試：點擊「顯示其餘N檔」按鈕能正確展開，再點一次能收合，文字正確切換
+- [ ] 鍵盤可達性：Tab到按鈕、Enter/Space觸發（原生button預期沒問題，但要實際測試不只看code）
+- [ ] 全部標籤都是有意義標籤時（沒有等待確認/風險升高）不會產生多餘的收合按鈕
+- [ ] 收合狀態下畫面不應該有大量空白/版面跳動
+
+### 特別注意
+- 這次改動範圍限定在 momentum_generator.py 本身，沒有動 export/index_generator.py 或排序邏輯
+- 對應今天稍早 `python main.py` 已經 push 到 origin 的 `0e9304d`——這次的收合修正**還沒有**
+  重新產生頁面，`docs/momentum.html` 目前線上還是未收合的舊版，下次跑 main.py 時才會套用

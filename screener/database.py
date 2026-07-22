@@ -334,10 +334,10 @@ def get_rolling_returns(periods=(5, 7, 10, 14)) -> dict:
     定義：最新交易日 = rn1，N 交易日前 = rn(N+1)。資料不足／NULL(→nan)／除零一律回 None。
     回傳 `{stock_id: {5: pct 或 None, 7: ..., 10: ..., 14: ...}}`。
 
-    兩個頁面共用的單一算法來源，讓同一支股票的「近N日」在兩頁一致：
-    - chips.html Section 8 大戶持倉表（近5/7/10/14日）：已接
-    - index.html 族群個股表（近5/7/10/14日，`html_generator._stock_table`/`_meta_stock_cards`）：已接
-    （原本 index 用 `_weekly_pct()` 複利 change_pct，2026-07-08 改接本函式，兩頁自此一致）。
+    chips.html Section 8 大戶持倉表（近5/7/10/14日）沿用本函式。
+    ⚠️ index.html 2026-07-22 改成熱區格版面（`export/index_generator.py::build_stock_detail_data()`）
+    後，個股點開面板只顯示單日 `change_pct`，不再呼叫本函式——這裡不再是「兩頁共用一致」的
+    說法，若之後 index.html 想恢復近N日欄位，記得回頭接這支函式維持跟 chips.html 一致。
 
     ⚠️ rn 數的是 daily_prices 裡「實際存在的日期」：若某交易日缺資料（gap），「N 交易日前」會
     實際跨到更早一天，近N日會多算。前提是 daily_prices 沒有交易日缺漏。"""

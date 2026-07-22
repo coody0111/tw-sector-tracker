@@ -3139,3 +3139,39 @@ Cody回報實際案例：**功率半導體今日排名#40→#1、+5.66%，卻被
   revert回卡片內嵌+按鈕展開sparkline→現在這版：列表+點擊彈窗）。這次的版本是根據
   Cody明確澄清「卡片＝點擊才出現的東西」定案，如果之後還有相關回饋，麻煩先跟Cody
   確認是否要推翻這個定案，避免再跑一輪來回
+
+## [2026-07-23] 修正真正的bug：個股列表要點欄位排序才會出現
+
+### 改了什麼
+- 異動檔案：export/index_generator.py, tests/test_index_generator.py
+
+### 邏輯說明
+Cody回報在GitHub Pages線上版本點族群卡片後「根本沒有列表，列表要點欄位才會出現」。
+這次**用jsdom實際模擬瀏覽器點擊重現了問題**（不是只看程式碼猜），確認是真的bug：
+
+`selectGroup()` 裡 `renderPanelStocks()` 原本在 `panel.insertAdjacentElement()` 
+**之前**呼叫——這時 `panel` 還是離線節點（沒掛進 `document`），`renderPanelStocks()`
+內部用 `document.getElementById('panelStocksWrap')` 找 tbody，因為 panel 還沒掛進
+document，這個ID全域查詢找不到東西，`wrap===null` 的 guard 直接擋掉，表格永遠是空的。
+直到使用者點擊欄位標題觸發 `sortStockList()` 重新呼叫 `renderPanelStocks()`，這時
+panel 已經在 document 裡了，才第一次真的 render 出東西——完全符合「要點欄位才會出現」
+的回報現象。
+
+**修法**：把 `renderPanelStocks()` 的呼叫移到 `insertAdjacentElement()` 之後。
+
+**驗證方式**：用 jsdom 建立真實 DOM 環境，實際 `dispatchEvent` 模擬點擊熱區格 tile，
+確認修正前 tbody 是空的、修正後 tbody 立即有正確股票列；接著模擬點擊股票列，確認
+個股卡片彈窗正確跳出。新增原始碼順序的 pytest 回歸測試守住這個修正順序。
+
+### 請 Debugger 驗證
+- [ ] 全部406個測試通過（已本機跑過，全綠）
+- [ ] **這項務必用瀏覽器實測**：點任一族群熱區格，個股列表要立即出現，不需要先點
+      欄位標題（這是這次修的bug，之前所有report都只看code沒有真的點過，這次我自己
+      用jsdom點過確認修好了，但麻煩實際瀏覽器再測一次）
+- [ ] 點欄位標題排序、點股票列開個股卡片，都要正常運作
+
+### 特別注意
+- 這個bug存在的原因是：先前這個功能經過好幾輪修改（卡片→表格→revert→列表+彈窗→
+  排序改欄位標題），過程中沒有人用瀏覽器/jsdom實際執行過JS，只靠靜態程式碼審查跟
+  pytest字串比對測試，這類「DOM插入順序」的bug完全不會被這些方法抓到。以後如果
+  牽涉到DOM操作順序的改動，建議至少用jsdom簡單跑一次實際互動再回報「已修好」

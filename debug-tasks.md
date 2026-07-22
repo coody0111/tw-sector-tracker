@@ -2979,3 +2979,34 @@ BIGINT 欄位變成 **nullable `pd.NA`**（不是 `float('nan')`）。`data_gene
 ### 特別注意
 - 這次改動範圍限定在這兩個檔案的CSS/顏色，沒有動任何邏輯/資料處理
 - 這是 Cody 明確指示「不用brainstorming直接改」略過的一次，範圍相對單純（純視覺配色替換）
+
+## [2026-07-22] index.html個股卡片恢復（含sparkline）
+
+### 改了什麼
+- 異動檔案：export/index_generator.py, main.py, tests/test_index_generator.py
+- 邏輯說明：
+  - Cody 反映「個股的卡片怎麼不見？」——熱區格改版把個股展開面板從舊版的
+    `.stock-card` 卡片格（含sparkline走勢圖）簡化成純 `<table>`，且 Task 9 清理
+    main.py 時把 `calc_stock_sparklines()` 的呼叫當死碼移除了。
+  - main.py：補回 `calc_stock_sparklines(universe_df)` 呼叫（獨立 try/except fail-soft，
+    比照 heatgrid_windows 慣例），傳進 `generate_index_html(..., stock_sparklines=...)`。
+  - `build_stock_detail_data()` 新增 `stock_sparklines` 參數，每支股票的 dict 多了
+    `pcts`/`dates`（沒有資料時是空 list，不會 crash）。
+  - 前端 `selectGroup()` 的個股清單從 `<table class="stocktable">` 改成
+    `.stock-cards-wrap` 卡片格，每張卡新增 `buildSparkline()` 產生的 inline SVG
+    走勢圖（用 var(--up)/var(--down) 上色，跟全站配色一致）。
+
+### 資料來源相關（如有異動）
+- 上市資料（TWSE）：無異動
+- 上櫃資料（TPEx / FinMind）：無異動，`calc_stock_sparklines()` 讀的是 DuckDB
+  `daily_prices`（每日流程既有資料），沒有新增資料源
+
+### 請 Debugger 驗證
+- [ ] 全部391個測試通過（已本機跑過，全綠）
+- [ ] 實際瀏覽器點開族群卡片，個股清單顯示卡片格（不是表格），每張卡有走勢圖
+- [ ] sparkline hover能看到日期+漲跌%的title tooltip
+- [ ] 某族群完全沒有sparkline資料時（例如新股）不會crash，只是卡片沒有走勢圖
+
+### 特別注意
+- 沒有恢復舊版 `_stock_card_html()` 的完整功能（外資/投信/融資籌碼摘要、
+  openStockModal彈窗）——這次只補「卡片格式+sparkline」，範圍比舊版簡單

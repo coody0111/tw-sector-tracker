@@ -344,7 +344,8 @@ def test_build_sector_recap_sorts_hot_and_cold_by_accel():
                     "streak_5d_ago": None, "last_week_pct_5d_ago": None},  # accel=0.5
     }
 
-    recap = build_sector_recap(meta_perf, heatgrid_windows)
+    cards = build_heatgrid_cards(meta_perf, {}, {}, heatgrid_windows)
+    recap = build_sector_recap(cards, heatgrid_windows)
 
     assert recap["hot_top5"][0]["meta_name"] == "升溫族群"
     assert recap["cold_top5"][0]["meta_name"] == "退燒族群"
@@ -362,7 +363,8 @@ def test_build_sector_recap_excludes_none_accel_from_hot_cold_ranking():
                     "streak_5d_ago": None, "last_week_pct_5d_ago": None},
     }
 
-    recap = build_sector_recap(meta_perf, heatgrid_windows)
+    cards = build_heatgrid_cards(meta_perf, {}, {}, heatgrid_windows)
+    recap = build_sector_recap(cards, heatgrid_windows)
 
     hot_names = [r["meta_name"] for r in recap["hot_top5"]]
     assert "資料不足" not in hot_names
@@ -377,7 +379,8 @@ def test_build_sector_recap_includes_turning_points():
         "翻轉族群": {"streak_today": 3, "last_week_pct_today": 1.0, "this_week_pct_today": 6.0,
                     "streak_5d_ago": -2, "last_week_pct_5d_ago": 3.5},
     }
-    recap = build_sector_recap(meta_perf, heatgrid_windows)
+    cards = build_heatgrid_cards(meta_perf, {}, {}, heatgrid_windows)
+    recap = build_sector_recap(cards, heatgrid_windows)
     assert recap["turning_points"][0]["meta_name"] == "翻轉族群"
     assert recap["turning_points"][0]["direction"] == "轉強訊號"
 
@@ -405,13 +408,93 @@ def test_build_sector_recap_excludes_stale_sector_from_turning_points():
             "streak_5d_ago": -2, "last_week_pct_5d_ago": 3.5,
         },
     }
-    recap = build_sector_recap(meta_perf, heatgrid_windows)
+    cards = build_heatgrid_cards(meta_perf, {}, {}, heatgrid_windows)
+    recap = build_sector_recap(cards, heatgrid_windows)
     turning_names = [r["meta_name"] for r in recap["turning_points"]]
 
     assert "已下架族群" not in turning_names
     assert "有效族群" in turning_names
     valid = next(r for r in recap["turning_points"] if r["meta_name"] == "有效族群")
     assert valid["direction"] == "轉強訊號"
+
+
+def test_build_sector_recap_excludes_today_breakout_sector_from_cold_top5():
+    """Cody回報實際案例：功率半導體今日排名#40→#1、+5.66%，卻被歸類成「退燒」——
+    因為accel(週對週5日滾動窗比較)本質上跟「今天是不是正在發生大事」是兩個不同問題，
+    兩者合法地可以背離。修法：新增「今日爆發」類別(只看排名跳動+今日漲跌，不要求
+    量比)，並且cold_top5要排除掉「今日爆發」的族群——不能讓同一族群同時被講成
+    「退燒」又「今日爆發」，這對使用者是矛盾的訊號。"""
+    meta_perf = [
+        {"meta_name": "功率半導體", "avg_change_pct": 5.66, "up_count": 30, "down_count": 5, "flat_count": 0},
+        {"meta_name": "真退燒族群", "avg_change_pct": -1.0, "up_count": 2, "down_count": 20, "flat_count": 0},
+    ]
+    meta_signals = {
+        "功率半導體": {"yesterday_rank": 40},  # 今天#1(avg_change_pct最高) → rank_delta = 40-1 = 39
+        "真退燒族群": {"yesterday_rank": 2},   # 今天#2 → rank_delta = 2-2 = 0，不算爆發
+    }
+    heatgrid_windows = {
+        "功率半導體": {"streak_today": 1, "last_week_pct_today": 20.0, "this_week_pct_today": 5.0,
+                     "streak_5d_ago": None, "last_week_pct_5d_ago": None},  # accel=-15.0，本來會被算成退燒
+        "真退燒族群": {"streak_today": -3, "last_week_pct_today": 1.0, "this_week_pct_today": -5.0,
+                     "streak_5d_ago": None, "last_week_pct_5d_ago": None},  # accel=-6.0，真的退燒
+    }
+
+    cards = build_heatgrid_cards(meta_perf, meta_signals, {}, heatgrid_windows)
+    recap = build_sector_recap(cards, heatgrid_windows)
+
+    cold_names = [r["meta_name"] for r in recap["cold_top5"]]
+    assert "功率半導體" not in cold_names  # 今日爆發的族群不該同時被講成退燒
+    assert "真退燒族群" in cold_names  # 真正退燒的族群還是要留著
+
+    breakout_names = [r["meta_name"] for r in recap["today_breakout"]]
+    assert "功率半導體" in breakout_names
+    assert "真退燒族群" not in breakout_names
+    breakout_row = next(r for r in recap["today_breakout"] if r["meta_name"] == "功率半導體")
+    assert breakout_row["rank_delta"] == 39
+
+
+def test_build_sector_recap_identifies_foreign_and_trust_stealth_accumulation():
+    """Cody要求新增「外資悄悄佈局/投信悄悄佈局」——股價還沒明顯反應但法人連買好幾天的
+    族群，用既有的meta_chips(foreign_streak/trust_streak)資料，不需要新的資料來源。"""
+    meta_perf = [
+        {"meta_name": "外資佈局中", "avg_change_pct": 0.3, "up_count": 5, "down_count": 5, "flat_count": 0},
+        {"meta_name": "投信佈局中", "avg_change_pct": -0.5, "up_count": 3, "down_count": 7, "flat_count": 0},
+        {"meta_name": "已經噴出", "avg_change_pct": 5.0, "up_count": 10, "down_count": 0, "flat_count": 0},
+    ]
+    meta_chips = {
+        "外資佈局中": {"foreign_streak": 5, "trust_streak": 0},
+        "投信佈局中": {"foreign_streak": 0, "trust_streak": 4},
+        "已經噴出": {"foreign_streak": 6, "trust_streak": 5},  # 連買天數更高，但股價已經噴出，不算「悄悄」
+    }
+
+    cards = build_heatgrid_cards(meta_perf, {}, meta_chips, {})
+    recap = build_sector_recap(cards, {})
+
+    foreign_names = [r["meta_name"] for r in recap["foreign_stealth"]]
+    trust_names = [r["meta_name"] for r in recap["trust_stealth"]]
+    assert "外資佈局中" in foreign_names
+    assert "已經噴出" not in foreign_names  # 股價已經動了(+5%)，不算悄悄佈局
+    assert "投信佈局中" in trust_names
+    assert "已經噴出" not in trust_names
+
+
+def test_build_sector_recap_identifies_volume_anomaly():
+    """量能異常：今日量比高但股價還沒明顯反應。"""
+    meta_perf = [
+        {"meta_name": "量能異常族群", "avg_change_pct": 0.8, "up_count": 5, "down_count": 5, "flat_count": 0},
+        {"meta_name": "正常量能族群", "avg_change_pct": 0.5, "up_count": 5, "down_count": 5, "flat_count": 0},
+    ]
+    meta_signals = {
+        "量能異常族群": {"vol_ratio": 2.5},
+        "正常量能族群": {"vol_ratio": 1.0},
+    }
+
+    cards = build_heatgrid_cards(meta_perf, meta_signals, {}, {})
+    recap = build_sector_recap(cards, {})
+
+    volume_names = [r["meta_name"] for r in recap["volume_anomaly"]]
+    assert "量能異常族群" in volume_names
+    assert "正常量能族群" not in volume_names
 
 
 def test_build_stock_detail_data_groups_by_meta_and_sorts_by_change_pct():

@@ -390,36 +390,81 @@ def build_heatgrid_cards(
 _SECTOR_RECAP_TOP_N = 5
 
 
+# Cody回報「功率半導體排名#40→#1、今日+5.66%，卻被歸類成退燒」——accel(週對週5日
+# 滾動窗比較)跟「今天是不是正在發生大事」是兩個不同問題，週對週看的是趨勢，不是單日
+# 事件，兩者合法地可以背離(上週已經噴完、這幾天在打底、今天才又爆量;週對週平均因此
+# 仍是負的，即使今天單日很強)。異動族群(find_anomaly_cards)的burst判定又同時要求
+# vol_ratio>=1.5，功率半導體今天沒有這麼高的量比，兩邊都漏接。修法：
+# 1. 新增「今日爆發」類別，只看排名跳動+今日漲跌，不要求量比同時成立。
+# 2. cold_top5排除掉「今日爆發」的族群——同一族群不該同時被講成「退燒」又「爆發」，
+#    這兩個標籤對使用者來說是矛盾的。
+_BREAKOUT_RANK_JUMP_MIN = 10
+_STEALTH_STREAK_MIN = 3
+_STEALTH_PRICE_FLAT_MAX = 1.0
+_VOL_ANOMALY_RATIO_MIN = 1.5
+_VOL_ANOMALY_PRICE_FLAT_MAX = 2.0
+
+
 def build_sector_recap(
-    meta_perf: List[Dict[str, Any]],
+    cards: List[Dict[str, Any]],
     heatgrid_windows: Dict[str, Dict[str, Any]],
 ) -> Dict[str, Any]:
     """
-    族群近況（視覺 spec §4）：升溫/退燒雙欄 Top5 + 轉折點列表。accel 為 None（資料不足）的
-    族群不參與升溫/退燒排序（沒有依據判斷是升溫還是退燒，不能硬排進去）。
+    族群近況（視覺 spec §4 擴充版）：升溫/退燒/今日爆發/外資悄悄佈局/投信悄悄佈局/量能異常，
+    共6類 Top5 + 轉折點列表。cards 是 build_heatgrid_cards() 的輸出（已經算好 pct/accel/
+    vol_ratio/foreign_streak/trust_streak/rank_delta，這裡不重算，直接篩選分類）。
+
+    每一類別互相獨立（同一族群理論上可以同時符合多個類別，例如今日爆發+量能異常），
+    唯一的例外是cold_top5刻意排除today_breakout的族群（見上方模組註解）。任何一個
+    分類條件所需的欄位是None（資料不足）都不參與該分類排序，不硬排。
     """
-    pct_map = {row["meta_name"]: row["avg_change_pct"] for row in meta_perf}
-    with_accel = []
-    for meta_name, window_data in heatgrid_windows.items():
-        if meta_name not in pct_map:
-            continue
-        accel = _accel_from_windows(window_data)
-        if accel is None:
-            continue
-        with_accel.append({"meta_name": meta_name, "pct": pct_map[meta_name], "accel": accel})
-
+    with_accel = [c for c in cards if c["accel"] is not None]
     hot_top5 = sorted(with_accel, key=lambda r: r["accel"], reverse=True)[:_SECTOR_RECAP_TOP_N]
-    cold_top5 = sorted(with_accel, key=lambda r: r["accel"])[:_SECTOR_RECAP_TOP_N]
 
-    # turning_points 傳入前先用 pct_map（衍生自 meta_perf）過濾 heatgrid_windows，跟上面
-    # hot_top5/cold_top5 的排除邏輯保持一致——calc_meta_performance()/calc_meta_heatgrid_windows()
-    # 是main.py裡兩個獨立呼叫，理論上族群集合可能不完全一致，不過濾會讓同一個回傳值裡
-    # hot_top5/cold_top5排除了某族群、但turning_points卻還顯示它，是自相矛盾的輸出。
-    active_windows = {name: data for name, data in heatgrid_windows.items() if name in pct_map}
+    breakout_names = {
+        c["meta_name"] for c in cards
+        if c["rank_delta"] is not None and c["rank_delta"] >= _BREAKOUT_RANK_JUMP_MIN and c["pct"] > 0
+    }
+    cold_candidates = [c for c in with_accel if c["meta_name"] not in breakout_names]
+    cold_top5 = sorted(cold_candidates, key=lambda r: r["accel"])[:_SECTOR_RECAP_TOP_N]
+
+    today_breakout = sorted(
+        (c for c in cards if c["meta_name"] in breakout_names),
+        key=lambda r: r["rank_delta"], reverse=True,
+    )[:_SECTOR_RECAP_TOP_N]
+
+    foreign_stealth = sorted(
+        (c for c in cards if c["foreign_streak"] is not None and c["foreign_streak"] >= _STEALTH_STREAK_MIN
+         and abs(c["pct"]) <= _STEALTH_PRICE_FLAT_MAX),
+        key=lambda r: r["foreign_streak"], reverse=True,
+    )[:_SECTOR_RECAP_TOP_N]
+
+    trust_stealth = sorted(
+        (c for c in cards if c["trust_streak"] is not None and c["trust_streak"] >= _STEALTH_STREAK_MIN
+         and abs(c["pct"]) <= _STEALTH_PRICE_FLAT_MAX),
+        key=lambda r: r["trust_streak"], reverse=True,
+    )[:_SECTOR_RECAP_TOP_N]
+
+    volume_anomaly = sorted(
+        (c for c in cards if c["vol_ratio"] is not None and c["vol_ratio"] >= _VOL_ANOMALY_RATIO_MIN
+         and abs(c["pct"]) <= _VOL_ANOMALY_PRICE_FLAT_MAX),
+        key=lambda r: r["vol_ratio"], reverse=True,
+    )[:_SECTOR_RECAP_TOP_N]
+
+    # turning_points 傳入前先用 cards 的族群集合過濾 heatgrid_windows——
+    # calc_meta_performance()/calc_meta_heatgrid_windows() 是main.py裡兩個獨立呼叫，
+    # 理論上族群集合可能不完全一致，不過濾會讓同一個回傳值裡其他分類排除了某族群、
+    # 但turning_points卻還顯示它，是自相矛盾的輸出。
+    active_names = {c["meta_name"] for c in cards}
+    active_windows = {name: data for name, data in heatgrid_windows.items() if name in active_names}
 
     return {
         "hot_top5": hot_top5,
         "cold_top5": cold_top5,
+        "today_breakout": today_breakout,
+        "foreign_stealth": foreign_stealth,
+        "trust_stealth": trust_stealth,
+        "volume_anomaly": volume_anomaly,
         "turning_points": find_turning_points(active_windows),
     }
 
@@ -691,11 +736,16 @@ table.vt-table{width:100%;border-collapse:collapse}
 
 .role-note{margin:0 26px 20px;padding:11px 15px;background:var(--panel);border:1px solid var(--border);border-radius:4px;font-size:.74rem;color:var(--ink-2);display:flex;gap:18px;flex-wrap:wrap}
 .role-note b{color:var(--ink)}
-.status-cols{display:grid;grid-template-columns:1fr 1fr;gap:20px;padding:0 26px}
+.status-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px;padding:0 26px}
 @media (max-width:760px){.status-cols{grid-template-columns:1fr}}
 .status-col-head{display:flex;align-items:center;gap:8px;font-family:var(--serif);font-weight:700;font-size:1rem;margin-bottom:12px;padding-bottom:10px;border-bottom:2px solid}
 .status-col-head.hot{color:var(--heat-hot);border-color:var(--heat-hot)}
 .status-col-head.cold{color:var(--heat-cold);border-color:var(--heat-cold)}
+.status-col-head.breakout{color:var(--up);border-color:var(--up)}
+.status-col-head.foreign{color:var(--accent);border-color:var(--accent)}
+.status-col-head.trust{color:var(--trend);border-color:var(--trend)}
+.status-col-head.volume{color:var(--ink-2);border-color:var(--border-2)}
+.status-col-note{font-size:.68rem;color:var(--ink-3);margin-top:8px;line-height:1.5}
 .status-row{display:flex;align-items:center;gap:10px;padding:9px 4px;border-bottom:1px solid var(--border)}
 .status-row .sr-name{font-family:var(--serif);font-weight:600;font-size:.88rem;color:var(--ink);flex:1}
 .status-row .sr-today{font-family:var(--mono);font-size:.74rem;width:56px;text-align:right}
@@ -836,17 +886,29 @@ def _heatgrid_html(cards: List[Dict[str, Any]]) -> str:
 
 
 def _sector_recap_html(recap: Dict[str, Any]) -> str:
-    def _status_row(r: Dict[str, Any], is_hot: bool) -> str:
-        color = "var(--heat-hot)" if is_hot else "var(--heat-cold)"
-        pct_color = "var(--up)" if r["pct"] >= 0 else "var(--down)"
+    def _status_row(meta_name: str, pct: float, metric_text: str, metric_color: str) -> str:
+        pct_color = "var(--up)" if pct >= 0 else "var(--down)"
         return (
-            f'<div class="status-row"><span class="sr-name">{_esc(r["meta_name"])}</span>'
-            f'<span class="sr-today tabular" style="color:{pct_color}">{_pct_str(r["pct"])}</span>'
-            f'<span class="sr-pt tabular" style="color:{color}">{r["accel"]:+.1f}pt</span></div>'
+            f'<div class="status-row"><span class="sr-name">{_esc(meta_name)}</span>'
+            f'<span class="sr-today tabular" style="color:{pct_color}">{_pct_str(pct)}</span>'
+            f'<span class="sr-pt tabular" style="color:{metric_color}">{metric_text}</span></div>'
         )
 
-    hot_html = "".join(_status_row(r, True) for r in recap["hot_top5"]) or '<div class="detail-empty">資料不足</div>'
-    cold_html = "".join(_status_row(r, False) for r in recap["cold_top5"]) or '<div class="detail-empty">資料不足</div>'
+    def _col(rows: List[Dict[str, Any]], row_fn) -> str:
+        return "".join(row_fn(r) for r in rows) or '<div class="detail-empty">目前沒有符合的族群</div>'
+
+    hot_html = _col(recap["hot_top5"], lambda r: _status_row(
+        r["meta_name"], r["pct"], f'{r["accel"]:+.1f}pt', "var(--heat-hot)"))
+    cold_html = _col(recap["cold_top5"], lambda r: _status_row(
+        r["meta_name"], r["pct"], f'{r["accel"]:+.1f}pt', "var(--heat-cold)"))
+    breakout_html = _col(recap["today_breakout"], lambda r: _status_row(
+        r["meta_name"], r["pct"], f'↑{r["rank_delta"]}', "var(--up)"))
+    foreign_html = _col(recap["foreign_stealth"], lambda r: _status_row(
+        r["meta_name"], r["pct"], f'連買{r["foreign_streak"]}日', "var(--accent)"))
+    trust_html = _col(recap["trust_stealth"], lambda r: _status_row(
+        r["meta_name"], r["pct"], f'連買{r["trust_streak"]}日', "var(--trend)"))
+    volume_html = _col(recap["volume_anomaly"], lambda r: _status_row(
+        r["meta_name"], r["pct"], f'{r["vol_ratio"]}x', "var(--accent)"))
 
     turning = recap["turning_points"]
     if turning:
@@ -863,16 +925,24 @@ def _sector_recap_html(recap: Dict[str, Any]) -> str:
         turning_html = '<div class="detail-empty">本週沒有族群發生等級翻轉</div>'
 
     return f"""
-<div class="section-head"><h2>族群近況</h2><span class="count">升溫/退燒排行・轉折點</span></div>
+<div class="section-head"><h2>族群近況</h2><span class="count">6大類排行・轉折點</span></div>
 <div class="section-rule"></div>
 <div class="role-note">
-  <span>🔥❄️ <b>族群近況</b>＝週度趨勢訊號（加速度、等級翻轉），時間尺度是「這週 vs 上週」</span>
-  <span>⚡ <b>異動族群</b>（頁面最上方）＝瞬間訊號（爆量+排名跳動），時間尺度是「今天 vs 昨天」</span>
+  <span>🔥❄️🚀 <b>族群近況</b>＝週度趨勢+單日事件+籌碼訊號的綜合面板</span>
+  <span>⚡ <b>異動族群</b>（頁面最上方）只看爆量+排名跳動同時成立，門檻比這裡的「今日爆發」嚴格</span>
   <span>兩者角色不同，故意分開兩個區塊，不是重複資訊</span>
 </div>
 <div class="status-cols">
   <div><div class="status-col-head hot">🔥 近期增溫 Top 5</div><div>{hot_html}</div></div>
   <div><div class="status-col-head cold">❄️ 近期退燒 Top 5</div><div>{cold_html}</div></div>
+  <div><div class="status-col-head breakout">🚀 今日爆發 Top 5</div><div>{breakout_html}</div>
+    <div class="status-col-note">今日排名跳動≥{_BREAKOUT_RANK_JUMP_MIN}名且上漲，不要求同時爆量——單日單一事件，跟下面「退燒」互斥</div></div>
+  <div><div class="status-col-head foreign">💰 外資悄悄佈局 Top 5</div><div>{foreign_html}</div>
+    <div class="status-col-note">股價還沒明顯反應（±{_STEALTH_PRICE_FLAT_MAX}%內）但外資連買≥{_STEALTH_STREAK_MIN}天</div></div>
+  <div><div class="status-col-head trust">🏦 投信悄悄佈局 Top 5</div><div>{trust_html}</div>
+    <div class="status-col-note">股價還沒明顯反應（±{_STEALTH_PRICE_FLAT_MAX}%內）但投信連買≥{_STEALTH_STREAK_MIN}天</div></div>
+  <div><div class="status-col-head volume">📊 量能異常 Top 5</div><div>{volume_html}</div>
+    <div class="status-col-note">今日量能≥{_VOL_ANOMALY_RATIO_MIN}x5日均量，但股價還沒明顯反應（±{_VOL_ANOMALY_PRICE_FLAT_MAX}%內）</div></div>
 </div>
 <div class="turning-wrap">
   <div class="turning-head">⚠ 轉折點：等級真的翻轉的族群</div>
@@ -918,7 +988,7 @@ def generate(
 
     cards = build_heatgrid_cards(meta_perf, meta_signals, meta_chips, heatgrid_windows, cum_data)
     anomaly_cards = find_anomaly_cards(meta_perf, meta_signals, heatgrid_windows)
-    recap = build_sector_recap(meta_perf, heatgrid_windows)
+    recap = build_sector_recap(cards, heatgrid_windows)
     stock_detail = build_stock_detail_data(universe_df, prices_df, stock_sparklines, rolling_returns, chips_df)
 
     stock_detail_js = json.dumps(stock_detail, ensure_ascii=False).replace("</", "<\\/")

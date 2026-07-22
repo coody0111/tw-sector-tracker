@@ -588,6 +588,41 @@ def test_build_stock_detail_data_defaults_rolling_and_chips_to_none_without_data
     assert stock["margin_balance"] is None and stock["margin_change"] is None
 
 
+def test_build_stock_detail_data_attaches_volume_and_vol_ratio():
+    """Cody回報「個股相關量價都不見了」——這裡確認stock_sparklines的volumes(今日成交量)/
+    vol_ratio(今日量/5日均量)有正確附加到對應股票上，不是只有pcts/dates。"""
+    universe_df = pd.DataFrame([
+        {"stock_id": "1000", "stock_name": "股票甲", "meta_sector": "族群A"},
+    ])
+    prices_df = pd.DataFrame([{"stock_id": "1000", "close": 100.0, "change_pct": 2.0}])
+    stock_sparklines = {
+        "1000": {"pcts": [1.0, 2.0], "dates": ["7/21", "7/22"],
+                 "volumes": [800, 1000, 1800], "avg_volume": 900, "vol_ratio": 2.0},
+    }
+
+    stock = build_stock_detail_data(universe_df, prices_df, stock_sparklines=stock_sparklines)["族群A"][0]
+
+    assert stock["volume"] == 1800  # volumes最後一筆(今日)
+    assert stock["vol_ratio"] == 2.0
+
+
+def test_build_stock_detail_data_defaults_volume_and_vol_ratio_to_none_without_sparklines():
+    """stock_sparklines沒傳、或這支股票沒有volumes資料時，volume/vol_ratio要是None，不能
+    crash（例如volumes是空list時不能對負index取值）。"""
+    universe_df = pd.DataFrame([
+        {"stock_id": "1000", "stock_name": "股票甲", "meta_sector": "族群A"},
+    ])
+    prices_df = pd.DataFrame([{"stock_id": "1000", "close": 100.0, "change_pct": 2.0}])
+
+    stock_no_arg = build_stock_detail_data(universe_df, prices_df)["族群A"][0]
+    assert stock_no_arg["volume"] is None and stock_no_arg["vol_ratio"] is None
+
+    stock_empty_volumes = build_stock_detail_data(
+        universe_df, prices_df, stock_sparklines={"1000": {"pcts": [], "dates": [], "volumes": []}},
+    )["族群A"][0]
+    assert stock_empty_volumes["volume"] is None
+
+
 def test_build_stock_detail_data_attaches_sparkline_when_provided():
     """Cody回報「個股卡片怎麼不見」——熱區格改版把個股sparkline拿掉了，這裡補回來：
     stock_sparklines有這支股票的資料時，pcts/dates要正確附加到對應的股票dict上。"""

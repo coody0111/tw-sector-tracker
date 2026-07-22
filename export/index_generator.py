@@ -486,7 +486,9 @@ def build_stock_detail_data(
     個股點開面板資料（視覺 spec §「點開個股清單」）。全部 meta_sector 都要有 key（即使該族群
     沒有任何股票有行情資料，回空 list），族群內依 change_pct 降冪排列（無行情的排在最後）。
 
-    stock_sparklines：processors/performance.py::calc_stock_sparklines() 的輸出，供畫走勢圖。
+    stock_sparklines：processors/performance.py::calc_stock_sparklines() 的輸出，供畫走勢圖，
+    也是 volume（今日成交量）/vol_ratio（今日量/5日均量）的來源——沿用舊版
+    html_generator.py::_stock_card_html() 的資料來源，不重算。
     rolling_returns：screener/database.py::get_rolling_returns((5,7,10,14)) 的輸出
     {stock_id: {5:pct或None, 7:.., 10:.., 14:..}}，跟chips.html「近N日」算法一致。
     chips_df：screener/database.py::get_chips_today() 的輸出（stock_id欄位，非index），
@@ -530,6 +532,8 @@ def build_stock_detail_data(
             "change_pct": float(prices_map.loc[sid]["change_pct"]) if has_price else None,
             "pcts": spark.get("pcts", []),
             "dates": spark.get("dates", []),
+            "volume": spark.get("volumes", [None])[-1] if spark.get("volumes") else None,
+            "vol_ratio": spark.get("vol_ratio"),
             "roll5": roll.get(5), "roll7": roll.get(7), "roll10": roll.get(10), "roll14": roll.get(14),
             "foreign_net": _chips_num(c["foreign_net"]) if c is not None else None,
             "trust_net": _chips_num(c["trust_net"]) if c is not None else None,
@@ -688,7 +692,7 @@ table.vt-table{width:100%;border-collapse:collapse}
 .cs-row .cs-streak-up{color:var(--up);font-size:.68rem}
 .cs-row .cs-streak-dn{color:var(--down);font-size:.68rem}
 .cs-row .cs-alert{color:var(--accent);font-size:.68rem;font-weight:700}
-.stock-cards-wrap{display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:8px}
+.stock-cards-wrap{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px}
 .stock-card{border:1px solid var(--border);border-radius:5px;padding:10px 11px;background:var(--panel-3)}
 .stock-card.no-data{opacity:.5}
 .sc-header{display:flex;align-items:baseline;gap:6px;margin-bottom:4px}
@@ -697,8 +701,14 @@ table.vt-table{width:100%;border-collapse:collapse}
 .sc-body{display:flex;align-items:baseline;justify-content:space-between;font-family:var(--mono);font-variant-numeric:tabular-nums}
 .sc-price{font-size:.86rem;color:var(--ink-2)}
 .sc-pct{font-size:.86rem;font-weight:700}
-.sc-sparkline{margin-top:6px;line-height:0}
-.sc-sparkline svg{width:100%;height:auto;display:block}
+.sc-volume-row{display:flex;align-items:center;gap:6px;margin-top:6px;font-family:var(--mono);font-size:.66rem;color:var(--ink-3);flex-wrap:wrap}
+.vol-ratio{color:var(--ink-3)}
+.vol-ratio.strong{color:var(--accent);font-weight:700}
+.sc-spark-toggle{margin-left:auto;background:none;border:0;color:var(--ink-3);font-family:var(--mono);font-size:.64rem;cursor:pointer;padding:0}
+.sc-spark-toggle:hover{color:var(--ink)}
+.sc-spark-slot{line-height:0}
+.sc-spark-slot svg{width:100%;height:auto;display:block;margin-top:4px}
+.sc-spark-empty{display:block;margin-top:4px;font-size:.64rem;color:var(--ink-3);font-family:var(--serif)}
 .sc-roll{display:flex;gap:6px;margin-top:6px;font-family:var(--mono);font-size:.62rem;flex-wrap:wrap}
 .sc-roll-item .lbl{color:var(--ink-3);margin-right:2px}
 .sc-chips{display:flex;gap:8px;margin-top:5px;font-family:var(--mono);font-size:.62rem;flex-wrap:wrap;color:var(--ink-3)}
@@ -1152,6 +1162,26 @@ function buildChipsSummary(meta) {{
   return rows.length ? `<div class="chips-summary">${{rows.join('')}}</div>` : '';
 }}
 
+// 收盤價格式：>=100且整數才用千分位逗號分隔，其餘2位小數——比照舊版
+// html_generator.py::_fmt_price() 的規則，避免小型股價位（例如12.35）被誤格式化。
+function fmtPrice(v) {{
+  if (v >= 100 && Number.isInteger(v)) return v.toLocaleString();
+  return v.toFixed(2);
+}}
+
+function toggleCardSpark(card, sid) {{
+  const slot = card.querySelector('.sc-spark-slot');
+  if (!slot) return;
+  if (slot.dataset.open === '1') {{
+    slot.innerHTML = '';
+    slot.dataset.open = '0';
+    return;
+  }}
+  const s = _panelStocks.find(x => x.stock_id === sid);
+  slot.innerHTML = (s && buildSparkline(s.pcts, s.dates)) || '<span class="sc-spark-empty">走勢資料不足</span>';
+  slot.dataset.open = '1';
+}}
+
 function renderStockCard(s) {{
   if (s.no_data) {{
     return `<div class="stock-card no-data">
@@ -1160,7 +1190,7 @@ function renderStockCard(s) {{
   }}
   const color = s.change_pct >= 0 ? 'var(--up)' : 'var(--down)';
   const sign = s.change_pct >= 0 ? '+' : '';
-  const spark = buildSparkline(s.pcts, s.dates);
+  const arrow = s.change_pct > 0 ? '▲' : (s.change_pct < 0 ? '▼' : '─');
   const rollItems = [['5日', s.roll5], ['7日', s.roll7], ['10日', s.roll10], ['14日', s.roll14]]
     .filter(([, v]) => v !== null && v !== undefined)
     .map(([lbl, v]) => {{
@@ -1168,14 +1198,30 @@ function renderStockCard(s) {{
       return `<span class="sc-roll-item"><span class="lbl">${{lbl}}</span><span class="tabular" style="color:${{c}}">${{v>=0?'+':''}}${{v.toFixed(2)}}%</span></span>`;
     }}).join('');
   const rollHtml = rollItems ? `<div class="sc-roll">${{rollItems}}</div>` : '';
+  const volHtml = s.volume !== null && s.volume !== undefined
+    ? `<span class="sc-vol">今日 ${{s.volume.toLocaleString()}} 張</span>`
+    : '';
+  const volRatioHtml = s.vol_ratio !== null && s.vol_ratio !== undefined
+    ? `<span class="vol-ratio${{s.vol_ratio >= 1.5 ? ' strong' : ''}}">量比 ${{s.vol_ratio.toFixed(2)}}x</span>`
+    : '';
   const chipsParts = [];
   if (s.foreign_net) chipsParts.push(`<span style="color:${{s.foreign_net>0?'var(--up)':'var(--down)'}}">外資${{s.foreign_net>0?'+':''}}${{Math.trunc(s.foreign_net/1000).toLocaleString()}}張</span>`);
   if (s.trust_net) chipsParts.push(`<span style="color:${{s.trust_net>0?'var(--up)':'var(--down)'}}">投信${{s.trust_net>0?'+':''}}${{Math.trunc(s.trust_net/1000).toLocaleString()}}張</span>`);
+  if (s.margin_change && s.margin_balance > 0) {{
+    const pct = s.margin_change / s.margin_balance * 100;
+    const marginArrow = s.margin_change > 0 ? '↑' : '↓';
+    chipsParts.push(`<span style="color:var(--accent)">融資${{marginArrow}}${{Math.abs(pct).toFixed(1)}}%</span>`);
+  }}
   const chipsHtml = chipsParts.length ? `<div class="sc-chips">${{chipsParts.join('')}}</div>` : '';
+  const sid = escHtml(s.stock_id);
   return `<div class="stock-card">
-    <div class="sc-header"><span class="sc-id">${{escHtml(s.stock_id)}}</span><span class="sc-name">${{escHtml(s.stock_name)}}</span></div>
-    <div class="sc-body"><span class="sc-price">${{s.close.toFixed(1)}}</span><span class="sc-pct" style="color:${{color}}">${{sign}}${{s.change_pct.toFixed(2)}}%</span></div>
-    ${{spark}}${{rollHtml}}${{chipsHtml}}</div>`;
+    <div class="sc-header"><span class="sc-id">${{sid}}</span><span class="sc-name">${{escHtml(s.stock_name)}}</span></div>
+    <div class="sc-body"><span class="sc-price">${{fmtPrice(s.close)}}</span><span class="sc-pct" style="color:${{color}}">${{arrow}} ${{sign}}${{s.change_pct.toFixed(2)}}%</span></div>
+    <div class="sc-volume-row">${{volHtml}}${{volRatioHtml}}
+      <button type="button" class="sc-spark-toggle" onclick="toggleCardSpark(this.closest('.stock-card'),'${{sid}}')">走勢 ▾</button>
+    </div>
+    <div class="sc-spark-slot" data-open="0"></div>
+    ${{rollHtml}}${{chipsHtml}}</div>`;
 }}
 
 let _panelStocks = [], _panelSortKey = 'pct';
@@ -1184,6 +1230,7 @@ function _sortValue(s, key) {{
   if (key === 'pct') return s.change_pct;
   if (key === 'id') return s.stock_id;
   if (key === 'close') return s.close;
+  if (key === 'vol') return s.vol_ratio;
   return s['roll' + key];
 }}
 
@@ -1252,6 +1299,7 @@ function selectGroup(name) {{
       <div class="detail-sort"><label for="stockSort">排序</label>
         <select id="stockSort" onchange="sortPanelStocks(this)">
           <option value="pct">漲跌%</option><option value="id">代號</option><option value="close">收盤</option>
+          <option value="vol">量比</option>
           <option value="5">近5日</option><option value="7">近7日</option><option value="10">近10日</option><option value="14">近14日</option>
         </select>
       </div>

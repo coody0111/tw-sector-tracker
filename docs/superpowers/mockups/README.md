@@ -271,6 +271,23 @@
       跟這裡的族群熱區格是不同資料來源，這版**沒有**假造大戶數字，留待 Cody 決定是否要在族群
       層級新增這個欄位（需要新的後端計算，目前 `calc_meta_performance`/`calc_meta_chips` 都
       沒有大戶持股資料）。
+    - **2026-07-23 修正③：補回個股列表（可排序＋點擊開卡片）**：Cody 反饋「個股列表不能忘記
+      這邊呈現一下 要能排序欄位 要能點個股卡片」「裡面要有k棒跟走勢 還有量能等」。查證發現
+      這正是`export/index_generator.py`已經上線的正式功能（`.stock-list-table`點欄名排序 +
+      點股票列開`.stock-card-modal`彈窗），過去幾版mockup專注在候選分/決策標籤的新概念探索，
+      沒有把這個已經存在的功能搬進來，等於「做了新的但漏了舊的」。這版把正式版
+      `buildCandlestick`/`renderStockListItem`/`openStockCard`/`sortStockList`等JS函式
+      逐字搬進mockup，資料改用當天`docs/index.html`裡工業電腦族群38檔真實收盤/漲跌%/量比/
+      5~14日報酬（同一批`STOCKS`資料）。用jsdom實際模擬點擊驗證：38檔正確render、點欄名可
+      切換排序方向、點股票列真的彈出卡片、卡片內K棒+成交量疊圖正確render、Escape可關閉。
+    - **誠實澄清K棒資料是示範值**：同一天發現並修復了一個production bug——正式站的K棒功能
+      其實完全沒在運作（`daily_prices`表全部383,583筆open/high/low都是NULL，個股卡片走勢圖
+      固定顯示「走勢資料不足」），根因是`scrapers/twse.py`/`tpex.py`沒抓官方API本來就有的
+      開高低價、`screener/database.py::import_csv_prices()`不管CSV裡有沒有這3欄一律寫死NULL
+      （已在同一天修復，詳見`debug-tasks.md` 2026-07-24條目）。這個mockup裡的K棒開高低價
+      **不是**接上修復後的真實資料，是用真實收盤價推算出的示範值（open=前一日收盤、
+      high/low=開收價±1.2%），方便預覽K棒排版；footnote已明講這點，等資料庫累積足夠天數
+      的真實OHLC後，正式版會自然換成真的K棒，不需要再改這份mockup。
 
 ## 尚未定案的部分
 

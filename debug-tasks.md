@@ -3322,3 +3322,24 @@ Cody要求近5/7/10/14日不要只藏在個股卡片(彈窗)裡，要直接顯�
 - mockup README（`docs/superpowers/mockups/README.md`）內的「技術路線提醒」寫的是要接
   進舊的`html_generator.py`——這個檔案已經被`index_generator.py`取代，如果之後要把mockup
   概念正式化，要接的是`index_generator.py`，不是README寫的那個舊檔名
+
+## [2026-07-23] v27 mockup修正：族群數量41→42+補回法人/量能badge（純mockup，非正式程式碼）
+
+### 改了什麼
+- 異動檔案：docs/superpowers/mockups/2026-07-23-index-v27-full-41-sectors.html,
+  docs/superpowers/mockups/README.md
+- 一樣是mockup探索，不影響production，Debugger不用驗證測試
+
+### 邏輯說明
+- Cody發現上一版v27漏抓了「功率半導體」（第一版抓取腳本regex對真實`.heat-tile`巢狀結構
+  切割錯誤），實際目前是42個族群不是41個（`工業電腦`拆出後的總數）——已重寫抓取腳本用
+  `data-meta-name`屬性切分，補回完整42檔
+- Cody反饋「除了這些標籤 還要像是大戶買多少 外資 投信 量能等」——第一版抓取腳本因為找錯
+  class名稱，抓不到真實`ht-badges`區塊（外資/投信連買天數、量能倍數），這次修正後42檔中
+  22檔有真實badge資料，CSS也補上`.badge.foreign`/`.badge.vol`專屬色對齊正式版
+- 「大戶」（大戶持股/籌碼集中度）目前族群層級**沒有這個資料**，已在README誠實註明是
+  `chips.html`籌碼頁在探索的獨立概念（debug worktree上有一版「大戶持倉」mockup），
+  沒有假造大戶數字
+
+### 特別注意
+- 同前一則，純mockup非production code，不需要驗證

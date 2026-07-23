@@ -9,6 +9,7 @@ scripts/build_universe.py
 日後新股上市直接在 CSV 補一行即可，不需重跑 MoneyDJ。
 """
 
+import csv
 import sys
 from pathlib import Path
 
@@ -19,6 +20,46 @@ from config import META_PRIORITY_LIST, get_meta_by_priority
 
 SECTOR_CSV  = Path("data/sectors/industry_sectors.csv")
 UNIVERSE_CSV = Path("data/stock_universe.csv")
+OVERRIDES_CSV = Path("data/sector_overrides.csv")
+
+
+def load_overrides(path: Path = OVERRIDES_CSV) -> dict[str, dict]:
+    """讀取人工校正表；檔案不存在時回傳空 dict（視為無校正）。"""
+    if not path.exists():
+        return {}
+    overrides: dict[str, dict] = {}
+    with path.open(encoding="utf-8-sig", newline="") as f:
+        for row in csv.DictReader(f):
+            sid = (row.get("stock_id") or "").strip()
+            if not sid:
+                continue
+            overrides[sid] = {
+                "meta_sector": (row.get("meta_sector") or "").strip(),
+                "sub_sector": (row.get("sub_sector") or "").strip(),
+                "source_note": (row.get("source_note") or "").strip(),
+            }
+    return overrides
+
+
+def apply_overrides(rows: list[dict], overrides: dict[str, dict]) -> list[str]:
+    """將 overrides 套用到 rows（就地修改）。
+
+    命中 stock_id 時覆蓋 meta_sector；override 的 sub_sector 非空才覆蓋（留空保留
+    自動值）；note 改標「手動校正:<source_note>」並清除原 ⚠️ 爭議標記。
+    回傳 universe 中找不到的 override 股號清單，供呼叫端警告。
+    """
+    matched = set()
+    for row in rows:
+        sid = str(row["stock_id"])
+        ov = overrides.get(sid)
+        if not ov:
+            continue
+        matched.add(sid)
+        row["meta_sector"] = ov["meta_sector"]
+        if ov["sub_sector"]:
+            row["sub_sector"] = ov["sub_sector"]
+        row["note"] = f"手動校正:{ov['source_note']}" if ov["source_note"] else "手動校正"
+    return [sid for sid in overrides if sid not in matched]
 
 
 def build() -> None:

@@ -1,0 +1,301 @@
+<title>籌碼分析 — 今日焦點＋大戶持倉重新設計 Mockup v2（工作台感、拆回增減倉兩表）</title>
+<style>
+:root{
+  --bg:#0A0D13;--surface:#12161F;--surface-2:#181D28;--surface-3:#1F2530;
+  --border:#242B38;--border-strong:#333C4C;
+  --text:#D6DBE5;--muted:#8B93A3;--subtle:#5C6577;
+  --accent:#C9A15A;--accent-soft:rgba(201,161,90,.12);
+  --up:#D6503A;--down:#3FA968;
+  --caution:#6B87A8;--caution-soft:rgba(107,135,168,.14);
+  --sans:"Public Sans",-apple-system,"PingFang TC","Microsoft JhengHei","Segoe UI",sans-serif;
+  --mono:ui-monospace,"IBM Plex Mono","Cascadia Code","Roboto Mono",monospace;
+}
+:root[data-theme="light"]{
+  --bg:#EEEAE2;--surface:#F7F4EC;--surface-2:#ECE7DA;--surface-3:#E1DAC7;
+  --border:#D3CBB6;--border-strong:#BBB093;
+  --text:#26221A;--muted:#63594A;--subtle:#8B8068;
+  --accent:#8A6A2E;--accent-soft:rgba(138,106,46,.1);
+  --up:#A8432C;--down:#357048;
+  --caution:#4C6483;--caution-soft:rgba(76,100,131,.12);
+}
+*{box-sizing:border-box}
+html{color-scheme:dark}
+:root[data-theme="light"]{color-scheme:light}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:13.5px;line-height:1.5;min-width:320px}
+.tabular{font-variant-numeric:tabular-nums;font-family:var(--mono)}
+a{color:inherit}
+a:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* ── 沒有漸層、沒有 kicker 裝飾線——單純一條分隔線，降低簡報感 ── */
+.shell{max-width:1440px;margin:0 auto;padding:0 0 72px}
+.mock-banner{background:var(--caution-soft);color:var(--caution);font-size:.72rem;padding:6px 24px;font-family:var(--mono);border-bottom:1px solid var(--border)}
+.topbar{display:flex;align-items:center;gap:16px;padding:16px 24px;border-bottom:1px solid var(--border)}
+.topbar h1{font-family:var(--sans);font-size:1rem;font-weight:700;margin:0;color:var(--text)}
+.topbar .sub{font-size:.72rem;color:var(--subtle)}
+.topbar .stamp{font-size:.72rem;color:var(--subtle);margin-left:auto;font-family:var(--mono)}
+
+/* ── 今日焦點：拿掉hero-panel的圓角卡片感，改成表格式分欄，減少「卡片感」 ── */
+.hero{display:grid;grid-template-columns:1.2fr 1fr;gap:1px;background:var(--border);border:1px solid var(--border);margin:20px 24px}
+@media(max-width:980px){.hero{grid-template-columns:1fr}}
+.hero-panel{background:var(--bg);padding:16px 20px}
+.hero-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:2px}
+.hero-head h2{font-family:var(--sans);font-size:.86rem;font-weight:700;margin:0;color:var(--text);letter-spacing:.01em}
+.hero-head .count{font-size:.66rem;color:var(--subtle);font-family:var(--mono)}
+
+.disclosure{display:flex;gap:7px;padding:8px 0 12px;font-size:.7rem;color:var(--muted);border-bottom:1px solid var(--border);margin-bottom:10px}
+.disclosure b{color:var(--caution);font-weight:700}
+.disclosure::before{content:"";width:2px;flex-shrink:0;background:var(--caution);border-radius:1px}
+
+/* 候選：不用大卡片+光暈，改成方向側線的緊湊列，跟熱區格「族群卡改方向側線」語言一致 */
+.pick-row{display:grid;grid-template-columns:16px 1fr auto;gap:10px;align-items:center;padding:9px 0 9px 8px;border-left:2px solid transparent;border-bottom:1px solid var(--border)}
+.pick-row:last-child{border-bottom:none}
+.pick-row.primary{border-left-color:var(--accent);background:var(--accent-soft)}
+.pr-rank{font-family:var(--mono);font-size:.66rem;color:var(--subtle)}
+.pr-name{font-weight:700;font-size:.86rem}
+.pr-sid{font-family:var(--mono);color:var(--subtle);font-size:.68rem;margin-left:5px;font-weight:400}
+.pr-evidence{font-size:.68rem;color:var(--subtle);font-family:var(--mono);margin-top:2px}
+.pr-pct{font-family:var(--mono);font-weight:700;font-size:.88rem;color:var(--up);text-align:right}
+.pr-pct .lbl{display:block;font-size:.58rem;color:var(--subtle);font-weight:400}
+
+.hero-footnote{padding-top:12px;font-size:.66rem;color:var(--subtle)}
+.hero-footnote a{color:var(--accent)}
+
+/* 大戶焦點迷你列：拿掉bar的漸層光澤，改成單色平塗，更「數據」感 */
+.holder-mini-row{display:grid;grid-template-columns:76px 1fr 46px 50px;gap:8px;align-items:center;padding:6px 0}
+.hm-name{font-size:.8rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hm-bar-wrap{height:6px;background:var(--surface-3);border-radius:2px;overflow:hidden}
+.hm-bar{height:100%;background:var(--muted)}
+.hm-pct{font-family:var(--mono);font-weight:700;font-size:.72rem;text-align:right}
+.hm-delta{font-family:var(--mono);font-size:.64rem;text-align:right}
+.hm-delta.up{color:var(--up)}.hm-delta.down{color:var(--down)}
+
+/* ── Tab bar：拿掉分組視覺（3組label），改成單排但用細分隔線區隔——測試「分組」是不是必要 ── */
+.tab-row{display:flex;gap:2px;padding:0 24px;border-bottom:1px solid var(--border);overflow-x:auto}
+.tab-btn{font-family:var(--sans);font-size:.74rem;font-weight:600;padding:10px 14px;border:0;border-bottom:2px solid transparent;background:transparent;color:var(--muted);cursor:pointer;white-space:nowrap}
+.tab-btn:hover{color:var(--text)}
+.tab-btn.active{color:var(--text);border-bottom-color:var(--accent)}
+.tab-btn .n{font-family:var(--mono);color:var(--subtle);font-size:.64rem;margin-left:3px}
+.tab-sep{width:1px;background:var(--border);margin:8px 4px;flex-shrink:0}
+
+/* ── 大戶持倉：拆回「連增倉／連減倉」兩表，各自卡片+bar ── */
+.section-head{display:flex;align-items:center;gap:10px;padding:24px 24px 2px}
+.section-head h2{font-family:var(--sans);font-size:.96rem;font-weight:700;margin:0}
+.section-head .count{font-size:.66rem;color:var(--subtle);font-family:var(--mono)}
+.section-sub{padding:0 24px 14px;font-size:.75rem;color:var(--muted);max-width:760px;line-height:1.6}
+
+.holder-cols{display:grid;grid-template-columns:1fr 1fr;gap:20px;padding:0 24px}
+@media(max-width:900px){.holder-cols{grid-template-columns:1fr}}
+.holder-col-head{display:flex;align-items:center;gap:8px;font-weight:700;font-size:.84rem;padding-bottom:8px;margin-bottom:8px;border-bottom:1px solid var(--border)}
+.holder-col-head .stripe{width:3px;height:14px;border-radius:1px}
+.holder-col-head.inc .stripe{background:var(--up)}
+.holder-col-head.dec .stripe{background:var(--down)}
+
+.holder-card{display:grid;grid-template-columns:22px 1fr auto;gap:10px;align-items:center;padding:10px 4px;border-bottom:1px solid var(--border)}
+.holder-card:last-child{border-bottom:none}
+.hc-rank{font-family:var(--mono);font-size:.64rem;color:var(--subtle)}
+.hc-main{min-width:0}
+.hc-top{display:flex;align-items:baseline;gap:6px}
+.hc-name{font-weight:700;font-size:.84rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hc-sid{font-family:var(--mono);color:var(--subtle);font-size:.66rem}
+.hc-meta{font-size:.66rem;color:var(--subtle)}
+.hc-bar-wrap{height:5px;background:var(--surface-3);border-radius:2px;overflow:hidden;margin-top:6px}
+.hc-bar{height:100%}
+.hc-bar.inc{background:var(--up)}
+.hc-bar.dec{background:var(--down)}
+.hc-right{text-align:right}
+.hc-pct{font-family:var(--mono);font-weight:700;font-size:.86rem}
+.hc-week{font-family:var(--mono);font-size:.66rem;margin-top:2px}
+.hc-week.up{color:var(--up)}.hc-week.down{color:var(--down)}
+.hc-sub{font-size:.62rem;color:var(--subtle);font-family:var(--mono);margin-top:2px}
+
+.legend-note{padding:14px 24px 0;font-size:.68rem;color:var(--subtle);max-width:760px}
+</style>
+
+<div class="mock-banner">MOCKUP v2 — 討論用，數字為示範值。相對v1：拿掉serif標題/金色光暈卡片，改扁平分欄+方向側線；大戶籌碼拆回「連增倉／連減倉」兩張獨立清單（沿用現行production的分法）</div>
+
+<div class="shell">
+  <div class="topbar">
+    <h1>籌碼分析</h1>
+    <span class="sub">台股電子供應鏈</span>
+    <span class="stamp">2026-07-23 盤後</span>
+  </div>
+
+  <div class="hero">
+    <div class="hero-panel">
+      <div class="hero-head"><h2>候選觀察</h2><span class="count">法人同步觀察 · 3檔</span></div>
+      <div class="disclosure"><span><b>條件篩選觀察名單，非投資建議。</b>排序邏輯尚未完成配對組／統計顯著性驗證，命中率無法保證優於隨機選股。</span></div>
+
+      <div class="pick-row primary">
+        <span class="pr-rank">1</span>
+        <div>
+          <span class="pr-name">世界先進<span class="pr-sid">5347</span></span>
+          <div class="pr-evidence">晶圓代工 · 外資連買7日 · 淨買+4,120張 · 量比1.6x</div>
+        </div>
+        <div class="pr-pct">+3.8%<span class="lbl">10日</span></div>
+      </div>
+      <div class="pick-row">
+        <span class="pr-rank">2</span>
+        <div>
+          <span class="pr-name">健策<span class="pr-sid">3653</span></span>
+          <div class="pr-evidence">外資連買5日 · 量比1.4x</div>
+        </div>
+        <div class="pr-pct">+2.1%</div>
+      </div>
+      <div class="pick-row">
+        <span class="pr-rank">3</span>
+        <div>
+          <span class="pr-name">系統電<span class="pr-sid">5309</span></span>
+          <div class="pr-evidence">投信連買6日 · 量比1.3x</div>
+        </div>
+        <div class="pr-pct">+1.4%</div>
+      </div>
+
+      <div class="hero-footnote">篩選條件：連買≥2日、成交量≥500張、買超占量≥0.1%、10日價格不弱於0%。完整榜單見 <a href="#">法人同步觀察</a>。</div>
+    </div>
+
+    <div class="hero-panel">
+      <div class="hero-head"><h2>大戶持倉本週焦點</h2><span class="count">400張以上大戶% 週變化 Top5</span></div>
+      <div style="margin-top:10px">
+        <div class="holder-mini-row"><span class="hm-name">世界先進</span><div class="hm-bar-wrap"><div class="hm-bar" style="width:68%"></div></div><span class="hm-pct">68.4%</span><span class="hm-delta up">+2.1%</span></div>
+        <div class="holder-mini-row"><span class="hm-name">健策</span><div class="hm-bar-wrap"><div class="hm-bar" style="width:54%"></div></div><span class="hm-pct">54.2%</span><span class="hm-delta up">+1.7%</span></div>
+        <div class="holder-mini-row"><span class="hm-name">聯亞</span><div class="hm-bar-wrap"><div class="hm-bar" style="width:41%"></div></div><span class="hm-pct">41.0%</span><span class="hm-delta up">+1.5%</span></div>
+        <div class="holder-mini-row"><span class="hm-name">富鼎</span><div class="hm-bar-wrap"><div class="hm-bar" style="width:59%"></div></div><span class="hm-pct">59.3%</span><span class="hm-delta down">−0.8%</span></div>
+        <div class="holder-mini-row"><span class="hm-name">大立光</span><div class="hm-bar-wrap"><div class="hm-bar" style="width:77%"></div></div><span class="hm-pct">77.1%</span><span class="hm-delta up">+0.6%</span></div>
+      </div>
+      <div class="hero-footnote">完整增倉/減倉榜單見下方「大戶籌碼」。</div>
+    </div>
+  </div>
+
+  <!-- 拿掉3組分組label，改單排+分隔線，測試分組是否必要 -->
+  <div class="tab-row" role="tablist" aria-label="籌碼分析分類">
+    <button class="tab-btn" role="tab" aria-selected="false">法人同步觀察</button>
+    <button class="tab-btn" role="tab" aria-selected="false">外資籌碼</button>
+    <button class="tab-btn" role="tab" aria-selected="false">投信籌碼</button>
+    <span class="tab-sep"></span>
+    <button class="tab-btn" role="tab" aria-selected="false">越跌越買</button>
+    <button class="tab-btn" role="tab" aria-selected="false">外資偷偷買</button>
+    <button class="tab-btn" role="tab" aria-selected="false">融資警示</button>
+    <span class="tab-sep"></span>
+    <button class="tab-btn active" role="tab" aria-selected="true">大戶籌碼<span class="n">50</span></button>
+    <button class="tab-btn" role="tab" aria-selected="false">董監持股</button>
+  </div>
+
+  <div class="section-head"><h2>大戶籌碼</h2><span class="count">≥400張，集保週統計</span></div>
+  <div class="section-sub">沿用現行版本「連增倉／連減倉」兩張獨立清單的分法（不像v1混排），但把13欄表格換成卡片+長條——長條長度＝400張以上大戶%，方向用左側色條（紅=增、綠=減，跟今日漲跌同一套色系語意）取代原本一整欄的箭頭符號。</div>
+
+  <div class="holder-cols">
+    <div>
+      <div class="holder-col-head inc"><span class="stripe"></span>連增倉 Top 30</div>
+      <div class="holder-card">
+        <span class="hc-rank">1</span>
+        <div class="hc-main">
+          <div class="hc-top"><span class="hc-name">世界先進</span><span class="hc-sid">5347</span></div>
+          <div class="hc-meta">晶圓代工</div>
+          <div class="hc-bar-wrap"><div class="hc-bar inc" style="width:68.4%"></div></div>
+        </div>
+        <div class="hc-right">
+          <div class="hc-pct">68.4%</div>
+          <div class="hc-week up">↑6週 +2.1%</div>
+          <div class="hc-sub">1000張以上 22.6%</div>
+        </div>
+      </div>
+      <div class="holder-card">
+        <span class="hc-rank">2</span>
+        <div class="hc-main">
+          <div class="hc-top"><span class="hc-name">大立光</span><span class="hc-sid">3008</span></div>
+          <div class="hc-meta">光學/相機</div>
+          <div class="hc-bar-wrap"><div class="hc-bar inc" style="width:77.1%"></div></div>
+        </div>
+        <div class="hc-right">
+          <div class="hc-pct">77.1%</div>
+          <div class="hc-week up">↑3週 +0.6%</div>
+          <div class="hc-sub">1000張以上 31.4%</div>
+        </div>
+      </div>
+      <div class="holder-card">
+        <span class="hc-rank">3</span>
+        <div class="hc-main">
+          <div class="hc-top"><span class="hc-name">健策</span><span class="hc-sid">3653</span></div>
+          <div class="hc-meta">散熱</div>
+          <div class="hc-bar-wrap"><div class="hc-bar inc" style="width:54.2%"></div></div>
+        </div>
+        <div class="hc-right">
+          <div class="hc-pct">54.2%</div>
+          <div class="hc-week up">↑8週 +1.7%</div>
+          <div class="hc-sub">1000張以上 9.8%</div>
+        </div>
+      </div>
+      <div class="holder-card">
+        <span class="hc-rank">4</span>
+        <div class="hc-main">
+          <div class="hc-top"><span class="hc-name">聯亞</span><span class="hc-sid">3081</span></div>
+          <div class="hc-meta">光通訊</div>
+          <div class="hc-bar-wrap"><div class="hc-bar inc" style="width:41.0%"></div></div>
+        </div>
+        <div class="hc-right">
+          <div class="hc-pct">41.0%</div>
+          <div class="hc-week up">↑4週 +1.5%</div>
+          <div class="hc-sub">1000張以上 6.3%</div>
+        </div>
+      </div>
+      <div class="holder-card">
+        <span class="hc-rank">5</span>
+        <div class="hc-main">
+          <div class="hc-top"><span class="hc-name">環球晶</span><span class="hc-sid">6488</span></div>
+          <div class="hc-meta">半導體材料</div>
+          <div class="hc-bar-wrap"><div class="hc-bar inc" style="width:63.7%"></div></div>
+        </div>
+        <div class="hc-right">
+          <div class="hc-pct">63.7%</div>
+          <div class="hc-week up">↑1週 +0.3%</div>
+          <div class="hc-sub">1000張以上 19.9%</div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="holder-col-head dec"><span class="stripe"></span>連減倉 Top 20</div>
+      <div class="holder-card">
+        <span class="hc-rank">1</span>
+        <div class="hc-main">
+          <div class="hc-top"><span class="hc-name">富鼎</span><span class="hc-sid">8261</span></div>
+          <div class="hc-meta">功率半導體</div>
+          <div class="hc-bar-wrap"><div class="hc-bar dec" style="width:59.3%"></div></div>
+        </div>
+        <div class="hc-right">
+          <div class="hc-pct">59.3%</div>
+          <div class="hc-week down">↓2週 −0.8%</div>
+          <div class="hc-sub">1000張以上 18.1%</div>
+        </div>
+      </div>
+      <div class="holder-card">
+        <span class="hc-rank">2</span>
+        <div class="hc-main">
+          <div class="hc-top"><span class="hc-name">聯發科</span><span class="hc-sid">2454</span></div>
+          <div class="hc-meta">IC設計</div>
+          <div class="hc-bar-wrap"><div class="hc-bar dec" style="width:71.2%"></div></div>
+        </div>
+        <div class="hc-right">
+          <div class="hc-pct">71.2%</div>
+          <div class="hc-week down">↓4週 −1.9%</div>
+          <div class="hc-sub">1000張以上 28.0%</div>
+        </div>
+      </div>
+      <div class="holder-card">
+        <span class="hc-rank">3</span>
+        <div class="hc-main">
+          <div class="hc-top"><span class="hc-name">創意</span><span class="hc-sid">3443</span></div>
+          <div class="hc-meta">IC設計</div>
+          <div class="hc-bar-wrap"><div class="hc-bar dec" style="width:36.5%"></div></div>
+        </div>
+        <div class="hc-right">
+          <div class="hc-pct">36.5%</div>
+          <div class="hc-week down">↓3週 −2.4%</div>
+          <div class="hc-sub">1000張以上 4.1%</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="legend-note">長條長度＝相對濃度高低，沒有驗證過的「多少%算高」門檻，刻意不畫刻度線。兩欄各示範前5/3檔，完整為30/20檔可捲動。</div>
+</div>

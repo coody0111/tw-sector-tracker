@@ -30,6 +30,9 @@ body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);fon
 .tabular{font-variant-numeric:tabular-nums;font-family:var(--mono)}
 a{color:inherit}
 ::selection{background:var(--accent-soft)}
+/* 現行production頁(chips_generator.py)的tab-btn已經有role=tab/aria-selected+focus-visible
+   outline，這裡補齊避免mockup示範出一個可及性倒退的版本 */
+a:focus-visible,button:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
 
 /* ── Shell ── */
 .shell{max-width:1400px;margin:0 auto;padding:0 0 72px}
@@ -116,7 +119,6 @@ a{color:inherit}
 .hc-bar-label{display:flex;justify-content:space-between;font-size:.66rem;color:var(--subtle);margin-bottom:4px;font-family:var(--mono)}
 .hc-bar-label b{color:var(--text);font-size:.92rem;font-family:var(--mono)}
 .hc-bar-wrap{height:10px;background:var(--surface-3);border-radius:5px;overflow:hidden;position:relative}
-.hc-bar-wrap::after{content:"";position:absolute;left:70%;top:0;bottom:0;width:1px;background:var(--border-strong)}
 .hc-bar{height:100%;border-radius:5px}
 .hc-bar.tier-high{background:linear-gradient(to right,var(--accent-dim),var(--accent))}
 .hc-bar.tier-mid{background:linear-gradient(to right,var(--subtle),var(--muted))}
@@ -229,36 +231,40 @@ a{color:inherit}
   </div>
 
   <!-- ═══ 分頁籤：9個現有分頁，按性質分成3組，降低「9個平排」的認知負擔 ═══ -->
-  <div class="tab-groups">
+  <div class="tab-groups" role="tablist" aria-label="籌碼分析分類">
     <div class="tab-group">
       <span class="tab-group-label">法人動向</span>
       <div class="tab-row">
-        <button class="tab-btn">法人同步觀察</button>
-        <button class="tab-btn">外資籌碼</button>
-        <button class="tab-btn">投信籌碼</button>
+        <button class="tab-btn" role="tab" aria-selected="false">法人同步觀察</button>
+        <button class="tab-btn" role="tab" aria-selected="false">外資籌碼</button>
+        <button class="tab-btn" role="tab" aria-selected="false">投信籌碼</button>
       </div>
     </div>
     <div class="tab-group">
       <span class="tab-group-label">特殊型態</span>
       <div class="tab-row">
-        <button class="tab-btn">越跌越買</button>
-        <button class="tab-btn">外資偷偷買</button>
-        <button class="tab-btn">融資警示</button>
+        <button class="tab-btn" role="tab" aria-selected="false">越跌越買</button>
+        <button class="tab-btn" role="tab" aria-selected="false">外資偷偷買</button>
+        <button class="tab-btn" role="tab" aria-selected="false">融資警示</button>
       </div>
     </div>
     <div class="tab-group">
       <span class="tab-group-label">持股結構</span>
       <div class="tab-row">
-        <button class="tab-btn active">大戶籌碼<span class="n">30</span></button>
-        <button class="tab-btn">董監持股</button>
-        <button class="tab-btn">法人買賣總表</button>
+        <button class="tab-btn active" role="tab" aria-selected="true">大戶籌碼<span class="n">30</span></button>
+        <button class="tab-btn" role="tab" aria-selected="false">董監持股</button>
+        <button class="tab-btn" role="tab" aria-selected="false">法人買賣總表</button>
       </div>
     </div>
   </div>
 
   <!-- ═══ 大戶籌碼：卡片+長條圖取代13欄密集表格（DESIGN.md：超過15行table一律改卡片） ═══ -->
-  <div class="section-head"><h2>大戶連增倉 Top 30</h2><span class="count">≥400張，集保週統計</span></div>
-  <div class="section-sub">主指標「400張以上大戶%」用長條視覺化——濃度越高、條越長越亮，一眼判斷籌碼集中程度，不用逐欄比數字。次要數據（連增週／張數變化／1000張以上大戶）收進卡片下緣的小標籤列。</div>
+  <!-- 注意：這裡刻意混排增倉/減倉（用badge區分方向），不是只列增倉——現行production版本
+       是拆成「大戶連增倉Top30」「大戶連減倉Top20」兩張獨立表格。這個mockup先示範「單一可
+       排序清單、方向用badge標示」這個design方向給Cody看，如果要保留兩張獨立清單，這裡的
+       標題跟資料要跟著改，不能沿用這版的「Top30」字面卻混著減倉股，那樣會誤導。 -->
+  <div class="section-head"><h2>大戶籌碼排行</h2><span class="count">Top 30 · ≥400張，集保週統計，增減倉混排</span></div>
+  <div class="section-sub">主指標「400張以上大戶%」用長條視覺化——濃度越高、條越長越亮，一眼判斷籌碼集中程度，不用逐欄比數字。方向（連增/連減）用左側badge標示，次要數據（連續週數／張數變化／1000張以上大戶）收進卡片下緣的小標籤列。<b style="color:var(--caution)">設計待確認：</b>現行版本是「連增倉」「連減倉」兩張獨立表格，這裡先示範混排＋方向badge的做法，兩種各有取捨，要跟你確認要選哪個再定案。</div>
 
   <div class="holder-grid">
     <div class="holder-card">
@@ -376,5 +382,5 @@ a{color:inherit}
     </div>
   </div>
 
-  <div class="legend-note">刻度線標示 70% 這個常見的「籌碼高度集中」參考點（非正式門檻，僅供掃視用）。完整 30 檔捲動可見，這裡示範前 6 檔配置。</div>
+  <div class="legend-note">長條長度僅表示相對濃度高低，目前沒有一個「多少%算高」的驗證門檻，不畫刻度線避免暗示不存在的標準。完整 30 檔捲動可見，這裡示範前 6 檔配置。</div>
 </div>

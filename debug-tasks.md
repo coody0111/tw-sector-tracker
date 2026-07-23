@@ -3264,3 +3264,35 @@ Cody要求近5/7/10/14日不要只藏在個股卡片(彈窗)裡，要直接顯�
 ### 特別注意
 - **千萬不要在沒有防呆的情況下重跑`scripts/build_universe.py`**——會洗掉
   exchange欄位跟手動override，這次已經吃過一次虧（好在還沒commit就發現撤銷了）
+
+## [2026-07-23] 個股走勢圖升級：量比欄位+爆量徽章+成交量疊圖+K棒
+
+### 改了什麼
+- 異動檔案：processors/performance.py, export/index_generator.py, tests/test_index_generator.py, tests/test_processors.py
+
+### 邏輯說明（4個連續小改動，同一批一起交接）
+1. **個股列表新增量比欄位**：Cody問「量能表現」，說明白是想知道「是否有爆大量」——
+   加一欄量比，>=1.5x顯示強調色+粗體+「爆量」文字徽章，可點標題排序。
+2. **量比算法澄清**：確認是跟「前10個交易日平均量」比，不是MA20（跟patterns.html
+   的量比算法不同，那邊用20日均量），已修正docstring原本誤寫「5日均量」的錯誤。
+3. **個股卡片走勢圖疊加成交量**：buildSparkline()新增選填volumes參數，價格bar
+   下方疊一排半透明量能柱狀圖。
+4. **價格走勢改用K棒(candlestick)**：新增buildCandlestick()，`calc_stock_sparklines()`
+   新增opens/highs/lows/closes近11日OHLC歷史（daily_prices本來就有這些欄位，只是
+   原本SQL沒撈）。個股卡片彈窗改叫buildCandlestick()取代buildSparkline()，影線畫
+   最高/最低、實體畫開盤/收盤，紅漲綠跌。族群層級(沒有OHLC概念)維持用原本的
+   buildSparkline()%漲跌bar，不受影響。
+
+### 資料來源相關（如有異動）
+- 上市資料（TWSE）/上櫃資料（TPEx）：無異動，OHLC本來就在daily_prices表裡，
+  這次只是SQL查詢多撈這4個欄位，沒有新增資料源
+
+### 請 Debugger 驗證
+- [ ] 全部411個測試通過（已本機跑過，全綠）
+- [ ] 個股列表「量比」欄位可以點標題排序，>=1.5x的股票有「爆量」徽章
+- [ ] 點開個股卡片，走勢圖是K棒(蠟燭圖)不是長條圖，紅漲綠跌方向要對
+- [ ] K棒下方有成交量柱狀圖疊圖，hover有日期+成交量tooltip
+
+### 特別注意
+- 這4項改動都用jsdom實際模擬過瀏覽器互動驗證(不只看程式碼)，包含：量能徽章
+  正確依門檻顯示、K棒實際render出正確的影線+實體+顏色、成交量疊圖正確render

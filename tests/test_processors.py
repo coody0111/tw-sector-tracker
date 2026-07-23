@@ -482,15 +482,16 @@ def test_calc_stock_sparklines_includes_daily_volume_and_ratio(tmp_path):
     con = duckdb.connect(db_path)
     con.execute("""
         CREATE TABLE daily_prices (
-            stock_id VARCHAR, date DATE, change_pct DOUBLE, volume BIGINT
+            stock_id VARCHAR, date DATE, change_pct DOUBLE, volume BIGINT,
+            open DOUBLE, high DOUBLE, low DOUBLE, close DOUBLE
         )
     """)
     con.executemany(
-        "INSERT INTO daily_prices VALUES (?, ?, ?, ?)",
+        "INSERT INTO daily_prices VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         [
-            ("2330", "2026-07-13", 1.0, 10000),
-            ("2330", "2026-07-14", -0.5, 20000),
-            ("2330", "2026-07-15", 1.5, 45000),
+            ("2330", "2026-07-13", 1.0, 10000, 900.0, 905.0, 898.0, 901.0),
+            ("2330", "2026-07-14", -0.5, 20000, 901.0, 902.0, 895.0, 896.0),
+            ("2330", "2026-07-15", 1.5, 45000, 896.0, 910.0, 895.0, 909.0),
         ],
     )
     con.close()
@@ -504,6 +505,39 @@ def test_calc_stock_sparklines_includes_daily_volume_and_ratio(tmp_path):
     assert result["dates"] == ["07/13", "07/14", "07/15"]
     assert result["avg_volume"] == 15000
     assert result["vol_ratio"] == 3.0
+
+
+def test_calc_stock_sparklines_includes_ohlc_for_candlestick_chart(tmp_path):
+    """Cody要求個股走勢圖用K棒(candlestick)呈現——確認calc_stock_sparklines()
+    有把open/high/low/close這四個欄位的近N日歷史一併回傳，供前端畫K棒。"""
+    import duckdb
+    from processors.performance import calc_stock_sparklines
+
+    db_path = str(tmp_path / "ohlc-history.db")
+    con = duckdb.connect(db_path)
+    con.execute("""
+        CREATE TABLE daily_prices (
+            stock_id VARCHAR, date DATE, change_pct DOUBLE, volume BIGINT,
+            open DOUBLE, high DOUBLE, low DOUBLE, close DOUBLE
+        )
+    """)
+    con.executemany(
+        "INSERT INTO daily_prices VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        [
+            ("2330", "2026-07-14", -0.5, 20000, 901.0, 902.0, 895.0, 896.0),
+            ("2330", "2026-07-15", 1.5, 45000, 896.0, 910.0, 895.0, 909.0),
+        ],
+    )
+    con.close()
+
+    result = calc_stock_sparklines(
+        pd.DataFrame([{"stock_id": "2330"}]), db_path=db_path, lookback=2
+    )["2330"]
+
+    assert result["opens"] == [901.0, 896.0]
+    assert result["highs"] == [902.0, 910.0]
+    assert result["lows"] == [895.0, 895.0]
+    assert result["closes"] == [896.0, 909.0]
 
 
 # ── _streak_and_windows_as_of（任意時間點的 streak/上週/本週窗口回推）─────

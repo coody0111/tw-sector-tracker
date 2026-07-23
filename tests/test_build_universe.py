@@ -1,5 +1,9 @@
 from pathlib import Path
 
+import pandas as pd
+import pytest
+
+import scripts.build_universe as bu
 from scripts.build_universe import load_overrides, apply_overrides
 
 
@@ -60,3 +64,36 @@ def test_apply_overrides_no_overrides_leaves_unchanged():
     unmatched = apply_overrides(rows, {})
     assert unmatched == []
     assert rows[0]["meta_sector"] == "晶圓代工"
+
+
+def _write(path, text):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8-sig")
+
+
+def test_build_missing_input_raises_systemexit(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit):
+        bu.build()
+
+
+def test_build_override_removes_stock_from_ambiguous_report(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _write(tmp_path / "data" / "sectors" / "industry_sectors.csv",
+           "stock_id,stock_name,sector_name\n"
+           "3081,聯亞,光通訊\n"
+           "3081,聯亞,晶圓代工\n")
+    _write(tmp_path / "data" / "sector_overrides.csv",
+           "stock_id,meta_sector,sub_sector,source_note\n"
+           "3081,光通訊,光通訊,財報狗題材:光通訊\n")
+
+    bu.build()
+
+    universe = pd.read_csv(tmp_path / "data" / "stock_universe.csv",
+                           dtype=str, encoding="utf-8-sig")
+    row = universe[universe["stock_id"] == "3081"].iloc[0]
+    assert row["meta_sector"] == "光通訊"
+    assert row["note"] == "手動校正:財報狗題材:光通訊"
+
+    report = (tmp_path / "data" / "universe_build_report.txt").read_text(encoding="utf-8")
+    assert "無爭議股票" in report  # 3081 被 override 後應從爭議清單移除 → 清單空

@@ -130,6 +130,10 @@ def build() -> None:
     overrides = load_overrides()
     missing_override_ids = apply_overrides(rows, overrides)
 
+    # override 已校正的股不應再列入「需人工 review」清單（避免報告與實際輸出矛盾）
+    overridden_ids = set(overrides) - set(missing_override_ids)
+    ambiguous = [a for a in ambiguous if a[0] not in overridden_ids]
+
     universe_df = pd.DataFrame(rows).sort_values(["meta_sector", "stock_id"])
     universe_df.to_csv(UNIVERSE_CSV, index=False, encoding="utf-8-sig")
 

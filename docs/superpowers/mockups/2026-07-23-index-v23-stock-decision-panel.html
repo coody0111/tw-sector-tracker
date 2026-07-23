@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>族群總覽頁 v23 個股決策面板 Mockup</title>
+<style>
+:root{
+  --bg:#080B12; --panel:#0F1420; --panel-2:#161D2C; --panel-3:#1E2738;
+  --border:#293346; --border-2:#37435C;
+  --ink:#DADFE8; --ink-2:#98A0B4; --ink-3:#636B80;
+  --up:#E6432F; --down:#37B25C; --accent:#F0BB55; --accent-dim:#B98A3A;
+  --trend:#C77FBD; --blue:#56A0E8;
+  --serif: Georgia,"Iowan Old Style","Source Serif 4","Noto Serif TC",serif;
+  --sans: "Public Sans",-apple-system,"PingFang TC","Microsoft JhengHei","Segoe UI",sans-serif;
+  --mono: ui-monospace,"IBM Plex Mono","Cascadia Code","Roboto Mono",monospace;
+  --shadow: 0 12px 34px rgba(0,0,0,.42), 0 2px 8px rgba(0,0,0,.28);
+}
+*{box-sizing:border-box}
+body{
+  min-width:1180px;margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+  font-size:14px;line-height:1.55;padding-bottom:72px;
+  background-image:
+    radial-gradient(ellipse at top left, rgba(255,255,255,.045), transparent 54%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E");
+}
+button{font:inherit;color:inherit}
+.tabular{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.topbar{
+  display:flex;align-items:baseline;gap:16px;padding:22px 26px;
+  background:linear-gradient(to bottom,var(--panel),var(--bg));border-bottom:1px solid var(--border);
+  box-shadow:0 6px 18px -10px rgba(0,0,0,.5);
+}
+.brand{min-width:126px}
+.kicker{font-size:.6rem;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:var(--accent);margin-bottom:3px}
+h1{font-family:var(--serif);font-size:1.34rem;font-weight:600;color:var(--ink);letter-spacing:.01em;margin:0}
+.search{
+  flex:1;max-width:320px;background:var(--panel-2);border:1px solid var(--border);
+  border-radius:6px;padding:7px 12px;color:var(--ink-2);font-size:.8rem;
+}
+.updated{margin-left:auto;color:var(--ink-3);font-family:var(--mono);font-size:.72rem}
+.nav{display:flex;gap:8px}
+.nav a{font-size:.78rem;padding:5px 14px;border-radius:6px;border:1px solid var(--border);color:var(--ink-2);text-decoration:none}
+.nav .active{border-color:var(--accent);color:var(--ink);background:var(--panel-2)}
+.section-head{display:flex;align-items:baseline;gap:12px;padding:30px 26px 6px}
+.section-head h2{font-family:var(--serif);font-size:1.12rem;font-weight:700;margin:0}
+.section-head .count{font-family:var(--mono);font-size:.68rem;color:var(--ink-3)}
+.section-rule{height:1px;margin:6px 26px 4px;background:linear-gradient(to right,var(--accent-dim) 0%,var(--border) 30%,transparent 90%)}
+.section-sub{padding:0 26px 16px;font-size:.78rem;color:var(--ink-2);max-width:760px}
+.legend{display:flex;gap:16px;padding:0 26px 16px;font-size:.68rem;color:var(--ink-2);font-family:var(--mono)}
+.legend span{display:inline-flex;align-items:center;gap:5px}.dot{width:8px;height:8px;border-radius:2px}
+.heatgrid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;padding:0 26px}
+.tile{
+  border-radius:6px;padding:14px 15px;cursor:pointer;border:1px solid rgba(255,255,255,.06);
+  border-top:3px solid transparent;background:var(--panel);transition:transform .15s,box-shadow .15s,border-color .15s;
+  color:#F0E8DD;text-align:left;
+}
+.tile:hover{transform:translateY(-2px);box-shadow:var(--shadow);border-color:rgba(255,255,255,.12)}
+.tile.active{outline:2px solid var(--accent);outline-offset:-2px}
+.tile.red{background:linear-gradient(145deg,rgba(128,39,39,.86),rgba(95,32,34,.9));border-top-color:var(--up)}
+.tile.green{background:linear-gradient(145deg,rgba(20,83,64,.86),rgba(21,64,55,.9));border-top-color:var(--down)}
+.tile-top{display:flex;align-items:baseline;gap:8px}
+.rank{font-family:var(--mono);font-size:.6rem;color:rgba(255,255,255,.42)}
+.name{font-family:var(--serif);font-size:.98rem;font-weight:800;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#F3E6D5;text-shadow:0 1px 0 rgba(0,0,0,.26)}
+.pct{font-family:var(--mono);font-size:1rem;font-weight:900;letter-spacing:.01em}
+.tile.red .pct{color:#FFB5A8}.tile.green .pct{color:#A7E8B8}
+.tile-meta{display:flex;align-items:center;gap:8px;margin-top:10px;font-family:var(--mono);font-size:.66rem;color:rgba(235,226,214,.58)}
+.pill{
+  display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:4px 9px;
+  background:rgba(255,255,255,.1);font-weight:800;font-size:.66rem;color:rgba(255,248,232,.82);
+}
+.tile-week{display:flex;justify-content:space-between;margin-top:10px;padding-top:8px;border-top:1px solid rgba(255,255,255,.08);font-family:var(--mono);font-size:.62rem;color:rgba(235,226,214,.5)}
+.tile-week b{color:rgba(255,244,226,.74);font-weight:800}
+.detail-panel{
+  grid-column:1/-1;background:var(--panel-2);border:1px solid var(--border-2);border-radius:6px;
+  box-shadow:var(--shadow);overflow:hidden;margin-top:2px;
+}
+.detail-head{
+  display:grid;grid-template-columns:1fr auto;gap:18px;padding:18px 24px;
+  background:linear-gradient(to right,var(--panel-3),var(--panel-2) 62%);border-bottom:1px solid var(--border-2);
+}
+.detail-title{display:flex;align-items:baseline;gap:12px}
+.detail-title h3{font-family:var(--serif);font-size:1.24rem;font-weight:700;margin:0}
+.dpct{font-family:var(--mono);font-weight:800;color:var(--up)}
+.close{font-family:var(--mono);font-size:.68rem;background:var(--panel);border:1px solid var(--border);color:var(--ink-2);padding:5px 11px;border-radius:4px}
+.detail-sub{font-size:.74rem;color:var(--ink-3);padding:12px 24px 0;font-family:var(--mono)}
+.spark-row{display:flex;align-items:end;gap:8px;padding:8px 24px 10px}
+.spark-label{width:116px;font-family:var(--mono);font-size:.66rem;color:var(--ink-3)}
+.spark{display:flex;align-items:center;gap:6px;height:54px}
+.bar{width:34px;border-radius:4px 4px 2px 2px;background:var(--up);opacity:.9}
+.bar.down{background:var(--down);align-self:flex-end}.bar.dim{opacity:.48}
+.chips-summary{display:flex;gap:16px;flex-wrap:wrap;margin:0 24px 16px;padding:9px 12px;background:rgba(8,11,18,.35);border:1px solid rgba(255,255,255,.04);border-radius:5px;font-size:.76rem}
+.cs-label{color:var(--ink-3);margin-right:4px}.up{color:var(--up)}.down{color:var(--down)}.accent{color:var(--accent)}.blue{color:var(--blue)}
+.history-panel{
+  display:grid;grid-template-columns:220px 1fr;gap:14px;margin:0 24px 24px;
+  padding:12px 14px;background:linear-gradient(145deg,rgba(255,255,255,.035),rgba(255,255,255,.012));
+  border:1px solid var(--border);border-radius:6px;
+}
+.history-cell{min-width:0}
+.history-label{font-family:var(--mono);font-size:.62rem;font-weight:800;color:var(--ink-3);letter-spacing:.08em;text-transform:uppercase}
+.history-value{margin-top:5px;font-family:var(--serif);font-weight:700;color:var(--ink);font-size:1rem}
+.history-note{margin-top:4px;color:var(--ink-2);font-size:.72rem}
+.weekline{display:grid;grid-template-columns:repeat(5,1fr);gap:7px;margin-top:6px}
+.week{
+  border:1px solid var(--border);border-radius:5px;padding:7px 8px;background:rgba(8,11,18,.22);
+  font-family:var(--mono);font-size:.67rem;color:var(--ink-2);
+}
+.week b{display:block;margin-top:2px;color:var(--ink);font-size:.78rem}
+.week.hot{border-color:rgba(240,187,85,.45);background:rgba(240,187,85,.1)}
+.week.out b{color:var(--ink-3)}
+.history-events{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:8px}
+.event{
+  border-left:2px solid var(--border-2);padding:3px 0 3px 9px;color:var(--ink-2);
+  font-family:var(--mono);font-size:.68rem;line-height:1.45;
+}
+.event b{display:block;color:var(--ink);font-size:.76rem}
+.event.hot{border-left-color:var(--accent)}
+.candidate-zone{padding:0 24px 18px}
+.candidate h4{margin:0;font-family:var(--serif);font-size:1rem}
+.candidate-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.candidate{
+  background:linear-gradient(150deg,rgba(255,255,255,.045),rgba(255,255,255,.015));
+  border:1px solid var(--border);border-radius:6px;padding:13px 14px;position:relative;
+}
+.candidate .tag{font-family:var(--mono);font-size:.6rem;font-weight:800;color:var(--accent);letter-spacing:.08em;text-transform:uppercase}
+.candidate-main{display:flex;align-items:baseline;gap:8px;margin-top:6px}
+.sid{font-family:var(--mono);font-size:.72rem;color:var(--ink-3)}.candidate .price{margin-left:auto;font-family:var(--mono);font-weight:800}
+.candidate-copy{margin-top:10px;color:var(--ink-2);font-size:.76rem;line-height:1.55;min-height:2.35em}
+.candidate-metrics{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:11px;font-family:var(--mono);font-size:.68rem}
+.metric{padding-top:7px;border-top:1px solid var(--border);color:var(--ink-3)}.metric b{display:block;color:var(--ink);font-size:.76rem}
+.toolbar{display:flex;align-items:center;gap:8px;padding:0 24px 12px;flex-wrap:wrap}
+.filter{
+  border:1px solid var(--border);background:var(--panel);color:var(--ink-2);border-radius:999px;
+  padding:5px 10px;font-family:var(--mono);font-size:.68rem;cursor:pointer;
+}
+.filter.active{border-color:var(--accent);color:var(--ink);background:rgba(240,187,85,.12)}
+.hint{margin-left:auto;color:var(--ink-3);font-size:.7rem;font-family:var(--mono)}
+.table-wrap{overflow:hidden;padding:0 24px 24px}
+table{width:100%;border-collapse:collapse}
+th{
+  text-align:left;font-family:var(--mono);font-size:.61rem;font-weight:800;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--ink-3);padding:10px 12px 8px;border-bottom:1px solid var(--border-2);
+}
+th.num,td.num{text-align:right}
+td{padding:11px 12px;border-bottom:1px solid var(--border);font-size:.84rem;vertical-align:middle}
+tbody tr:hover{background:var(--panel-3)}
+.stock-name{font-family:var(--serif);font-size:1rem;font-weight:700;color:var(--ink)}
+.small{display:block;color:var(--ink-3);font-family:var(--mono);font-size:.68rem;margin-top:2px}
+.signal{display:inline-flex;padding:3px 8px;border-radius:4px;font-size:.68rem;font-family:var(--mono);font-weight:800}
+.signal.lead{background:rgba(240,187,85,.14);color:var(--accent)}
+.signal.break{background:rgba(230,67,47,.13);color:var(--up)}
+.signal.pull{background:rgba(86,160,232,.13);color:var(--blue)}
+.signal.risk{background:rgba(55,178,92,.12);color:var(--down)}
+.risk-note{color:var(--ink-2);font-size:.76rem;line-height:1.5}
+.score{font-family:var(--mono);font-weight:900;color:var(--accent);font-size:.8rem}
+.liquidity{font-family:var(--mono);color:var(--ink-2);font-size:.76rem}
+.empty{display:none;padding:18px 24px 24px;color:var(--ink-3);font-family:var(--serif)}
+tr.is-hidden{display:none}
+</style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="kicker">台股電子半導體族群追蹤</div>
+      <h1>族群總覽</h1>
+    </div>
+    <div class="search">搜尋股票代號 / 名稱 / 族群...</div>
+    <div class="updated">2026-07-23（週四）更新</div>
+    <nav class="nav" aria-label="主要功能">
+      <a class="active" href="#">族群績效</a>
+      <a href="#">籌碼分析</a>
+      <a href="#">形態掃描</a>
+      <a href="#">逆轟策略</a>
+    </nav>
+  </header>
+
+  <section>
+    <div class="section-head"><h2>族群排行</h2><span class="count">今日漲跌% ・42 個族群</span></div>
+    <div class="section-rule"></div>
+    <div class="section-sub">候選個股 ・ 相對強弱 ・ 量價籌碼</div>
+    <div class="legend">
+      <span><i class="dot" style="background:var(--accent)"></i>超強</span>
+      <span><i class="dot" style="background:var(--up)"></i>今日上漲</span>
+      <span><i class="dot" style="background:var(--down)"></i>今日下跌</span>
+      <span><i class="dot" style="background:var(--blue)"></i>族群相對強弱</span>
+    </div>
+
+    <div class="heatgrid">
+      <button class="tile red active">
+        <div class="tile-top"><span class="rank">#1 ↑8</span><span class="name">工業電腦</span><span class="pct">+1.12%</span></div>
+        <div class="tile-meta"><span class="pill">整理</span><span>投信6日</span><span>量能1.75x</span></div>
+        <div class="tile-week"><span>近5日→前5日</span><b>+0.98%→-1.69%</b></div>
+      </button>
+      <button class="tile red">
+        <div class="tile-top"><span class="rank">#2 ↑15</span><span class="name">光通訊</span><span class="pct">+1.04%</span></div>
+        <div class="tile-meta"><span class="pill">整理</span><span>量能1.9x</span></div>
+        <div class="tile-week"><span>近5日→前5日</span><b>+1.82%→-2.86%</b></div>
+      </button>
+      <button class="tile red">
+        <div class="tile-top"><span class="rank">#3 ↑23</span><span class="name">散熱</span><span class="pct">+0.81%</span></div>
+        <div class="tile-meta"><span class="pill">強</span><span>→ +0.6pt</span></div>
+        <div class="tile-week"><span>近5日→前5日</span><b>-4.57%→-3.97%</b></div>
+      </button>
+      <button class="tile red">
+        <div class="tile-top"><span class="rank">#4 ↑9</span><span class="name">AI伺服器</span><span class="pct">+0.36%</span></div>
+        <div class="tile-meta"><span class="pill">整理</span><span>外資4日</span></div>
+        <div class="tile-week"><span>近5日→前5日</span><b>+1.14%→-1.89%</b></div>
+      </button>
+      <button class="tile green">
+        <div class="tile-top"><span class="rank">#9 ↑19</span><span class="name">光學/相機</span><span class="pct">-0.12%</span></div>
+        <div class="tile-meta"><span class="pill">超弱</span><span>投信3日</span></div>
+        <div class="tile-week"><span>近5日→前5日</span><b>+2.47%→-6.99%</b></div>
+      </button>
+
+      <article class="detail-panel">
+        <div class="detail-head">
+          <div>
+            <div class="detail-title"><h3>工業電腦</h3><span class="dpct tabular">+1.12%</span></div>
+          </div>
+          <button class="close">收合</button>
+        </div>
+        <div class="detail-sub">▲19檔 ▼17檔 ・ 共 38 檔 ・ 族群均值 +1.12% ・ 中位數 +0.74%</div>
+        <div class="spark-row">
+          <div class="spark-label">族群近10日漲跌分布</div>
+          <div class="spark" aria-label="工業電腦族群近10日漲跌分布">
+            <i class="bar" style="height:26px"></i><i class="bar" style="height:34px"></i><i class="bar down dim" style="height:14px"></i><i class="bar" style="height:18px"></i><i class="bar down dim" style="height:12px"></i><i class="bar down" style="height:31px"></i><i class="bar down" style="height:52px"></i><i class="bar" style="height:22px"></i><i class="bar down dim" style="height:15px"></i><i class="bar" style="height:24px"></i>
+          </div>
+        </div>
+        <div class="chips-summary">
+          <span><span class="cs-label">外資</span><b class="up">+10,004張</b> <span class="cs-label">買超25/38股</span></span>
+          <span><span class="cs-label">投信</span><b class="up">+609張</b> <span class="up">連買6日</span></span>
+          <span><span class="cs-label">融資</span><b class="accent">↑1.8%</b></span>
+          <span><span class="cs-label">量能</span><b class="accent">1.75x</b> <span class="cs-label">高於近5日均量</span></span>
+        </div>
+
+        <div class="candidate-zone">
+          <div class="candidate-grid">
+            <article class="candidate">
+              <div class="tag">最強領頭</div>
+              <div class="candidate-main"><span class="sid">3577</span><h4>泓格</h4><span class="price up">+5.26%</span></div>
+              <div class="candidate-copy">強於族群 +24.0pt，短線已延伸，等量縮回測。</div>
+              <div class="candidate-metrics"><span class="metric">量比<b>4.35x</b></span><span class="metric">法人<b>外資+812張</b></span></div>
+            </article>
+            <article class="candidate">
+              <div class="tag">爆量突破</div>
+              <div class="candidate-main"><span class="sid">6166</span><h4>凌華</h4><span class="price up">+10.00%</span></div>
+              <div class="candidate-copy">漲停突破整理區，隔日看能否放量續強。</div>
+              <div class="candidate-metrics"><span class="metric">量比<b>5.94x</b></span><span class="metric">位置<b>漲停</b></span></div>
+            </article>
+            <article class="candidate">
+              <div class="tag">強勢延伸</div>
+              <div class="candidate-main"><span class="sid">6414</span><h4>樺漢</h4><span class="price up">+2.65%</span></div>
+              <div class="candidate-copy">成交金額夠大，但離均線較遠，偏持有觀察。</div>
+              <div class="candidate-metrics"><span class="metric">成交額<b>35.2億</b></span><span class="metric">風險<b>過熱</b></span></div>
+            </article>
+          </div>
+        </div>
+
+        <div class="toolbar" aria-label="個股快速篩選">
+          <button class="filter active" data-filter="all">全部</button>
+          <button class="filter" data-filter="leader">強於族群</button>
+          <button class="filter" data-filter="volume">爆量</button>
+          <button class="filter" data-filter="chips">法人同步</button>
+          <button class="filter" data-filter="breakout">突破/創高</button>
+          <button class="filter" data-filter="risk">排除過熱</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th class="num">候選</th>
+                <th>股票</th>
+                <th>判斷</th>
+                <th class="num">今日</th>
+                <th class="num">族群相對</th>
+                <th>位置 / 風險</th>
+                <th>量能 / 流動性</th>
+                <th>法人</th>
+                <th class="num">5日 / 10日</th>
+              </tr>
+            </thead>
+            <tbody id="stockRows">
+              <tr data-tags="leader volume breakout chips risk">
+                <td class="num score">#1</td>
+                <td><span class="stock-name">泓格</span><span class="small">3577</span></td>
+                <td><span class="signal lead">領頭續強</span></td>
+                <td class="num up tabular">+5.26%</td>
+                <td class="num blue tabular">+24.0pt</td>
+                <td><span class="risk-note">創20日高，離10日線 +12.4%，短線偏熱</span></td>
+                <td><span class="liquidity">4.35x ・ 9.8億</span></td>
+                <td><span class="up">外資+812張</span><span class="small">投信小買</span></td>
+                <td class="num tabular"><span class="up">+20.75%</span> / <span class="up">+20.30%</span></td>
+              </tr>
+              <tr data-tags="volume breakout chips">
+                <td class="num score">#2</td>
+                <td><span class="stock-name">凌華</span><span class="small">6166</span></td>
+                <td><span class="signal break">爆量突破</span></td>
+                <td class="num up tabular">+10.00%</td>
+                <td class="num blue tabular">+8.9pt</td>
+                <td><span class="risk-note">漲停突破整理區，隔日看量能延續</span></td>
+                <td><span class="liquidity">5.94x ・ 7.4億</span></td>
+                <td><span class="up">外資+436張</span><span class="small">投信轉買</span></td>
+                <td class="num tabular"><span class="up">+18.59%</span> / <span class="up">+19.92%</span></td>
+              </tr>
+              <tr data-tags="leader volume chips risk">
+                <td class="num score">#3</td>
+                <td><span class="stock-name">樺漢</span><span class="small">6414</span></td>
+                <td><span class="signal lead">強勢延伸</span></td>
+                <td class="num up tabular">+2.65%</td>
+                <td class="num blue tabular">+33.7pt</td>
+                <td><span class="risk-note">10日 +34.85%，偏持有觀察，不宜追價</span></td>
+                <td><span class="liquidity">4.73x ・ 35.2億</span></td>
+                <td><span class="up">外資+1,106張</span><span class="small">投信+118張</span></td>
+                <td class="num tabular"><span class="up">+29.47%</span> / <span class="up">+34.85%</span></td>
+              </tr>
+              <tr data-tags="volume breakout">
+                <td class="num score">#4</td>
+                <td><span class="stock-name">研揚</span><span class="small">6579</span></td>
+                <td><span class="signal break">轉強突破</span></td>
+                <td class="num up tabular">+9.88%</td>
+                <td class="num blue tabular">+12.9pt</td>
+                <td><span class="risk-note">站回月線，尚未過前高</span></td>
+                <td><span class="liquidity">2.72x ・ 4.9億</span></td>
+                <td><span class="down">外資-91張</span><span class="small">籌碼未同步</span></td>
+                <td class="num tabular"><span class="up">+13.98%</span> / <span class="up">+11.89%</span></td>
+              </tr>
+              <tr data-tags="volume">
+                <td class="num score">#5</td>
+                <td><span class="stock-name">艾訊</span><span class="small">3088</span></td>
+                <td><span class="signal pull">補漲轉強</span></td>
+                <td class="num up tabular">+6.57%</td>
+                <td class="num blue tabular">+5.1pt</td>
+                <td><span class="risk-note">突破短壓，10日仍落後領頭股</span></td>
+                <td><span class="liquidity">5.84x ・ 6.1億</span></td>
+                <td><span class="up">外資+228張</span><span class="small">投信無明顯</span></td>
+                <td class="num tabular"><span class="up">+10.39%</span> / <span class="up">+6.21%</span></td>
+              </tr>
+              <tr data-tags="risk">
+                <td class="num score">#6</td>
+                <td><span class="stock-name">振樺電</span><span class="small">8114</span></td>
+                <td><span class="signal risk">過熱觀察</span></td>
+                <td class="num up tabular">+4.98%</td>
+                <td class="num blue tabular">+15.8pt</td>
+                <td><span class="risk-note">14日 +27.12%，量放太快，等整理</span></td>
+                <td><span class="liquidity">6.79x ・ 11.6億</span></td>
+                <td><span class="up">外資+302張</span><span class="small">融資同步增加</span></td>
+                <td class="num tabular"><span class="up">+16.29%</span> / <span class="up">+16.88%</span></td>
+              </tr>
+              <tr data-tags="">
+                <td class="num score">#7</td>
+                <td><span class="stock-name">新漢</span><span class="small">8234</span></td>
+                <td><span class="signal pull">弱勢反彈</span></td>
+                <td class="num up tabular">+1.25%</td>
+                <td class="num down tabular">-8.1pt</td>
+                <td><span class="risk-note">仍在10日線下，先列觀察</span></td>
+                <td><span class="liquidity">0.39x ・ 1.3億</span></td>
+                <td><span class="down">外資-144張</span><span class="small">未同步</span></td>
+                <td class="num tabular"><span class="down">-9.00%</span> / <span class="down">-9.64%</span></td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="empty" id="emptyState">這個篩選目前沒有符合的個股。</div>
+        </div>
+
+        <div class="history-panel">
+          <div class="history-cell">
+            <div class="history-label">歷史出現紀錄</div>
+            <div class="history-value">連續 3 週進榜</div>
+            <div class="history-note">上上週四曾進入前 20，本週升到第 1 名</div>
+            <div class="history-events">
+              <span class="event"><b>07/09（四）</b>上上週 #18</span>
+              <span class="event"><b>07/16（四）</b>上週 #9</span>
+              <span class="event hot"><b>07/23（四）</b>本週 #1</span>
+            </div>
+          </div>
+          <div class="history-cell">
+            <div class="history-label">近5週排行</div>
+            <div class="weekline" aria-label="工業電腦近5週族群排行">
+              <span class="week out">W-4<b>榜外</b></span>
+              <span class="week">W-3<b>#18</b></span>
+              <span class="week">W-2<b>#11</b></span>
+              <span class="week">W-1<b>#9</b></span>
+              <span class="week hot">本週<b>#1</b></span>
+            </div>
+          </div>
+        </div>
+      </article>
+    </div>
+  </section>
+
+<script>
+const filters = document.querySelectorAll('.filter');
+const rows = document.querySelectorAll('#stockRows tr');
+const empty = document.getElementById('emptyState');
+filters.forEach(btn => {
+  btn.addEventListener('click', () => {
+    filters.forEach(x => x.classList.remove('active'));
+    btn.classList.add('active');
+    const filter = btn.dataset.filter;
+    let shown = 0;
+    rows.forEach(row => {
+      const tags = row.dataset.tags.split(' ').filter(Boolean);
+      const visible = filter === 'all' || tags.includes(filter);
+      row.classList.toggle('is-hidden', !visible);
+      if (visible) shown += 1;
+    });
+    empty.style.display = shown ? 'none' : 'block';
+  });
+});
+</script>
+</body>
+</html>

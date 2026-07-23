@@ -3296,3 +3296,29 @@ Cody要求近5/7/10/14日不要只藏在個股卡片(彈窗)裡，要直接顯�
 ### 特別注意
 - 這4項改動都用jsdom實際模擬過瀏覽器互動驗證(不只看程式碼)，包含：量能徽章
   正確依門檻顯示、K棒實際render出正確的影線+實體+顏色、成交量疊圖正確render
+
+## [2026-07-23] 族群總覽頁mockup：v27補全41族群真實資料（純設計稿，非正式程式碼）
+
+### 改了什麼
+- 異動檔案：docs/superpowers/mockups/2026-07-23-index-v27-full-41-sectors.html（新增）,
+  docs/superpowers/mockups/README.md
+- 這是**mockup探索**，不是`export/index_generator.py`的正式改動，不影響任何production邏輯，
+  Debugger不用跑測試，純粹備查/之後正式化時參考
+
+### 邏輯說明
+- 延續v26（官方色票+DESIGN.md違規修正）的樣式，v27把原本只做5檔示範的熱區格
+  換成當天`docs/index.html`實際生成的全部41個族群真實排名/漲跌%/動能分級
+- 熱區格欄位收斂成4個能確認為真的欄位（排名+排名變化箭頭、族群名、漲跌%、動能分級），
+  拿掉v23~v26示範用的法人連買天數/量能倍數badge、週比較行——因為抓取腳本對這些欄位
+  解析失敗，選擇41檔統一呈現而非部分有示範內容部分沒有
+
+### 請 Debugger 驗證
+- 不需要驗證，純mockup探索，已直接跟Cody來回確認過
+
+### 特別注意
+- ⚠️ 這條mockup探索路線跟另一個平行session（筆電）正在推進的
+  `docs/superpowers/specs/2026-07-23-sector-override-layer-design.md`（族群分類校正層）
+  是不同的兩件事，彼此獨立，本次會話沒有動`data/sector_overrides.csv`
+- mockup README（`docs/superpowers/mockups/README.md`）內的「技術路線提醒」寫的是要接
+  進舊的`html_generator.py`——這個檔案已經被`index_generator.py`取代，如果之後要把mockup
+  概念正式化，要接的是`index_generator.py`，不是README寫的那個舊檔名

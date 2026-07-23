@@ -1060,7 +1060,7 @@ def test_generate_renders_volume_ratio_column_with_burst_badge(tmp_path):
 
 def test_generate_attaches_full_volume_history_for_stock_card_chart(tmp_path):
     """Cody問走勢圖能不能順便畫成交量——確認build_stock_detail_data()有把完整的
-    volumes歷史陣列(不只是今日單一值)附加到個股資料上，供buildSparkline()疊加
+    volumes歷史陣列(不只是今日單一值)附加到個股資料上，供buildCandlestick()疊加
     量能柱狀圖用。"""
     output_path = tmp_path / "index.html"
     meta_perf = [{"meta_name": "族群A", "avg_change_pct": 2.0, "up_count": 1, "down_count": 0, "flat_count": 0}]
@@ -1073,4 +1073,28 @@ def test_generate_attaches_full_volume_history_for_stock_card_chart(tmp_path):
 
     html = output_path.read_text(encoding="utf-8")
     assert '"volumes": [800, 1800]' in html
-    assert "buildSparkline(s.pcts, s.dates, undefined, s.volumes)" in html
+    assert "buildCandlestick(s.dates, s.opens, s.highs, s.lows, s.closes, s.volumes)" in html
+
+
+def test_generate_renders_candlestick_chart_with_ohlc_data(tmp_path):
+    """Cody要求個股卡片的價格走勢改用K棒(candlestick)呈現，不是純%漲跌bar——確認
+    build_stock_detail_data()有把opens/highs/lows/closes近N日OHLC歷史附加到個股
+    資料上，且個股卡片彈窗呼叫的是buildCandlestick()不是buildSparkline()。"""
+    output_path = tmp_path / "index.html"
+    meta_perf = [{"meta_name": "族群A", "avg_change_pct": 2.0, "up_count": 1, "down_count": 0, "flat_count": 0}]
+    universe_df = pd.DataFrame([{"stock_id": "1000", "stock_name": "測試股", "meta_sector": "族群A"}])
+    prices_df = pd.DataFrame([{"stock_id": "1000", "close": 100.0, "change_pct": 2.0}])
+    stock_sparklines = {
+        "1000": {"pcts": [1.0, 2.0], "dates": ["7/21", "7/22"], "volumes": [800, 1800],
+                 "opens": [98.0, 99.0], "highs": [100.0, 101.0], "lows": [97.0, 98.5], "closes": [99.0, 100.0]},
+    }
+
+    generate(date(2026, 7, 22), meta_perf, universe_df, {}, {}, prices_df, {},
+             stock_sparklines=stock_sparklines, output_path=str(output_path))
+
+    html = output_path.read_text(encoding="utf-8")
+    assert '"opens": [98.0, 99.0]' in html
+    assert '"highs": [100.0, 101.0]' in html
+    assert '"lows": [97.0, 98.5]' in html
+    assert '"closes": [99.0, 100.0]' in html
+    assert "function buildCandlestick" in html

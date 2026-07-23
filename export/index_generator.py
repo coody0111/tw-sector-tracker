@@ -489,8 +489,9 @@ def build_stock_detail_data(
     stock_sparklines：processors/performance.py::calc_stock_sparklines() 的輸出，供畫走勢圖，
     也是 volumes（近11日成交量歷史，供個股卡片走勢圖下方疊加量能柱狀圖）/volume（今日
     成交量，即volumes最後一筆）/vol_ratio（今日量/前10日均量，注意不是MA20，跟
-    patterns.html的量比算法不同）的來源——沿用舊版html_generator.py::_stock_card_html()
-    的資料來源，不重算。
+    patterns.html的量比算法不同）/opens、highs、lows、closes（近11日OHLC歷史，供個股
+    卡片畫K棒走勢圖，取代原本純%漲跌bar）的來源——沿用舊版
+    html_generator.py::_stock_card_html() 的資料來源，不重算。
     rolling_returns：screener/database.py::get_rolling_returns((5,7,10,14)) 的輸出
     {stock_id: {5:pct或None, 7:.., 10:.., 14:..}}，跟chips.html「近N日」算法一致。
     chips_df：screener/database.py::get_chips_today() 的輸出（stock_id欄位，非index），
@@ -537,6 +538,10 @@ def build_stock_detail_data(
             "volumes": spark.get("volumes", []),
             "volume": spark.get("volumes", [None])[-1] if spark.get("volumes") else None,
             "vol_ratio": spark.get("vol_ratio"),
+            "opens": spark.get("opens", []),
+            "highs": spark.get("highs", []),
+            "lows": spark.get("lows", []),
+            "closes": spark.get("closes", []),
             "roll5": roll.get(5), "roll7": roll.get(7), "roll10": roll.get(10), "roll14": roll.get(14),
             "foreign_net": _chips_num(c["foreign_net"]) if c is not None else None,
             "trust_net": _chips_num(c["trust_net"]) if c is not None else None,
@@ -1155,6 +1160,54 @@ function buildSparkline(pcts, dates, cls, volumes) {{
     + `<line x1="0" y1="${{mid}}" x2="${{totalW}}" y2="${{mid}}" stroke="var(--border)" stroke-width="1"/>${{priceBars}}${{volBars}}</svg></div>`;
 }}
 
+// 個股卡片的價格走勢改用K棒(candlestick)：影線(wick)畫最高最低價，實體(body)畫開盤/
+// 收盤價，收盤>=開盤紅漲、收盤<開盤綠跌（台股慣例）。族群層級沒有OHLC資料(meta是整組
+// 平均概念，本來就沒有開高低收)，繼續用buildSparkline()的%漲跌bar，不會呼叫這支函式。
+// opens/highs/lows/closes/dates/volumes都是Python端算好的數值/日期字串，不是使用者
+// 輸入，不用escHtml。
+function buildCandlestick(dates, opens, highs, lows, closes, volumes, cls) {{
+  if (!closes || !closes.length) return '';
+  cls = cls || 'sc-sparkline';
+  const n = closes.length, priceH = 40, gap = 2;
+  const hasVol = volumes && volumes.length === n;
+  const volH = hasVol ? 16 : 0, volGap = hasVol ? 4 : 0;
+  const barW = Math.max(4, Math.floor(140 / n) - gap);
+  const totalW = n * (barW + gap) - gap;
+  const totalH = priceH + volGap + volH;
+  const validHighs = highs.filter(v => v !== null && v !== undefined);
+  const validLows = lows.filter(v => v !== null && v !== undefined);
+  if (!validHighs.length || !validLows.length) return '';
+  const minLow = Math.min(...validLows), maxHigh = Math.max(...validHighs);
+  const range = (maxHigh - minLow) || 1;
+  const maxVol = hasVol ? (Math.max(...volumes) || 1) : 1;
+  const y = v => priceH - (v - minLow) / range * priceH;
+  let bars = '', volBars = '';
+  for (let i = 0; i < n; i++) {{
+    const o = opens[i], h = highs[i], l = lows[i], c = closes[i];
+    if (o === null || h === null || l === null || c === null ||
+        o === undefined || h === undefined || l === undefined || c === undefined) continue;
+    const d = (dates && dates[i]) || '';
+    const up = c >= o;
+    const color = up ? 'var(--up)' : 'var(--down)';
+    const x = i * (barW + gap);
+    const cx = x + barW / 2;
+    const bodyTop = y(Math.max(o, c));
+    const bodyBottom = y(Math.min(o, c));
+    const bodyH = Math.max(1, bodyBottom - bodyTop);
+    bars += `<line x1="${{cx}}" y1="${{y(h)}}" x2="${{cx}}" y2="${{y(l)}}" stroke="${{color}}" stroke-width="1"/>`;
+    bars += `<rect x="${{x}}" y="${{bodyTop}}" width="${{barW}}" height="${{bodyH}}" fill="${{color}}" rx="0.5">`
+      + `<title>${{d}} 開${{o.toFixed(2)}} 高${{h.toFixed(2)}} 低${{l.toFixed(2)}} 收${{c.toFixed(2)}}</title></rect>`;
+    if (hasVol) {{
+      const vol = volumes[i] || 0;
+      const vBarH = Math.max(1, vol / maxVol * (volH - 1));
+      const vY = priceH + volGap + (volH - vBarH);
+      volBars += `<rect x="${{x}}" y="${{vY}}" width="${{barW}}" height="${{vBarH}}" fill="${{color}}" opacity="0.5" rx="1"><title>${{d}} 量 ${{vol.toLocaleString()}}張</title></rect>`;
+    }}
+  }}
+  if (!bars) return '';
+  return `<div class="${{cls}}"><svg viewBox="0 0 ${{totalW}} ${{totalH}}" xmlns="http://www.w3.org/2000/svg">${{bars}}${{volBars}}</svg></div>`;
+}}
+
 // meta是CARD_META[name]，所有欄位都是Python端算好的數值/bool，不是使用者輸入，不用escHtml。
 function buildChipsSummary(meta) {{
   const rows = [];
@@ -1248,7 +1301,8 @@ function openStockCard(sid) {{
   const color = s.change_pct >= 0 ? 'var(--up)' : 'var(--down)';
   const sign = s.change_pct >= 0 ? '+' : '';
   const arrow = s.change_pct > 0 ? '▲' : (s.change_pct < 0 ? '▼' : '─');
-  const spark = buildSparkline(s.pcts, s.dates, undefined, s.volumes) || '<div class="sc-spark-empty">走勢資料不足</div>';
+  const spark = buildCandlestick(s.dates, s.opens, s.highs, s.lows, s.closes, s.volumes)
+    || '<div class="sc-spark-empty">走勢資料不足</div>';
   const rollItems = [['5日', s.roll5], ['7日', s.roll7], ['10日', s.roll10], ['14日', s.roll14]]
     .filter(([, v]) => v !== null && v !== undefined)
     .map(([lbl, v]) => {{

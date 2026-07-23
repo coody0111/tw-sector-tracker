@@ -289,14 +289,14 @@ def calc_stock_sparklines(
     db_path: str = "data/screener.db",
     lookback: int = 11,
 ) -> Dict[str, dict]:
-    """每支個股近 N 日漲跌與成交量歷史，供 HTML 個股卡片及 modal 使用。"""
+    """每支個股近 N 日漲跌/OHLC/成交量歷史，供 HTML 個股卡片及 modal 使用（含K棒走勢圖）。"""
     try:
         con = duckdb.connect(db_path, read_only=True)
         dates_df = con.execute(
             f"SELECT DISTINCT date FROM daily_prices ORDER BY date DESC LIMIT {lookback}"
         ).fetchdf()
         prices_df = con.execute(
-            "SELECT stock_id, date, change_pct, volume FROM daily_prices"
+            "SELECT stock_id, date, change_pct, volume, open, high, low, close FROM daily_prices"
         ).fetchdf()
         con.close()
     except Exception:
@@ -324,6 +324,20 @@ def calc_stock_sparklines(
         .reindex(columns=all_dates)
         .fillna(0)
     )
+    # OHLC：一天理論上只有一筆，用min/max/mean純粹是防呆（跟change_pct/volume既有
+    # 聚合慣例一致），不是真的要合併多筆交易資料。
+    open_pivot = prices_df.dropna(subset=["open"]).groupby(["stock_id", "date"])["open"].mean().unstack(level="date").reindex(columns=all_dates)
+    high_pivot = prices_df.dropna(subset=["high"]).groupby(["stock_id", "date"])["high"].max().unstack(level="date").reindex(columns=all_dates)
+    low_pivot = prices_df.dropna(subset=["low"]).groupby(["stock_id", "date"])["low"].min().unstack(level="date").reindex(columns=all_dates)
+    close_pivot = prices_df.dropna(subset=["close"]).groupby(["stock_id", "date"])["close"].mean().unstack(level="date").reindex(columns=all_dates)
+
+    def _ohlc_list(pivot, sid):
+        if sid not in pivot.index:
+            return [None] * len(all_dates)
+        return [
+            round(float(pivot.loc[sid, d]), 2) if pd.notna(pivot.loc[sid, d]) else None
+            for d in all_dates
+        ]
 
     result: Dict[str, dict] = {}
     for sid in pct_pivot.index:
@@ -337,6 +351,10 @@ def calc_stock_sparklines(
             "dates": [pd.Timestamp(d).strftime("%m/%d") for d in all_dates],
             "avg_volume": avg_volume,
             "vol_ratio": round(today_volume / avg_volume, 2) if avg_volume > 0 else None,
+            "opens": _ohlc_list(open_pivot, sid),
+            "highs": _ohlc_list(high_pivot, sid),
+            "lows": _ohlc_list(low_pivot, sid),
+            "closes": _ohlc_list(close_pivot, sid),
         }
     return result
 

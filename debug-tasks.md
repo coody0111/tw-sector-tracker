@@ -3394,3 +3394,36 @@ Cody要求v27 mockup補上個股列表的K棒/走勢/量能。查證時發現**�
 - 🔴 **這批commit已經Cody明確指示提前push到origin，沒有等這裡回報✅**（正常流程是等
   Debugger驗證過才push）。程式碼已經在public repo上了，麻煩優先驗證這條，若發現問題
   用一般bug-reports.md流程回報即可，不影響已經push這件事本身。
+
+## [2026-07-23] 族群分類校正層（sector_overrides 機制）+ 光通訊4檔
+
+### 改了什麼
+- 異動檔案：scripts/build_universe.py, scripts/__init__.py(新), tests/test_build_universe.py(新),
+  data/sector_overrides.csv(新, git add -f), data/stock_universe.csv(interim 4檔)
+- 邏輯說明：在 build_universe.py 自動分類「算完 rows 後、寫出前」加一層人工校正——
+  讀 data/sector_overrides.csv，命中 stock_id 就覆蓋 meta/sub(皆非空才蓋)、note 標
+  「手動校正:<source_note>」並清掉 ⚠️，並把已校正股從「需人工 review」爭議清單移除。
+  缺輸入檔(industry_sectors.csv)時改成明確 SystemExit(提示先跑 --update-sectors)。
+- 光通訊 4 檔(2455全新/3081聯亞/4991環宇-KY/6442光聖)：對照財報狗「題材=光通訊」，
+  從晶圓代工/連接器改歸光通訊。interim 已直接手改 stock_universe.csv 生效；同內容
+  也寫進 sector_overrides.csv 種子，重建後由機制自動接手。
+- 對應 spec/plan：docs/superpowers/specs|plans/2026-07-23-sector-override-layer*
+
+### 資料來源相關
+- 只動 universe 建置階段，不碰每日 TWSE/TPEx 行情/籌碼來源，不涉歷史回補。
+- 上市/上櫃無混用。exchange 欄未動(interim 保留)。
+
+### 請 Debugger 驗證
+- [ ] tests/test_build_universe.py 全綠(本機 9/9 pass)
+- [ ] override 只動清單內股號，未列入不受影響；sub/meta 留空保留自動值；命中清 ⚠️
+- [ ] 光通訊 4 檔 meta=光通訊(stock_universe.csv 現況)
+- [ ] 缺輸入檔給明確錯誤而非裸例外
+
+### 特別注意（⚠️ Task 3 重建尚未執行、且目前不安全）
+- **Task 3(重爬 MoneyDJ + build_universe.py 重建)是 gated、還沒跑**。跑之前有兩個坑：
+  1. build_universe.py 只輸出 5 欄，**重建後必須接著跑 scripts/update_exchange.py 補回
+     exchange 欄**，否則 main.py 每日流程會斷(計畫 Task 3 已補上這步)。
+  2. **種子 sector_overrides.csv 目前只有光通訊 4 檔，不含既有手動 override**
+     (廣宇=連接器、奇鋐=散熱、38 檔工業電腦…)。直接重建會沖掉這些。→ 重建前需先把
+     所有既有手動 override 遷進 sector_overrides.csv，機制才能真正保住它們。
+  → 在完成上述遷移之前，**請勿執行 build_universe.py 重建**。

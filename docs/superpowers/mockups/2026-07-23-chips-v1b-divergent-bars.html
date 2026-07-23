@@ -6,6 +6,8 @@
   --text:#DADFE8;--muted:#98A0B4;--subtle:#636B80;
   --accent:#F0BB55;--accent-soft:rgba(240,187,85,.14);--accent-dim:#B98A3A;
   --up:#E6432F;--down:#37B25C;
+  --up-pill-text:#FF9585;--up-pill-bg:rgba(230,67,47,.32);--up-pill-border:rgba(230,67,47,.55);
+  --down-pill-text:#7FE8A8;--down-pill-bg:rgba(55,178,92,.32);--down-pill-border:rgba(55,178,92,.55);
   --caution:#6E8CB0;--caution-soft:rgba(110,140,176,.16);
   --serif:Georgia,"Iowan Old Style","Source Serif 4","Noto Serif TC",serif;
   --sans:"Public Sans",-apple-system,"PingFang TC","Microsoft JhengHei","Segoe UI",sans-serif;
@@ -19,6 +21,8 @@
   --text:#241C10;--muted:#6B5B3D;--subtle:#93825E;
   --accent:#93701E;--accent-soft:rgba(147,112,30,.12);--accent-dim:#C4A24E;
   --up:#A8432C;--down:#3D7048;
+  --up-pill-text:#7A2F1E;--up-pill-bg:rgba(168,67,44,.16);--up-pill-border:rgba(168,67,44,.4);
+  --down-pill-text:#2A4F32;--down-pill-bg:rgba(61,112,72,.16);--down-pill-border:rgba(61,112,72,.4);
   --caution:#4C6483;--caution-soft:rgba(76,100,131,.14);
   --shadow-1:0 1px 2px rgba(60,45,10,.1);
   --shadow-2:0 10px 28px rgba(60,45,10,.16),0 2px 6px rgba(60,45,10,.1);
@@ -88,10 +92,10 @@ a:focus-visible,button:focus-visible{outline:3px solid var(--accent);outline-off
 .hm-divbar span.down{right:50%;background:var(--down)}
 /* 週變化改標籤(pill)形式，不再是裸文字——跟.hc-streak-pill同一套視覺語言，
    一眼認得出「這是一個帶方向語意的數值」，不是普通的價格數字 */
-.hm-delta{font-family:var(--mono);font-weight:700;font-size:.7rem;width:52px;text-align:center;
-  padding:2px 0;border-radius:9px;flex-shrink:0}
-.hm-delta.up{color:var(--up);background:rgba(230,67,47,.14)}
-.hm-delta.down{color:var(--down);background:rgba(55,178,92,.14)}
+.hm-delta{font-family:var(--mono);font-weight:800;font-size:.7rem;width:52px;text-align:center;
+  padding:3px 0;border-radius:9px;flex-shrink:0;border:1px solid}
+.hm-delta.up{color:var(--up-pill-text);background:var(--up-pill-bg);border-color:var(--up-pill-border)}
+.hm-delta.down{color:var(--down-pill-text);background:var(--down-pill-bg);border-color:var(--down-pill-border)}
 .hm-abs{font-family:var(--mono);font-size:.66rem;color:var(--subtle);width:44px;text-align:right}
 .hero-footnote{margin-top:auto;padding-top:14px;font-size:.68rem;color:var(--subtle)}
 .hero-footnote a{color:var(--accent);text-decoration:none;border-bottom:1px dotted var(--accent-dim)}
@@ -136,18 +140,18 @@ a:focus-visible,button:focus-visible{outline:3px solid var(--accent);outline-off
 .hc-divbar span.down{right:50%;background:var(--down)}
 /* 週變化改標籤(pill)形式，跟.hc-streak-pill同一套視覺語言——一眼認得出這是帶方向
    語意的數值，跟旁邊「絕對水位%」的裸文字明確分出主次 */
-.hc-week{font-family:var(--mono);font-weight:700;font-size:.68rem;flex-shrink:0;width:46px;
-  text-align:center;padding:2px 0;border-radius:8px}
-.hc-week.up{color:var(--up);background:rgba(230,67,47,.14)}
-.hc-week.down{color:var(--down);background:rgba(55,178,92,.14)}
+.hc-week{font-family:var(--mono);font-weight:800;font-size:.66rem;flex-shrink:0;width:46px;
+  text-align:center;padding:3px 0;border-radius:8px;border:1px solid}
+.hc-week.up{color:var(--up-pill-text);background:var(--up-pill-bg);border-color:var(--up-pill-border)}
+.hc-week.down{color:var(--down-pill-text);background:var(--down-pill-bg);border-color:var(--down-pill-border)}
 .hc-abs{font-family:var(--mono);font-size:.64rem;color:var(--subtle);flex-shrink:0;width:38px;text-align:right}
 
 /* 次要指標：streak/張數變化/1000張以上，收成一行小字 */
 .hc-badges{display:flex;gap:8px;margin-top:6px;flex-wrap:wrap;font-family:var(--mono);font-size:.64rem;color:var(--subtle)}
 .hc-badges b{color:var(--text);font-weight:700}
-.hc-streak-pill{padding:0 6px;border-radius:8px;font-weight:700;font-size:.62rem}
-.hc-streak-pill.up{color:var(--up);background:rgba(230,67,47,.14)}
-.hc-streak-pill.down{color:var(--down);background:rgba(55,178,92,.14)}
+.hc-streak-pill{padding:2px 7px;border-radius:8px;font-weight:800;font-size:.62rem;border:1px solid}
+.hc-streak-pill.up{color:var(--up-pill-text);background:var(--up-pill-bg);border-color:var(--up-pill-border)}
+.hc-streak-pill.down{color:var(--down-pill-text);background:var(--down-pill-bg);border-color:var(--down-pill-border)}
 
 .legend-note{padding:14px 26px 0;font-size:.7rem;color:var(--subtle);max-width:760px}
 </style>

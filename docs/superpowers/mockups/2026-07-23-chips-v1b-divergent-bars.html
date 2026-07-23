@@ -86,8 +86,12 @@ a:focus-visible,button:focus-visible{outline:3px solid var(--accent);outline-off
 .hm-divbar span{position:absolute;top:0;bottom:0;border-radius:3px}
 .hm-divbar span.up{left:50%;background:var(--up)}
 .hm-divbar span.down{right:50%;background:var(--down)}
-.hm-delta{font-family:var(--mono);font-weight:700;font-size:.76rem;width:52px;text-align:right}
-.hm-delta.up{color:var(--up)}.hm-delta.down{color:var(--down)}
+/* 週變化改標籤(pill)形式，不再是裸文字——跟.hc-streak-pill同一套視覺語言，
+   一眼認得出「這是一個帶方向語意的數值」，不是普通的價格數字 */
+.hm-delta{font-family:var(--mono);font-weight:700;font-size:.7rem;width:52px;text-align:center;
+  padding:2px 0;border-radius:9px;flex-shrink:0}
+.hm-delta.up{color:var(--up);background:rgba(230,67,47,.14)}
+.hm-delta.down{color:var(--down);background:rgba(55,178,92,.14)}
 .hm-abs{font-family:var(--mono);font-size:.66rem;color:var(--subtle);width:44px;text-align:right}
 .hero-footnote{margin-top:auto;padding-top:14px;font-size:.68rem;color:var(--subtle)}
 .hero-footnote a{color:var(--accent);text-decoration:none;border-bottom:1px dotted var(--accent-dim)}
@@ -130,8 +134,12 @@ a:focus-visible,button:focus-visible{outline:3px solid var(--accent);outline-off
 .hc-divbar span{position:absolute;top:0;bottom:0;border-radius:2px}
 .hc-divbar span.up{left:50%;background:var(--up)}
 .hc-divbar span.down{right:50%;background:var(--down)}
-.hc-week{font-family:var(--mono);font-weight:700;font-size:.76rem;flex-shrink:0;width:44px;text-align:right}
-.hc-week.up{color:var(--up)}.hc-week.down{color:var(--down)}
+/* 週變化改標籤(pill)形式，跟.hc-streak-pill同一套視覺語言——一眼認得出這是帶方向
+   語意的數值，跟旁邊「絕對水位%」的裸文字明確分出主次 */
+.hc-week{font-family:var(--mono);font-weight:700;font-size:.68rem;flex-shrink:0;width:46px;
+  text-align:center;padding:2px 0;border-radius:8px}
+.hc-week.up{color:var(--up);background:rgba(230,67,47,.14)}
+.hc-week.down{color:var(--down);background:rgba(55,178,92,.14)}
 .hc-abs{font-family:var(--mono);font-size:.64rem;color:var(--subtle);flex-shrink:0;width:38px;text-align:right}
 
 /* 次要指標：streak/張數變化/1000張以上，收成一行小字 */

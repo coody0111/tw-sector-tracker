@@ -3343,3 +3343,51 @@ Cody要求近5/7/10/14日不要只藏在個股卡片(彈窗)裡，要直接顯�
 
 ### 特別注意
 - 同前一則，純mockup非production code，不需要驗證
+
+## [2026-07-24] 🔴 修復K棒功能完全失效的root cause：scraper抓不到OHLC+DB匯入寫死NULL
+
+### 背景
+Cody要求v27 mockup補上個股列表的K棒/走勢/量能。查證時發現**這個功能在正式站根本沒在運作**：
+`docs/index.html`點開任何一檔個股卡片，走勢圖固定顯示「走勢資料不足」，不是暫時沒資料，是
+結構性壞掉——`data/screener.db`裡`daily_prices`表**全部383,583筆的open/high/low欄位都是NULL**。
+
+### 找到2層根因
+1. **`scrapers/twse.py`/`scrapers/tpex.py`（每日盤後流程）**：TWSE官方API(CSV跟JSON兩種格式)、
+   TPEx官方API實際上都有回傳開盤/最高/最低價，程式碼卻只抓收盤/漲跌/成交量，完全沒抓這3欄
+   （用curl實測過兩個官方API當下回應，確認欄位真的都在）。
+2. **`screener/database.py::import_csv_prices()`（CSV→DuckDB匯入）**：這支是真正的root cause——
+   不管CSV裡有沒有open/high/low欄位，SQL寫死`NULL::DOUBLE AS open`。連`scrapers/realtime.py`
+   （`--realtime`即時流程）明明已經有在抓真實OHLC並寫進CSV（`data/daily_prices/*.csv`裡實測
+   有10,310筆真的有open值），也在這一關被砍成NULL，等於白抓。
+
+### 改了什麼
+- 異動檔案：scrapers/twse.py, scrapers/tpex.py, screener/database.py,
+  tests/test_twse.py, tests/test_tpex.py, tests/test_database.py
+- `scrapers/twse.py`：`_parse_csv()`跟`_parse_json()`(10欄新格式+16欄舊格式，兩種都改)都補
+  抓開盤/最高/最低價，回傳DataFrame新增`open`/`high`/`low`三欄
+- `scrapers/tpex.py`：補抓API既有的`Open`/`High`/`Low`欄位
+- `screener/database.py::import_csv_prices()`：`NULL::DOUBLE`改成`TRY_CAST(open AS DOUBLE)`
+  真的讀CSV裡的值；`read_csv_auto`加`union_by_name=true`，讓「舊格式CSV完全沒有這3欄」跟
+  「新格式CSV有這3欄」混在同一批glob讀取時能正確處理（缺欄位的檔案自動補NULL，不會因為
+  schema不一致而出錯或把新格式也弄成NULL）
+
+### 資料來源相關
+- 上市資料（TWSE）：`_parse_csv`/`_parse_json`新增open/high/low欄位抓取，欄位來源是TWSE
+  官方API本身既有的欄位，沒有新增資料源
+- 上櫃資料（TPEx）：同上，`Open`/`High`/`Low`是TPEx官方API既有欄位
+- 這次修改**不影響**歷史回補（FinMind/yfinance）路徑，那條路本來就沒有OHLC，這次沒動
+
+### 請 Debugger 驗證
+- [ ] 全部415個測試通過（本機已跑過全綠，含新增的10-field OHLC測試+import_csv_prices
+      混合schema回歸測試）
+- [ ] 下次`python main.py --reimport`後，`daily_prices`表的open/high/low欄位應該開始有真實值
+      （現有383,583筆歷史資料本身沒有OHLC，這次修的是「以後」讓新資料能正確存進去，不會
+      回填過去缺的部分）
+- [ ] 之後個股卡片的K棒走勢圖應該能真的顯示蠟燭圖，不再固定顯示「走勢資料不足」
+
+### 特別注意
+- ⚠️ **這是找到即修的production bug，不是mockup**——candlestick功能本身（`buildCandlestick`/
+  `calc_stock_sparklines`）程式碼邏輯是對的，問題出在上游資料根本沒送到，這次修的是資料
+  管線最前面兩關
+- 歷史累積的383,583筆daily_prices資料open/high/low永遠是NULL（TWSE/TPEx官方API不提供
+  「補發歷史OHLC」），K棒圖表要等新資料進來才會慢慢有東西可畫，不會馬上滿版

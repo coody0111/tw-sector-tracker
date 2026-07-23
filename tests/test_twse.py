@@ -31,7 +31,7 @@ def test_fetch_daily_prices_returns_dataframe():
         df = fetch_daily_prices(date(2026, 5, 29))
 
     assert isinstance(df, pd.DataFrame)
-    assert list(df.columns) == ["stock_id", "stock_name", "close", "change", "change_pct", "volume"]
+    assert list(df.columns) == ["stock_id", "stock_name", "close", "change", "change_pct", "volume", "open", "high", "low"]
     assert len(df) == 2
 
 def test_fetch_daily_prices_parses_values():
@@ -48,6 +48,9 @@ def test_fetch_daily_prices_parses_values():
     assert tsmc["change"] == 5.00
     assert abs(tsmc["change_pct"] - round(5.00 / 900.00 * 100, 2)) < 0.01
     assert tsmc["volume"] == 12345  # 12,345,000 股 / 1000 = 12,345 張
+    assert tsmc["open"] == 900.00
+    assert tsmc["high"] == 910.00
+    assert tsmc["low"] == 898.00
 
 def test_fetch_daily_prices_handles_negative_change():
     with patch("scrapers.twse.requests.get") as mock_get:
@@ -125,3 +128,35 @@ def test_fetch_daily_prices_parses_legit_csv_response():
 
     assert len(df) == 1
     assert df.iloc[0]["stock_id"] == "2330"
+    assert df.iloc[0]["open"] == 900.00
+    assert df.iloc[0]["high"] == 910.00
+    assert df.iloc[0]["low"] == 898.00
+
+
+MOCK_RESPONSE_10FIELD = {
+    "stat": "OK",
+    "date": "20260723",
+    "fields": ["證券代號", "證券名稱", "成交股數", "成交金額", "開盤價",
+               "最高價", "最低價", "收盤價", "漲跌價差", "成交筆數"],
+    "data": [
+        ["2330", "台積電", "12,345,000", "11,111,111,000",
+         "900.00", "910.00", "898.00", "905.00", "5.00", "5000"],
+    ],
+}
+
+
+def test_fetch_daily_prices_parses_ohlc_from_10field_format():
+    """2026+ 的10欄格式也要能正確抓出開高低價，不是只有舊16欄格式跟CSV路徑。"""
+    with patch("scrapers.twse.requests.get") as mock_get:
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = MOCK_RESPONSE_10FIELD
+        mock_resp.raise_for_status.return_value = None
+        mock_get.return_value = mock_resp
+
+        df = fetch_daily_prices(date(2026, 7, 23))
+
+    row = df.iloc[0]
+    assert row["open"] == 900.00
+    assert row["high"] == 910.00
+    assert row["low"] == 898.00
+    assert row["close"] == 905.00

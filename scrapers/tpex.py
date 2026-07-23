@@ -35,6 +35,9 @@ def fetch_daily_prices(trade_date: date) -> pd.DataFrame:
         "change": change,
         "change_pct": change_pct,
         "volume": volume,
+        "open": pd.to_numeric(df["Open"].str.replace(",", ""), errors="coerce"),
+        "high": pd.to_numeric(df["High"].str.replace(",", ""), errors="coerce"),
+        "low": pd.to_numeric(df["Low"].str.replace(",", ""), errors="coerce"),
     })
 
     return result.dropna(subset=["close"]).reset_index(drop=True)

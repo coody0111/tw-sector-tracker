@@ -54,10 +54,10 @@ def fetch_daily_prices(trade_date: date) -> pd.DataFrame:
 
 
 def _parse_csv(text: str) -> pd.DataFrame:
-    """Parse CSV response: 日期,證券代號,證券名稱,成交股數,...,收盤價,漲跌價差,成交筆數"""
+    """Parse CSV response: 日期,證券代號,證券名稱,成交股數,成交金額,開盤價,最高價,最低價,收盤價,漲跌價差,成交筆數"""
     df = pd.read_csv(io.StringIO(text))
     if df.empty:
-        return pd.DataFrame(columns=["stock_id", "stock_name", "close", "change", "change_pct", "volume"])
+        return pd.DataFrame(columns=["stock_id", "stock_name", "close", "change", "change_pct", "volume", "open", "high", "low"])
     close = pd.to_numeric(df["收盤價"], errors="coerce")
     change = pd.to_numeric(df["漲跌價差"], errors="coerce").fillna(0)
     prev_close = (close - change).replace(0, float("nan"))
@@ -65,6 +65,12 @@ def _parse_csv(text: str) -> pd.DataFrame:
     volume = (
         pd.to_numeric(df["成交股數"], errors="coerce").fillna(0).astype(int) // 1000
     )
+
+    def _ohlc_col(name: str) -> pd.Series:
+        if name not in df.columns:
+            return pd.Series(float("nan"), index=df.index)
+        return pd.to_numeric(df[name], errors="coerce")
+
     result = pd.DataFrame({
         "stock_id": df["證券代號"].astype(str).str.strip(),
         "stock_name": df["證券名稱"].astype(str).str.strip(),
@@ -72,6 +78,9 @@ def _parse_csv(text: str) -> pd.DataFrame:
         "change": change,
         "change_pct": change_pct,
         "volume": volume,
+        "open": _ohlc_col("開盤價"),
+        "high": _ohlc_col("最高價"),
+        "low": _ohlc_col("最低價"),
     })
     return result.dropna(subset=["close"]).reset_index(drop=True)
 
@@ -86,6 +95,9 @@ def _parse_json(data: dict) -> pd.DataFrame:
 
     if num_fields == 10:
         # Format (2026+): [id, name, shares, amount, open, high, low, close, change, volume_lots]
+        open_ = pd.to_numeric(df.iloc[:, 4].str.replace(",", ""), errors="coerce")
+        high = pd.to_numeric(df.iloc[:, 5].str.replace(",", ""), errors="coerce")
+        low = pd.to_numeric(df.iloc[:, 6].str.replace(",", ""), errors="coerce")
         close = pd.to_numeric(df.iloc[:, 7].str.replace(",", ""), errors="coerce")
         change = pd.to_numeric(df.iloc[:, 8].str.replace(",", ""), errors="coerce").fillna(0)
         prev_close = close - change
@@ -102,6 +114,9 @@ def _parse_json(data: dict) -> pd.DataFrame:
             named["漲跌價差"].str.replace(",", ""), errors="coerce"
         ).fillna(0)
         change = sign * amount
+        open_ = pd.to_numeric(named["開盤價"].str.replace(",", ""), errors="coerce")
+        high = pd.to_numeric(named["最高價"].str.replace(",", ""), errors="coerce")
+        low = pd.to_numeric(named["最低價"].str.replace(",", ""), errors="coerce")
         close = pd.to_numeric(named["收盤價"].str.replace(",", ""), errors="coerce")
         prev_close = close - change
         change_pct = (change / prev_close * 100).round(2)
@@ -117,5 +132,8 @@ def _parse_json(data: dict) -> pd.DataFrame:
         "change": change,
         "change_pct": change_pct,
         "volume": volume,
+        "open": open_,
+        "high": high,
+        "low": low,
     })
     return result.dropna(subset=["close"]).reset_index(drop=True)

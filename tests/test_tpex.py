@@ -26,7 +26,7 @@ def test_fetch_tpex_returns_dataframe():
         df = fetch_daily_prices(date(2026, 6, 5))
 
     assert isinstance(df, pd.DataFrame)
-    assert list(df.columns) == ["stock_id", "stock_name", "close", "change", "change_pct", "volume"]
+    assert list(df.columns) == ["stock_id", "stock_name", "close", "change", "change_pct", "volume", "open", "high", "low"]
     assert len(df) == 2
 
 def test_fetch_tpex_parses_values():
@@ -43,6 +43,9 @@ def test_fetch_tpex_parses_values():
     assert row["change"] == -2.30
     assert row["change_pct"] < 0
     assert row["volume"] == 2294  # 2294000 // 1000 = 2294 張
+    assert row["open"] == 85.00
+    assert row["high"] == 85.50
+    assert row["low"] == 83.80
 
 def test_fetch_tpex_returns_all_rows():
     with patch("scrapers.tpex.requests.get") as mock_get:

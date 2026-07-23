@@ -179,19 +179,23 @@ def import_csv_prices(filter_stale: bool = False) -> int:
     """
     con = get_conn()
 
-    # 從 CSV 讀取所有資料，日期從檔名抓
+    # 從 CSV 讀取所有資料，日期從檔名抓。union_by_name=true 讓舊格式CSV(沒有
+    # open/high/low欄位，例如scrapers/daily_prices.py早期輸出)跟新格式CSV(有
+    # open/high/low，例如scrapers/realtime.py)混在同一批glob讀取時，缺欄位的
+    # 檔案自動補NULL，而不是像原本那樣不管CSV裡有沒有這3欄一律寫死NULL、
+    # 把scraper真的抓到的OHLC資料在匯入這關直接丟掉。
     raw = con.execute(f"""
         SELECT
             CAST(stock_id AS VARCHAR)   AS stock_id,
             CAST(regexp_extract(filename, '(\\d{{4}}-\\d{{2}}-\\d{{2}})', 1) AS DATE) AS date,
-            NULL::DOUBLE AS open,
-            NULL::DOUBLE AS high,
-            NULL::DOUBLE AS low,
+            TRY_CAST(open AS DOUBLE)    AS open,
+            TRY_CAST(high AS DOUBLE)    AS high,
+            TRY_CAST(low AS DOUBLE)     AS low,
             CAST(close AS DOUBLE)        AS close,
             CAST(volume AS BIGINT)       AS volume,
             CAST(change AS DOUBLE)       AS change,
             CAST(change_pct AS DOUBLE)   AS change_pct
-        FROM read_csv_auto('{CSV_GLOB}', filename=true, types={{'stock_id': 'VARCHAR'}})
+        FROM read_csv_auto('{CSV_GLOB}', filename=true, union_by_name=true, types={{'stock_id': 'VARCHAR'}})
         WHERE close IS NOT NULL
     """).df()
 

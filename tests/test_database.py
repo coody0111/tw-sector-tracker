@@ -2,7 +2,7 @@
 import duckdb
 import pandas as pd
 
-from screener.database import get_chips_today, get_shareholder_top
+from screener.database import get_chips_today, get_shareholder_top, import_csv_prices, init_db
 
 
 def _make_chips_tables(con):
@@ -216,3 +216,47 @@ def test_get_shareholder_top_excludes_impossible_pct_outlier(tmp_path, monkeypat
     ids = set(df["stock_id"])
     assert "2380" not in ids, "lv12_15_pct=100.0 的離群值股不該上榜"
     assert "2330" in ids, "正常股仍在榜上"
+
+
+def test_import_csv_prices_keeps_real_ohlc_from_csv(tmp_path, monkeypatch):
+    """回歸測試：import_csv_prices() 原本不管CSV裡有沒有open/high/low欄位，一律寫死NULL，
+    把scrapers/realtime.py真的抓到的OHLC資料在匯入這關直接丟掉。修正後應該真的從CSV讀出
+    這3欄；同時也要能處理「舊格式CSV完全沒有這3欄」跟「新格式CSV有這3欄」混在同一批
+    glob讀取的情況（union_by_name），不能因為schema不一致就出錯或把新格式也弄成NULL。"""
+    import screener.database as db_mod
+    db_path = str(tmp_path / "t.db")
+    monkeypatch.setattr(db_mod, "DB_PATH", db_path)
+    csv_dir = tmp_path / "daily_prices"
+    csv_dir.mkdir()
+    monkeypatch.setattr(db_mod, "CSV_GLOB", str(csv_dir / "*.csv"))
+
+    # 舊格式：沒有open/high/low欄位(pre-realtime era)
+    (csv_dir / "2026-07-01.csv").write_text(
+        "stock_id,stock_name,close,change,change_pct,volume\n"
+        "2330,台積電,900.0,5.0,0.56,10000\n",
+        encoding="utf-8-sig",
+    )
+    # 新格式：有open/high/low欄位(scrapers/realtime.py輸出)
+    (csv_dir / "2026-07-02.csv").write_text(
+        "stock_id,stock_name,close,change,change_pct,volume,open,high,low,time\n"
+        "2330,台積電,905.0,5.0,0.56,12000,900.0,910.0,898.0,13:30:00\n",
+        encoding="utf-8-sig",
+    )
+
+    db_mod.init_db()
+    count = import_csv_prices()
+    assert count == 2
+
+    con = duckdb.connect(db_path)
+    rows = con.execute(
+        "SELECT date, open, high, low FROM daily_prices WHERE stock_id='2330' ORDER BY date"
+    ).fetchall()
+    con.close()
+
+    old_row, new_row = rows
+    assert old_row[1] is None and old_row[2] is None and old_row[3] is None, (
+        "舊格式CSV沒有OHLC欄位，應該是NULL，不是編造的假值"
+    )
+    assert new_row[1] == 900.0 and new_row[2] == 910.0 and new_row[3] == 898.0, (
+        "新格式CSV真的有OHLC資料時，匯入DB應該保留，不能被寫死成NULL"
+    )

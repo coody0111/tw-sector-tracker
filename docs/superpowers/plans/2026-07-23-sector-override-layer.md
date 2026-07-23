@@ -273,6 +273,8 @@ git commit -m "feat(universe): build 套用 sector_overrides + 缺輸入檔明�
 ### Task 3（Gated，操作步驟；Cody 執行）: 重爬重建 + diff review
 
 > 這一步會產生**全新** `stock_universe.csv`，可能有多檔隨 MoneyDJ 最新資料變動（與本次校正無關）。**必須先 diff review 才放行**。不做這步也不影響現況（4 檔手改仍生效）。
+>
+> ⚠️ **關鍵順序**：`build_universe.py` 只輸出 5 欄（無 `exchange`）；`exchange` 欄由 `scripts/update_exchange.py` 事後補上（TWSE=上市 / 其餘=上櫃），而 `main.py` 每日流程依賴這欄做上市/上櫃路由與 observation scores。**重建後一定要接著跑 `update_exchange.py`，否則 `stock_universe.csv` 會少一欄、打斷每日流程。**
 
 - [ ] **Step 1: 重爬 MoneyDJ 族群（Cody，約 15 分）**
 
@@ -282,19 +284,26 @@ Expected: 產生 `data/sectors/industry_sectors.csv`，log 顯示 `Sectors saved
 - [ ] **Step 2: 重建 universe**
 
 Run: `python scripts/build_universe.py`
-Expected: 印出分配結果；若 overrides 有缺檔會列警告。
+Expected: 印出分配結果；若 overrides 有缺檔會列警告。此時 `stock_universe.csv` 為 5 欄、**尚無 `exchange`**。
 
-- [ ] **Step 3: diff review 新舊 universe**
+- [ ] **Step 3: 補回 exchange 欄（必要，勿略）**
+
+Run: `python scripts/update_exchange.py`
+Expected: 取得 TWSE 上市清單並回寫，欄位重排為 `stock_id, stock_name, exchange, meta_sector, sub_sector, note`（6 欄）。需為交易日才抓得到 TWSE 清單。
+
+- [ ] **Step 4: diff review 新舊 universe**
 
 Run: `git diff data/stock_universe.csv`
-逐段檢視變動是否合理（新股/下市屬正常；光通訊 4 檔應顯示 `手動校正:財報狗題材:光通訊`）。
-確認 2455/3081/4991/6442 的 meta 為 `光通訊`。
+逐段檢視變動是否合理：
+- 新股/下市屬正常。
+- 光通訊 4 檔（2455/3081/4991/6442）meta 應為 `光通訊`，note 應顯示 `手動校正:財報狗題材:光通訊`（**注意**：interim 手改版的這 4 行 note 是空的，重建後會變成 `手動校正:...`，屬預期差異，非異常）。
+- **確認 `exchange` 欄仍在且大多已填**（若整欄空白代表 Step 3 漏跑或非交易日）。
 
-- [ ] **Step 4: 確認合理才 commit**
+- [ ] **Step 5: 確認合理才 commit**
 
 ```bash
 git add data/stock_universe.csv data/universe_build_report.txt
-git commit -m "chore(universe): 重建族群並套用校正層（rebuild + overrides）"
+git commit -m "chore(universe): 重建族群並套用校正層（rebuild + overrides + exchange）"
 ```
 
 若 diff 有非預期大規模改動 → 先停下來與 Cody 確認，不要直接 commit。
@@ -305,7 +314,8 @@ git commit -m "chore(universe): 重建族群並套用校正層（rebuild + overr
 
 - [ ] `load_overrides` / `apply_overrides` 單元測試全綠
 - [ ] override 只動清單內股號，未列入者不受影響
-- [ ] override sub 留空 → 保留自動 sub；命中 → 清除 ⚠️
+- [ ] override sub/meta 留空 → 保留自動值；命中 → 清除 ⚠️
 - [ ] 缺輸入檔給明確錯誤而非裸例外
+- [ ] （Task 3 若執行）重建後 `stock_universe.csv` 仍有 `exchange` 欄（update_exchange.py 有跑）
 - [ ] 上市/上櫃資料來源無混用（本變更不碰行情/籌碼來源）
 - [ ] 不影響 main.py 每日流程（僅 universe 建置階段）

@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import pandas as pd
 import pytest
 
@@ -56,6 +54,16 @@ def test_apply_overrides_unmatched_id_returns_warning():
     unmatched = apply_overrides(rows, overrides)
     assert unmatched == ["9999"]
     assert rows[0]["meta_sector"] == "晶圓代工"  # 未命中不動其他股
+
+
+def test_apply_overrides_empty_meta_keeps_auto_meta():
+    rows = [{"stock_id": "3081", "stock_name": "聯亞",
+             "meta_sector": "晶圓代工", "sub_sector": "IC製造", "note": ""}]
+    overrides = {"3081": {"meta_sector": "", "sub_sector": "光通訊",
+                          "source_note": "手動"}}
+    apply_overrides(rows, overrides)
+    assert rows[0]["meta_sector"] == "晶圓代工"  # override meta 留空 → 保留自動值
+    assert rows[0]["sub_sector"] == "光通訊"
 
 
 def test_apply_overrides_no_overrides_leaves_unchanged():

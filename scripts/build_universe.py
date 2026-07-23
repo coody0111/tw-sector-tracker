@@ -44,9 +44,9 @@ def load_overrides(path: Path = OVERRIDES_CSV) -> dict[str, dict]:
 def apply_overrides(rows: list[dict], overrides: dict[str, dict]) -> list[str]:
     """將 overrides 套用到 rows（就地修改）。
 
-    命中 stock_id 時覆蓋 meta_sector；override 的 sub_sector 非空才覆蓋（留空保留
-    自動值）；note 改標「手動校正:<source_note>」並清除原 ⚠️ 爭議標記。
-    回傳 universe 中找不到的 override 股號清單，供呼叫端警告。
+    命中 stock_id 時覆蓋 meta_sector；meta_sector / sub_sector 皆為非空才覆蓋（留空
+    保留自動值，避免手動 CSV 漏填而把分類清成空）；note 改標「手動校正:<source_note>」
+    並清除原 ⚠️ 爭議標記。回傳 universe 中找不到的 override 股號清單，供呼叫端警告。
     """
     matched = set()
     for row in rows:
@@ -55,7 +55,8 @@ def apply_overrides(rows: list[dict], overrides: dict[str, dict]) -> list[str]:
         if not ov:
             continue
         matched.add(sid)
-        row["meta_sector"] = ov["meta_sector"]
+        if ov["meta_sector"]:
+            row["meta_sector"] = ov["meta_sector"]
         if ov["sub_sector"]:
             row["sub_sector"] = ov["sub_sector"]
         row["note"] = f"手動校正:{ov['source_note']}" if ov["source_note"] else "手動校正"

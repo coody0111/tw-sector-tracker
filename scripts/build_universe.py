@@ -63,6 +63,12 @@ def apply_overrides(rows: list[dict], overrides: dict[str, dict]) -> list[str]:
 
 
 def build() -> None:
+    if not SECTOR_CSV.exists():
+        raise SystemExit(
+            f"[錯誤] 找不到 {SECTOR_CSV}。請先執行 `python main.py --update-sectors` "
+            f"重新從 MoneyDJ 產生族群中繼檔後再跑 build。"
+        )
+
     df = pd.read_csv(SECTOR_CSV, encoding="utf-8")
 
     # 每支股票的所有子族群（去重）
@@ -120,6 +126,10 @@ def build() -> None:
             "note":        note,
         })
 
+    # 最後套用人工校正（財報狗題材佐證），使其在每次 rebuild 後仍存活
+    overrides = load_overrides()
+    missing_override_ids = apply_overrides(rows, overrides)
+
     universe_df = pd.DataFrame(rows).sort_values(["meta_sector", "stock_id"])
     universe_df.to_csv(UNIVERSE_CSV, index=False, encoding="utf-8-sig")
 
@@ -137,6 +147,11 @@ def build() -> None:
             lines.append(f"{sid:<8} {name:<10} {meta:<15} {note_clean}")
     else:
         lines.append("[OK] 無爭議股票")
+
+    if missing_override_ids:
+        lines.append("")
+        lines.append(f"[!]  overrides 中有 {len(missing_override_ids)} 檔在 universe 找不到"
+                     f"（下市或代號錯）：{', '.join(sorted(missing_override_ids))}")
 
     lines.append("")
     lines.append("分配結果：")

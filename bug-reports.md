@@ -1,3 +1,28 @@
+## [2026-07-24] 驗證(續2) - build 重建自動保留 exchange 欄（Developer @ master c6f98dd）
+
+### 背景
+承前兩則。我上一則列的唯一殘留 gated 風險是「重建會丟失 exchange 欄、須補跑 update_exchange.py」。
+Developer 新增 `c6f98dd` 直接在 build 內根除此地雷。`git reset --hard master` 對齊後重驗（工作區
+本來就乾淨、無需 stash）。
+
+### ✅ 驗證通過
+- **測試 13 綠**：`pytest tests/test_build_universe.py -v` → **13 passed**（原 9 + exchange 保留 4 個：
+  `test_load_existing_exchange_missing_file` / `_no_column` / `_reads_map` /
+  `test_build_preserves_existing_exchange_column`）。
+- **code 審查（`git show c6f98dd`）**：
+  - 新增 `load_existing_exchange()`：從既有 `stock_universe.csv` 讀 `{stock_id: exchange}`；
+    檔案不存在或無 exchange 欄 → 回空 dict（防禦正確）。
+  - `build()` 把 exchange map 回填每列，新股（舊檔沒有）預設 `""` 留白，之後由
+    `update_exchange.py` 補——至少不會整欄清空打斷 main.py 上市/上櫃路由。
+  - 輸出欄序固定為 6 欄 `stock_id, stock_name, exchange, meta_sector, sub_sector, note`（正確）。
+- **殘留 gated 風險解除**：重建不再掉 exchange 欄。（我未在 debug 這台重建——照 gated 規則，
+  單元測試 + code 審查已足；Developer 已於其端做過真實資料端到端驗證：META 零差異、exchange 零遺失。）
+
+### 結論
+- [x] 通過 — **Developer 可 push origin**。掉欄地雷已根除，Task 3 重建的最後一個安全性顧慮排除。
+
+---
+
 ## [2026-07-23] 驗證 - 族群分類校正層 + 光通訊 4 檔（Developer @ master afe9538）
 
 ### 驗證方式

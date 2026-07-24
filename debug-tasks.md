@@ -3414,10 +3414,19 @@ Cody要求v27 mockup補上個股列表的K棒/走勢/量能。查證時發現**�
 - 上市/上櫃無混用。exchange 欄未動(interim 保留)。
 
 ### 請 Debugger 驗證
-- [ ] tests/test_build_universe.py 全綠(本機 9/9 pass)
-- [ ] override 只動清單內股號，未列入不受影響；sub/meta 留空保留自動值；命中清 ⚠️
-- [ ] 光通訊 4 檔 meta=光通訊(stock_universe.csv 現況)
-- [ ] 缺輸入檔給明確錯誤而非裸例外
+- [x] tests/test_build_universe.py 全綠(本機 9/9 pass)
+- [x] override 只動清單內股號，未列入不受影響；sub/meta 留空保留自動值；命中清 ⚠️
+- [x] 光通訊 4 檔 meta=光通訊(stock_universe.csv 現況)
+- [x] 缺輸入檔給明確錯誤而非裸例外
+
+### ✅ Debugger 驗證完成（2026-07-24，見 bug-reports.md 同日 3 則）
+- 初驗(master afe9538)：9/9 綠、4 項驗收全過。
+- 續驗(master 733e31c，種子擴充 55 檔)：13→仍 9 綠(該版)、BOM/56 行、55 檔 override 對回
+  universe **零不一致**、死股 3426/4987=0。
+- 續驗(master c6f98dd，build 保留 exchange)：**13 綠**、load_existing_exchange 防禦與 6 欄序
+  正確。掉欄地雷已根除。
+- 結論：**全數通過，Developer 可 push origin**。（我未在 debug 這台重建，照 gated 規則，
+  單元測試 + code 審查已足。）
 
 ### 特別注意（⚠️ Task 3 重建尚未執行、且目前不安全）
 - **Task 3(重爬 MoneyDJ + build_universe.py 重建)是 gated、還沒跑**。跑之前有兩個坑：
@@ -3469,3 +3478,6 @@ Cody要求v27 mockup補上個股列表的K棒/走勢/量能。查證時發現**�
   保留 exchange 整合測 1)。
 - Task 3 更新：exchange 不再會被整欄清掉，update_exchange.py 降為「補新股」用途、
   漏跑也不再打斷每日流程。
+- ✅ **Debugger 驗證通過(2026-07-24)**：13 綠、`load_existing_exchange()` 缺檔/缺欄回空 dict
+  防禦正確、輸出 6 欄序正確、掉欄地雷確認根除。Developer 可 push。（詳見 bug-reports.md 同日
+  「驗證(續2)」那則。）

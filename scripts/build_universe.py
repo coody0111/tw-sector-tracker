@@ -63,6 +63,21 @@ def apply_overrides(rows: list[dict], overrides: dict[str, dict]) -> list[str]:
     return [sid for sid in overrides if sid not in matched]
 
 
+def load_existing_exchange(path: Path = UNIVERSE_CSV) -> dict[str, str]:
+    """從既有 stock_universe.csv 讀 {stock_id: exchange}，供重建時保留 exchange 欄。
+
+    exchange 欄(TWSE/TPEx)由 scripts/update_exchange.py 另外補上，build 本身無此資訊；
+    重建時若不保留就會整欄消失、打斷 main.py 每日流程的上市/上櫃路由。
+    檔案不存在或無 exchange 欄時回傳空 dict。
+    """
+    if not path.exists():
+        return {}
+    df = pd.read_csv(path, dtype=str, encoding="utf-8-sig").fillna("")
+    if "exchange" not in df.columns:
+        return {}
+    return {str(r["stock_id"]).strip(): str(r["exchange"]).strip() for _, r in df.iterrows()}
+
+
 def build() -> None:
     if not SECTOR_CSV.exists():
         raise SystemExit(
@@ -135,7 +150,14 @@ def build() -> None:
     overridden_ids = set(overrides) - set(missing_override_ids)
     ambiguous = [a for a in ambiguous if a[0] not in overridden_ids]
 
-    universe_df = pd.DataFrame(rows).sort_values(["meta_sector", "stock_id"])
+    # 保留既有 exchange 欄：build 本身無 TWSE/TPEx 資訊，若不從舊檔帶回就會整欄消失
+    # （新股在舊檔沒有、留空，之後由 update_exchange.py 補；至少不會整欄清掉打斷每日流程）
+    exch_map = load_existing_exchange()
+    for row in rows:
+        row["exchange"] = exch_map.get(str(row["stock_id"]), "")
+
+    cols = ["stock_id", "stock_name", "exchange", "meta_sector", "sub_sector", "note"]
+    universe_df = pd.DataFrame(rows).sort_values(["meta_sector", "stock_id"])[cols]
     universe_df.to_csv(UNIVERSE_CSV, index=False, encoding="utf-8-sig")
 
     lines = []

@@ -274,7 +274,7 @@ git commit -m "feat(universe): build 套用 sector_overrides + 缺輸入檔明�
 
 > 這一步會產生**全新** `stock_universe.csv`，可能有多檔隨 MoneyDJ 最新資料變動（與本次校正無關）。**必須先 diff review 才放行**。不做這步也不影響現況（4 檔手改仍生效）。
 >
-> ⚠️ **關鍵順序**：`build_universe.py` 只輸出 5 欄（無 `exchange`）；`exchange` 欄由 `scripts/update_exchange.py` 事後補上（TWSE=上市 / 其餘=上櫃），而 `main.py` 每日流程依賴這欄做上市/上櫃路由與 observation scores。**重建後一定要接著跑 `update_exchange.py`，否則 `stock_universe.csv` 會少一欄、打斷每日流程。**
+> ✅ **exchange 欄已由 build 自動保留**：`build_universe.py` 現在會從既有 `stock_universe.csv` 帶回每檔的 `exchange`（TWSE/TPEx），並輸出 6 欄正確欄序。重建**不會再整欄清掉 exchange**（已根除歷史踩過的地雷）。唯一殘留：**新上市股**在舊檔沒有、exchange 會留空 → 需 `update_exchange.py` 補；即使漏跑也只影響少數新股，不再打斷整個每日流程。
 
 - [ ] **Step 1: 重爬 MoneyDJ 族群（Cody，約 15 分）**
 
@@ -284,12 +284,12 @@ Expected: 產生 `data/sectors/industry_sectors.csv`，log 顯示 `Sectors saved
 - [ ] **Step 2: 重建 universe**
 
 Run: `python scripts/build_universe.py`
-Expected: 印出分配結果；若 overrides 有缺檔會列警告。此時 `stock_universe.csv` 為 5 欄、**尚無 `exchange`**。
+Expected: 印出分配結果；若 overrides 有缺檔會列警告。輸出 6 欄、**既有股 exchange 已保留**，只有新上市股 exchange 留空。
 
-- [ ] **Step 3: 補回 exchange 欄（必要，勿略）**
+- [ ] **Step 3: 補新上市股的 exchange 欄（建議）**
 
 Run: `python scripts/update_exchange.py`
-Expected: 取得 TWSE 上市清單並回寫，欄位重排為 `stock_id, stock_name, exchange, meta_sector, sub_sector, note`（6 欄）。需為交易日才抓得到 TWSE 清單。
+Expected: 取得 TWSE 上市清單，把留空的新股補上 TWSE/TPEx。需為交易日才抓得到 TWSE 清單。（既有股 exchange 已由 build 保留，此步主要是補新股。）
 
 - [ ] **Step 4: diff review 新舊 universe**
 

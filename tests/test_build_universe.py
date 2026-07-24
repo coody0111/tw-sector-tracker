@@ -2,7 +2,7 @@ import pandas as pd
 import pytest
 
 import scripts.build_universe as bu
-from scripts.build_universe import load_overrides, apply_overrides
+from scripts.build_universe import load_overrides, apply_overrides, load_existing_exchange
 
 
 def test_load_overrides_missing_file_returns_empty(tmp_path):
@@ -74,9 +74,52 @@ def test_apply_overrides_no_overrides_leaves_unchanged():
     assert rows[0]["meta_sector"] == "晶圓代工"
 
 
+def test_load_existing_exchange_missing_file(tmp_path):
+    assert load_existing_exchange(tmp_path / "nope.csv") == {}
+
+
+def test_load_existing_exchange_no_column(tmp_path):
+    p = tmp_path / "u.csv"
+    p.write_text("stock_id,stock_name,meta_sector,sub_sector,note\n"
+                 "2330,台積電,晶圓代工,晶圓代工,\n", encoding="utf-8-sig")
+    assert load_existing_exchange(p) == {}
+
+
+def test_load_existing_exchange_reads_map(tmp_path):
+    p = tmp_path / "u.csv"
+    p.write_text("stock_id,stock_name,exchange,meta_sector,sub_sector,note\n"
+                 "2330,台積電,TWSE,晶圓代工,晶圓代工,\n"
+                 "3081,聯亞,TPEx,光通訊,光通訊,\n", encoding="utf-8-sig")
+    assert load_existing_exchange(p) == {"2330": "TWSE", "3081": "TPEx"}
+
+
 def _write(path, text):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8-sig")
+
+
+def test_build_preserves_existing_exchange_column(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _write(tmp_path / "data" / "sectors" / "industry_sectors.csv",
+           "stock_id,stock_name,sector_name\n"
+           "2330,台積電,晶圓代工\n"
+           "3081,聯亞,光通訊\n")
+    # 既有 universe 已帶 exchange 欄
+    _write(tmp_path / "data" / "stock_universe.csv",
+           "stock_id,stock_name,exchange,meta_sector,sub_sector,note\n"
+           "2330,台積電,TWSE,晶圓代工,晶圓代工,\n"
+           "3081,聯亞,TPEx,晶圓代工,IC製造,\n")
+
+    bu.build()
+
+    out = pd.read_csv(tmp_path / "data" / "stock_universe.csv",
+                      dtype=str, encoding="utf-8-sig").fillna("")
+    # 欄序含 exchange 且位置正確
+    assert list(out.columns) == ["stock_id", "stock_name", "exchange",
+                                 "meta_sector", "sub_sector", "note"]
+    # 重建後 exchange 未遺失
+    assert out[out["stock_id"] == "2330"].iloc[0]["exchange"] == "TWSE"
+    assert out[out["stock_id"] == "3081"].iloc[0]["exchange"] == "TPEx"
 
 
 def test_build_missing_input_raises_systemexit(tmp_path, monkeypatch):

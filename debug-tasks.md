@@ -3458,3 +3458,14 @@ Cody要求v27 mockup補上個股列表的K棒/走勢/量能。查證時發現**�
 - 兩檔近期 daily_prices 皆無資料 → 屬死股。已從 data/stock_universe.csv 移除
   (1038→1036 檔)。重建本來就不會含它們，這次讓現況與重建一致。
 - override 檔不需處理這 2 檔(它們不該被保留)。
+
+## [2026-07-24] 根除 exchange 掉欄地雷：build 重建自動保留 exchange
+- 回應 Debugger 再次點名的坑：build_universe.py 重建會丟 exchange 欄。
+- 改法：新增 load_existing_exchange()，build() 重建時從既有 stock_universe.csv 帶回
+  每檔 exchange，並輸出 6 欄正確欄序(stock_id,stock_name,exchange,meta,sub,note)。
+- 端到端驗證(真實資料，暫存build)：重建 META 差異=0、**exchange 遺失=0**；僅 3 檔
+  新上市股(6236/7839/8291)exchange 留空，交給 update_exchange.py 補。
+- 測試：tests/test_build_universe.py 13 綠(新增 load_existing_exchange 3 測 + build
+  保留 exchange 整合測 1)。
+- Task 3 更新：exchange 不再會被整欄清掉，update_exchange.py 降為「補新股」用途、
+  漏跑也不再打斷每日流程。

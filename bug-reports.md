@@ -1,3 +1,75 @@
+## [2026-07-23] 驗證 - 族群分類校正層 + 光通訊 4 檔（Developer @ master afe9538）
+
+### 驗證方式
+`git merge master` 乾淨 FF 到 `afe9538`，對照本次交付的 5 項驗收清單逐項實查（跑測試 + 讀
+`scripts/build_universe.py` + 實查 `data/stock_universe.csv` / `data/sector_overrides.csv`）。
+
+### ✅ 驗證通過
+- **測試全綠**：`python -m pytest tests/test_build_universe.py -v` → **9 passed**（本機重現，與
+  Developer 9/9 一致）。
+- **override 範圍正確**：
+  - 只動清單內股號 → `test_apply_overrides_unmatched_id_returns_warning`（未命中股不動）、
+    `test_apply_overrides_no_overrides_leaves_unchanged` 皆綠；code `apply_overrides()` 只在
+    `overrides.get(sid)` 命中時改該列（build_universe.py:53-62）。
+  - meta/sub 留空 → 保留自動值 → `test_apply_overrides_empty_sub_keeps_auto_sub` /
+    `_empty_meta_keeps_auto_meta` 綠；code 用 `if ov["meta_sector"]:` / `if ov["sub_sector"]:`
+    非空才蓋（:58-61），符合設計。
+  - 命中 → note 改「手動校正:<source_note>」並清 ⚠️ → `_replaces_meta_sub_and_clears_warning`
+    綠；且已校正股從 ambiguous 清單移除（:135-136，`test_build_override_removes_stock_from_ambiguous_report`
+    驗到報告出現「無爭議股票」）。
+- **光通訊 4 檔實查**：`data/stock_universe.csv` 中
+  2455(全新)/3081(聯亞)/4991(環宇-KY)/6442(光聖) 的 `meta_sector` = **光通訊**，`sub_sector`
+  亦=光通訊。（註：這 4 列現況 `note` 為空，反映的是 commit `eec68f0` 的過渡期手動歸類，**不是**
+  override 重建路徑——與「先別重建」指示一致；override 寫 note 的行為由單元測試覆蓋。）
+- **缺輸入檔明確錯誤**：`build()` 開頭 `if not SECTOR_CSV.exists(): raise SystemExit(...)`
+  給中文指引訊息（:67-71），非裸 `FileNotFoundError`；`test_build_missing_input_raises_systemexit` 綠。
+- **只影響 universe 建置**：`grep build_universe` 於 main.py/scrapers/processors/screener/export
+  **零 import** → 純獨立腳本，不碰每日 TWSE/TPEx 行情/籌碼、不涉回補。
+- **exchange 欄未被動到**：現況 CSV 4 檔 exchange 仍為 TWSE/TPEx 正確值；且 build_universe 寫出欄位
+  只有 stock_id/stock_name/meta_sector/sub_sector/note（:122-128）不含 exchange——這正是「重建會沖掉
+  exchange、須補跑 update_exchange.py」的來源，本次未重建故無影響。
+
+### 🟡 提醒（非本次缺陷，重申 gated 風險）
+- Task 3 重建仍不可跑：`data/sector_overrides.csv` 種子目前只有光通訊 4 檔，未含既有手動
+  override（廣宇、奇鋐、38 檔工業電腦…）。直接 `python scripts/build_universe.py` 會 (1) 沖掉那些
+  既有 override、(2) 丟失 exchange 欄。遷入種子 + 補跑 update_exchange.py 前別動。程式本身無誤，
+  純資料前置未就緒。
+
+### 結論
+- [x] 可以繼續下一個任務 — 5 項驗收全數通過，**Developer 可 push origin**。
+
+---
+
+## [2026-07-24] 驗證(續) - 種子檔遷移 55 檔 + 死股移除（Developer @ master 733e31c）
+
+### 背景
+承上則。master 已 rebase 至 `733e31c`，把既有手動 override 全數遷入種子檔（4 光通訊 → 55 檔），
+並移除兩檔已下市股。`git reset --hard master` 對齊後（我的 bug-reports.md 用 stash/pop 保住、無衝突），
+重跑驗證。
+
+### ✅ 驗證通過
+- **測試全綠**：`pytest tests/test_build_universe.py -v` → **9 passed**。
+- **種子檔格式**：`data/sector_overrides.csv` 開頭 `b'\xef\xbb\xbf'`（UTF-8 BOM）✓；`wc -l` = **56**
+  行（55 檔 + 表頭）✓。
+- **55 檔遷移完整且零矛盾**（唯讀交叉比對 override ↔ universe）：
+  - 55 檔 override **全部**存在於 `stock_universe.csv`（無下市/代號錯的 missing）。
+  - meta 非空的 override 與 universe 現值 **零不一致**（55/55 全對得上）。
+  - 分布合理：光通訊 4 + 既有 51（先進封裝設備 9、半導體材料 8、工業電腦 6、消費電子 4、
+    電信 4、其他電子 4、PCB 3、記憶體 3…），對應「4 光通訊 + 51 既有手動校正遷移」。
+- **光通訊 4 檔**：2455/3081/4991/6442 `meta_sector`=光通訊、`sub_sector`=光通訊、exchange 完好。
+- **死股已移除**：`grep -cE "^(3426|4987),"` = **0**（台興/科誠已下市，與重建結果一致）。
+
+### 🟡 提醒（門檻已降，但仍屬 gated）
+- 上一則「種子只有 4 檔、重建會沖掉既有 override」的阻塞**已解除**（55 檔遷移完成）。
+- 但 `python scripts/build_universe.py` 重建**仍會丟失 exchange 欄**（build_universe 不寫該欄），
+  重建後必須補跑 `python scripts/update_exchange.py`。故仍不宜隨手重建；要重建請照 debug-tasks
+  的 Task 3 完整流程走。本次驗證**未重建**，純唯讀抽查。
+
+### 結論
+- [x] 可以繼續下一個任務 — 全數通過，**Developer 可 push origin**。
+
+---
+
 ## [2026-07-22] 驗證 - 族群總覽頁熱區格改版（export/index_generator.py 取代 html_generator.py）
 
 ### 驗證方式

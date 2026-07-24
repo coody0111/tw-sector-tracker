@@ -3427,3 +3427,26 @@ Cody要求v27 mockup補上個股列表的K棒/走勢/量能。查證時發現**�
      (廣宇=連接器、奇鋐=散熱、38 檔工業電腦…)。直接重建會沖掉這些。→ 重建前需先把
      所有既有手動 override 遷進 sector_overrides.csv，機制才能真正保住它們。
   → 在完成上述遷移之前，**請勿執行 build_universe.py 重建**。
+
+## [2026-07-24] sector_overrides 種子補全(遷移既有手動 override) — Task 3 現已安全
+
+### 改了什麼
+- data/sector_overrides.csv：4 檔光通訊 → 擴充為 55 檔。
+- 做法：跑 `--update-sectors` 重建 industry_sectors.csv → 用現行 config 純自動分類 →
+  跟現況 stock_universe.csv 比對 meta → 差異者(規則產不出來的真手動 override)全部
+  遷入 override 檔(source_note=既有手動校正遷移)。涵蓋 半導體材料矽晶圓群、電信4檔、
+  工業電腦群、先進封裝設備群、記憶體(旺宏/華邦/南亞科)、廣宇/奇鋐、消費電子(東元系)等。
+
+### 驗證(已本機做)
+- 用暫存目錄跑 build+overrides，跟現況 stock_universe.csv 比對：
+  **重建後 META 與現況不一致 = 0**（1037 檔全對）→ 重建可完整重現現況分類。
+- 真實 stock_universe.csv 未被動(驗證走 temp)。
+
+### ⚠️ 仍需人工確認(2 檔)
+- 3426 台興(電子通路)、4987 科誠(電腦周邊)：不在最新 MoneyDJ industry_sectors，
+  **重建會直接移除**(override 救不了)。可能是 MoneyDJ 分類移除或該股狀態變動。
+  重建後若要保留，需在 build 後手動補回，或確認是否該下架。
+
+### Task 3 狀態更新
+- 種子已完整 → Task 3(重建)不再有「沖掉既有 override」的風險。
+- 仍須遵守：重建後接著跑 `scripts/update_exchange.py` 補 exchange 欄；跑完 diff review。

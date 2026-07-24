@@ -3391,3 +3391,6 @@ Cody要求v27 mockup補上個股列表的K棒/走勢/量能。查證時發現**�
   管線最前面兩關
 - 歷史累積的383,583筆daily_prices資料open/high/low永遠是NULL（TWSE/TPEx官方API不提供
   「補發歷史OHLC」），K棒圖表要等新資料進來才會慢慢有東西可畫，不會馬上滿版
+- 🔴 **這批commit已經Cody明確指示提前push到origin，沒有等這裡回報✅**（正常流程是等
+  Debugger驗證過才push）。程式碼已經在public repo上了，麻煩優先驗證這條，若發現問題
+  用一般bug-reports.md流程回報即可，不影響已經push這件事本身。

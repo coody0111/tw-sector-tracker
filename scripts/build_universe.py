@@ -9,6 +9,7 @@ scripts/build_universe.py
 日後新股上市直接在 CSV 補一行即可，不需重跑 MoneyDJ。
 """
 
+import csv
 import sys
 from pathlib import Path
 
@@ -19,9 +20,71 @@ from config import META_PRIORITY_LIST, get_meta_by_priority
 
 SECTOR_CSV  = Path("data/sectors/industry_sectors.csv")
 UNIVERSE_CSV = Path("data/stock_universe.csv")
+OVERRIDES_CSV = Path("data/sector_overrides.csv")
+
+
+def load_overrides(path: Path = OVERRIDES_CSV) -> dict[str, dict]:
+    """讀取人工校正表；檔案不存在時回傳空 dict（視為無校正）。"""
+    if not path.exists():
+        return {}
+    overrides: dict[str, dict] = {}
+    with path.open(encoding="utf-8-sig", newline="") as f:
+        for row in csv.DictReader(f):
+            sid = (row.get("stock_id") or "").strip()
+            if not sid:
+                continue
+            overrides[sid] = {
+                "meta_sector": (row.get("meta_sector") or "").strip(),
+                "sub_sector": (row.get("sub_sector") or "").strip(),
+                "source_note": (row.get("source_note") or "").strip(),
+            }
+    return overrides
+
+
+def apply_overrides(rows: list[dict], overrides: dict[str, dict]) -> list[str]:
+    """將 overrides 套用到 rows（就地修改）。
+
+    命中 stock_id 時覆蓋 meta_sector；meta_sector / sub_sector 皆為非空才覆蓋（留空
+    保留自動值，避免手動 CSV 漏填而把分類清成空）；note 改標「手動校正:<source_note>」
+    並清除原 ⚠️ 爭議標記。回傳 universe 中找不到的 override 股號清單，供呼叫端警告。
+    """
+    matched = set()
+    for row in rows:
+        sid = str(row["stock_id"])
+        ov = overrides.get(sid)
+        if not ov:
+            continue
+        matched.add(sid)
+        if ov["meta_sector"]:
+            row["meta_sector"] = ov["meta_sector"]
+        if ov["sub_sector"]:
+            row["sub_sector"] = ov["sub_sector"]
+        row["note"] = f"手動校正:{ov['source_note']}" if ov["source_note"] else "手動校正"
+    return [sid for sid in overrides if sid not in matched]
+
+
+def load_existing_exchange(path: Path = UNIVERSE_CSV) -> dict[str, str]:
+    """從既有 stock_universe.csv 讀 {stock_id: exchange}，供重建時保留 exchange 欄。
+
+    exchange 欄(TWSE/TPEx)由 scripts/update_exchange.py 另外補上，build 本身無此資訊；
+    重建時若不保留就會整欄消失、打斷 main.py 每日流程的上市/上櫃路由。
+    檔案不存在或無 exchange 欄時回傳空 dict。
+    """
+    if not path.exists():
+        return {}
+    df = pd.read_csv(path, dtype=str, encoding="utf-8-sig").fillna("")
+    if "exchange" not in df.columns:
+        return {}
+    return {str(r["stock_id"]).strip(): str(r["exchange"]).strip() for _, r in df.iterrows()}
 
 
 def build() -> None:
+    if not SECTOR_CSV.exists():
+        raise SystemExit(
+            f"[錯誤] 找不到 {SECTOR_CSV}。請先執行 `python main.py --update-sectors` "
+            f"重新從 MoneyDJ 產生族群中繼檔後再跑 build。"
+        )
+
     df = pd.read_csv(SECTOR_CSV, encoding="utf-8")
 
     # 每支股票的所有子族群（去重）
@@ -79,7 +142,22 @@ def build() -> None:
             "note":        note,
         })
 
-    universe_df = pd.DataFrame(rows).sort_values(["meta_sector", "stock_id"])
+    # 最後套用人工校正（財報狗題材佐證），使其在每次 rebuild 後仍存活
+    overrides = load_overrides()
+    missing_override_ids = apply_overrides(rows, overrides)
+
+    # override 已校正的股不應再列入「需人工 review」清單（避免報告與實際輸出矛盾）
+    overridden_ids = set(overrides) - set(missing_override_ids)
+    ambiguous = [a for a in ambiguous if a[0] not in overridden_ids]
+
+    # 保留既有 exchange 欄：build 本身無 TWSE/TPEx 資訊，若不從舊檔帶回就會整欄消失
+    # （新股在舊檔沒有、留空，之後由 update_exchange.py 補；至少不會整欄清掉打斷每日流程）
+    exch_map = load_existing_exchange()
+    for row in rows:
+        row["exchange"] = exch_map.get(str(row["stock_id"]), "")
+
+    cols = ["stock_id", "stock_name", "exchange", "meta_sector", "sub_sector", "note"]
+    universe_df = pd.DataFrame(rows).sort_values(["meta_sector", "stock_id"])[cols]
     universe_df.to_csv(UNIVERSE_CSV, index=False, encoding="utf-8-sig")
 
     lines = []
@@ -96,6 +174,11 @@ def build() -> None:
             lines.append(f"{sid:<8} {name:<10} {meta:<15} {note_clean}")
     else:
         lines.append("[OK] 無爭議股票")
+
+    if missing_override_ids:
+        lines.append("")
+        lines.append(f"[!]  overrides 中有 {len(missing_override_ids)} 檔在 universe 找不到"
+                     f"（下市或代號錯）：{', '.join(sorted(missing_override_ids))}")
 
     lines.append("")
     lines.append("分配結果：")

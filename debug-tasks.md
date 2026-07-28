@@ -3394,3 +3394,90 @@ Cody要求v27 mockup補上個股列表的K棒/走勢/量能。查證時發現**�
 - 🔴 **這批commit已經Cody明確指示提前push到origin，沒有等這裡回報✅**（正常流程是等
   Debugger驗證過才push）。程式碼已經在public repo上了，麻煩優先驗證這條，若發現問題
   用一般bug-reports.md流程回報即可，不影響已經push這件事本身。
+
+## [2026-07-23] 族群分類校正層（sector_overrides 機制）+ 光通訊4檔
+
+### 改了什麼
+- 異動檔案：scripts/build_universe.py, scripts/__init__.py(新), tests/test_build_universe.py(新),
+  data/sector_overrides.csv(新, git add -f), data/stock_universe.csv(interim 4檔)
+- 邏輯說明：在 build_universe.py 自動分類「算完 rows 後、寫出前」加一層人工校正——
+  讀 data/sector_overrides.csv，命中 stock_id 就覆蓋 meta/sub(皆非空才蓋)、note 標
+  「手動校正:<source_note>」並清掉 ⚠️，並把已校正股從「需人工 review」爭議清單移除。
+  缺輸入檔(industry_sectors.csv)時改成明確 SystemExit(提示先跑 --update-sectors)。
+- 光通訊 4 檔(2455全新/3081聯亞/4991環宇-KY/6442光聖)：對照財報狗「題材=光通訊」，
+  從晶圓代工/連接器改歸光通訊。interim 已直接手改 stock_universe.csv 生效；同內容
+  也寫進 sector_overrides.csv 種子，重建後由機制自動接手。
+- 對應 spec/plan：docs/superpowers/specs|plans/2026-07-23-sector-override-layer*
+
+### 資料來源相關
+- 只動 universe 建置階段，不碰每日 TWSE/TPEx 行情/籌碼來源，不涉歷史回補。
+- 上市/上櫃無混用。exchange 欄未動(interim 保留)。
+
+### 請 Debugger 驗證
+- [x] tests/test_build_universe.py 全綠(本機 9/9 pass)
+- [x] override 只動清單內股號，未列入不受影響；sub/meta 留空保留自動值；命中清 ⚠️
+- [x] 光通訊 4 檔 meta=光通訊(stock_universe.csv 現況)
+- [x] 缺輸入檔給明確錯誤而非裸例外
+
+### ✅ Debugger 驗證完成（2026-07-24，見 bug-reports.md 同日 3 則）
+- 初驗(master afe9538)：9/9 綠、4 項驗收全過。
+- 續驗(master 733e31c，種子擴充 55 檔)：13→仍 9 綠(該版)、BOM/56 行、55 檔 override 對回
+  universe **零不一致**、死股 3426/4987=0。
+- 續驗(master c6f98dd，build 保留 exchange)：**13 綠**、load_existing_exchange 防禦與 6 欄序
+  正確。掉欄地雷已根除。
+- 結論：**全數通過，Developer 可 push origin**。（我未在 debug 這台重建，照 gated 規則，
+  單元測試 + code 審查已足。）
+
+### 特別注意（⚠️ Task 3 重建尚未執行、且目前不安全）
+- **Task 3(重爬 MoneyDJ + build_universe.py 重建)是 gated、還沒跑**。跑之前有兩個坑：
+  1. build_universe.py 只輸出 5 欄，**重建後必須接著跑 scripts/update_exchange.py 補回
+     exchange 欄**，否則 main.py 每日流程會斷(計畫 Task 3 已補上這步)。
+  2. **種子 sector_overrides.csv 目前只有光通訊 4 檔，不含既有手動 override**
+     (廣宇=連接器、奇鋐=散熱、38 檔工業電腦…)。直接重建會沖掉這些。→ 重建前需先把
+     所有既有手動 override 遷進 sector_overrides.csv，機制才能真正保住它們。
+  → 在完成上述遷移之前，**請勿執行 build_universe.py 重建**。
+
+## [2026-07-24] sector_overrides 種子補全(遷移既有手動 override) — Task 3 現已安全
+
+### 改了什麼
+- data/sector_overrides.csv：4 檔光通訊 → 擴充為 55 檔。
+- 做法：跑 `--update-sectors` 重建 industry_sectors.csv → 用現行 config 純自動分類 →
+  跟現況 stock_universe.csv 比對 meta → 差異者(規則產不出來的真手動 override)全部
+  遷入 override 檔(source_note=既有手動校正遷移)。涵蓋 半導體材料矽晶圓群、電信4檔、
+  工業電腦群、先進封裝設備群、記憶體(旺宏/華邦/南亞科)、廣宇/奇鋐、消費電子(東元系)等。
+
+### 驗證(已本機做)
+- 用暫存目錄跑 build+overrides，跟現況 stock_universe.csv 比對：
+  **重建後 META 與現況不一致 = 0**（1037 檔全對）→ 重建可完整重現現況分類。
+- 真實 stock_universe.csv 未被動(驗證走 temp)。
+
+### ⚠️ 仍需人工確認(2 檔)
+- 3426 台興(電子通路)、4987 科誠(電腦周邊)：不在最新 MoneyDJ industry_sectors，
+  **重建會直接移除**(override 救不了)。可能是 MoneyDJ 分類移除或該股狀態變動。
+  重建後若要保留，需在 build 後手動補回，或確認是否該下架。
+
+### Task 3 狀態更新
+- 種子已完整 → Task 3(重建)不再有「沖掉既有 override」的風險。
+- 仍須遵守：重建後接著跑 `scripts/update_exchange.py` 補 exchange 欄；跑完 diff review。
+
+## [2026-07-24] 補處理：台興(3426)/科誠(4987) 確認下市 → 已移除
+- 前一則標記「需人工確認」的 2 檔，查證結果：
+  - 科誠(4987)：2026-05-29 起終止上櫃(已下市)。
+  - 台興(3426)：近 10+ 交易日零行情、不在 MoneyDJ industry → 已停止交易/下市。
+- 兩檔近期 daily_prices 皆無資料 → 屬死股。已從 data/stock_universe.csv 移除
+  (1038→1036 檔)。重建本來就不會含它們，這次讓現況與重建一致。
+- override 檔不需處理這 2 檔(它們不該被保留)。
+
+## [2026-07-24] 根除 exchange 掉欄地雷：build 重建自動保留 exchange
+- 回應 Debugger 再次點名的坑：build_universe.py 重建會丟 exchange 欄。
+- 改法：新增 load_existing_exchange()，build() 重建時從既有 stock_universe.csv 帶回
+  每檔 exchange，並輸出 6 欄正確欄序(stock_id,stock_name,exchange,meta,sub,note)。
+- 端到端驗證(真實資料，暫存build)：重建 META 差異=0、**exchange 遺失=0**；僅 3 檔
+  新上市股(6236/7839/8291)exchange 留空，交給 update_exchange.py 補。
+- 測試：tests/test_build_universe.py 13 綠(新增 load_existing_exchange 3 測 + build
+  保留 exchange 整合測 1)。
+- Task 3 更新：exchange 不再會被整欄清掉，update_exchange.py 降為「補新股」用途、
+  漏跑也不再打斷每日流程。
+- ✅ **Debugger 驗證通過(2026-07-24)**：13 綠、`load_existing_exchange()` 缺檔/缺欄回空 dict
+  防禦正確、輸出 6 欄序正確、掉欄地雷確認根除。Developer 可 push。（詳見 bug-reports.md 同日
+  「驗證(續2)」那則。）

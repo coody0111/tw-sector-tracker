@@ -1200,3 +1200,39 @@ def test_generate_renders_candlestick_chart_with_ohlc_data(tmp_path):
     assert '"lows": [97.0, 98.5]' in html
     assert '"closes": [99.0, 100.0]' in html
     assert "function buildCandlestick" in html
+
+
+def test_generate_renders_rank_crossings_section_in_sector_recap(tmp_path):
+    """排名進出榜區塊要出現在族群近況裡，緊接在轉折點列表(.turning-wrap)後面，
+    左右兩欄分別列剛進榜/剛掉出榜的族群名稱跟排名變化。"""
+    meta_perf = [
+        {"meta_name": "散熱", "avg_change_pct": 1.0, "up_count": 1, "down_count": 0, "flat_count": 0},
+        {"meta_name": "半導體設備", "avg_change_pct": -1.0, "up_count": 0, "down_count": 1, "flat_count": 0},
+    ]
+    universe_df = pd.DataFrame([
+        {"stock_id": "1", "stock_name": "股票一", "meta_sector": "散熱"},
+        {"stock_id": "2", "stock_name": "股票二", "meta_sector": "半導體設備"},
+    ])
+    prices_df = pd.DataFrame([
+        {"stock_id": "1", "change_pct": 1.0, "close": 100.0},
+        {"stock_id": "2", "change_pct": -1.0, "close": 50.0},
+    ])
+    rank_history = {
+        "散熱": {"weekly_ranks": [14, 3], "in_top10_this_week": True,
+                 "consecutive_weeks_in_top10": 1, "last_top10_week_index": None, "last_top10_rank": None},
+        "半導體設備": {"weekly_ranks": [7, 28], "in_top10_this_week": False,
+                     "consecutive_weeks_in_top10": 0, "last_top10_week_index": 0, "last_top10_rank": 7},
+    }
+
+    output_path = tmp_path / "index.html"
+    generate(
+        date(2026, 7, 29), meta_perf, universe_df,
+        meta_signals={}, meta_chips={}, prices_df=prices_df,
+        heatgrid_windows={}, rank_history=rank_history,
+        output_path=str(output_path),
+    )
+
+    html = output_path.read_text(encoding="utf-8")
+    assert "排名進出榜" in html
+    assert "散熱" in html and "半導體設備" in html
+    assert "rankmove-wrap" in html

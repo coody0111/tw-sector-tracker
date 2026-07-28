@@ -443,6 +443,7 @@ _VOL_ANOMALY_PRICE_FLAT_MAX = 2.0
 def build_sector_recap(
     cards: List[Dict[str, Any]],
     heatgrid_windows: Dict[str, Dict[str, Any]],
+    rank_history: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """
     族群近況（視覺 spec §4 擴充版）：升溫/退燒/今日爆發/外資悄悄佈局/投信悄悄佈局/量能異常，
@@ -492,6 +493,9 @@ def build_sector_recap(
     # 但turning_points卻還顯示它，是自相矛盾的輸出。
     active_names = {c["meta_name"] for c in cards}
     active_windows = {name: data for name, data in heatgrid_windows.items() if name in active_names}
+    active_rank_history = {
+        name: data for name, data in (rank_history or {}).items() if name in active_names
+    }
 
     return {
         "hot_top5": hot_top5,
@@ -501,6 +505,7 @@ def build_sector_recap(
         "trust_stealth": trust_stealth,
         "volume_anomaly": volume_anomaly,
         "turning_points": find_turning_points(active_windows),
+        "rank_crossings": find_rank_crossings(active_rank_history),
     }
 
 

@@ -74,7 +74,7 @@ def test_heat_bg_handles_zero_max_abs_without_crash():
     assert "var(--up)" in result  # pct=0視為非負，走up分支，alpha取t=0的最低值
 
 
-from export.index_generator import find_turning_points, find_anomaly_cards
+from export.index_generator import find_turning_points, find_anomaly_cards, find_rank_crossings
 
 
 def test_find_turning_points_detects_flip_and_labels_direction():
@@ -112,6 +112,61 @@ def test_find_turning_points_skips_when_five_days_ago_data_is_none():
     }
     result = find_turning_points(heatgrid_windows)
     assert result == []
+
+
+def test_find_rank_crossings_detects_just_in_and_just_out():
+    """複刻討論用的真實案例：散熱上週#14(不在前10)、本週#3(前10)=剛進榜；
+    半導體設備上週#7(前10)、本週#28(不在前10)=剛掉出榜。"""
+    rank_history = {
+        "散熱": {"weekly_ranks": [20, 18, 16, 14, 3], "in_top10_this_week": True,
+                 "consecutive_weeks_in_top10": 1, "last_top10_week_index": None, "last_top10_rank": None},
+        "半導體設備": {"weekly_ranks": [10, 9, 8, 7, 28], "in_top10_this_week": False,
+                      "consecutive_weeks_in_top10": 0, "last_top10_week_index": 3, "last_top10_rank": 7},
+        "穩定族群": {"weekly_ranks": [5, 5, 5, 5, 5], "in_top10_this_week": True,
+                    "consecutive_weeks_in_top10": 5, "last_top10_week_index": None, "last_top10_rank": None},
+    }
+
+    result = find_rank_crossings(rank_history)
+
+    just_in_names = {r["meta_name"] for r in result["just_in"]}
+    just_out_names = {r["meta_name"] for r in result["just_out"]}
+    assert just_in_names == {"散熱"}
+    assert just_out_names == {"半導體設備"}
+    assert "穩定族群" not in just_in_names and "穩定族群" not in just_out_names
+
+    sereater = next(r for r in result["just_in"] if r["meta_name"] == "散熱")
+    assert sereater["prev_rank"] == 14 and sereater["cur_rank"] == 3
+
+    semi = next(r for r in result["just_out"] if r["meta_name"] == "半導體設備")
+    assert semi["prev_rank"] == 7 and semi["cur_rank"] == 28
+
+
+def test_find_rank_crossings_skips_when_fewer_than_two_weeks_of_data():
+    """weekly_ranks長度<2(例如剛上線第一天只算得出1週)時，沒有『上週』可以比較，
+    不能誤判成剛進榜/剛掉出榜。"""
+    rank_history = {
+        "新族群": {"weekly_ranks": [3], "in_top10_this_week": True,
+                  "consecutive_weeks_in_top10": 1, "last_top10_week_index": None, "last_top10_rank": None},
+    }
+
+    result = find_rank_crossings(rank_history)
+
+    assert result["just_in"] == []
+    assert result["just_out"] == []
+
+
+def test_find_rank_crossings_sorts_by_magnitude_of_change():
+    """剛進榜/剛掉出榜清單依變動幅度排序，變動最大的排最前面。"""
+    rank_history = {
+        "小幅進榜": {"weekly_ranks": [12, 9], "in_top10_this_week": True,
+                    "consecutive_weeks_in_top10": 1, "last_top10_week_index": None, "last_top10_rank": None},
+        "大幅進榜": {"weekly_ranks": [30, 2], "in_top10_this_week": True,
+                    "consecutive_weeks_in_top10": 1, "last_top10_week_index": None, "last_top10_rank": None},
+    }
+
+    result = find_rank_crossings(rank_history)
+
+    assert [r["meta_name"] for r in result["just_in"]] == ["大幅進榜", "小幅進榜"]
 
 
 def test_find_anomaly_cards_burst_requires_volume_and_rank_jump():

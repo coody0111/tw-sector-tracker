@@ -737,7 +737,7 @@ _CSS = """
   .cum-cell{font-size:.8125rem;font-weight:700;text-align:center;white-space:nowrap;padding:6px 9px}
   @media(max-width:1100px){
     .topbar{gap:16px}.workspace{display:block}.section-nav{position:sticky;top:64px;z-index:15;padding:8px 16px;border-right:0;border-bottom:1px solid var(--border)}
-    .section-nav-inner{position:static}.section-nav-label,.section-nav-note{display:none}.tab-bar{flex-direction:row;gap:4px;overflow-x:auto;scrollbar-width:thin}
+    .section-nav-inner{position:static}.section-nav-label,.section-nav-note,.tab-group-label{display:none}.tab-groups{flex-direction:row;gap:4px;overflow-x:auto;scrollbar-width:thin}.tab-group{flex-direction:row;gap:4px}.tab-bar{flex-direction:row;gap:4px}
     .tab-btn{flex:0 0 auto;width:auto;padding:8px 13px;border-left:0;border-bottom:2px solid transparent;border-radius:6px 6px 0 0;text-align:center;white-space:nowrap}
     .tab-btn.active{border-left-color:transparent;border-bottom-color:var(--accent)}.chips-toolbar{top:124px}
   }
@@ -811,7 +811,7 @@ function switchTab(id, focusTab=false){
   if(typeof applyFilters==='function')applyFilters();
 }
 const _tabs=['tab-signal','tab-dipbuy','tab-stealth','tab-inst','tab-foreign','tab-trust','tab-margin','tab-holder','tab-insider'];
-document.querySelector('.tab-bar').addEventListener('keydown',e=>{
+document.querySelector('.tab-groups').addEventListener('keydown',e=>{
   if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;
   e.preventDefault();
   const current=_tabs.indexOf(document.activeElement.dataset.tab);

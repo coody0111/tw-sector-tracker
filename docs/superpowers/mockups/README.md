@@ -289,6 +289,34 @@
       high/low=開收價±1.2%），方便預覽K棒排版；footnote已明講這點，等資料庫累積足夠天數
       的真實OHLC後，正式版會自然換成真的K棒，不需要再改這份mockup。
 
+28. **2026-07-28-sector-recap-rank-history-preview.html** — Cody 說「歷史出現紀錄需要討論」，
+    用 `mattpocock-skills:grilling` 走完整輪 grill-with-docs 討論後的設計預覽（非最終定稿），
+    對應決策見 `CONTEXT.md`／`docs/adr/0001-sector-rank-history-recomputed-not-snapshotted.md`／
+    `docs/adr/0003-rank-crossing-signal-kept-separate-from-tier-signal.md`：
+    - **「排名進出榜」**（族群近況新子類別）：這週跟上週比較，跨過前10名門檻的族群列表
+    - **「歷史出現紀錄」**（單一族群詳細面板）：近5週精確名次軌跡＋文字摘要（有上榜講
+      連續N週進榜，沒上榜講上次進榜第幾週第幾名）
+    - 兩者跟既有「轉折點列表」（動能分級tier）是刻意並存的不同訊號，不是重複
+    - 數字都是示範值，真實版排名即時從`daily_prices`全歷史重算，不存快照表
+
+29. **2026-07-28-stocklist-margin-columns-preview.html** — Cody 要「融資率個股也要有」，
+    grilling 討論後確認要兩個指標（`CONTEXT.md`／`docs/adr/0002-margin-maintenance-ratio-is-an-estimate.md`）：
+    - **融資佔比**＝融資餘額÷已發行股數(集保表`shareholder.total_shares`)×100%，曝險規模指標
+    - **維持率(估)**＝現價÷20日均價÷融資成數(上市6成/上櫃5成)×100%，斷頭風險指標，
+      低於130%警示（法規追繳門檻）
+    - 兩者都是個股列表新增可排序欄位，緊接在量比後面
+    - **這次用真實資料**：工業電腦38檔的融資佔比/維持率(估)都是從`data/screener.db`實際
+      查詢算出來（`margin`表融資餘額、`shareholder`表已發行股數、`daily_prices`20日均價），
+      不是編造的示範數字；警示badge的視覺示範另外用建構數字展示（今天真實資料沒有低於130%的）
+
+30. **2026-07-29-sector-recap-rankmove-position-compare.html** — 討論「排名進出榜」在族群近況
+    區塊裡該放哪裡時，Cody 要求「mockup給我看一下」，做的A/B並排比較：
+    - A（定案）：獨立區塊接在轉折點列表後面
+    - B（不採用）：塞進既有6欄Top5排行網格當第7欄——做出來才發現這個位置有結構性問題，
+      「排名進出榜」的資料形狀（不固定筆數，可能0檔可能5檔以上）跟Top5排行網格（固定5筆）
+      不合，硬塞會很奇怪
+    - 兩邊都直接重用`export/index_generator.py`既有的CSS class，不是另外設計新樣式
+
 ## 尚未定案的部分
 
 - ~~點開個股清單的展開方式：v17（右側滑出）vs v18（卡片原地展開）還沒選定~~ → **2026-07-15

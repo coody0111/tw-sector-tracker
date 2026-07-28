@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>「排名進出榜」放哪裡：A vs B 並排比較（討論用）</title>
+<style>
+:root{
+  --bg:#080B12; --panel:#0F1420; --panel-2:#161D2C; --panel-3:#1E2738;
+  --border:#293346; --border-2:#37435C;
+  --ink:#DADFE8; --ink-2:#98A0B4; --ink-3:#636B80;
+  --up:#E6432F; --down:#37B25C;
+  --accent:#F0BB55; --accent-dim:#B98A3A;
+  --trend:#C77FBD; --heat-cold:#4FA8E8; --heat-hot:#FF7A3D;
+  --serif: Georgia,"Iowan Old Style","Source Serif 4","Noto Serif TC",serif;
+  --sans: "Public Sans",-apple-system,"PingFang TC","Microsoft JhengHei","Segoe UI",sans-serif;
+  --mono: ui-monospace,"IBM Plex Mono","Cascadia Code","Roboto Mono",monospace;
+}
+:root[data-theme="light"]{
+  --bg:#EFE8D8; --panel:#F8F3E6; --panel-2:#EAE1CB; --panel-3:#E0D5B8;
+  --border:#D6C9A3; --border-2:#C3B387;
+  --ink:#241C10; --ink-2:#6B5B3D; --ink-3:#93825E;
+  --up:#A8432C; --down:#3D7048;
+  --accent:#93701E; --accent-dim:#C4A24E;
+  --trend:#7A4E6E; --heat-cold:#2E6FA3; --heat-hot:#B5551F;
+}
+@media (prefers-color-scheme: light){
+  :root:not([data-theme="dark"]){
+    --bg:#EFE8D8; --panel:#F8F3E6; --panel-2:#EAE1CB; --panel-3:#E0D5B8;
+    --border:#D6C9A3; --border-2:#C3B387;
+    --ink:#241C10; --ink-2:#6B5B3D; --ink-3:#93825E;
+    --up:#A8432C; --down:#3D7048;
+    --accent:#93701E; --accent-dim:#C4A24E;
+    --trend:#7A4E6E; --heat-cold:#2E6FA3; --heat-hot:#B5551F;
+  }
+}
+*{box-sizing:border-box}
+body{
+  min-width:1300px;margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+  font-size:14px;line-height:1.55;padding:32px;
+}
+.tabular{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.themebtn{position:fixed;top:20px;right:20px;border:1px solid var(--border);background:var(--panel-2);
+  color:var(--ink-2);border-radius:6px;padding:6px 12px;font-size:.72rem;cursor:pointer}
+.page-title{font-family:var(--serif);font-size:1.25rem;font-weight:700;margin:0 0 4px}
+.page-sub{color:var(--ink-3);font-size:.8rem;margin-bottom:24px}
+
+.compare{display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start}
+.option{background:var(--panel);border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.option-label{padding:12px 20px;font-family:var(--serif);font-weight:700;font-size:.95rem;
+  border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px}
+.option-label .rec{font-family:var(--mono);font-size:.6rem;color:var(--accent);border:1px solid var(--accent);
+  border-radius:10px;padding:1px 8px;letter-spacing:.03em}
+.option-label.b .warn{font-family:var(--mono);font-size:.6rem;color:var(--down);border:1px solid var(--down);
+  border-radius:10px;padding:1px 8px;letter-spacing:.03em}
+
+/* 完整重用 export/index_generator.py 現有的族群近況 class */
+.section-head{display:flex;align-items:baseline;gap:12px;padding:20px 20px 6px}
+.section-head h2{margin:0;font-family:var(--serif);font-size:1.05rem}
+.section-head .count{font-family:var(--mono);font-size:.68rem;color:var(--ink-3)}
+.status-cols{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;padding:0 20px}
+.status-col-head{display:flex;align-items:center;gap:6px;font-family:var(--serif);font-weight:700;font-size:.82rem;
+  margin-bottom:8px;padding-bottom:8px;border-bottom:2px solid}
+.status-col-head.hot{color:var(--heat-hot);border-color:var(--heat-hot)}
+.status-col-head.cold{color:var(--heat-cold);border-color:var(--heat-cold)}
+.status-col-head.breakout{color:var(--up);border-color:var(--up)}
+.status-col-head.foreign{color:var(--accent);border-color:var(--accent)}
+.status-col-head.trust{color:var(--trend);border-color:var(--trend)}
+.status-col-head.volume{color:var(--ink-2);border-color:var(--border-2)}
+.status-col-head.rankmove{color:var(--ink-2);border-color:var(--border-2)}
+.status-row{display:flex;align-items:center;gap:8px;padding:6px 4px;border-bottom:1px solid var(--border);font-size:.76rem}
+.status-row .sr-name{font-family:var(--serif);font-weight:600;color:var(--ink);flex:1}
+.status-row .sr-today{font-family:var(--mono);font-size:.68rem;width:44px;text-align:right}
+.status-row .sr-pt{font-family:var(--mono);font-weight:800;font-size:.74rem;width:52px;text-align:right}
+
+.turning-wrap{margin:18px 20px 0;background:var(--panel-2);border:1px solid var(--border-2);border-radius:5px;padding:14px 16px}
+.turning-head{font-family:var(--serif);font-weight:700;font-size:.88rem;color:var(--ink);margin-bottom:2px}
+.turning-sub{font-size:.68rem;color:var(--ink-3);margin-bottom:8px}
+.turning-row{display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);font-size:.76rem}
+.turning-name{font-family:var(--serif);font-weight:600}
+.turning-pill{padding:2px 7px;border-radius:20px;font-weight:700;font-family:var(--mono);font-size:.66rem}
+.turning-arrow{color:var(--ink-3)}
+.turning-desc{margin-left:auto;font-size:.66rem;color:var(--ink-2);font-style:italic;font-family:var(--serif)}
+
+.rankmove-wrap{margin:18px 20px 20px;background:var(--panel-2);border:1px solid var(--border-2);border-radius:5px;padding:14px 16px}
+.rankmove-head{font-family:var(--serif);font-weight:700;font-size:.88rem;color:var(--ink);margin-bottom:2px}
+.rankmove-sub{font-size:.68rem;color:var(--ink-3);margin-bottom:10px}
+.rankmove-cols{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.rankmove-col h4{margin:0 0 6px;font-family:var(--mono);font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
+.rankmove-col.in h4{color:var(--up)}
+.rankmove-col.out h4{color:var(--down)}
+.rankmove-item{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border);font-size:.76rem}
+.rankmove-item .rm-name{font-family:var(--serif);font-weight:600}
+.rankmove-item .rm-shift{font-family:var(--mono);font-size:.66rem;color:var(--ink-2)}
+
+.note{padding:14px 20px 18px;font-size:.7rem;color:var(--ink-3)}
+.note b{color:var(--ink-2)}
+.highlight-new{outline:2px dashed var(--accent);outline-offset:2px}
+</style>
+</head>
+<body>
+  <button class="themebtn" onclick="document.documentElement.setAttribute('data-theme', document.documentElement.getAttribute('data-theme')==='light'?'dark':'light')">切換主題</button>
+  <div class="page-title">「排名進出榜」該放哪裡：A vs B 並排比較</div>
+  <div class="page-sub">討論用，非最終定稿 — 兩邊都用 export/index_generator.py 現有的族群近況版面/class，只有新區塊位置不同</div>
+
+  <div class="compare">
+    <div class="option">
+      <div class="option-label">A：獨立區塊，接在轉折點列表後面 <span class="rec">推薦</span></div>
+      <div class="section-head"><h2>族群近況</h2><span class="count">6大類排行・轉折點・排名進出榜</span></div>
+      <div class="status-cols">
+        <div><div class="status-col-head hot">近期增溫</div><div class="status-row"><span class="sr-name">散熱</span><span class="sr-today tabular" style="color:var(--up)">+0.81%</span><span class="sr-pt tabular" style="color:var(--heat-hot)">+6.2pt</span></div></div>
+        <div><div class="status-col-head breakout">今日爆發</div><div class="status-row"><span class="sr-name">工業電腦</span><span class="sr-today tabular" style="color:var(--up)">+1.12%</span><span class="sr-pt tabular" style="color:var(--up)">↑10</span></div></div>
+        <div><div class="status-col-head volume">量能異常</div><div class="status-row"><span class="sr-name">光通訊</span><span class="sr-today tabular" style="color:var(--up)">+1.04%</span><span class="sr-pt tabular" style="color:var(--accent)">1.78x</span></div></div>
+      </div>
+      <div class="turning-wrap">
+        <div class="turning-head">轉折點：等級真的翻轉的族群</div>
+        <div class="turning-sub">上週的等級跟這週的等級是否真的換了一級</div>
+        <div class="turning-row"><span class="turning-name">半導體設備</span>
+          <span><span class="turning-pill" style="background:var(--tier-strong,#4FC46A)22;color:#4FC46A">強</span>
+          <span class="turning-arrow">→</span>
+          <span class="turning-pill" style="background:#8B94AC22;color:#8B94AC">整理</span></span>
+          <span class="turning-desc" style="margin-left:auto">轉弱訊號，留意</span></div>
+      </div>
+      <div class="rankmove-wrap highlight-new">
+        <div class="rankmove-head">排名進出榜 <span style="font-family:var(--mono);font-size:.6rem;color:var(--accent);border:1px solid var(--accent);border-radius:10px;padding:1px 6px;margin-left:6px">新增</span></div>
+        <div class="rankmove-sub">這週剛擠進/掉出前10名的族群（跟上週排名比較）</div>
+        <div class="rankmove-cols">
+          <div class="rankmove-col in">
+            <h4>剛進榜</h4>
+            <div class="rankmove-item"><span class="rm-name">散熱</span><span class="rm-shift">#14→#3</span></div>
+          </div>
+          <div class="rankmove-col out">
+            <h4>剛掉出榜</h4>
+            <div class="rankmove-item"><span class="rm-name">半導體設備</span><span class="rm-shift">#7→#28</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="note">緊接在「轉折點列表」後面——兩個都是「跟過去比較的週尺度訊號」，視覺上自然被讀成一組，跟上面偏籌碼/單日性質的3欄（今日爆發/外資/投信/量能）分開。</div>
+    </div>
+
+    <div class="option">
+      <div class="option-label b">B：塞進6欄排行網格，變成第7欄 <span class="warn">不推薦</span></div>
+      <div class="section-head"><h2>族群近況</h2><span class="count">7大類排行・轉折點</span></div>
+      <div class="status-cols">
+        <div><div class="status-col-head hot">近期增溫</div><div class="status-row"><span class="sr-name">散熱</span><span class="sr-today tabular" style="color:var(--up)">+0.81%</span><span class="sr-pt tabular" style="color:var(--heat-hot)">+6.2pt</span></div></div>
+        <div><div class="status-col-head breakout">今日爆發</div><div class="status-row"><span class="sr-name">工業電腦</span><span class="sr-today tabular" style="color:var(--up)">+1.12%</span><span class="sr-pt tabular" style="color:var(--up)">↑10</span></div></div>
+        <div><div class="status-col-head volume">量能異常</div><div class="status-row"><span class="sr-name">光通訊</span><span class="sr-today tabular" style="color:var(--up)">+1.04%</span><span class="sr-pt tabular" style="color:var(--accent)">1.78x</span></div></div>
+        <div class="highlight-new"><div class="status-col-head rankmove">排名進出榜 <span style="font-family:var(--mono);font-size:.55rem;color:var(--accent);border:1px solid var(--accent);border-radius:10px;padding:0 5px;margin-left:4px">新增</span></div>
+          <div class="status-row"><span class="sr-name">散熱</span><span class="sr-today tabular" style="color:var(--up)">+0.81%</span><span class="sr-pt tabular" style="color:var(--up)">#14→#3</span></div>
+        </div>
+      </div>
+      <div class="turning-wrap">
+        <div class="turning-head">轉折點：等級真的翻轉的族群</div>
+        <div class="turning-sub">上週的等級跟這週的等級是否真的換了一級</div>
+        <div class="turning-row"><span class="turning-name">半導體設備</span>
+          <span><span class="turning-pill" style="background:#4FC46A22;color:#4FC46A">強</span>
+          <span class="turning-arrow">→</span>
+          <span class="turning-pill" style="background:#8B94AC22;color:#8B94AC">整理</span></span>
+          <span class="turning-desc" style="margin-left:auto">轉弱訊號，留意</span></div>
+      </div>
+      <div class="note">問題：①「剛進榜/剛掉出榜」不是「Top5排行」，是「這週跨過門檻的族群」，可能0檔、可能5檔以上，硬塞進「Top5」網格格式會很奇怪（沒有5檔就留白，超過5檔又要截斷）。②排在今日爆發/外資/投信/量能旁邊，容易被誤會是同一種「單日籌碼訊號」，其實它是週尺度、純排名比較，跟籌碼無關。</div>
+    </div>
+  </div>
+</body>
+</html>

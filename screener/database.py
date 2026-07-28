@@ -332,6 +332,42 @@ def get_shareholder_top(n: int = 50) -> pd.DataFrame:
     return df
 
 
+def get_shareholder_trend(weeks: int = 5) -> dict:
+    """每支股票近 N 週的 400張以上大戶%（lv12_15_pct）歷史，舊到新排序，供大戶持倉卡片
+    的迷你趨勢走勢圖使用。實際筆數可能少於 weeks（歷史不足時，例如新上市股或剛納入
+    追蹤的股票），不強制補齊——回傳筆數就是真實可用的資料點數。
+
+    離群值防護跟 get_shareholder_top() 一致：>=_MAX_VALID_HOLDER_PCT 視為 TDCC 集保
+    股權分散表解析異常，整筆排除。
+
+    回傳 {stock_id: [{"date": str, "lv12_15_pct": float}, ...]}（舊到新）。
+    """
+    from scrapers.shareholder import _MAX_VALID_HOLDER_PCT
+    con = get_conn()
+    df = con.execute(f"""
+        WITH ranked AS (
+            SELECT stock_id, date, lv12_15_pct,
+                   ROW_NUMBER() OVER (PARTITION BY stock_id ORDER BY date DESC) AS rn
+            FROM shareholder
+            WHERE lv12_15_pct < {_MAX_VALID_HOLDER_PCT}
+        )
+        SELECT stock_id, date, lv12_15_pct
+        FROM ranked
+        WHERE rn <= {weeks}
+        ORDER BY stock_id, date ASC
+    """).df()
+    con.close()
+
+    result: dict = {}
+    for _, row in df.iterrows():
+        sid = str(row["stock_id"])
+        result.setdefault(sid, []).append({
+            "date": str(row["date"])[:10],
+            "lv12_15_pct": float(row["lv12_15_pct"]),
+        })
+    return result
+
+
 def get_rolling_returns(periods=(5, 7, 10, 14)) -> dict:
     """各股「近 N 交易日累積漲跌幅」，用**收盤價比值法**（非複利 change_pct，避免逐日四捨五入
     連乘的捨入漂移）：`近N日% = (最新交易日收盤 / N 個交易日前收盤 − 1) × 100`。

@@ -440,6 +440,53 @@ def test_build_sector_recap_includes_turning_points():
     assert recap["turning_points"][0]["direction"] == "轉強訊號"
 
 
+def test_build_sector_recap_includes_rank_crossings():
+    meta_perf = [
+        {"meta_name": "散熱", "avg_change_pct": 1.0, "up_count": 1, "down_count": 0, "flat_count": 0},
+    ]
+    heatgrid_windows = {}
+    rank_history = {
+        "散熱": {"weekly_ranks": [14, 3], "in_top10_this_week": True,
+                 "consecutive_weeks_in_top10": 1, "last_top10_week_index": None, "last_top10_rank": None},
+    }
+    cards = build_heatgrid_cards(meta_perf, {}, {}, heatgrid_windows)
+    recap = build_sector_recap(cards, heatgrid_windows, rank_history)
+
+    assert recap["rank_crossings"]["just_in"][0]["meta_name"] == "散熱"
+
+
+def test_build_sector_recap_rank_crossings_defaults_empty_without_rank_history():
+    """rank_history沒傳(None)時rank_crossings要是空list，不能crash——跟其他
+    enrichment參數(cum_data等)的fail-soft慣例一致。"""
+    meta_perf = [
+        {"meta_name": "族群A", "avg_change_pct": 1.0, "up_count": 1, "down_count": 0, "flat_count": 0},
+    ]
+    cards = build_heatgrid_cards(meta_perf, {}, {}, {})
+    recap = build_sector_recap(cards, {})
+
+    assert recap["rank_crossings"] == {"just_in": [], "just_out": []}
+
+
+def test_build_sector_recap_excludes_stale_sector_from_rank_crossings():
+    """rank_history有某族群的進榜資料，但meta_perf已經不包含它——跟turning_points的
+    過濾邏輯一致，不能顯示已下架族群。"""
+    meta_perf = [
+        {"meta_name": "有效族群", "avg_change_pct": 1.0, "up_count": 1, "down_count": 0, "flat_count": 0},
+    ]
+    rank_history = {
+        "有效族群": {"weekly_ranks": [14, 3], "in_top10_this_week": True,
+                    "consecutive_weeks_in_top10": 1, "last_top10_week_index": None, "last_top10_rank": None},
+        "已下架族群": {"weekly_ranks": [14, 3], "in_top10_this_week": True,
+                     "consecutive_weeks_in_top10": 1, "last_top10_week_index": None, "last_top10_rank": None},
+    }
+    cards = build_heatgrid_cards(meta_perf, {}, {}, {})
+    recap = build_sector_recap(cards, {}, rank_history)
+
+    just_in_names = {r["meta_name"] for r in recap["rank_crossings"]["just_in"]}
+    assert "已下架族群" not in just_in_names
+    assert "有效族群" in just_in_names
+
+
 def test_build_sector_recap_excludes_stale_sector_from_turning_points():
     """heatgrid_windows有某族群的翻轉資料，但meta_perf(當下有效族群清單)已經不包含它
     (例如calc_meta_performance()跟calc_meta_heatgrid_windows()兩個獨立呼叫，某次族群集合

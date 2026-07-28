@@ -1,6 +1,6 @@
 from datetime import date
 
-from export.chips_generator import _build_section2, _build_section4, _build_section6, _build_section8, _calc_trend_svg, _composite_sort, _coverage_flag, _esc, _insider_holdings_table, _inst_streak_table, _margin_alert_table, _meta_link, _percentile_ranks, _shareholder_table, _stock_rank_table, generate
+from export.chips_generator import _build_section2, _build_section4, _build_section6, _build_section8, _calc_trend_svg, _composite_sort, _coverage_flag, _esc, _holder_card_html, _holder_column_html, _insider_holdings_table, _inst_streak_table, _margin_alert_table, _meta_link, _percentile_ranks, _shareholder_table, _stock_rank_table, generate
 
 
 def test_esc_escapes_html_special_characters():
@@ -502,3 +502,93 @@ def test_calc_trend_svg_handles_flat_series_without_division_by_zero():
 
     assert result["line_points"][0] == "22.0,10.0"
     assert result["line_points"][1] == "92.0,10.0"
+
+
+def test_holder_card_html_renders_divergent_bar_matching_direction():
+    """週變化為正時發散長條該用up方向(css class)，負時用down。"""
+    row = {
+        "stock_id": "5347", "stock_name": "世界先進", "meta_sector": "晶圓代工",
+        "close": 128.5, "change_pct": 1.2,
+        "lv12_15_pct": 68.4, "week_chg": 2.1, "streak": 6,
+        "share_chg": 412000, "lv15_pct": 22.6,
+        "trend": [
+            {"date": "2026-06-19", "lv12_15_pct": 63.0},
+            {"date": "2026-07-17", "lv12_15_pct": 68.4},
+        ],
+    }
+    html = _holder_card_html(row, rank=1, max_abs_week_chg=2.1)
+
+    assert "世界先進" in html
+    assert "5347" in html
+    assert 'class="hc-divbar"' in html
+    assert '<span class="up"' in html
+    assert "連增6週" in html
+    assert "68.4" in html  # 絕對水位
+
+
+def test_holder_card_html_negative_week_chg_uses_down_direction():
+    row = {
+        "stock_id": "8261", "stock_name": "富鼎", "meta_sector": "功率半導體",
+        "close": 312.5, "change_pct": -0.5,
+        "lv12_15_pct": 59.3, "week_chg": -0.8, "streak": -2,
+        "share_chg": -96000, "lv15_pct": 18.1,
+        "trend": [
+            {"date": "2026-07-10", "lv12_15_pct": 60.1},
+            {"date": "2026-07-17", "lv12_15_pct": 59.3},
+        ],
+    }
+    html = _holder_card_html(row, rank=1, max_abs_week_chg=2.1)
+
+    assert '<span class="down"' in html
+    assert "連減2週" in html
+
+
+def test_holder_card_html_shows_insufficient_data_when_trend_missing():
+    """trend筆數<2(新股/剛納入追蹤)時，卡片要顯示「資料不足」文字，不能crash、
+    不能留空白區塊裝作沒事。"""
+    row = {
+        "stock_id": "1101", "stock_name": "測試股", "meta_sector": "水泥",
+        "close": 40.0, "change_pct": 0.5,
+        "lv12_15_pct": 41.5, "week_chg": 1.5, "streak": 1,
+        "share_chg": 1000, "lv15_pct": 5.0,
+        "trend": [{"date": "2026-07-17", "lv12_15_pct": 41.5}],
+    }
+    html = _holder_card_html(row, rank=1, max_abs_week_chg=2.1)
+
+    assert "資料不足" in html
+
+
+def test_holder_card_html_escapes_malicious_stock_name():
+    row = {
+        "stock_id": "9999", "stock_name": "<script>alert(1)</script>", "meta_sector": "測試",
+        "close": 10.0, "change_pct": 0.0,
+        "lv12_15_pct": 50.0, "week_chg": 0.0, "streak": 0,
+        "share_chg": 0, "lv15_pct": 0.0,
+        "trend": [],
+    }
+    html = _holder_card_html(row, rank=1, max_abs_week_chg=1.0)
+
+    assert "<script>alert(1)</script>" not in html
+    assert "&lt;script&gt;" in html
+
+
+def test_holder_column_html_scales_divergent_bar_to_column_max():
+    """發散長條寬度依「這一欄實際出現的最大週變化幅度」動態縮放，不是固定量尺——
+    這一欄最大變化的那檔應該長條寬度撐滿(接近50%的一半寬)，其他檔案按比例縮小。"""
+    rows = [
+        {"stock_id": "A", "stock_name": "甲", "meta_sector": "測試", "close": 10.0,
+         "change_pct": 0.0, "lv12_15_pct": 60.0, "week_chg": 4.0, "streak": 3,
+         "share_chg": 0, "lv15_pct": 0.0, "trend": []},
+        {"stock_id": "B", "stock_name": "乙", "meta_sector": "測試", "close": 10.0,
+         "change_pct": 0.0, "lv12_15_pct": 55.0, "week_chg": 2.0, "streak": 2,
+         "share_chg": 0, "lv15_pct": 0.0, "trend": []},
+    ]
+    html = _holder_column_html(rows, direction="inc")
+
+    assert "width:50.0%" in html  # 甲(4.0)是最大值，長條撐滿50%(發散長條半邊寬度上限)
+    assert "width:25.0%" in html  # 乙(2.0)是甲的一半，長條寬度也是一半
+
+
+def test_holder_column_html_empty_list_shows_no_data_message():
+    html = _holder_column_html([], direction="dec")
+    assert "無資料" in html

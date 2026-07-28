@@ -608,3 +608,40 @@ def test_holder_card_html_handles_none_close_and_none_lv12_15_pct():
     html = _holder_card_html(row, rank=1, max_abs_week_chg=1.0)  # should not raise
     assert "─" in html
     assert "None" not in html
+
+
+def test_build_section8_uses_card_rendering_not_old_table():
+    """Section 8改用卡片渲染後，舊的13欄表格結構(<table class='ct'>那種)不該再出現在
+    大戶持倉區塊，改成.holder-grid卡片。"""
+    shareholder_data = [
+        {"stock_id": "5347", "stock_name": "世界先進", "meta_sector": "晶圓代工",
+         "close": 128.5, "change_pct": 1.2, "lv12_15_pct": 68.4, "week_chg": 2.1,
+         "streak": 6, "share_chg": 412000, "lv15_pct": 22.6, "date": "2026-07-17",
+         "trend": [{"date": "2026-07-10", "lv12_15_pct": 66.3},
+                   {"date": "2026-07-17", "lv12_15_pct": 68.4}]},
+    ]
+    s8_html, s8_note, _ = _build_section8(shareholder_data, [])
+
+    assert "holder-grid" in s8_html
+    assert "holder-card" in s8_html
+    assert "大戶連增倉" in s8_html
+
+
+def test_build_section8_splits_increasing_and_decreasing_columns():
+    """streak>0進連增倉欄、streak<0進連減倉欄，這個既有分組邏輯不能因為改卡片渲染
+    就跑掉。"""
+    shareholder_data = [
+        {"stock_id": "A", "stock_name": "增股", "meta_sector": "測試", "close": 10.0,
+         "change_pct": 0.0, "lv12_15_pct": 60.0, "week_chg": 1.0, "streak": 2,
+         "share_chg": 0, "lv15_pct": 0.0, "date": "2026-07-17", "trend": []},
+        {"stock_id": "B", "stock_name": "減股", "meta_sector": "測試", "close": 10.0,
+         "change_pct": 0.0, "lv12_15_pct": 40.0, "week_chg": -1.0, "streak": -2,
+         "share_chg": 0, "lv15_pct": 0.0, "date": "2026-07-17", "trend": []},
+    ]
+    s8_html, _, _ = _build_section8(shareholder_data, [])
+
+    inc_pos = s8_html.index("增股")
+    dec_pos = s8_html.index("減股")
+    inc_title_pos = s8_html.index("大戶連增倉")
+    dec_title_pos = s8_html.index("大戶連減倉")
+    assert inc_title_pos < inc_pos < dec_title_pos < dec_pos

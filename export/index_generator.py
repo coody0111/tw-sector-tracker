@@ -849,6 +849,19 @@ table.stock-list-table{width:100%;border-collapse:collapse}
 .rankmove-item .rm-name{font-family:var(--serif);font-weight:600;color:var(--ink)}
 .rankmove-item .rm-shift{font-family:var(--mono);font-size:.74rem;color:var(--ink-2)}
 .rankmove-empty{color:var(--ink-3);font-size:.78rem;font-family:var(--serif)}
+.history-wrap{margin-top:16px}
+.history-summary{font-family:var(--serif);font-size:.92rem;color:var(--ink);margin-bottom:10px;
+  padding:9px 13px;background:var(--panel-2);border-left:3px solid var(--accent);border-radius:0 4px 4px 0}
+.history-summary b{color:var(--accent)}
+.history-weekline-label{font-family:var(--mono);font-size:.6rem;font-weight:700;color:var(--ink-3);
+  letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px}
+.history-weekline{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
+.history-week{border:1px solid var(--border);border-radius:5px;padding:7px 8px;background:var(--panel-3);
+  font-family:var(--mono);font-size:.64rem;color:var(--ink-2);text-align:center}
+.history-week .hw-label{display:block;color:var(--ink-3)}
+.history-week .hw-rank{display:block;margin-top:3px;font-size:.86rem;font-weight:700;color:var(--ink)}
+.history-week.in-top10{border-color:color-mix(in srgb, var(--accent) 45%, var(--border))}
+.history-week.in-top10 .hw-rank{color:var(--accent)}
 """
 
 _TIER_COLOR_VAR = {
@@ -1324,6 +1337,38 @@ function buildChipsSummary(meta) {{
     rows.push(`<div class="cs-row"><span class="cs-label">融資</span><span style="color:${{color}};font-weight:700">${{arrow}}${{Math.abs(pct).toFixed(1)}}%</span>${{alert}}</div>`);
   }}
   return rows.length ? `<div class="chips-summary">${{rows.join('')}}</div>` : '';
+}}
+
+// 單一族群「歷史出現紀錄」：近幾週精確排名軌跡+文字摘要。meta是CARD_META[name]，
+// weekly_ranks/in_top10_this_week/consecutive_weeks_in_top10/last_top10_week_index/
+// last_top10_rank都是Python端calc_meta_rank_history()算好的數值，不是使用者輸入，不用escHtml。
+function buildHistoryRecord(meta) {{
+  const ranks = meta.weekly_ranks || [];
+  if (!ranks.length) return '';
+
+  let summary;
+  if (meta.in_top10_this_week) {{
+    summary = `連續 <b>${{meta.consecutive_weeks_in_top10}}</b> 週進榜（前10名）`;
+  }} else if (meta.last_top10_week_index !== null && meta.last_top10_week_index !== undefined) {{
+    const weeksAgo = ranks.length - 1 - meta.last_top10_week_index;
+    summary = `上次進榜是 <b>W-${{weeksAgo}}</b>，當時排第 <b>#${{meta.last_top10_rank}}</b> 名`;
+  }} else {{
+    summary = `近${{ranks.length}}週都沒有進前10`;
+  }}
+
+  const weekCells = ranks.map((rank, i) => {{
+    const isCurrent = i === ranks.length - 1;
+    const label = isCurrent ? '本週' : `W-${{ranks.length - 1 - i}}`;
+    const inTop10 = rank <= 10;
+    const cls = 'history-week' + (inTop10 ? ' in-top10' : '');
+    return `<div class="${{cls}}"><span class="hw-label">${{label}}</span><span class="hw-rank tabular">#${{rank}}</span></div>`;
+  }}).join('');
+
+  return `<div class="history-wrap">
+    <div class="history-summary">${{summary}}</div>
+    <div class="history-weekline-label">近${{ranks.length}}週排行軌跡</div>
+    <div class="history-weekline">${{weekCells}}</div>
+  </div>`;
 }}
 
 // 收盤價格式：>=100且整數才用千分位逗號分隔，其餘2位小數——比照舊版

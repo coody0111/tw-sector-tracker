@@ -645,3 +645,24 @@ def test_build_section8_splits_increasing_and_decreasing_columns():
     inc_title_pos = s8_html.index("大戶連增倉")
     dec_title_pos = s8_html.index("大戶連減倉")
     assert inc_title_pos < inc_pos < dec_title_pos < dec_pos
+
+
+def test_generate_groups_sidebar_tabs_into_three_clusters(tmp_path):
+    """9個tab-btn分成3組(法人動向/特殊型態/持股結構)，既有tab-panel的id/data-tab/
+    aria-controls不能因為分組而改變(switchTab() JS邏輯依賴這些屬性)。"""
+    output_path = tmp_path / "chips.html"
+    generate(
+        trade_date=date(2026, 7, 29),
+        meta_chips={"外資連買": {}}, stock_chips={"chips_date": "2026-07-29"},
+        output_path=str(output_path),
+    )
+    html = output_path.read_text(encoding="utf-8")
+
+    assert "法人動向" in html
+    assert "特殊型態" in html
+    assert "持股結構" in html
+    # 既有9個tab按鈕的id/data-tab屬性必須都還在，分組不能動到這些(JS依賴)
+    for tab_id in ["signal", "dipbuy", "stealth", "inst", "foreign", "trust", "margin", "holder", "insider"]:
+        assert f'id="tab-btn-{tab_id}"' in html
+        assert f'data-tab="tab-{tab_id}"' in html
+        assert f'aria-controls="tab-{tab_id}"' in html

@@ -690,6 +690,9 @@ _CSS = """
   .section-nav{border-right:1px solid var(--border);background:#0B0F19;padding:20px 14px}
   .section-nav-inner{position:sticky;top:84px}
   .section-nav-label{padding:0 10px 9px;color:var(--subtle);font-size:.6875rem;font-weight:800;letter-spacing:.08em}
+  .tab-groups{display:flex;flex-direction:column;gap:14px}
+  .tab-group{display:flex;flex-direction:column;gap:4px}
+  .tab-group-label{font-size:.62rem;letter-spacing:.08em;text-transform:uppercase;color:var(--subtle);padding-left:2px}
   .tab-bar{display:flex;flex-direction:column;gap:3px}
   .tab-btn{width:100%;min-height:44px;padding:9px 11px;border:0;border-left:3px solid transparent;border-radius:6px;background:transparent;color:var(--muted);text-align:left;cursor:pointer;font-size:.8125rem;font-weight:680;transition:background .16s,color .16s,border-color .16s}
   .tab-btn:hover{color:var(--text);background:var(--surface)}
@@ -1299,16 +1302,31 @@ def generate(
     <aside class="section-nav" aria-label="籌碼分析視角">
       <div class="section-nav-inner">
         <div class="section-nav-label">分析視角</div>
-        <div class="tab-bar" role="tablist" aria-label="籌碼分析分類">
-          <button id="tab-btn-signal" type="button" role="tab" aria-controls="tab-signal" aria-selected="false" class="tab-btn" data-tab="tab-signal" onclick="switchTab('tab-signal')">法人同步觀察</button>
-          <button id="tab-btn-dipbuy" type="button" role="tab" aria-controls="tab-dipbuy" aria-selected="false" class="tab-btn" data-tab="tab-dipbuy" onclick="switchTab('tab-dipbuy')">越跌越買</button>
-          <button id="tab-btn-stealth" type="button" role="tab" aria-controls="tab-stealth" aria-selected="false" class="tab-btn" data-tab="tab-stealth" onclick="switchTab('tab-stealth')">外資偷偷買</button>
-          <button id="tab-btn-inst" type="button" role="tab" aria-controls="tab-inst" aria-selected="false" class="tab-btn" data-tab="tab-inst" onclick="switchTab('tab-inst')">法人買賣</button>
-          <button id="tab-btn-foreign" type="button" role="tab" aria-controls="tab-foreign" aria-selected="false" class="tab-btn" data-tab="tab-foreign" onclick="switchTab('tab-foreign')">外資籌碼</button>
-          <button id="tab-btn-trust" type="button" role="tab" aria-controls="tab-trust" aria-selected="false" class="tab-btn" data-tab="tab-trust" onclick="switchTab('tab-trust')">投信籌碼</button>
-          <button id="tab-btn-margin" type="button" role="tab" aria-controls="tab-margin" aria-selected="false" class="tab-btn" data-tab="tab-margin" onclick="switchTab('tab-margin')">融資警示</button>
-          <button id="tab-btn-holder" type="button" role="tab" aria-controls="tab-holder" aria-selected="false" class="tab-btn" data-tab="tab-holder" onclick="switchTab('tab-holder')">大戶籌碼</button>
-          <button id="tab-btn-insider" type="button" role="tab" aria-controls="tab-insider" aria-selected="false" class="tab-btn" data-tab="tab-insider" onclick="switchTab('tab-insider')">董監持股</button>
+        <div class="tab-groups" role="tablist" aria-label="籌碼分析分類">
+          <div class="tab-group">
+            <span class="tab-group-label">法人動向</span>
+            <div class="tab-bar">
+              <button id="tab-btn-signal" type="button" role="tab" aria-controls="tab-signal" aria-selected="false" class="tab-btn" data-tab="tab-signal" onclick="switchTab('tab-signal')">法人同步觀察</button>
+              <button id="tab-btn-foreign" type="button" role="tab" aria-controls="tab-foreign" aria-selected="false" class="tab-btn" data-tab="tab-foreign" onclick="switchTab('tab-foreign')">外資籌碼</button>
+              <button id="tab-btn-trust" type="button" role="tab" aria-controls="tab-trust" aria-selected="false" class="tab-btn" data-tab="tab-trust" onclick="switchTab('tab-trust')">投信籌碼</button>
+            </div>
+          </div>
+          <div class="tab-group">
+            <span class="tab-group-label">特殊型態</span>
+            <div class="tab-bar">
+              <button id="tab-btn-dipbuy" type="button" role="tab" aria-controls="tab-dipbuy" aria-selected="false" class="tab-btn" data-tab="tab-dipbuy" onclick="switchTab('tab-dipbuy')">越跌越買</button>
+              <button id="tab-btn-stealth" type="button" role="tab" aria-controls="tab-stealth" aria-selected="false" class="tab-btn" data-tab="tab-stealth" onclick="switchTab('tab-stealth')">外資偷偷買</button>
+              <button id="tab-btn-margin" type="button" role="tab" aria-controls="tab-margin" aria-selected="false" class="tab-btn" data-tab="tab-margin" onclick="switchTab('tab-margin')">融資警示</button>
+            </div>
+          </div>
+          <div class="tab-group">
+            <span class="tab-group-label">持股結構</span>
+            <div class="tab-bar">
+              <button id="tab-btn-inst" type="button" role="tab" aria-controls="tab-inst" aria-selected="false" class="tab-btn" data-tab="tab-inst" onclick="switchTab('tab-inst')">法人買賣</button>
+              <button id="tab-btn-holder" type="button" role="tab" aria-controls="tab-holder" aria-selected="false" class="tab-btn" data-tab="tab-holder" onclick="switchTab('tab-holder')">大戶籌碼</button>
+              <button id="tab-btn-insider" type="button" role="tab" aria-controls="tab-insider" aria-selected="false" class="tab-btn" data-tab="tab-insider" onclick="switchTab('tab-insider')">董監持股</button>
+            </div>
+          </div>
         </div>
         <p class="section-nav-note">可依股票代號或名稱搜尋。所有表格支援欄位排序，資料日期以各區塊標示為準。</p>
       </div>

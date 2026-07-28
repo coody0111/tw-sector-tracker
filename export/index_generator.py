@@ -1124,6 +1124,7 @@ def generate(
         meta_name = c["meta_name"]
         sig = meta_signals.get(meta_name, {})
         chips = meta_chips.get(meta_name, {})
+        rank_row = (rank_history or {}).get(meta_name, {})
         card_meta[meta_name] = {
             "pct": c["pct"], "up_count": c["up_count"], "down_count": c["down_count"],
             "daily_pct": sig.get("daily_pct", []), "dates": sig.get("dates", []),
@@ -1136,6 +1137,11 @@ def generate(
             "margin_change_today": chips.get("margin_change_today", 0),
             "margin_balance_today": chips.get("margin_balance_today", 0),
             "margin_alert": bool(chips.get("margin_alert", False)),
+            "weekly_ranks": rank_row.get("weekly_ranks", []),
+            "in_top10_this_week": rank_row.get("in_top10_this_week", False),
+            "consecutive_weeks_in_top10": rank_row.get("consecutive_weeks_in_top10", 0),
+            "last_top10_week_index": rank_row.get("last_top10_week_index"),
+            "last_top10_rank": rank_row.get("last_top10_rank"),
         }
     card_meta_js = json.dumps(card_meta, ensure_ascii=False).replace("</", "<\\/")
 
@@ -1551,18 +1557,19 @@ function selectGroup(name, toggle) {{
 
   const metaSpark = buildSparkline(meta.daily_pct, meta.dates, 'meta-sparkline');
   const chipsSum = buildChipsSummary(meta);
+  const historyRecord = buildHistoryRecord(meta);
 
   if (!stocks.length) {{
     panel.innerHTML = `
       <div class="detail-head"><h3>${{safeName}}</h3><span class="dpct" style="color:${{pctColor}}">${{pctStr}}</span></div>
       <div class="detail-sub">▲${{meta.up_count}}檔 ▼${{meta.down_count}}檔</div>
-      ${{metaSpark}}${{chipsSum}}
+      ${{metaSpark}}${{chipsSum}}${{historyRecord}}
       <div class="detail-empty">這個族群目前沒有個股行情資料。</div>`;
   }} else {{
     panel.innerHTML = `
       <div class="detail-head"><h3>${{safeName}}</h3><span class="dpct" style="color:${{pctColor}}">${{pctStr}}</span></div>
       <div class="detail-sub">▲${{meta.up_count}}檔 ▼${{meta.down_count}}檔　・　共 ${{stocks.length}} 檔</div>
-      ${{metaSpark}}${{chipsSum}}
+      ${{metaSpark}}${{chipsSum}}${{historyRecord}}
       <div class="overflow-wrap"><table class="stock-list-table">
         <thead><tr>
           <th aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'id')">股票</button></th>

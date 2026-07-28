@@ -1261,3 +1261,33 @@ def test_generate_renders_rank_crossings_section_in_sector_recap(tmp_path):
     assert "排名進出榜" in html
     assert "散熱" in html and "半導體設備" in html
     assert "rankmove-wrap" in html
+
+
+def test_generate_embeds_rank_history_into_card_meta_for_history_record(tmp_path):
+    """單一族群的排名歷史資料要塞進CARD_META，供點開族群詳細面板時
+    buildHistoryRecord()渲染「歷史出現紀錄」使用。"""
+    meta_perf = [
+        {"meta_name": "工業電腦", "avg_change_pct": 1.0, "up_count": 1, "down_count": 0, "flat_count": 0},
+    ]
+    universe_df = pd.DataFrame([
+        {"stock_id": "1", "stock_name": "股票一", "meta_sector": "工業電腦"},
+    ])
+    prices_df = pd.DataFrame([{"stock_id": "1", "change_pct": 1.0, "close": 100.0}])
+    rank_history = {
+        "工業電腦": {"weekly_ranks": [18, 9, 7, 4, 1], "in_top10_this_week": True,
+                    "consecutive_weeks_in_top10": 3, "last_top10_week_index": None, "last_top10_rank": None},
+    }
+
+    output_path = tmp_path / "index.html"
+    generate(
+        date(2026, 7, 29), meta_perf, universe_df,
+        meta_signals={}, meta_chips={}, prices_df=prices_df,
+        heatgrid_windows={}, rank_history=rank_history,
+        output_path=str(output_path),
+    )
+
+    html = output_path.read_text(encoding="utf-8")
+    assert '"weekly_ranks":[18,9,7,4,1]' in html.replace(" ", "")
+    assert '"in_top10_this_week":true' in html.replace(" ", "")
+    assert '"consecutive_weeks_in_top10":3' in html.replace(" ", "")
+    assert "buildHistoryRecord(meta)" in html  # selectGroup()有呼叫這支函式

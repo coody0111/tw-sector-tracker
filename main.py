@@ -16,7 +16,7 @@ from scrapers.chips import fetch_institutional, fetch_institutional_tpex, fetch_
 from scrapers.taiex import fetch_taiex_index
 from scrapers.backfill import backfill_twse_monthly, backfill_institutional, backfill_margin, backfill_yfinance
 from processors.changes import detect_changes
-from processors.performance import calc_sector_performance, calc_meta_performance, calc_universe_performance, calc_cumulative_meta, calc_meta_signals, calc_meta_chips_signals, get_stock_chips_ranking, get_margin_divergence, calc_market_breadth, calc_capital_concentration, classify_market_regime, calc_meta_heatgrid_windows, calc_stock_sparklines
+from processors.performance import calc_sector_performance, calc_meta_performance, calc_universe_performance, calc_cumulative_meta, calc_meta_signals, calc_meta_chips_signals, get_stock_chips_ranking, get_margin_divergence, calc_market_breadth, calc_capital_concentration, classify_market_regime, calc_meta_heatgrid_windows, calc_stock_sparklines, calc_meta_rank_history
 from storage.csv_writer import CsvWriter
 from export.index_generator import generate as generate_index_html
 from export.chips_generator import generate as generate_chips_html
@@ -727,6 +727,12 @@ def run(trade_date: date = None, realtime: bool = False) -> None:
             heatgrid_windows = {}
 
         try:
+            rank_history = calc_meta_rank_history(universe_df) if universe_df is not None else {}
+        except Exception as exc:
+            logger.warning("族群排名歷史計算失敗，index.html排名進出榜/歷史出現紀錄本次不顯示: %s", exc)
+            rank_history = {}
+
+        try:
             stock_sparklines = calc_stock_sparklines(universe_df) if universe_df is not None else {}
         except Exception as exc:
             logger.warning("個股走勢計算失敗，index.html個股卡片本次不顯示sparkline: %s", exc)
@@ -762,7 +768,8 @@ def run(trade_date: date = None, realtime: bool = False) -> None:
                                  chips_df=index_chips_df,
                                  cum_data=cum_data,
                                  market_regime=market_regime,
-                                 vol_turnover_signals=vol_turnover_signals)
+                                 vol_turnover_signals=vol_turnover_signals,
+                                 rank_history=rank_history)
             logger.info("HTML generated → docs/index.html")
         else:
             logger.warning("universe_df 未載入（data/stock_universe.csv 不存在），本次不產生 docs/index.html")

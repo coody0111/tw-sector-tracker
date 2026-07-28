@@ -666,3 +666,25 @@ def test_generate_groups_sidebar_tabs_into_three_clusters(tmp_path):
         assert f'id="tab-btn-{tab_id}"' in html
         assert f'data-tab="tab-{tab_id}"' in html
         assert f'aria-controls="tab-{tab_id}"' in html
+
+    label_signal_group = html.index("法人動向")
+    label_pattern_group = html.index("特殊型態")
+    label_structure_group = html.index("持股結構")
+    assert label_signal_group < label_pattern_group < label_structure_group
+
+    pos_signal = html.index('id="tab-btn-signal"')
+    pos_foreign = html.index('id="tab-btn-foreign"')
+    pos_trust = html.index('id="tab-btn-trust"')
+    pos_dipbuy = html.index('id="tab-btn-dipbuy"')
+    pos_stealth = html.index('id="tab-btn-stealth"')
+    pos_margin = html.index('id="tab-btn-margin"')
+    pos_inst = html.index('id="tab-btn-inst"')
+    pos_holder = html.index('id="tab-btn-holder"')
+    pos_insider = html.index('id="tab-btn-insider"')
+
+    # 法人動向 group的按鈕都要落在自己的標籤跟下一組標籤之間
+    assert label_signal_group < pos_signal < pos_foreign < pos_trust < label_pattern_group
+    # 特殊型態 group的按鈕都要落在自己的標籤跟下一組標籤之間
+    assert label_pattern_group < pos_dipbuy < pos_stealth < pos_margin < label_structure_group
+    # 持股結構 group的按鈕都要落在自己的標籤之後
+    assert label_structure_group < pos_inst < pos_holder < pos_insider

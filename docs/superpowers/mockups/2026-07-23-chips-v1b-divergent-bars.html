@@ -159,17 +159,16 @@ a:focus-visible,button:focus-visible{outline:3px solid var(--accent);outline-off
    週變化，因為這裡要回答的是「連續增加的這幾週是穩定爬升還是最近才加速」，用水位
    的斜率看最直覺，跟上面發散長條（週變化%，回答「這週有沒有變化」）是互補、不是
    重複的兩個問題。 */
-/* 補上Y軸最高/最低%刻度＋X軸起訖週標籤＋一條淡色基準格線，變成有座標可讀的
-   迷你2D圖，不只是純形狀示意（原本完全沒有軸，只看得出「大概往上還往下」，
-   讀不出實際數字） */
+/* Y軸最高/最低%刻度＋X軸5個實際週日期＋淡色基準格線全部畫進同一個SVG座標系統
+   （不再用HTML flex row+padding-left去猜對齊，那樣兩個獨立排版的元素本來就對不準，
+   是必然不是偶發）——整張走勢圖現在是單一SVG，viewBox左側22單位留給Y軸文字，
+   折線本身画在x=22~92，跟x軸日期文字共用同一組x座標，保證像素級對齊，不會再有
+   「折線跟下面日期對不上」的問題。 */
 .hc-trend{margin-top:8px}
 .hc-trend-label{font-size:.6rem;color:var(--subtle);margin-bottom:3px}
-.hc-trend-row{display:flex;align-items:stretch;gap:5px}
-.hc-trend-axis{display:flex;flex-direction:column;justify-content:space-between;
-  font-family:var(--mono);font-size:.58rem;color:var(--subtle);flex-shrink:0;text-align:right}
-.hc-trend svg{display:block;flex:1}
-.hc-trend-xaxis{display:flex;justify-content:space-between;font-size:.56rem;
-  color:var(--subtle);margin-top:2px;padding-left:32px}
+.hc-trend svg{display:block;width:100%;height:auto}
+.hc-trend text{font-family:var(--mono);font-size:5px;fill:var(--subtle)}
+.hc-trend .axis-label{text-anchor:end}
 .hc-trend .trend-line{fill:none;stroke:var(--muted);stroke-width:1.4}
 .hc-trend .trend-area{fill:var(--muted);opacity:.08}
 .hc-trend .trend-end{fill:var(--accent)}
@@ -334,16 +333,19 @@ a:focus-visible,button:focus-visible{outline:3px solid var(--accent);outline-off
       </div>
       <div class="hc-trend">
         <div class="hc-trend-label">近5週</div>
-        <div class="hc-trend-row">
-          <div class="hc-trend-axis"><span>68.4</span><span>63.0</span></div>
-          <svg width="70" height="20" viewBox="0 0 70 20">
-            <line class="trend-grid" x1="0" y1="18" x2="70" y2="18"/>
-            <polyline class="trend-area" points="0.0,18.0 17.5,13.7 35.0,8.7 52.5,6.1 70.0,2.0 70,20 0,20"/>
-            <polyline class="trend-line" points="0.0,18.0 17.5,13.7 35.0,8.7 52.5,6.1 70.0,2.0"/>
-            <circle class="trend-end" cx="70" cy="2" r="2"/>
-          </svg>
-        </div>
-        <div class="hc-trend-xaxis"><span>06/19</span><span>06/26</span><span>07/03</span><span>07/10</span><span>07/17</span></div>
+        <svg viewBox="0 0 92 27">
+          <line class="trend-grid" x1="22" y1="18" x2="92" y2="18"/>
+          <polyline class="trend-area" points="22.0,18.0 39.5,13.7 57.0,8.7 74.5,6.1 92.0,2.0 92.0,20 22.0,20"/>
+          <polyline class="trend-line" points="22.0,18.0 39.5,13.7 57.0,8.7 74.5,6.1 92.0,2.0"/>
+          <circle class="trend-end" cx="92" cy="2" r="2"/>
+          <text class="axis-label" x="20" y="4">68.4</text>
+          <text class="axis-label" x="20" y="19">63.0</text>
+          <text x="22" y="26" text-anchor="start">06/19</text>
+          <text x="39.5" y="26" text-anchor="middle">06/26</text>
+          <text x="57" y="26" text-anchor="middle">07/03</text>
+          <text x="74.5" y="26" text-anchor="middle">07/10</text>
+          <text x="92" y="26" text-anchor="end">07/17</text>
+        </svg>
       </div>
     </div>
 
@@ -366,16 +368,19 @@ a:focus-visible,button:focus-visible{outline:3px solid var(--accent);outline-off
       </div>
       <div class="hc-trend">
         <div class="hc-trend-label">近5週</div>
-        <div class="hc-trend-row">
-          <div class="hc-trend-axis"><span>77.1</span><span>75.9</span></div>
-          <svg width="70" height="20" viewBox="0 0 70 20">
-            <line class="trend-grid" x1="0" y1="18" x2="70" y2="18"/>
-            <polyline class="trend-area" points="0.0,15.8 17.5,18.0 35.0,14.6 52.5,2.3 70.0,2.0 70,20 0,20"/>
-            <polyline class="trend-line" points="0.0,15.8 17.5,18.0 35.0,14.6 52.5,2.3 70.0,2.0"/>
-            <circle class="trend-end" cx="70" cy="2.0" r="2"/>
-          </svg>
-        </div>
-        <div class="hc-trend-xaxis"><span>06/19</span><span>06/26</span><span>07/03</span><span>07/10</span><span>07/17</span></div>
+        <svg viewBox="0 0 92 27">
+          <line class="trend-grid" x1="22" y1="18" x2="92" y2="18"/>
+          <polyline class="trend-area" points="22.0,15.8 39.5,18.0 57.0,14.6 74.5,2.3 92.0,2.0 92.0,20 22.0,20"/>
+          <polyline class="trend-line" points="22.0,15.8 39.5,18.0 57.0,14.6 74.5,2.3 92.0,2.0"/>
+          <circle class="trend-end" cx="92" cy="2.0" r="2"/>
+          <text class="axis-label" x="20" y="4">77.1</text>
+          <text class="axis-label" x="20" y="19">75.9</text>
+          <text x="22" y="26" text-anchor="start">06/19</text>
+          <text x="39.5" y="26" text-anchor="middle">06/26</text>
+          <text x="57" y="26" text-anchor="middle">07/03</text>
+          <text x="74.5" y="26" text-anchor="middle">07/10</text>
+          <text x="92" y="26" text-anchor="end">07/17</text>
+        </svg>
       </div>
     </div>
 
@@ -398,16 +403,19 @@ a:focus-visible,button:focus-visible{outline:3px solid var(--accent);outline-off
       </div>
       <div class="hc-trend">
         <div class="hc-trend-label">近5週</div>
-        <div class="hc-trend-row">
-          <div class="hc-trend-axis"><span>54.2</span><span>49.6</span></div>
-          <svg width="70" height="20" viewBox="0 0 70 20">
-            <line class="trend-grid" x1="0" y1="18" x2="70" y2="18"/>
-            <polyline class="trend-area" points="0.0,18.0 17.5,13.7 35.0,9.0 52.5,6.8 70.0,2.0 70,20 0,20"/>
-            <polyline class="trend-line" points="0.0,18.0 17.5,13.7 35.0,9.0 52.5,6.8 70.0,2.0"/>
-            <circle class="trend-end" cx="70" cy="2.0" r="2"/>
-          </svg>
-        </div>
-        <div class="hc-trend-xaxis"><span>06/19</span><span>06/26</span><span>07/03</span><span>07/10</span><span>07/17</span></div>
+        <svg viewBox="0 0 92 27">
+          <line class="trend-grid" x1="22" y1="18" x2="92" y2="18"/>
+          <polyline class="trend-area" points="22.0,18.0 39.5,13.7 57.0,9.0 74.5,6.8 92.0,2.0 92.0,20 22.0,20"/>
+          <polyline class="trend-line" points="22.0,18.0 39.5,13.7 57.0,9.0 74.5,6.8 92.0,2.0"/>
+          <circle class="trend-end" cx="92" cy="2.0" r="2"/>
+          <text class="axis-label" x="20" y="4">54.2</text>
+          <text class="axis-label" x="20" y="19">49.6</text>
+          <text x="22" y="26" text-anchor="start">06/19</text>
+          <text x="39.5" y="26" text-anchor="middle">06/26</text>
+          <text x="57" y="26" text-anchor="middle">07/03</text>
+          <text x="74.5" y="26" text-anchor="middle">07/10</text>
+          <text x="92" y="26" text-anchor="end">07/17</text>
+        </svg>
       </div>
     </div>
 
@@ -430,16 +438,19 @@ a:focus-visible,button:focus-visible{outline:3px solid var(--accent);outline-off
       </div>
       <div class="hc-trend down">
         <div class="hc-trend-label">近5週</div>
-        <div class="hc-trend-row">
-          <div class="hc-trend-axis"><span>60.7</span><span>59.3</span></div>
-          <svg width="70" height="20" viewBox="0 0 70 20">
-            <line class="trend-grid" x1="0" y1="18" x2="70" y2="18"/>
-            <polyline class="trend-area" points="0.0,2.0 17.5,5.0 35.0,6.3 52.5,16.7 70.0,18.0 70,20 0,20"/>
-            <polyline class="trend-line" points="0.0,2.0 17.5,5.0 35.0,6.3 52.5,16.7 70.0,18.0"/>
-            <circle class="trend-end" cx="70" cy="18.0" r="2"/>
-          </svg>
-        </div>
-        <div class="hc-trend-xaxis"><span>06/19</span><span>06/26</span><span>07/03</span><span>07/10</span><span>07/17</span></div>
+        <svg viewBox="0 0 92 27">
+          <line class="trend-grid" x1="22" y1="18" x2="92" y2="18"/>
+          <polyline class="trend-area" points="22.0,2.0 39.5,5.0 57.0,6.3 74.5,16.7 92.0,18.0 92.0,20 22.0,20"/>
+          <polyline class="trend-line" points="22.0,2.0 39.5,5.0 57.0,6.3 74.5,16.7 92.0,18.0"/>
+          <circle class="trend-end" cx="92" cy="18.0" r="2"/>
+          <text class="axis-label" x="20" y="4">60.7</text>
+          <text class="axis-label" x="20" y="19">59.3</text>
+          <text x="22" y="26" text-anchor="start">06/19</text>
+          <text x="39.5" y="26" text-anchor="middle">06/26</text>
+          <text x="57" y="26" text-anchor="middle">07/03</text>
+          <text x="74.5" y="26" text-anchor="middle">07/10</text>
+          <text x="92" y="26" text-anchor="end">07/17</text>
+        </svg>
       </div>
     </div>
 
@@ -462,16 +473,19 @@ a:focus-visible,button:focus-visible{outline:3px solid var(--accent);outline-off
       </div>
       <div class="hc-trend">
         <div class="hc-trend-label">近5週</div>
-        <div class="hc-trend-row">
-          <div class="hc-trend-axis"><span>41.0</span><span>37.6</span></div>
-          <svg width="70" height="20" viewBox="0 0 70 20">
-            <line class="trend-grid" x1="0" y1="18" x2="70" y2="18"/>
-            <polyline class="trend-area" points="0.0,18.0 17.5,10.4 35.0,10.7 52.5,4.4 70.0,2.0 70,20 0,20"/>
-            <polyline class="trend-line" points="0.0,18.0 17.5,10.4 35.0,10.7 52.5,4.4 70.0,2.0"/>
-            <circle class="trend-end" cx="70" cy="2.0" r="2"/>
-          </svg>
-        </div>
-        <div class="hc-trend-xaxis"><span>06/19</span><span>06/26</span><span>07/03</span><span>07/10</span><span>07/17</span></div>
+        <svg viewBox="0 0 92 27">
+          <line class="trend-grid" x1="22" y1="18" x2="92" y2="18"/>
+          <polyline class="trend-area" points="22.0,18.0 39.5,10.4 57.0,10.7 74.5,4.4 92.0,2.0 92.0,20 22.0,20"/>
+          <polyline class="trend-line" points="22.0,18.0 39.5,10.4 57.0,10.7 74.5,4.4 92.0,2.0"/>
+          <circle class="trend-end" cx="92" cy="2.0" r="2"/>
+          <text class="axis-label" x="20" y="4">41.0</text>
+          <text class="axis-label" x="20" y="19">37.6</text>
+          <text x="22" y="26" text-anchor="start">06/19</text>
+          <text x="39.5" y="26" text-anchor="middle">06/26</text>
+          <text x="57" y="26" text-anchor="middle">07/03</text>
+          <text x="74.5" y="26" text-anchor="middle">07/10</text>
+          <text x="92" y="26" text-anchor="end">07/17</text>
+        </svg>
       </div>
     </div>
 
@@ -494,16 +508,19 @@ a:focus-visible,button:focus-visible{outline:3px solid var(--accent);outline-off
       </div>
       <div class="hc-trend">
         <div class="hc-trend-label">近5週</div>
-        <div class="hc-trend-row">
-          <div class="hc-trend-axis"><span>63.7</span><span>62.7</span></div>
-          <svg width="70" height="20" viewBox="0 0 70 20">
-            <line class="trend-grid" x1="0" y1="18" x2="70" y2="18"/>
-            <polyline class="trend-area" points="0.0,18.0 17.5,11.4 35.0,10.4 52.5,5.5 70.0,2.0 70,20 0,20"/>
-            <polyline class="trend-line" points="0.0,18.0 17.5,11.4 35.0,10.4 52.5,5.5 70.0,2.0"/>
-            <circle class="trend-end" cx="70" cy="2.0" r="2"/>
-          </svg>
-        </div>
-        <div class="hc-trend-xaxis"><span>06/19</span><span>06/26</span><span>07/03</span><span>07/10</span><span>07/17</span></div>
+        <svg viewBox="0 0 92 27">
+          <line class="trend-grid" x1="22" y1="18" x2="92" y2="18"/>
+          <polyline class="trend-area" points="22.0,18.0 39.5,11.4 57.0,10.4 74.5,5.5 92.0,2.0 92.0,20 22.0,20"/>
+          <polyline class="trend-line" points="22.0,18.0 39.5,11.4 57.0,10.4 74.5,5.5 92.0,2.0"/>
+          <circle class="trend-end" cx="92" cy="2.0" r="2"/>
+          <text class="axis-label" x="20" y="4">63.7</text>
+          <text class="axis-label" x="20" y="19">62.7</text>
+          <text x="22" y="26" text-anchor="start">06/19</text>
+          <text x="39.5" y="26" text-anchor="middle">06/26</text>
+          <text x="57" y="26" text-anchor="middle">07/03</text>
+          <text x="74.5" y="26" text-anchor="middle">07/10</text>
+          <text x="92" y="26" text-anchor="end">07/17</text>
+        </svg>
       </div>
     </div>
   </div>

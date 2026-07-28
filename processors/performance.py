@@ -1031,3 +1031,133 @@ def calc_meta_heatgrid_windows(
         }
 
     return results
+
+
+def calc_meta_rank_history(
+    universe_df: pd.DataFrame,
+    db_path: str = "data/screener.db",
+    weeks_back: int = 5,
+) -> Dict[str, Dict[str, Any]]:
+    """
+    近N週(預設5週，每週=5個交易日滾動視窗，沿用cum5/roll5慣例)每個meta_sector的排名歷史，
+    供族群近況「排名進出榜」跟單一族群「歷史出現紀錄」使用。即時從daily_prices全歷史用
+    universe_df目前的meta_sector分類重算，不存快照表——族群分類本身會變動(例如工業電腦從
+    電腦周邊拆出)，存快照會讓歷史資料卡在過期分類上，見
+    docs/adr/0001-sector-rank-history-recomputed-not-snapshotted.md。
+
+    「上榜」門檻＝前10名（依該週平均change_pct的複利報酬，全部meta_sector一起排序）。
+
+    Returns
+    -------
+    {meta_name: {
+        "weekly_ranks": List[int]，舊→新排列，長度<=weeks_back(資料不足5週時回較短list，
+            不強湊)，最後一筆是本週。
+        "in_top10_this_week": bool，本週排名是否<=10(資料完全不足、weekly_ranks為空時False)
+        "consecutive_weeks_in_top10": int，連續進榜週數(含本週)，本週未進榜則為0
+        "last_top10_week_index": int | None，本週未進榜時，weekly_ranks裡最近一次進榜的
+            index(從新到舊找)；weekly_ranks範圍內都沒進榜(或本週已進榜)則為None
+        "last_top10_rank": int | None，對應last_top10_week_index當時的排名
+    }}
+    """
+    con = duckdb.connect(db_path, read_only=True)
+    try:
+        price_df = con.execute(
+            "SELECT stock_id, date, change_pct FROM daily_prices"
+        ).fetchdf()
+    except Exception:
+        return {}
+    finally:
+        con.close()
+
+    if price_df.empty:
+        return {}
+
+    universe = universe_df[["stock_id", "meta_sector"]].copy()
+    universe["stock_id"] = universe["stock_id"].astype(str)
+    price_df["stock_id"] = price_df["stock_id"].astype(str)
+
+    merged = price_df.merge(universe, on="stock_id", how="inner")
+    merged = merged.dropna(subset=["change_pct", "meta_sector"])
+    if merged.empty:
+        return {}
+
+    all_dates = sorted(merged["date"].unique())
+    total_days = len(all_dates)
+    num_complete_weeks = total_days // 5
+    weeks_available = min(weeks_back, num_complete_weeks)
+    if weeks_available == 0:
+        return {}
+
+    pct_pivot = (
+        merged.groupby(["meta_sector", "date"])["change_pct"].mean()
+        .unstack(level="date")
+        .reindex(columns=all_dates)
+    )
+    meta_names = list(pct_pivot.index)
+
+    def _compound(values: List[float]) -> float:
+        factor = 1.0
+        for v in values:
+            factor *= (1 + v / 100)
+        return round((factor - 1) * 100, 2)
+
+    # week_ranks_by_week[i] = {meta_name: rank}，i=0是weeks_available裡最舊那週，
+    # i=weeks_available-1是本週
+    week_ranks_by_week: List[Dict[str, int]] = []
+    for i in range(weeks_available):
+        start = total_days - 5 * (weeks_available - i)
+        end = total_days - 5 * (weeks_available - i - 1)
+        window_dates = all_dates[start:end]
+
+        week_pcts: Dict[str, float] = {}
+        for meta_name in meta_names:
+            series = pct_pivot.loc[meta_name, window_dates]
+            if series.isna().any():
+                continue  # 這個meta這週資料不完整，不參與這週的排名
+            week_pcts[meta_name] = _compound(series.tolist())
+
+        ranked = sorted(week_pcts.items(), key=lambda x: -x[1])
+        week_ranks_by_week.append({name: idx + 1 for idx, (name, _) in enumerate(ranked)})
+
+    results: Dict[str, Dict[str, Any]] = {}
+    for meta_name in meta_names:
+        weekly_ranks_raw = [week_ranks_by_week[i].get(meta_name) for i in range(weeks_available)]
+        weekly_ranks = [r for r in weekly_ranks_raw if r is not None]
+        if not weekly_ranks:
+            results[meta_name] = {
+                "weekly_ranks": [], "in_top10_this_week": False,
+                "consecutive_weeks_in_top10": 0,
+                "last_top10_week_index": None, "last_top10_rank": None,
+            }
+            continue
+
+        this_week_rank = weekly_ranks_raw[-1]
+        in_top10_this_week = this_week_rank is not None and this_week_rank <= 10
+
+        consecutive = 0
+        if in_top10_this_week:
+            for rank in reversed(weekly_ranks_raw):
+                if rank is not None and rank <= 10:
+                    consecutive += 1
+                else:
+                    break
+
+        last_top10_week_index = None
+        last_top10_rank = None
+        if not in_top10_this_week:
+            for idx in range(len(weekly_ranks_raw) - 1, -1, -1):
+                rank = weekly_ranks_raw[idx]
+                if rank is not None and rank <= 10:
+                    last_top10_week_index = idx
+                    last_top10_rank = rank
+                    break
+
+        results[meta_name] = {
+            "weekly_ranks": weekly_ranks_raw,
+            "in_top10_this_week": in_top10_this_week,
+            "consecutive_weeks_in_top10": consecutive,
+            "last_top10_week_index": last_top10_week_index,
+            "last_top10_rank": last_top10_rank,
+        }
+
+    return results

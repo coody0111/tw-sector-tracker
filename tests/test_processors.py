@@ -691,3 +691,158 @@ def test_calc_meta_heatgrid_windows_none_when_sector_has_real_gap_inside_window(
     row = result["剛掛牌族群"]
     assert row["streak_today"] is None
     assert row["this_week_pct_today"] is None
+
+
+import duckdb
+from processors.performance import calc_meta_rank_history
+
+
+def _seed_rank_history_db(db_path, price_rows):
+    """price_rows: list of (stock_id, date, change_pct)"""
+    con = duckdb.connect(str(db_path))
+    con.execute("CREATE TABLE daily_prices (stock_id VARCHAR, date DATE, change_pct DOUBLE)")
+    con.executemany("INSERT INTO daily_prices VALUES (?, ?, ?)", price_rows)
+    con.close()
+
+
+def test_calc_meta_rank_history_ranks_metas_by_weekly_compound_return(tmp_path):
+    """3個族群、剛好1週(5個交易日)資料：每天固定漲跌%，驗證複利報酬排序正確，
+    本週排名=1的族群in_top10_this_week應為True。"""
+    db_path = tmp_path / "test.db"
+    rows = []
+    for d in range(1, 6):  # 5天
+        rows.append(("A1", f"2026-06-{d:02d}", 3.0))   # 族群A：每天+3%
+        rows.append(("B1", f"2026-06-{d:02d}", 1.0))   # 族群B：每天+1%
+        rows.append(("C1", f"2026-06-{d:02d}", -2.0))  # 族群C：每天-2%
+    _seed_rank_history_db(db_path, rows)
+    universe = pd.DataFrame([
+        {"stock_id": "A1", "meta_sector": "族群A"},
+        {"stock_id": "B1", "meta_sector": "族群B"},
+        {"stock_id": "C1", "meta_sector": "族群C"},
+    ])
+
+    result = calc_meta_rank_history(universe, db_path=str(db_path), weeks_back=5)
+
+    assert result["族群A"]["weekly_ranks"] == [1]
+    assert result["族群B"]["weekly_ranks"] == [2]
+    assert result["族群C"]["weekly_ranks"] == [3]
+    assert result["族群A"]["in_top10_this_week"] is True
+    assert result["族群C"]["in_top10_this_week"] is True  # 只有3個族群，前10名門檻涵蓋全部
+
+
+def test_calc_meta_rank_history_uses_current_classification_not_historical(tmp_path):
+    """驗證ADR-0001的核心承諾：排名一律用『現在傳進來的』universe_df分類回推，不管
+    歷史上這支股票曾經屬於哪個族群——同一批價格資料，換一個universe_df(股票改分類)，
+    排名歷史應該跟著變。"""
+    db_path = tmp_path / "test.db"
+    rows = [("X1", f"2026-06-{d:02d}", 5.0) for d in range(1, 6)]
+    _seed_rank_history_db(db_path, rows)
+
+    universe_old = pd.DataFrame([{"stock_id": "X1", "meta_sector": "舊分類族群"}])
+    universe_new = pd.DataFrame([{"stock_id": "X1", "meta_sector": "新分類族群"}])
+
+    result_old = calc_meta_rank_history(universe_old, db_path=str(db_path), weeks_back=5)
+    result_new = calc_meta_rank_history(universe_new, db_path=str(db_path), weeks_back=5)
+
+    assert "舊分類族群" in result_old and "新分類族群" not in result_old
+    assert "新分類族群" in result_new and "舊分類族群" not in result_new
+    assert result_new["新分類族群"]["weekly_ranks"] == result_old["舊分類族群"]["weekly_ranks"]
+
+
+def test_calc_meta_rank_history_counts_consecutive_top10_streak(tmp_path):
+    """3週資料，某族群連續3週都是排名第1(前10)：consecutive_weeks_in_top10應為3。"""
+    db_path = tmp_path / "test.db"
+    rows = []
+    for d in range(1, 16):  # 15天 = 3週
+        rows.append(("A1", f"2026-06-{d:02d}", 3.0))   # 永遠第一
+        rows.append(("B1", f"2026-06-{d:02d}", 1.0))
+    _seed_rank_history_db(db_path, rows)
+    universe = pd.DataFrame([
+        {"stock_id": "A1", "meta_sector": "常勝族群"},
+        {"stock_id": "B1", "meta_sector": "普通族群"},
+    ])
+
+    result = calc_meta_rank_history(universe, db_path=str(db_path), weeks_back=5)
+
+    assert result["常勝族群"]["weekly_ranks"] == [1, 1, 1]
+    assert result["常勝族群"]["in_top10_this_week"] is True
+    assert result["常勝族群"]["consecutive_weeks_in_top10"] == 3
+
+
+def test_calc_meta_rank_history_last_top10_week_when_not_currently_ranked(tmp_path):
+    """12個族群(1個主角+11個陪榜)、4週資料：族群總數>10，前10名門檻才有意義。
+    主角族群前2週表現最強(排名1)，後2週表現墊底(排名12，掉出前10)。驗證not
+    in_top10_this_week時，能回頭找出「最近一次進前10是第幾週、當時排第幾名」。"""
+    db_path = tmp_path / "test.db"
+    rows = []
+    for d in range(1, 21):  # 20天 = 4週
+        rows.append(("A1", f"2026-06-{d:02d}", 5.0))
+    for d in range(1, 21):
+        # 11個陪榜族群，確保族群總數是12個(>10)，這樣排名不是全部都算前10
+        for i in range(11):
+            rows.append((f"P{i}", f"2026-06-{d:02d}", 0.5))
+    # 讓A1只在前2週表現最好(第1名)，後2週表現變最差(單獨改後兩週的change_pct)
+    rows = [r for r in rows if not (r[0] == "A1" and int(r[1][-2:]) > 10)]
+    rows += [("A1", f"2026-06-{d:02d}", -5.0) for d in range(11, 21)]  # 後兩週變最差
+    _seed_rank_history_db(db_path, rows)
+
+    universe_rows = [{"stock_id": "A1", "meta_sector": "起伏族群"}]
+    universe_rows += [{"stock_id": f"P{i}", "meta_sector": f"陪榜{i}"} for i in range(11)]
+    universe = pd.DataFrame(universe_rows)
+
+    result = calc_meta_rank_history(universe, db_path=str(db_path), weeks_back=5)
+
+    row = result["起伏族群"]
+    assert row["weekly_ranks"][0] == 1   # 第1週最強
+    assert row["weekly_ranks"][1] == 1   # 第2週最強
+    assert row["weekly_ranks"][-1] > 10  # 本週(最後一週)跌到10名外
+    assert row["in_top10_this_week"] is False
+    assert row["last_top10_week_index"] == 1  # 最近一次進前10是index1(第2週)
+    assert row["last_top10_rank"] == 1
+
+
+def test_calc_meta_rank_history_never_in_top10_returns_none_lookback(tmp_path):
+    """族群近5週都沒進過前10：last_top10_week_index/last_top10_rank都要是None，
+    不是隨便回0或其他假值。"""
+    db_path = tmp_path / "test.db"
+    rows = []
+    for d in range(1, 6):
+        rows.append(("A1", f"2026-06-{d:02d}", -5.0))  # 永遠墊底
+        for i in range(11):
+            rows.append((f"P{i}", f"2026-06-{d:02d}", 1.0))
+    _seed_rank_history_db(db_path, rows)
+    universe_rows = [{"stock_id": "A1", "meta_sector": "常年墊底"}]
+    universe_rows += [{"stock_id": f"P{i}", "meta_sector": f"陪榜{i}"} for i in range(11)]
+    universe = pd.DataFrame(universe_rows)
+
+    result = calc_meta_rank_history(universe, db_path=str(db_path), weeks_back=5)
+
+    row = result["常年墊底"]
+    assert row["in_top10_this_week"] is False
+    assert row["last_top10_week_index"] is None
+    assert row["last_top10_rank"] is None
+    assert row["consecutive_weeks_in_top10"] == 0
+
+
+def test_calc_meta_rank_history_partial_weeks_when_insufficient_history(tmp_path):
+    """只有8天歷史(不滿2週=10天)：只能算出1個完整週，weekly_ranks長度應該是1，
+    不強湊成weeks_back(5)長度、不用假資料補足。"""
+    db_path = tmp_path / "test.db"
+    rows = [("A1", f"2026-06-{d:02d}", 1.0) for d in range(1, 9)]  # 8天
+    _seed_rank_history_db(db_path, rows)
+    universe = pd.DataFrame([{"stock_id": "A1", "meta_sector": "新資料族群"}])
+
+    result = calc_meta_rank_history(universe, db_path=str(db_path), weeks_back=5)
+
+    assert len(result["新資料族群"]["weekly_ranks"]) == 1
+
+
+def test_calc_meta_rank_history_returns_empty_dict_when_no_price_data(tmp_path):
+    db_path = tmp_path / "empty.db"
+    con = duckdb.connect(str(db_path))
+    con.execute("CREATE TABLE daily_prices (stock_id VARCHAR, date DATE, change_pct DOUBLE)")
+    con.close()
+    universe = pd.DataFrame([{"stock_id": "1000", "meta_sector": "測試族群"}])
+
+    result = calc_meta_rank_history(universe, db_path=str(db_path))
+    assert result == {}

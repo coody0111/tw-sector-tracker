@@ -144,6 +144,41 @@ def find_turning_points(heatgrid_windows: Dict[str, Dict[str, Any]]) -> List[Dic
     return results
 
 
+def find_rank_crossings(rank_history: Dict[str, Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+    """
+    排名進出榜（視覺spec用語：族群近況新子類別）。比較每個meta的「本週排名」vs「上週排名」，
+    找出剛跨過前10名門檻進榜/掉出榜的族群。跟轉折點列表(tier換級，見find_turning_points())
+    是刻意並存的不同訊號——tier只看自身動能，這裡純粹比較相對排名，見
+    docs/adr/0003-rank-crossing-signal-kept-separate-from-tier-signal.md。
+
+    rank_history: calc_meta_rank_history()的輸出。weekly_ranks長度<2(沒有『上週』可比較)
+    的族群不參與判定。
+
+    Returns
+    -------
+    {"just_in": [{"meta_name":.., "prev_rank":.., "cur_rank":..}, ...],
+     "just_out": [{"meta_name":.., "prev_rank":.., "cur_rank":..}, ...]}
+    各自依變動幅度(排名進步/退步的名次差)由大到小排序。
+    """
+    just_in = []
+    just_out = []
+    for meta_name, data in rank_history.items():
+        ranks = data.get("weekly_ranks") or []
+        if len(ranks) < 2:
+            continue
+        prev_rank, cur_rank = ranks[-2], ranks[-1]
+        prev_in = prev_rank <= 10
+        cur_in = cur_rank <= 10
+        if not prev_in and cur_in:
+            just_in.append({"meta_name": meta_name, "prev_rank": prev_rank, "cur_rank": cur_rank})
+        elif prev_in and not cur_in:
+            just_out.append({"meta_name": meta_name, "prev_rank": prev_rank, "cur_rank": cur_rank})
+
+    just_in.sort(key=lambda r: r["prev_rank"] - r["cur_rank"], reverse=True)
+    just_out.sort(key=lambda r: r["cur_rank"] - r["prev_rank"], reverse=True)
+    return {"just_in": just_in, "just_out": just_out}
+
+
 def find_anomaly_cards(
     meta_perf: List[Dict[str, Any]],
     meta_signals: Dict[str, Dict[str, Any]],

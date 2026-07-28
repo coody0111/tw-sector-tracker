@@ -447,6 +447,87 @@ def _calc_trend_svg(trend: list) -> dict | None:
     }
 
 
+def _holder_card_html(row: dict, rank: int, max_abs_week_chg: float) -> str:
+    """單張大戶持倉卡片：排名/名稱/收盤、週變化發散長條(依max_abs_week_chg動態縮放)、
+    次要指標(連增減週數/張數變化/1000張以上)一行小字、近N週趨勢SVG走勢圖。"""
+    week_chg = row.get("week_chg") or 0.0
+    direction = "up" if week_chg >= 0 else "down"
+    bar_pct = abs(week_chg) / max_abs_week_chg * 50 if max_abs_week_chg > 0 else 0
+    streak = row.get("streak") or 0
+    streak_txt = f"連增{streak}週" if streak > 0 else (f"連減{abs(streak)}週" if streak < 0 else "")
+    streak_pill = (
+        f'<span class="hc-streak-pill {direction}">{streak_txt}</span>' if streak_txt else ""
+    )
+
+    price_cls = "up" if (row.get("change_pct") or 0) >= 0 else "down"
+    price_pct = row.get("change_pct")
+    price_pct_str = f"{price_pct:+.1f}%" if price_pct is not None else "─"
+
+    share_chg = row.get("share_chg")
+    share_chg_lots = round(share_chg / 1000) if share_chg is not None else None
+    share_chg_str = f"{share_chg_lots:+,}張" if share_chg_lots is not None else "─"
+    share_chg_color = "var(--up)" if (share_chg_lots or 0) >= 0 else "var(--down)"
+
+    trend = _calc_trend_svg(row.get("trend") or [])
+    if trend is None:
+        trend_html = '<div class="hc-trend-empty">近期資料不足，尚無法繪製趨勢</div>'
+    else:
+        line = " ".join(trend["line_points"])
+        area = " ".join(trend["area_points"])
+        end_x, end_y = trend["end_point"].split(",")
+        x_label_els = []
+        n_labels = len(trend["x_labels"])
+        for i, lbl in enumerate(trend["x_labels"]):
+            x = 22.0 + (92.0 - 22.0) * i / (n_labels - 1) if n_labels > 1 else 22.0
+            anchor = "start" if i == 0 else ("end" if i == n_labels - 1 else "middle")
+            x_label_els.append(f'<text x="{x:.1f}" y="29" text-anchor="{anchor}">{_esc(lbl)}</text>')
+        trend_dir_cls = " down" if direction == "down" else ""
+        trend_html = f"""<div class="hc-trend{trend_dir_cls}">
+  <svg viewBox="0 0 92 32">
+    <line class="trend-grid" x1="22" y1="18" x2="92" y2="18"/>
+    <polyline class="trend-area" points="{area}"/>
+    <polyline class="trend-line" points="{line}"/>
+    <circle class="trend-end" cx="{end_x}" cy="{end_y}" r="2"/>
+    <text class="axis-label" x="20" y="6">{trend['y_max_label']}</text>
+    <text class="axis-label" x="20" y="19">{trend['y_min_label']}</text>
+    {''.join(x_label_els)}
+  </svg>
+</div>"""
+
+    return f"""<div class="holder-card">
+  <div class="hc-top">
+    <span class="hc-rank">#{rank}</span>
+    <span class="hc-name">{_esc(row.get('stock_name', ''))}</span><span class="hc-sid">{_esc(row['stock_id'])}</span>
+    <span class="hc-price {price_cls}">{row.get('close', '─')} <span style="font-size:.62rem">{price_pct_str}</span></span>
+  </div>
+  <div class="hc-meta">{_esc(row.get('meta_sector', ''))}</div>
+  <div class="hc-bar-row">
+    <div class="hc-divbar"><span class="{direction}" style="width:{bar_pct:.1f}%"></span></div>
+    <span class="hc-week {direction}">{week_chg:+.1f}%</span>
+    <span class="hc-abs">{row.get('lv12_15_pct', 0):.1f}%</span>
+  </div>
+  <div class="hc-badges">
+    {streak_pill}
+    <span>張數變化 <b style="color:{share_chg_color}">{share_chg_str}</b></span>
+    <span>1000張以上 <b>{row.get('lv15_pct') or 0:.1f}%</b></span>
+  </div>
+  {trend_html}
+</div>"""
+
+
+def _holder_column_html(rows: list, direction: str) -> str:
+    """一整欄（連增倉或連減倉）的卡片grid。direction只影響空狀態文案，實際每張卡的
+    up/down是各自依自己的week_chg正負決定（連減倉欄位裡理論上week_chg都是負的，但
+    這裡不假設，用各自實際符號渲染，比較穩健）。"""
+    if not rows:
+        return "<div class='no-data'>無資料</div>"
+    max_abs_week_chg = max((abs(r.get("week_chg") or 0) for r in rows), default=0) or 1.0
+    cards = "".join(
+        _holder_card_html(row, i + 1, max_abs_week_chg) for i, row in enumerate(rows)
+    )
+    return f'<div class="holder-grid">{cards}</div>'
+
+
 def _shareholder_table(rows: list) -> str:
     """大戶籌碼排行表（集保 TDCC 分層）。rows: list of dicts with stock_id,
     stock_name, meta_sector, lv12_15_pct, lv12_15_shares, share_chg, week_chg, streak,

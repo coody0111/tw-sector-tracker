@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>個股列表新增「融資佔比」「維持率(估)」欄位 設計預覽（討論用）</title>
+<style>
+:root{
+  --bg:#080B12; --panel:#0F1420; --panel-2:#161D2C; --panel-3:#1E2738;
+  --border:#293346; --border-2:#37435C;
+  --ink:#DADFE8; --ink-2:#98A0B4; --ink-3:#636B80;
+  --up:#E6432F; --down:#37B25C;
+  --accent:#F0BB55; --accent-dim:#B98A3A;
+  --trend:#C77FBD; --heat-cold:#4FA8E8;
+  --serif: Georgia,"Iowan Old Style","Source Serif 4","Noto Serif TC",serif;
+  --sans: "Public Sans",-apple-system,"PingFang TC","Microsoft JhengHei","Segoe UI",sans-serif;
+  --mono: ui-monospace,"IBM Plex Mono","Cascadia Code","Roboto Mono",monospace;
+  --shadow-2: 0 10px 28px rgba(0,0,0,.5), 0 2px 6px rgba(0,0,0,.35);
+}
+:root[data-theme="light"]{
+  --bg:#EFE8D8; --panel:#F8F3E6; --panel-2:#EAE1CB; --panel-3:#E0D5B8;
+  --border:#D6C9A3; --border-2:#C3B387;
+  --ink:#241C10; --ink-2:#6B5B3D; --ink-3:#93825E;
+  --up:#A8432C; --down:#3D7048;
+  --accent:#93701E; --accent-dim:#C4A24E;
+  --trend:#7A4E6E; --heat-cold:#2E6FA3;
+}
+@media (prefers-color-scheme: light){
+  :root:not([data-theme="dark"]){
+    --bg:#EFE8D8; --panel:#F8F3E6; --panel-2:#EAE1CB; --panel-3:#E0D5B8;
+    --border:#D6C9A3; --border-2:#C3B387;
+    --ink:#241C10; --ink-2:#6B5B3D; --ink-3:#93825E;
+    --up:#A8432C; --down:#3D7048;
+    --accent:#93701E; --accent-dim:#C4A24E;
+    --trend:#7A4E6E; --heat-cold:#2E6FA3;
+  }
+}
+*{box-sizing:border-box}
+body{
+  min-width:1100px;margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+  font-size:14px;line-height:1.55;padding:32px;
+  background-image:radial-gradient(ellipse at top left, rgba(255,255,255,.04), transparent 55%);
+}
+.tabular{font-family:var(--mono);font-variant-numeric:tabular-nums}
+button{font:inherit;color:inherit;cursor:pointer}
+.wrap{max-width:1040px;margin:0 auto}
+.page-title{font-family:var(--serif);font-size:1.3rem;font-weight:700;margin:0 0 4px}
+.page-sub{color:var(--ink-3);font-size:.8rem;margin-bottom:24px}
+.themebtn{position:fixed;top:20px;right:20px;border:1px solid var(--border);background:var(--panel-2);
+  color:var(--ink-2);border-radius:6px;padding:6px 12px;font-size:.72rem}
+
+.card{background:var(--panel);border:1px solid var(--border);border-radius:8px;margin-bottom:24px;overflow:hidden}
+.card-head{display:flex;align-items:baseline;gap:10px;padding:16px 20px 12px;border-bottom:1px solid var(--border)}
+.card-head h2{margin:0;font-family:var(--serif);font-size:1.05rem;font-weight:700}
+.card-head .tag{font-family:var(--mono);font-size:.62rem;color:var(--ink-3);letter-spacing:.04em}
+.card-note{font-size:.72rem;color:var(--ink-3);padding:0 20px 14px;border-bottom:1px solid var(--border);margin-bottom:0}
+
+.overflow-wrap{overflow-x:auto;padding:14px 20px 20px}
+table.stock-list-table{width:100%;border-collapse:collapse;min-width:920px}
+.stock-list-table thead th{text-align:left;padding:0 10px 10px;border-bottom:1px solid var(--border-2)}
+.stock-list-table thead th.num{text-align:right}
+.stock-list-table .sort-button{display:inline-flex;align-items:center;gap:4px;background:none;border:0;
+  padding:0;font-family:var(--mono);font-size:.7rem;font-weight:700;letter-spacing:.03em;text-transform:uppercase;
+  color:var(--ink-3);cursor:pointer;white-space:nowrap}
+.stock-list-table thead th.num .sort-button{margin-left:auto}
+.stock-list-table .sort-button::after{content:"↕";color:var(--ink-3);font-size:.68rem}
+.stock-list-table th[aria-sort="ascending"] .sort-button::after{content:"↑";color:var(--accent)}
+.stock-list-table th[aria-sort="descending"] .sort-button::after{content:"↓";color:var(--accent)}
+.stock-list-table tbody td{padding:9px 10px;border-bottom:1px solid var(--border);font-size:.88rem}
+.stock-item .si-id{font-family:var(--mono);color:var(--ink-3);font-size:.76rem;margin-right:6px}
+.stock-item .si-name{font-family:var(--serif);font-weight:600;color:var(--ink);font-size:.92rem}
+.stock-item td.num{font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+.stock-item:hover{background:var(--panel-2)}
+.col-group-chip{background:color-mix(in srgb, var(--accent) 5%, transparent)}
+.maint-badge{display:inline-block;padding:1px 5px;border-radius:3px;font-size:.62rem;font-weight:700;
+  background:color-mix(in srgb, var(--down) 20%, transparent);color:var(--down);vertical-align:middle;margin-left:3px}
+
+.footnote{font-size:.7rem;color:var(--ink-3);max-width:1000px;margin:0 auto}
+.footnote b{color:var(--ink-2)}
+
+.example-row{display:flex;align-items:center;gap:16px;padding:14px 20px}
+.example-row .exlabel{font-family:var(--mono);font-size:.66rem;color:var(--ink-3);letter-spacing:.04em;text-transform:uppercase;white-space:nowrap}
+</style>
+</head>
+<body>
+  <button class="themebtn" onclick="document.documentElement.setAttribute('data-theme', document.documentElement.getAttribute('data-theme')==='light'?'dark':'light')">切換主題</button>
+  <div class="wrap">
+    <div class="page-title">個股列表新增欄位：融資佔比／維持率(估)</div>
+    <div class="page-sub">討論用設計預覽，非最終定稿 — 對應 2026-07-28 grill-with-docs 討論已定案的部分</div>
+
+    <div class="card">
+      <div class="card-head">
+        <h2>工業電腦 — 個股列表</h2>
+        <span class="tag">2026-07-23 真實資料，38 檔</span>
+      </div>
+      <div class="card-note">
+        新增兩欄緊接在「量比」後面：<b style="color:var(--ink-2)">融資佔比</b>（融資餘額÷已發行股數，數值越高代表槓桿部位佔比越大）、
+        <b style="color:var(--ink-2)">維持率(估)</b>（現價÷20日均價÷融資成數×100%，低於130%用警示色+徽章標示追繳風險）。
+        兩欄都可點欄名排序。
+      </div>
+      <div class="overflow-wrap">
+        <table class="stock-list-table">
+          <thead>
+            <tr>
+              <th aria-sort="none"><button type="button" class="sort-button">股票</button></th>
+              <th class="num" aria-sort="none"><button type="button" class="sort-button">收盤</button></th>
+              <th class="num" aria-sort="descending"><button type="button" class="sort-button">漲跌%</button></th>
+              <th class="num" aria-sort="none"><button type="button" class="sort-button">量比</button></th>
+              <th class="num" aria-sort="none"><button type="button" class="sort-button">融資佔比</button></th>
+              <th class="num" aria-sort="none"><button type="button" class="sort-button">維持率(估)</button></th>
+              <th class="num" aria-sort="none"><button type="button" class="sort-button">5日</button></th>
+              <th class="num" aria-sort="none"><button type="button" class="sort-button">7日</button></th>
+              <th class="num" aria-sort="none"><button type="button" class="sort-button">10日</button></th>
+              <th class="num" aria-sort="none"><button type="button" class="sort-button">14日</button></th>
+            </tr>
+          </thead>
+          <tbody id="rows">
+<tr class="stock-item"><td><span class="si-id">6166</span><span class="si-name">凌華</span></td><td class="num tabular">159.50</td><td class="num tabular" style="color:var(--up)">▲ +10.00%</td><td class="num tabular">4.95x</td><td class="num tabular">1.55%</td><td class="num tabular" style="color:var(--ink-2)">190.8%</td><td class="num tabular" style="color:var(--up)">+20.38%</td><td class="num tabular" style="color:var(--up)">+18.59%</td><td class="num tabular" style="color:var(--up)">+19.03%</td><td class="num tabular" style="color:var(--up)">+14.34%</td></tr>
+            <tr class="stock-item"><td><span class="si-id">3652</span><span class="si-name">精聯</span></td><td class="num tabular">34.75</td><td class="num tabular" style="color:var(--up)">▲ +9.97%</td><td class="num tabular">0.70x</td><td class="num tabular">0.71%</td><td class="num tabular" style="color:var(--ink-2)">162.2%</td><td class="num tabular" style="color:var(--up)">+8.42%</td><td class="num tabular" style="color:var(--up)">+2.51%</td><td class="num tabular" style="color:var(--down)">-9.74%</td><td class="num tabular" style="color:var(--down)">-9.51%</td></tr>
+            <tr class="stock-item"><td><span class="si-id">6579</span><span class="si-name">研揚</span></td><td class="num tabular">183.50</td><td class="num tabular" style="color:var(--up)">▲ +9.88%</td><td class="num tabular">3.40x</td><td class="num tabular">0.71%</td><td class="num tabular" style="color:var(--ink-2)">189.0%</td><td class="num tabular" style="color:var(--up)">+15.77%</td><td class="num tabular" style="color:var(--up)">+9.23%</td><td class="num tabular" style="color:var(--up)">+10.88%</td><td class="num tabular" style="color:var(--up)">+19.16%</td></tr>
+            <tr class="stock-item"><td><span class="si-id">3088</span><span class="si-name">艾訊</span></td><td class="num tabular">154</td><td class="num tabular" style="color:var(--up)">▲ +6.57%</td><td class="num tabular">3.58x</td><td class="num tabular">3.18%</td><td class="num tabular" style="color:var(--ink-2)">217.9%</td><td class="num tabular" style="color:var(--up)">+15.36%</td><td class="num tabular" style="color:var(--up)">+6.94%</td><td class="num tabular" style="color:var(--up)">+5.12%</td><td class="num tabular" style="color:var(--up)">+12.00%</td></tr>
+            <tr class="stock-item"><td><span class="si-id">3594</span><span class="si-name">磐儀</span></td><td class="num tabular">56.80</td><td class="num tabular" style="color:var(--up)">▲ +5.77%</td><td class="num tabular">2.89x</td><td class="num tabular">4.06%</td><td class="num tabular" style="color:var(--ink-2)">217.7%</td><td class="num tabular" style="color:var(--up)">+7.37%</td><td class="num tabular" style="color:var(--up)">+10.29%</td><td class="num tabular" style="color:var(--down)">-3.24%</td><td class="num tabular" style="color:var(--up)">+21.89%</td></tr>
+            <tr class="stock-item"><td><span class="si-id">3577</span><span class="si-name">泓格</span></td><td class="num tabular">160</td><td class="num tabular" style="color:var(--up)">▲ +5.26%</td><td class="num tabular">2.67x</td><td class="num tabular">3.51%</td><td class="num tabular" style="color:var(--ink-2)">240.7%</td><td class="num tabular" style="color:var(--up)">+27.49%</td><td class="num tabular" style="color:var(--up)">+27.49%</td><td class="num tabular" style="color:var(--up)">+15.94%</td><td class="num tabular" style="color:var(--up)">+36.75%</td></tr>
+            <tr class="stock-item"><td><span class="si-id">8114</span><span class="si-name">振樺電</span></td><td class="num tabular">232</td><td class="num tabular" style="color:var(--up)">▲ +4.98%</td><td class="num tabular">5.98x</td><td class="num tabular">3.16%</td><td class="num tabular" style="color:var(--ink-2)">194.0%</td><td class="num tabular" style="color:var(--up)">+17.17%</td><td class="num tabular" style="color:var(--up)">+13.73%</td><td class="num tabular" style="color:var(--up)">+14.29%</td><td class="num tabular" style="color:var(--up)">+27.12%</td></tr>
+            <tr class="stock-item"><td><span class="si-id">3064</span><span class="si-name">泰偉</span></td><td class="num tabular">18.80</td><td class="num tabular" style="color:var(--up)">▲ +4.44%</td><td class="num tabular">0.00x</td><td class="num tabular">─</td><td class="num tabular" style="color:var(--ink-2)">197.7%</td><td class="num tabular" style="color:var(--up)">+1.62%</td><td class="num tabular" style="color:var(--down)">-2.08%</td><td class="num tabular" style="color:var(--down)">-4.57%</td><td class="num tabular" style="color:var(--down)">-6.00%</td></tr>
+            <tr class="stock-item"><td><span class="si-id">6569</span><span class="si-name">醫揚</span></td><td class="num tabular">105</td><td class="num tabular" style="color:var(--up)">▲ +3.96%</td><td class="num tabular">1.95x</td><td class="num tabular">0.75%</td><td class="num tabular" style="color:var(--ink-2)">201.6%</td><td class="num tabular" style="color:var(--up)">+5.00%</td><td class="num tabular" style="color:var(--down)">-1.41%</td><td class="num tabular" style="color:var(--down)">-0.47%</td><td class="num tabular" style="color:var(--up)">+1.94%</td></tr>
+            <tr class="stock-item"><td><span class="si-id">6206</span><span class="si-name">飛捷</span></td><td class="num tabular">130</td><td class="num tabular" style="color:var(--up)">▲ +2.77%</td><td class="num tabular">3.31x</td><td class="num tabular">1.44%</td><td class="num tabular" style="color:var(--ink-2)">169.2%</td><td class="num tabular" style="color:var(--up)">+4.42%</td><td class="num tabular" style="color:var(--down)">-1.14%</td><td class="num tabular" style="color:var(--down)">-1.89%</td><td class="num tabular" style="color:var(--up)">+4.42%</td></tr>
+            <tr class="stock-item"><td><span class="si-id">6414</span><span class="si-name">樺漢</span></td><td class="num tabular">503</td><td class="num tabular" style="color:var(--up)">▲ +2.65%</td><td class="num tabular">3.87x</td><td class="num tabular">1.84%</td><td class="num tabular" style="color:var(--ink-2)">210.1%</td><td class="num tabular" style="color:var(--up)">+33.25%</td><td class="num tabular" style="color:var(--up)">+27.66%</td><td class="num tabular" style="color:var(--up)">+33.95%</td><td class="num tabular" style="color:var(--up)">+39.72%</td></tr>
+            <tr class="stock-item"><td><span class="si-id">3479</span><span class="si-name">安勤</span></td><td class="num tabular">153.50</td><td class="num tabular" style="color:var(--up)">▲ +2.33%</td><td class="num tabular">1.67x</td><td class="num tabular">4.79%</td><td class="num tabular" style="color:var(--ink-2)">215.4%</td><td class="num tabular" style="color:var(--up)">+8.10%</td><td class="num tabular" style="color:var(--up)">+5.14%</td><td class="num tabular" style="color:var(--up)">+7.34%</td><td class="num tabular" style="color:var(--up)">+10.83%</td></tr>
+            <tr class="stock-item"><td><span class="si-id">3022</span><span class="si-name">威強電</span></td><td class="num tabular">92.20</td><td class="num tabular" style="color:var(--up)">▲ +1.43%</td><td class="num tabular">0.94x</td><td class="num tabular">3.50%</td><td class="num tabular" style="color:var(--ink-2)">179.2%</td><td class="num tabular" style="color:var(--up)">+6.84%</td><td class="num tabular" style="color:var(--up)">+3.60%</td><td class="num tabular" style="color:var(--up)">+5.86%</td><td class="num tabular" style="color:var(--up)">+12.03%</td></tr>
+            <tr class="stock-item"><td><span class="si-id">8234</span><span class="si-name">新漢</span></td><td class="num tabular">64.70</td><td class="num tabular" style="color:var(--up)">▲ +1.25%</td><td class="num tabular">0.35x</td><td class="num tabular">3.40%</td><td class="num tabular" style="color:var(--ink-2)">191.0%</td><td class="num tabular" style="color:var(--down)">-6.37%</td><td class="num tabular" style="color:var(--down)">-9.26%</td><td class="num tabular" style="color:var(--down)">-8.87%</td><td class="num tabular" style="color:var(--down)">-1.97%</td></tr>
+            <tr class="stock-item"><td><span class="si-id">2397</span><span class="si-name">友通</span></td><td class="num tabular">60.00</td><td class="num tabular" style="color:var(--up)">▲ +1.18%</td><td class="num tabular">0.83x</td><td class="num tabular">1.44%</td><td class="num tabular" style="color:var(--ink-2)">172.6%</td><td class="num tabular" style="color:var(--up)">+4.53%</td><td class="num tabular" style="color:var(--up)">+2.56%</td><td class="num tabular" style="color:var(--down)">-1.80%</td><td class="num tabular" style="color:var(--up)">+8.79%</td></tr>
+            <tr class="stock-item"><td><span class="si-id">3356</span><span class="si-name">奇偶</span></td><td class="num tabular">58.00</td><td class="num tabular" style="color:var(--up)">▲ +0.69%</td><td class="num tabular">0.56x</td><td class="num tabular">2.28%</td><td class="num tabular" style="color:var(--ink-2)">162.2%</td><td class="num tabular" style="color:var(--down)">-3.49%</td><td class="num tabular" style="color:var(--down)">-3.01%</td><td class="num tabular" style="color:var(--down)">-6.15%</td><td class="num tabular" style="color:var(--down)">-1.36%</td></tr>
+            <tr class="stock-item"><td><span class="si-id">2395</span><span class="si-name">研華</span></td><td class="num tabular">600</td><td class="num tabular" style="color:var(--up)">▲ +0.67%</td><td class="num tabular">0.91x</td><td class="num tabular">0.25%</td><td class="num tabular" style="color:var(--ink-2)">192.0%</td><td class="num tabular" style="color:var(--up)">+13.42%</td><td class="num tabular" style="color:var(--up)">+11.11%</td><td class="num tabular" style="color:var(--up)">+15.16%</td><td class="num tabular" style="color:var(--up)">+26.98%</td></tr>
+            <tr class="stock-item"><td><span class="si-id">6922</span><span class="si-name">宸曜</span></td><td class="num tabular">194.50</td><td class="num tabular" style="color:var(--up)">▲ +0.52%</td><td class="num tabular">1.31x</td><td class="num tabular">1.31%</td><td class="num tabular" style="color:var(--ink-2)">217.7%</td><td class="num tabular" style="color:var(--up)">+9.58%</td><td class="num tabular" style="color:var(--up)">+9.58%</td><td class="num tabular" style="color:var(--up)">+4.57%</td><td class="num tabular" style="color:var(--up)">+14.08%</td></tr>
+            <tr class="stock-item"><td><span class="si-id">6160</span><span class="si-name">欣技</span></td><td class="num tabular">15.35</td><td class="num tabular" style="color:var(--up)">▲ +0.33%</td><td class="num tabular">0.43x</td><td class="num tabular">0.74%</td><td class="num tabular" style="color:var(--ink-2)">191.5%</td><td class="num tabular" style="color:var(--down)">-1.60%</td><td class="num tabular" style="color:var(--down)">-6.69%</td><td class="num tabular" style="color:var(--down)">-7.81%</td><td class="num tabular" style="color:var(--down)">-5.25%</td></tr>
+            <tr class="stock-item"><td><span class="si-id">3128</span><span class="si-name">昇銳</span></td><td class="num tabular">22.30</td><td class="num tabular" style="color:var(--up)">─ +0.00%</td><td class="num tabular">0.19x</td><td class="num tabular">4.31%</td><td class="num tabular" style="color:var(--ink-2)">187.9%</td><td class="num tabular" style="color:var(--down)">-2.19%</td><td class="num tabular" style="color:var(--down)">-7.85%</td><td class="num tabular" style="color:var(--down)">-12.03%</td><td class="num tabular" style="color:var(--down)">-6.89%</td></tr>
+            <tr class="stock-item"><td><span class="si-id">6560</span><span class="si-name">欣普羅</span></td><td class="num tabular">33.35</td><td class="num tabular" style="color:var(--up)">─ +0.00%</td><td class="num tabular">0.40x</td><td class="num tabular">1.62%</td><td class="num tabular" style="color:var(--ink-2)">179.9%</td><td class="num tabular" style="color:var(--down)">-5.52%</td><td class="num tabular" style="color:var(--down)">-11.30%</td><td class="num tabular" style="color:var(--down)">-17.14%</td><td class="num tabular" style="color:var(--down)">-13.15%</td></tr>
+            <tr class="stock-item"><td><span class="si-id">6556</span><span class="si-name">勝品</span></td><td class="num tabular">64.10</td><td class="num tabular" style="color:var(--down)">▼ -0.16%</td><td class="num tabular">0.29x</td><td class="num tabular">─</td><td class="num tabular" style="color:var(--ink-2)">185.4%</td><td class="num tabular" style="color:var(--down)">-2.58%</td><td class="num tabular" style="color:var(--down)">-7.37%</td><td class="num tabular" style="color:var(--down)">-10.35%</td><td class="num tabular" style="color:var(--down)">-10.72%</td></tr>
+            <tr class="stock-item"><td><span class="si-id">5258</span><span class="si-name">虹堡</span></td><td class="num tabular">54.10</td><td class="num tabular" style="color:var(--down)">▼ -0.37%</td><td class="num tabular">0.74x</td><td class="num tabular">3.64%</td><td class="num tabular" style="color:var(--ink-2)">175.7%</td><td class="num tabular" style="color:var(--up)">+3.05%</td><td class="num tabular" style="color:var(--up)">+2.46%</td><td class="num tabular" style="color:var(--up)">+4.04%</td><td class="num tabular" style="color:var(--up)">+12.71%</td></tr>
+            <tr class="stock-item"><td><span class="si-id">3416</span><span class="si-name">融程電</span></td><td class="num tabular">178.50</td><td class="num tabular" style="color:var(--down)">▼ -0.56%</td><td class="num tabular">0.68x</td><td class="num tabular">1.31%</td><td class="num tabular" style="color:var(--ink-2)">169.9%</td><td class="num tabular" style="color:var(--down)">-1.65%</td><td class="num tabular" style="color:var(--down)">-1.65%</td><td class="num tabular" style="color:var(--down)">-4.55%</td><td class="num tabular" style="color:var(--up)">+10.59%</td></tr>
+            <tr class="stock-item"><td><span class="si-id">5251</span><span class="si-name">天鉞電</span></td><td class="num tabular">27.80</td><td class="num tabular" style="color:var(--down)">▼ -0.71%</td><td class="num tabular">0.24x</td><td class="num tabular">5.30%</td><td class="num tabular" style="color:var(--ink-2)">185.0%</td><td class="num tabular" style="color:var(--down)">-1.42%</td><td class="num tabular" style="color:var(--down)">-5.44%</td><td class="num tabular" style="color:var(--down)">-12.16%</td><td class="num tabular" style="color:var(--down)">-11.75%</td></tr>
+            <tr class="stock-item"><td><span class="si-id">8072</span><span class="si-name">陞泰</span></td><td class="num tabular">27.20</td><td class="num tabular" style="color:var(--down)">▼ -0.73%</td><td class="num tabular">0.32x</td><td class="num tabular">2.41%</td><td class="num tabular" style="color:var(--ink-2)">158.0%</td><td class="num tabular" style="color:var(--down)">-2.51%</td><td class="num tabular" style="color:var(--down)">-6.53%</td><td class="num tabular" style="color:var(--down)">-10.08%</td><td class="num tabular" style="color:var(--down)">-5.06%</td></tr>
+            <tr class="stock-item"><td><span class="si-id">8076</span><span class="si-name">伍豐</span></td><td class="num tabular">23.95</td><td class="num tabular" style="color:var(--down)">▼ -0.83%</td><td class="num tabular">0.42x</td><td class="num tabular">3.20%</td><td class="num tabular" style="color:var(--ink-2)">193.4%</td><td class="num tabular" style="color:var(--down)">-0.62%</td><td class="num tabular" style="color:var(--down)">-9.79%</td><td class="num tabular" style="color:var(--down)">-7.88%</td><td class="num tabular" style="color:var(--down)">-1.44%</td></tr>
+            <tr class="stock-item"><td><span class="si-id">3297</span><span class="si-name">杭特</span></td><td class="num tabular">29.65</td><td class="num tabular" style="color:var(--down)">▼ -0.84%</td><td class="num tabular">0.31x</td><td class="num tabular">2.69%</td><td class="num tabular" style="color:var(--ink-2)">192.9%</td><td class="num tabular" style="color:var(--down)">-0.50%</td><td class="num tabular" style="color:var(--down)">-3.26%</td><td class="num tabular" style="color:var(--down)">-5.87%</td><td class="num tabular" style="color:var(--down)">-3.10%</td></tr>
+            <tr class="stock-item"><td><span class="si-id">5489</span><span class="si-name">彩富</span></td><td class="num tabular">44.50</td><td class="num tabular" style="color:var(--down)">▼ -1.66%</td><td class="num tabular">0.62x</td><td class="num tabular">0.58%</td><td class="num tabular" style="color:var(--ink-2)">157.4%</td><td class="num tabular" style="color:var(--down)">-11.18%</td><td class="num tabular" style="color:var(--down)">-27.88%</td><td class="num tabular" style="color:var(--down)">-29.48%</td><td class="num tabular" style="color:var(--down)">-22.61%</td></tr>
+            <tr class="stock-item"><td><span class="si-id">5484</span><span class="si-name">慧友</span></td><td class="num tabular">41.30</td><td class="num tabular" style="color:var(--down)">▼ -1.78%</td><td class="num tabular">0.49x</td><td class="num tabular">─</td><td class="num tabular" style="color:var(--ink-2)">151.4%</td><td class="num tabular" style="color:var(--down)">-13.69%</td><td class="num tabular" style="color:var(--down)">-16.23%</td><td class="num tabular" style="color:var(--down)">-13.14%</td><td class="num tabular" style="color:var(--down)">-9.43%</td></tr>
+            <tr class="stock-item"><td><span class="si-id">6441</span><span class="si-name">廣錠</span></td><td class="num tabular">21.10</td><td class="num tabular" style="color:var(--down)">▼ -1.86%</td><td class="num tabular">0.61x</td><td class="num tabular">1.42%</td><td class="num tabular" style="color:var(--ink-2)">191.9%</td><td class="num tabular" style="color:var(--down)">-2.09%</td><td class="num tabular" style="color:var(--down)">-8.26%</td><td class="num tabular" style="color:var(--down)">-6.43%</td><td class="num tabular" style="color:var(--down)">-3.65%</td></tr>
+            <tr class="stock-item"><td><span class="si-id">5490</span><span class="si-name">同亨</span></td><td class="num tabular">32.75</td><td class="num tabular" style="color:var(--down)">▼ -2.09%</td><td class="num tabular">1.51x</td><td class="num tabular">2.13%</td><td class="num tabular" style="color:var(--ink-2)">223.6%</td><td class="num tabular" style="color:var(--up)">+10.64%</td><td class="num tabular" style="color:var(--up)">+9.35%</td><td class="num tabular" style="color:var(--up)">+7.55%</td><td class="num tabular" style="color:var(--up)">+21.21%</td></tr>
+            <tr class="stock-item"><td><span class="si-id">4503</span><span class="si-name">金雨</span></td><td class="num tabular">37.15</td><td class="num tabular" style="color:var(--down)">▼ -2.37%</td><td class="num tabular">0.37x</td><td class="num tabular">3.12%</td><td class="num tabular" style="color:var(--ink-2)">186.7%</td><td class="num tabular" style="color:var(--down)">-5.11%</td><td class="num tabular" style="color:var(--down)">-13.81%</td><td class="num tabular" style="color:var(--down)">-19.15%</td><td class="num tabular" style="color:var(--down)">-3.88%</td></tr>
+            <tr class="stock-item"><td><span class="si-id">6419</span><span class="si-name">京晨科</span></td><td class="num tabular">138</td><td class="num tabular" style="color:var(--down)">▼ -2.47%</td><td class="num tabular">0.44x</td><td class="num tabular">3.40%</td><td class="num tabular" style="color:var(--ink-2)">192.4%</td><td class="num tabular" style="color:var(--down)">-1.43%</td><td class="num tabular" style="color:var(--down)">-5.48%</td><td class="num tabular" style="color:var(--down)">-6.12%</td><td class="num tabular" style="color:var(--down)">-0.36%</td></tr>
+            <tr class="stock-item"><td><span class="si-id">2390</span><span class="si-name">云辰</span></td><td class="num tabular">11.05</td><td class="num tabular" style="color:var(--down)">▼ -2.64%</td><td class="num tabular">0.25x</td><td class="num tabular">1.01%</td><td class="num tabular" style="color:var(--ink-2)">153.1%</td><td class="num tabular" style="color:var(--down)">-5.96%</td><td class="num tabular" style="color:var(--down)">-14.34%</td><td class="num tabular" style="color:var(--down)">-16.60%</td><td class="num tabular" style="color:var(--down)">-6.75%</td></tr>
+            <tr class="stock-item"><td><span class="si-id">4916</span><span class="si-name">事欣科</span></td><td class="num tabular">103.50</td><td class="num tabular" style="color:var(--down)">▼ -2.82%</td><td class="num tabular">0.38x</td><td class="num tabular">6.28%</td><td class="num tabular" style="color:var(--ink-2)">162.7%</td><td class="num tabular" style="color:var(--down)">-5.91%</td><td class="num tabular" style="color:var(--down)">-4.17%</td><td class="num tabular" style="color:var(--down)">-10.00%</td><td class="num tabular" style="color:var(--up)">+7.59%</td></tr>
+            <tr class="stock-item"><td><span class="si-id">6928</span><span class="si-name">攸泰科技</span></td><td class="num tabular">52.70</td><td class="num tabular" style="color:var(--down)">▼ -4.01%</td><td class="num tabular">0.47x</td><td class="num tabular">1.21%</td><td class="num tabular" style="color:var(--ink-2)">166.5%</td><td class="num tabular" style="color:var(--down)">-5.89%</td><td class="num tabular" style="color:var(--down)">-1.13%</td><td class="num tabular" style="color:var(--down)">-8.51%</td><td class="num tabular" style="color:var(--up)">+1.93%</td></tr>
+            <tr class="stock-item"><td><span class="si-id">6680</span><span class="si-name">鑫創電子</span></td><td class="num tabular">52.60</td><td class="num tabular" style="color:var(--down)">▼ -6.07%</td><td class="num tabular">0.00x</td><td class="num tabular">─</td><td class="num tabular" style="color:var(--ink-2)">204.5%</td><td class="num tabular" style="color:var(--up)">+7.35%</td><td class="num tabular" style="color:var(--up)">+6.16%</td><td class="num tabular" style="color:var(--up)">+3.54%</td><td class="num tabular" style="color:var(--up)">+8.68%</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h2>維持率(估) 警示狀態示範</h2>
+        <span class="tag">建構範例・今天工業電腦38檔沒有真的低於130%的</span>
+      </div>
+      <div class="card-note" style="border-bottom:none;margin-bottom:0">
+        今天這批真實資料裡，維持率(估)最低的是「慧友」151.4%，還沒有真的觸發警示。
+        下面用建構的示範數字（不是真實股票）展示低於130%時的樣子：
+      </div>
+      <div class="example-row">
+        <span class="exlabel">正常</span>
+        <span class="tabular" style="color:var(--ink-2)">151.4%</span>
+        <span class="exlabel" style="margin-left:20px">臨界</span>
+        <span class="tabular" style="color:var(--accent);font-weight:700">132.0%</span>
+        <span class="exlabel" style="margin-left:20px">警示（示範值，非真實股票）</span>
+        <span class="tabular" style="color:var(--down);font-weight:700">118.5% <span class="maint-badge">追繳risk</span></span>
+      </div>
+    </div>
+
+    <div class="footnote">
+      ⚠️ 融資佔比／維持率(估) 都是<b>示範用途</b>，計算方式是本次討論剛定案的估計公式，尚未寫進
+      正式 spec、也還沒實作。維持率(估)公式：現價÷20日均價÷融資成數(上市6成/上櫃5成)×100%，
+      這是業界常見的簡化估算，不是每個帳戶真實的維持率（那是帳戶層級資料，交易所不會公布）。
+      融資佔比＝融資餘額(張×1000)÷已發行股數(集保資料，每週更新)。兩欄若融資餘額為0都顯示「─」。
+    </div>
+  </div>
+</body>
+</html>

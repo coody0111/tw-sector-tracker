@@ -592,3 +592,19 @@ def test_holder_column_html_scales_divergent_bar_to_column_max():
 def test_holder_column_html_empty_list_shows_no_data_message():
     html = _holder_column_html([], direction="dec")
     assert "無資料" in html
+
+
+def test_holder_card_html_handles_none_close_and_none_lv12_15_pct():
+    """main.py確實會產生close/lv12_15_pct都是None的row（缺行情資料/缺TDCC快照），
+    這兩個欄位用.get(key, default)的dict-default trick在key存在但value是None時
+    不會fallback，會直接把None格式化進字串或f-string crash。"""
+    row = {
+        "stock_id": "9998", "stock_name": "缺資料股", "meta_sector": "測試",
+        "close": None, "change_pct": None,
+        "lv12_15_pct": None, "week_chg": 0.5, "streak": 1,
+        "share_chg": None, "lv15_pct": None,
+        "trend": [],
+    }
+    html = _holder_card_html(row, rank=1, max_abs_week_chg=1.0)  # should not raise
+    assert "─" in html
+    assert "None" not in html

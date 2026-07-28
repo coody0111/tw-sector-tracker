@@ -462,6 +462,8 @@ def _holder_card_html(row: dict, rank: int, max_abs_week_chg: float) -> str:
     price_cls = "up" if (row.get("change_pct") or 0) >= 0 else "down"
     price_pct = row.get("change_pct")
     price_pct_str = f"{price_pct:+.1f}%" if price_pct is not None else "─"
+    close_val = row.get("close")
+    close_str = f"{close_val}" if close_val is not None else "─"
 
     share_chg = row.get("share_chg")
     share_chg_lots = round(share_chg / 1000) if share_chg is not None else None
@@ -498,13 +500,13 @@ def _holder_card_html(row: dict, rank: int, max_abs_week_chg: float) -> str:
   <div class="hc-top">
     <span class="hc-rank">#{rank}</span>
     <span class="hc-name">{_esc(row.get('stock_name', ''))}</span><span class="hc-sid">{_esc(row['stock_id'])}</span>
-    <span class="hc-price {price_cls}">{row.get('close', '─')} <span style="font-size:.62rem">{price_pct_str}</span></span>
+    <span class="hc-price {price_cls}">{close_str} <span style="font-size:.62rem">{price_pct_str}</span></span>
   </div>
   <div class="hc-meta">{_esc(row.get('meta_sector', ''))}</div>
   <div class="hc-bar-row">
     <div class="hc-divbar"><span class="{direction}" style="width:{bar_pct:.1f}%"></span></div>
     <span class="hc-week {direction}">{week_chg:+.1f}%</span>
-    <span class="hc-abs">{row.get('lv12_15_pct', 0):.1f}%</span>
+    <span class="hc-abs">{row.get('lv12_15_pct') or 0:.1f}%</span>
   </div>
   <div class="hc-badges">
     {streak_pill}

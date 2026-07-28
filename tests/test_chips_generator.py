@@ -1,6 +1,6 @@
 from datetime import date
 
-from export.chips_generator import _build_section2, _build_section4, _build_section6, _build_section8, _composite_sort, _coverage_flag, _esc, _insider_holdings_table, _inst_streak_table, _margin_alert_table, _meta_link, _percentile_ranks, _shareholder_table, _stock_rank_table, generate
+from export.chips_generator import _build_section2, _build_section4, _build_section6, _build_section8, _calc_trend_svg, _composite_sort, _coverage_flag, _esc, _insider_holdings_table, _inst_streak_table, _margin_alert_table, _meta_link, _percentile_ranks, _shareholder_table, _stock_rank_table, generate
 
 
 def test_esc_escapes_html_special_characters():
@@ -443,3 +443,62 @@ def test_build_section2_shows_section_date_per_half_independently():
     html = _build_section2({"foreign_top_buy": buy_stocks, "foreign_top_sell": sell_stocks})
     assert "資料日 07/08" in html
     assert "資料日 07/09" in html
+
+
+def test_calc_trend_svg_returns_none_when_fewer_than_two_points():
+    """少於2筆資料畫不出線，回傳None讓呼叫端顯示「資料不足」文字，不是硬畫一個點。"""
+    assert _calc_trend_svg([]) is None
+    assert _calc_trend_svg([{"date": "2026-07-17", "lv12_15_pct": 60.0}]) is None
+
+
+def test_calc_trend_svg_scales_points_to_viewbox():
+    """viewBox固定0 0 92 32，圖表繪製區x=22~92/y=2~18。5個點應該平均分布在x=22~92，
+    y依min-max正規化（最大值在y=2附近，最小值在y=18附近）。"""
+    trend = [
+        {"date": "2026-06-19", "lv12_15_pct": 60.0},
+        {"date": "2026-06-26", "lv12_15_pct": 61.0},
+        {"date": "2026-07-03", "lv12_15_pct": 62.5},
+        {"date": "2026-07-10", "lv12_15_pct": 63.0},
+        {"date": "2026-07-17", "lv12_15_pct": 64.0},
+    ]
+    result = _calc_trend_svg(trend)
+
+    assert result["y_max_label"] == "64.0"
+    assert result["y_min_label"] == "60.0"
+    assert result["x_labels"] == ["06/19", "06/26", "07/03", "07/10", "07/17"]
+    # 5個點：x座標從22到92平均分布
+    points = result["line_points"]
+    assert points[0].startswith("22.0,")
+    assert points[-1].startswith("92.0,")
+    # 最新一筆(64.0，最大值)應該在y=2(圖表頂部)
+    assert points[-1] == "92.0,2.0"
+    # 最舊一筆(60.0，最小值)應該在y=18(圖表底部)
+    assert points[0] == "22.0,18.0"
+
+
+def test_calc_trend_svg_handles_fewer_than_five_points():
+    """只有2筆資料(新股/剛納入追蹤)時，2個點應該落在x=22跟x=92(圖表兩端)，不是
+    擠在左邊或用固定5等分的間距（間距要照實際筆數動態算，不是寫死5）。"""
+    trend = [
+        {"date": "2026-07-10", "lv12_15_pct": 40.0},
+        {"date": "2026-07-17", "lv12_15_pct": 41.5},
+    ]
+    result = _calc_trend_svg(trend)
+
+    assert len(result["line_points"]) == 2
+    assert result["line_points"][0].startswith("22.0,")
+    assert result["line_points"][1].startswith("92.0,")
+    assert result["x_labels"] == ["07/10", "07/17"]
+
+
+def test_calc_trend_svg_handles_flat_series_without_division_by_zero():
+    """所有值都相同時(min==max)，range=0會除零——必須有防呆，不能crash，這種情況所有點
+    應該畫在垂直置中(y=10，圖表區y=2~18的中點)。"""
+    trend = [
+        {"date": "2026-07-10", "lv12_15_pct": 50.0},
+        {"date": "2026-07-17", "lv12_15_pct": 50.0},
+    ]
+    result = _calc_trend_svg(trend)
+
+    assert result["line_points"][0] == "22.0,10.0"
+    assert result["line_points"][1] == "92.0,10.0"

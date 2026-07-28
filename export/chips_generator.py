@@ -403,6 +403,50 @@ def _concentration_table(meta_chips: dict) -> str:
     return html
 
 
+def _calc_trend_svg(trend: list) -> dict | None:
+    """把 get_shareholder_trend() 的輸出（舊到新的 [{date, lv12_15_pct}, ...]）換算成
+    SVG viewBox座標。固定 viewBox "0 0 92 32"：Y軸文字留白 x=0~20、圖表繪製區
+    x=22~92/y=2~18、X軸日期文字 y=29。
+
+    回傳 None 時代表資料點不足2筆畫不出線，呼叫端要顯示「資料不足」文字。"""
+    if len(trend) < 2:
+        return None
+
+    values = [t["lv12_15_pct"] for t in trend]
+    lo, hi = min(values), max(values)
+    rng = hi - lo
+
+    n = len(trend)
+    plot_left, plot_right = 22.0, 92.0
+    plot_top, plot_bottom = 2.0, 18.0
+
+    line_points = []
+    for i, t in enumerate(trend):
+        x = plot_left + (plot_right - plot_left) * i / (n - 1)
+        if rng == 0:
+            y = (plot_top + plot_bottom) / 2  # 防除零：全部持平畫在垂直置中
+        else:
+            y = plot_bottom - (t["lv12_15_pct"] - lo) / rng * (plot_bottom - plot_top)
+        line_points.append(f"{x:.1f},{y:.1f}")
+
+    area_points = line_points + [f"{plot_right:.1f},20.0", f"{plot_left:.1f},20.0"]
+
+    x_labels = []
+    for t in trend:
+        # "2026-07-17" -> "07/17"
+        parts = t["date"].split("-")
+        x_labels.append(f"{parts[1]}/{parts[2]}")
+
+    return {
+        "line_points": line_points,
+        "area_points": area_points,
+        "x_labels": x_labels,
+        "y_max_label": f"{hi:.1f}",
+        "y_min_label": f"{lo:.1f}",
+        "end_point": line_points[-1],
+    }
+
+
 def _shareholder_table(rows: list) -> str:
     """大戶籌碼排行表（集保 TDCC 分層）。rows: list of dicts with stock_id,
     stock_name, meta_sector, lv12_15_pct, lv12_15_shares, share_chg, week_chg, streak,

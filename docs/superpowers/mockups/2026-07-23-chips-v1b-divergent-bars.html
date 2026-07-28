@@ -153,13 +153,12 @@ a:focus-visible,button:focus-visible{outline:3px solid var(--accent);outline-off
 .hc-streak-pill.up{color:var(--up-pill-text);background:var(--up-pill-bg);border-color:var(--up-pill-border)}
 .hc-streak-pill.down{color:var(--down-pill-text);background:var(--down-pill-bg);border-color:var(--down-pill-border)}
 
-/* 近26週(半年)趨勢迷你走勢圖——shareholder表每週一筆快照，Cody判斷實際至少半年內都有資料
-   (這台debug worktree沒有真實data/screener.db可查證確切週數，26週是照這個判斷抓的，
-   實際要接production時需要跟真實DB核對確切最早日期，不能照抄這裡的demo週數)，
-   趨勢形狀不是隨便編的，是根據各股現有的streak/週變化數字反推的合理走勢。畫的是
-   「400張以上大戶%」逐週的絕對水位，不是週變化，因為這裡要回答的是「連續增加的這幾週
-   是穩定爬升還是最近才加速」，用水位的斜率看最直覺，跟上面發散長條
-   （週變化%，回答「這週有沒有變化」）是互補、不是重複的兩個問題。 */
+/* 近5週趨勢迷你走勢圖——shareholder表每週一筆快照。每個資料點都對應一個實際週日期
+   (X軸5個刻度=5個真實週，不是只標頭尾)，趨勢形狀不是隨便編的，是根據各股現有的
+   streak/週變化數字反推的合理走勢。畫的是「400張以上大戶%」逐週的絕對水位，不是
+   週變化，因為這裡要回答的是「連續增加的這幾週是穩定爬升還是最近才加速」，用水位
+   的斜率看最直覺，跟上面發散長條（週變化%，回答「這週有沒有變化」）是互補、不是
+   重複的兩個問題。 */
 /* 補上Y軸最高/最低%刻度＋X軸起訖週標籤＋一條淡色基準格線，變成有座標可讀的
    迷你2D圖，不只是純形狀示意（原本完全沒有軸，只看得出「大概往上還往下」，
    讀不出實際數字） */
@@ -313,7 +312,7 @@ a:focus-visible,button:focus-visible{outline:3px solid var(--accent);outline-off
        排序清單、方向用badge標示」這個design方向給Cody看，如果要保留兩張獨立清單，這裡的
        標題跟資料要跟著改，不能沿用這版的「Top30」字面卻混著減倉股，那樣會誤導。 -->
   <div class="section-head"><h2>大戶籌碼排行</h2><span class="count">Top 30 · ≥400張，集保週統計，增減倉混排</span></div>
-  <div class="section-sub">主指標改成「400張以上大戶%的週變化」發散長條（置中0，紅增綠減，依本頁最大變化幅度動態縮放）——絕對集中水位比較像股票固有體質，變化才是有訊號意義的部分；固定量尺的絕對水位長條在常見區間視覺差異太小，很難benchmark。絕對水位退成長條右側的小字。<b style="color:var(--accent)">新增：</b>「連增/連減N週」旁邊補了一條近26週（半年）趨勢迷你走勢圖——`shareholder`表是每週一筆快照，Cody判斷實際資料至少半年內都有，比之前只抓8週更完整；「連增6週」只講結論，走勢圖能看出這幾週是穩定爬升還是最近才加速，X軸標實際日期（起訖+中點）不是抽象的「N週前」。<b style="color:var(--caution)">待確認：</b>這台debug worktree沒有真實DB可查證確切週數上限，正式接production前需要跟真實資料核對最早能抓到哪一週，這裡的26週是先照你的判斷抓的示範值。<b style="color:var(--caution)">另外設計待確認：</b>現行版本是「連增倉」「連減倉」兩張獨立表格，這裡先示範混排＋方向badge的做法，兩種各有取捨，要跟你確認要選哪個再定案。</div>
+  <div class="section-sub">主指標改成「400張以上大戶%的週變化」發散長條（置中0，紅增綠減，依本頁最大變化幅度動態縮放）——絕對集中水位比較像股票固有體質，變化才是有訊號意義的部分；固定量尺的絕對水位長條在常見區間視覺差異太小，很難benchmark。絕對水位退成長條右側的小字。<b style="color:var(--accent)">新增：</b>「連增/連減N週」旁邊補了一條近5週趨勢迷你走勢圖——`shareholder`表是每週一筆快照，X軸5個刻度對應5個實際週日期（06/19～07/17，每個資料點都能對到一個真實週，不是只標頭尾兩端）；「連增6週」只講結論，走勢圖能看出這幾週是穩定爬升還是最近才加速。<b style="color:var(--caution)">設計待確認：</b>現行版本是「連增倉」「連減倉」兩張獨立表格，這裡先示範混排＋方向badge的做法，兩種各有取捨，要跟你確認要選哪個再定案。</div>
 
   <div class="holder-grid">
     <div class="holder-card">
@@ -334,17 +333,17 @@ a:focus-visible,button:focus-visible{outline:3px solid var(--accent);outline-off
         <span>1000張以上 <b>22.6%</b></span>
       </div>
       <div class="hc-trend">
-        <div class="hc-trend-label">近26週（半年）</div>
+        <div class="hc-trend-label">近5週</div>
         <div class="hc-trend-row">
-          <div class="hc-trend-axis"><span>68.4</span><span>60.5</span></div>
+          <div class="hc-trend-axis"><span>68.4</span><span>63.0</span></div>
           <svg width="70" height="20" viewBox="0 0 70 20">
             <line class="trend-grid" x1="0" y1="18" x2="70" y2="18"/>
-            <polyline class="trend-area" points="0.0,18.0 2.8,17.1 5.6,15.8 8.4,16.1 11.2,15.3 14.0,14.5 16.8,14.7 19.6,13.4 22.4,12.6 25.2,11.6 28.0,12.4 30.8,11.3 33.6,11.1 36.4,9.0 39.2,8.6 42.0,9.3 44.8,6.8 47.6,6.2 50.4,6.1 53.2,5.6 56.0,5.9 58.8,5.5 61.6,3.9 64.4,4.2 67.2,3.3 70.0,2.0 70,20 0,20"/>
-            <polyline class="trend-line" points="0.0,18.0 2.8,17.1 5.6,15.8 8.4,16.1 11.2,15.3 14.0,14.5 16.8,14.7 19.6,13.4 22.4,12.6 25.2,11.6 28.0,12.4 30.8,11.3 33.6,11.1 36.4,9.0 39.2,8.6 42.0,9.3 44.8,6.8 47.6,6.2 50.4,6.1 53.2,5.6 56.0,5.9 58.8,5.5 61.6,3.9 64.4,4.2 67.2,3.3 70.0,2.0"/>
+            <polyline class="trend-area" points="0.0,18.0 17.5,13.7 35.0,8.7 52.5,6.1 70.0,2.0 70,20 0,20"/>
+            <polyline class="trend-line" points="0.0,18.0 17.5,13.7 35.0,8.7 52.5,6.1 70.0,2.0"/>
             <circle class="trend-end" cx="70" cy="2" r="2"/>
           </svg>
         </div>
-        <div class="hc-trend-xaxis"><span>01/16</span><span>04/17</span><span>07/17</span></div>
+        <div class="hc-trend-xaxis"><span>06/19</span><span>06/26</span><span>07/03</span><span>07/10</span><span>07/17</span></div>
       </div>
     </div>
 
@@ -366,17 +365,17 @@ a:focus-visible,button:focus-visible{outline:3px solid var(--accent);outline-off
         <span>1000張以上 <b>31.4%</b></span>
       </div>
       <div class="hc-trend">
-        <div class="hc-trend-label">近26週（半年）</div>
+        <div class="hc-trend-label">近5週</div>
         <div class="hc-trend-row">
-          <div class="hc-trend-axis"><span>77.3</span><span>74.9</span></div>
+          <div class="hc-trend-axis"><span>77.1</span><span>75.9</span></div>
           <svg width="70" height="20" viewBox="0 0 70 20">
             <line class="trend-grid" x1="0" y1="18" x2="70" y2="18"/>
-            <polyline class="trend-area" points="0.0,15.3 2.8,18.0 5.6,17.9 8.4,13.5 11.2,16.2 14.0,15.8 16.8,13.2 19.6,13.8 22.4,11.1 25.2,13.2 28.0,9.7 30.8,11.7 33.6,10.0 36.4,8.2 39.2,8.6 42.0,7.1 44.8,7.4 47.6,9.4 50.4,5.6 53.2,6.2 56.0,6.7 58.8,6.7 61.6,3.5 64.4,4.0 67.2,2.0 70.0,3.2 70,20 0,20"/>
-            <polyline class="trend-line" points="0.0,15.3 2.8,18.0 5.6,17.9 8.4,13.5 11.2,16.2 14.0,15.8 16.8,13.2 19.6,13.8 22.4,11.1 25.2,13.2 28.0,9.7 30.8,11.7 33.6,10.0 36.4,8.2 39.2,8.6 42.0,7.1 44.8,7.4 47.6,9.4 50.4,5.6 53.2,6.2 56.0,6.7 58.8,6.7 61.6,3.5 64.4,4.0 67.2,2.0 70.0,3.2"/>
-            <circle class="trend-end" cx="70" cy="3.2" r="2"/>
+            <polyline class="trend-area" points="0.0,15.8 17.5,18.0 35.0,14.6 52.5,2.3 70.0,2.0 70,20 0,20"/>
+            <polyline class="trend-line" points="0.0,15.8 17.5,18.0 35.0,14.6 52.5,2.3 70.0,2.0"/>
+            <circle class="trend-end" cx="70" cy="2.0" r="2"/>
           </svg>
         </div>
-        <div class="hc-trend-xaxis"><span>01/16</span><span>04/17</span><span>07/17</span></div>
+        <div class="hc-trend-xaxis"><span>06/19</span><span>06/26</span><span>07/03</span><span>07/10</span><span>07/17</span></div>
       </div>
     </div>
 
@@ -398,17 +397,17 @@ a:focus-visible,button:focus-visible{outline:3px solid var(--accent);outline-off
         <span>1000張以上 <b>9.8%</b></span>
       </div>
       <div class="hc-trend">
-        <div class="hc-trend-label">近26週（半年）</div>
+        <div class="hc-trend-label">近5週</div>
         <div class="hc-trend-row">
-          <div class="hc-trend-axis"><span>54.3</span><span>46.1</span></div>
+          <div class="hc-trend-axis"><span>54.2</span><span>49.6</span></div>
           <svg width="70" height="20" viewBox="0 0 70 20">
             <line class="trend-grid" x1="0" y1="18" x2="70" y2="18"/>
-            <polyline class="trend-area" points="0.0,18.0 2.8,17.2 5.6,16.2 8.4,16.7 11.2,15.3 14.0,14.2 16.8,13.5 19.6,14.3 22.4,12.7 25.2,12.2 28.0,11.8 30.8,10.2 33.6,10.4 36.4,10.0 39.2,8.3 42.0,8.3 44.8,8.3 47.6,7.7 50.4,6.7 53.2,6.9 56.0,5.2 58.8,4.3 61.6,4.3 64.4,2.8 67.2,2.0 70.0,2.2 70,20 0,20"/>
-            <polyline class="trend-line" points="0.0,18.0 2.8,17.2 5.6,16.2 8.4,16.7 11.2,15.3 14.0,14.2 16.8,13.5 19.6,14.3 22.4,12.7 25.2,12.2 28.0,11.8 30.8,10.2 33.6,10.4 36.4,10.0 39.2,8.3 42.0,8.3 44.8,8.3 47.6,7.7 50.4,6.7 53.2,6.9 56.0,5.2 58.8,4.3 61.6,4.3 64.4,2.8 67.2,2.0 70.0,2.2"/>
-            <circle class="trend-end" cx="70" cy="2.2" r="2"/>
+            <polyline class="trend-area" points="0.0,18.0 17.5,13.7 35.0,9.0 52.5,6.8 70.0,2.0 70,20 0,20"/>
+            <polyline class="trend-line" points="0.0,18.0 17.5,13.7 35.0,9.0 52.5,6.8 70.0,2.0"/>
+            <circle class="trend-end" cx="70" cy="2.0" r="2"/>
           </svg>
         </div>
-        <div class="hc-trend-xaxis"><span>01/16</span><span>04/17</span><span>07/17</span></div>
+        <div class="hc-trend-xaxis"><span>06/19</span><span>06/26</span><span>07/03</span><span>07/10</span><span>07/17</span></div>
       </div>
     </div>
 
@@ -430,17 +429,17 @@ a:focus-visible,button:focus-visible{outline:3px solid var(--accent);outline-off
         <span>1000張以上 <b>18.1%</b></span>
       </div>
       <div class="hc-trend down">
-        <div class="hc-trend-label">近26週（半年）</div>
+        <div class="hc-trend-label">近5週</div>
         <div class="hc-trend-row">
-          <div class="hc-trend-axis"><span>62.5</span><span>59.2</span></div>
+          <div class="hc-trend-axis"><span>60.7</span><span>59.3</span></div>
           <svg width="70" height="20" viewBox="0 0 70 20">
             <line class="trend-grid" x1="0" y1="18" x2="70" y2="18"/>
-            <polyline class="trend-area" points="0.0,2.5 2.8,2.6 5.6,2.0 8.4,5.3 11.2,5.7 14.0,7.1 16.8,7.4 19.6,8.4 22.4,8.5 25.2,7.7 28.0,6.5 30.8,8.3 33.6,10.1 36.4,10.6 39.2,10.1 42.0,12.2 44.8,13.8 47.6,11.4 50.4,12.9 53.2,15.5 56.0,16.3 58.8,16.8 61.6,14.1 64.4,18.0 67.2,16.6 70.0,17.7 70,20 0,20"/>
-            <polyline class="trend-line" points="0.0,2.5 2.8,2.6 5.6,2.0 8.4,5.3 11.2,5.7 14.0,7.1 16.8,7.4 19.6,8.4 22.4,8.5 25.2,7.7 28.0,6.5 30.8,8.3 33.6,10.1 36.4,10.6 39.2,10.1 42.0,12.2 44.8,13.8 47.6,11.4 50.4,12.9 53.2,15.5 56.0,16.3 58.8,16.8 61.6,14.1 64.4,18.0 67.2,16.6 70.0,17.7"/>
-            <circle class="trend-end" cx="70" cy="17.7" r="2"/>
+            <polyline class="trend-area" points="0.0,2.0 17.5,5.0 35.0,6.3 52.5,16.7 70.0,18.0 70,20 0,20"/>
+            <polyline class="trend-line" points="0.0,2.0 17.5,5.0 35.0,6.3 52.5,16.7 70.0,18.0"/>
+            <circle class="trend-end" cx="70" cy="18.0" r="2"/>
           </svg>
         </div>
-        <div class="hc-trend-xaxis"><span>01/16</span><span>04/17</span><span>07/17</span></div>
+        <div class="hc-trend-xaxis"><span>06/19</span><span>06/26</span><span>07/03</span><span>07/10</span><span>07/17</span></div>
       </div>
     </div>
 
@@ -462,17 +461,17 @@ a:focus-visible,button:focus-visible{outline:3px solid var(--accent);outline-off
         <span>1000張以上 <b>6.3%</b></span>
       </div>
       <div class="hc-trend">
-        <div class="hc-trend-label">近26週（半年）</div>
+        <div class="hc-trend-label">近5週</div>
         <div class="hc-trend-row">
-          <div class="hc-trend-axis"><span>41.0</span><span>34.6</span></div>
+          <div class="hc-trend-axis"><span>41.0</span><span>37.6</span></div>
           <svg width="70" height="20" viewBox="0 0 70 20">
             <line class="trend-grid" x1="0" y1="18" x2="70" y2="18"/>
-            <polyline class="trend-area" points="0.0,18.0 2.8,15.3 5.6,16.7 8.4,14.6 11.2,13.7 14.0,13.4 16.8,13.9 19.6,13.2 22.4,11.6 25.2,10.4 28.0,10.6 30.8,10.3 33.6,10.1 36.4,9.4 39.2,8.0 42.0,8.2 44.8,7.3 47.6,6.5 50.4,5.9 53.2,6.7 56.0,5.7 58.8,3.9 61.6,3.6 64.4,2.4 67.2,3.7 70.0,2.0 70,20 0,20"/>
-            <polyline class="trend-line" points="0.0,18.0 2.8,15.3 5.6,16.7 8.4,14.6 11.2,13.7 14.0,13.4 16.8,13.9 19.6,13.2 22.4,11.6 25.2,10.4 28.0,10.6 30.8,10.3 33.6,10.1 36.4,9.4 39.2,8.0 42.0,8.2 44.8,7.3 47.6,6.5 50.4,5.9 53.2,6.7 56.0,5.7 58.8,3.9 61.6,3.6 64.4,2.4 67.2,3.7 70.0,2.0"/>
-            <circle class="trend-end" cx="70" cy="2" r="2"/>
+            <polyline class="trend-area" points="0.0,18.0 17.5,10.4 35.0,10.7 52.5,4.4 70.0,2.0 70,20 0,20"/>
+            <polyline class="trend-line" points="0.0,18.0 17.5,10.4 35.0,10.7 52.5,4.4 70.0,2.0"/>
+            <circle class="trend-end" cx="70" cy="2.0" r="2"/>
           </svg>
         </div>
-        <div class="hc-trend-xaxis"><span>01/16</span><span>04/17</span><span>07/17</span></div>
+        <div class="hc-trend-xaxis"><span>06/19</span><span>06/26</span><span>07/03</span><span>07/10</span><span>07/17</span></div>
       </div>
     </div>
 
@@ -494,17 +493,17 @@ a:focus-visible,button:focus-visible{outline:3px solid var(--accent);outline-off
         <span>1000張以上 <b>19.9%</b></span>
       </div>
       <div class="hc-trend">
-        <div class="hc-trend-label">近26週（半年）</div>
+        <div class="hc-trend-label">近5週</div>
         <div class="hc-trend-row">
-          <div class="hc-trend-axis"><span>63.8</span><span>61.7</span></div>
+          <div class="hc-trend-axis"><span>63.7</span><span>62.7</span></div>
           <svg width="70" height="20" viewBox="0 0 70 20">
             <line class="trend-grid" x1="0" y1="18" x2="70" y2="18"/>
-            <polyline class="trend-area" points="0.0,18.0 2.8,15.8 5.6,16.1 8.4,14.7 11.2,15.0 14.0,11.6 16.8,12.5 19.6,11.1 22.4,9.7 25.2,11.2 28.0,10.8 30.8,11.9 33.6,8.3 36.4,11.1 39.2,9.2 42.0,9.6 44.8,6.4 47.6,7.2 50.4,6.4 53.2,5.8 56.0,3.8 58.8,2.6 61.6,4.9 64.4,2.0 67.2,2.3 70.0,2.7 70,20 0,20"/>
-            <polyline class="trend-line" points="0.0,18.0 2.8,15.8 5.6,16.1 8.4,14.7 11.2,15.0 14.0,11.6 16.8,12.5 19.6,11.1 22.4,9.7 25.2,11.2 28.0,10.8 30.8,11.9 33.6,8.3 36.4,11.1 39.2,9.2 42.0,9.6 44.8,6.4 47.6,7.2 50.4,6.4 53.2,5.8 56.0,3.8 58.8,2.6 61.6,4.9 64.4,2.0 67.2,2.3 70.0,2.7"/>
-            <circle class="trend-end" cx="70" cy="2.7" r="2"/>
+            <polyline class="trend-area" points="0.0,18.0 17.5,11.4 35.0,10.4 52.5,5.5 70.0,2.0 70,20 0,20"/>
+            <polyline class="trend-line" points="0.0,18.0 17.5,11.4 35.0,10.4 52.5,5.5 70.0,2.0"/>
+            <circle class="trend-end" cx="70" cy="2.0" r="2"/>
           </svg>
         </div>
-        <div class="hc-trend-xaxis"><span>01/16</span><span>04/17</span><span>07/17</span></div>
+        <div class="hc-trend-xaxis"><span>06/19</span><span>06/26</span><span>07/03</span><span>07/10</span><span>07/17</span></div>
       </div>
     </div>
   </div>

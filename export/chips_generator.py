@@ -749,6 +749,44 @@ _CSS = """
     .ct td{font-size:.75rem}.ct th{font-size:.6875rem}.table-toggle{display:block}
   }
   @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
+  .holder-grid{display:grid;grid-template-columns:1fr;gap:8px}
+  @media(min-width:640px){.holder-grid{grid-template-columns:repeat(auto-fill,minmax(240px,1fr))}}
+  .holder-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:11px 13px}
+  .hc-top{display:flex;align-items:baseline;gap:6px}
+  .hc-rank{font-family:ui-monospace,monospace;font-size:.62rem;color:var(--subtle);flex-shrink:0}
+  .hc-name{font-weight:700;font-size:.88rem;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .hc-sid{font-family:ui-monospace,monospace;color:var(--subtle);font-size:.64rem}
+  .hc-meta{font-size:.64rem;color:var(--subtle);margin-top:1px}
+  .hc-price{font-family:ui-monospace,monospace;font-weight:700;font-size:.8rem;flex-shrink:0}
+  .hc-price.up{color:var(--up)}.hc-price.down{color:var(--down)}
+  .hc-bar-row{display:flex;align-items:center;gap:8px;margin-top:9px}
+  .hc-divbar{flex:1;height:7px;background:var(--surface-2);border-radius:3px;position:relative;overflow:hidden}
+  .hc-divbar::after{content:"";position:absolute;left:50%;top:0;bottom:0;width:1px;background:var(--border-strong)}
+  .hc-divbar span{position:absolute;top:0;bottom:0;border-radius:2px}
+  .hc-divbar span.up{left:50%;background:var(--up)}
+  .hc-divbar span.down{right:50%;background:var(--down)}
+  .hc-week{font-family:ui-monospace,monospace;font-weight:800;font-size:.66rem;flex-shrink:0;width:46px;
+    text-align:center;padding:3px 0;border-radius:8px;border:1px solid}
+  .hc-week.up{color:#FF9585;background:rgba(230,67,47,.32);border-color:rgba(230,67,47,.55)}
+  .hc-week.down{color:#7FE8A8;background:rgba(55,178,92,.32);border-color:rgba(55,178,92,.55)}
+  .hc-abs{font-family:ui-monospace,monospace;font-size:.64rem;color:var(--subtle);flex-shrink:0;width:38px;text-align:right}
+  .hc-badges{display:flex;gap:8px;margin-top:6px;flex-wrap:wrap;font-family:ui-monospace,monospace;font-size:.64rem;color:var(--subtle)}
+  .hc-badges b{color:var(--text);font-weight:700}
+  .hc-streak-pill{padding:2px 7px;border-radius:8px;font-weight:800;font-size:.62rem;border:1px solid}
+  .hc-streak-pill.up{color:#FF9585;background:rgba(230,67,47,.32);border-color:rgba(230,67,47,.55)}
+  .hc-streak-pill.down{color:#7FE8A8;background:rgba(55,178,92,.32);border-color:rgba(55,178,92,.55)}
+  .hc-trend{margin-top:8px}
+  .hc-trend svg{display:block;width:100%;height:auto}
+  .hc-trend text{font-family:ui-monospace,monospace;font-size:4.2px;fill:var(--subtle)}
+  .hc-trend .axis-label{text-anchor:end}
+  .hc-trend .trend-line{fill:none;stroke:var(--muted);stroke-width:1.4}
+  .hc-trend .trend-area{fill:var(--muted);opacity:.08}
+  .hc-trend .trend-end{fill:var(--accent)}
+  .hc-trend.down .trend-line{stroke:var(--down)}
+  .hc-trend.down .trend-area{fill:var(--down)}
+  .hc-trend.down .trend-end{fill:var(--down)}
+  .hc-trend .trend-grid{stroke:var(--border);stroke-width:1;stroke-dasharray:2,2}
+  .hc-trend-empty{font-size:.68rem;color:var(--subtle);padding:6px 0;font-style:italic}
 """
 
 _TAB_JS = """
@@ -1158,11 +1196,11 @@ def _build_section8(shareholder_data: list, insider_data: list | None = None) ->
 <div class="chips-grid">
   <div class="chips-section-half">
     <div class="cs-title">大戶連增倉 Top 30（≥400張，集保）</div>
-    {_shareholder_table(top_increasing)}
+    {_holder_column_html(top_increasing, direction="inc")}
   </div>
   <div class="chips-section-half">
     <div class="cs-title">大戶連減倉 Top 20</div>
-    {_shareholder_table(top_decreasing)}
+    {_holder_column_html(top_decreasing, direction="dec")}
   </div>
 </div>"""
         sh_date = shareholder_data[0].get("date", "")

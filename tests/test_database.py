@@ -2,7 +2,14 @@
 import duckdb
 import pandas as pd
 
-from screener.database import get_chips_today, get_shareholder_top, import_csv_prices, init_db, get_latest_total_shares
+from screener.database import (
+    get_chips_today,
+    get_latest_total_shares,
+    get_shareholder_top,
+    get_shareholder_trend,
+    import_csv_prices,
+    init_db,
+)
 
 
 def _make_chips_tables(con):
@@ -216,6 +223,117 @@ def test_get_shareholder_top_excludes_impossible_pct_outlier(tmp_path, monkeypat
     ids = set(df["stock_id"])
     assert "2380" not in ids, "lv12_15_pct=100.0 的離群值股不該上榜"
     assert "2330" in ids, "正常股仍在榜上"
+
+
+def _seed_shareholder_trend(con, rows):
+    """建 shareholder 表並塞入 (stock_id, date, lv12_15_pct) 列，其餘欄位一律 NULL/0
+    （get_shareholder_trend() 只取這三欄，不需要湊齊其他欄位的真實值）。"""
+    con.execute("""
+        CREATE TABLE shareholder (
+            stock_id VARCHAR NOT NULL, date DATE NOT NULL,
+            lv12_15_pct DOUBLE, lv12_15_cnt INTEGER, lv12_15_shares BIGINT,
+            total_shares BIGINT, week_chg DOUBLE, streak INTEGER,
+            lv12_shares BIGINT, lv12_pct DOUBLE, lv15_shares BIGINT, lv15_pct DOUBLE,
+            PRIMARY KEY (stock_id, date)
+        )
+    """)
+    con.executemany(
+        "INSERT INTO shareholder (stock_id, date, lv12_15_pct) VALUES (?, ?, ?)", rows
+    )
+
+
+def test_get_shareholder_trend_returns_last_n_weeks_oldest_to_newest(tmp_path, monkeypatch):
+    """5週資料、要5筆，且必須是「舊到新」排序（畫走勢圖要照時間順序），不是DB查詢的
+    ORDER BY date DESC那個新到舊順序（那是給get_shareholder_top()用的，這裡要反過來）。"""
+    import screener.database as db_mod
+    db_path = str(tmp_path / "t.db")
+    monkeypatch.setattr(db_mod, "DB_PATH", db_path)
+
+    con = duckdb.connect(db_path)
+    _seed_shareholder_trend(con, [
+        ("2330", "2026-06-19", 60.0),
+        ("2330", "2026-06-26", 61.0),
+        ("2330", "2026-07-03", 62.5),
+        ("2330", "2026-07-10", 63.0),
+        ("2330", "2026-07-17", 64.0),
+    ])
+    con.close()
+
+    result = get_shareholder_trend(weeks=5)
+
+    assert result["2330"] == [
+        {"date": "2026-06-19", "lv12_15_pct": 60.0},
+        {"date": "2026-06-26", "lv12_15_pct": 61.0},
+        {"date": "2026-07-03", "lv12_15_pct": 62.5},
+        {"date": "2026-07-10", "lv12_15_pct": 63.0},
+        {"date": "2026-07-17", "lv12_15_pct": 64.0},
+    ]
+
+
+def test_get_shareholder_trend_handles_fewer_than_requested_weeks(tmp_path, monkeypatch):
+    """只有2筆歷史(新股/新納入追蹤)時，回傳這2筆，不是報錯或補假資料湊到5筆。"""
+    import screener.database as db_mod
+    db_path = str(tmp_path / "t.db")
+    monkeypatch.setattr(db_mod, "DB_PATH", db_path)
+
+    con = duckdb.connect(db_path)
+    _seed_shareholder_trend(con, [
+        ("1101", "2026-07-10", 40.0),
+        ("1101", "2026-07-17", 41.5),
+    ])
+    con.close()
+
+    result = get_shareholder_trend(weeks=5)
+
+    assert result["1101"] == [
+        {"date": "2026-07-10", "lv12_15_pct": 40.0},
+        {"date": "2026-07-17", "lv12_15_pct": 41.5},
+    ]
+
+
+def test_get_shareholder_trend_respects_weeks_param(tmp_path, monkeypatch):
+    """weeks=3時只回傳最近3筆，不是全部歷史。"""
+    import screener.database as db_mod
+    db_path = str(tmp_path / "t.db")
+    monkeypatch.setattr(db_mod, "DB_PATH", db_path)
+
+    con = duckdb.connect(db_path)
+    _seed_shareholder_trend(con, [
+        ("2454", "2026-06-19", 30.0),
+        ("2454", "2026-06-26", 31.0),
+        ("2454", "2026-07-03", 32.0),
+        ("2454", "2026-07-10", 33.0),
+        ("2454", "2026-07-17", 34.0),
+    ])
+    con.close()
+
+    result = get_shareholder_trend(weeks=3)
+
+    assert result["2454"] == [
+        {"date": "2026-07-03", "lv12_15_pct": 32.0},
+        {"date": "2026-07-10", "lv12_15_pct": 33.0},
+        {"date": "2026-07-17", "lv12_15_pct": 34.0},
+    ]
+
+
+def test_get_shareholder_trend_excludes_outlier_pct(tmp_path, monkeypatch):
+    """跟get_shareholder_top()同一個離群值防護(#2)：>=_MAX_VALID_HOLDER_PCT視為TDCC解析
+    異常，整筆排除（不是只排除那個異常值、留其他欄位），避免走勢圖畫出不可能的數字。"""
+    from scrapers.shareholder import _MAX_VALID_HOLDER_PCT
+    import screener.database as db_mod
+    db_path = str(tmp_path / "t.db")
+    monkeypatch.setattr(db_mod, "DB_PATH", db_path)
+
+    con = duckdb.connect(db_path)
+    _seed_shareholder_trend(con, [
+        ("3008", "2026-07-10", 70.0),
+        ("3008", "2026-07-17", float(_MAX_VALID_HOLDER_PCT)),
+    ])
+    con.close()
+
+    result = get_shareholder_trend(weeks=5)
+
+    assert result["3008"] == [{"date": "2026-07-10", "lv12_15_pct": 70.0}]
 
 
 def test_import_csv_prices_keeps_real_ohlc_from_csv(tmp_path, monkeypatch):

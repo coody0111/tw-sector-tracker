@@ -144,6 +144,41 @@ def find_turning_points(heatgrid_windows: Dict[str, Dict[str, Any]]) -> List[Dic
     return results
 
 
+def find_rank_crossings(rank_history: Dict[str, Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+    """
+    排名進出榜（視覺spec用語：族群近況新子類別）。比較每個meta的「本週排名」vs「上週排名」，
+    找出剛跨過前10名門檻進榜/掉出榜的族群。跟轉折點列表(tier換級，見find_turning_points())
+    是刻意並存的不同訊號——tier只看自身動能，這裡純粹比較相對排名，見
+    docs/adr/0003-rank-crossing-signal-kept-separate-from-tier-signal.md。
+
+    rank_history: calc_meta_rank_history()的輸出。weekly_ranks長度<2(沒有『上週』可比較)
+    的族群不參與判定。
+
+    Returns
+    -------
+    {"just_in": [{"meta_name":.., "prev_rank":.., "cur_rank":..}, ...],
+     "just_out": [{"meta_name":.., "prev_rank":.., "cur_rank":..}, ...]}
+    各自依變動幅度(排名進步/退步的名次差)由大到小排序。
+    """
+    just_in = []
+    just_out = []
+    for meta_name, data in rank_history.items():
+        ranks = data.get("weekly_ranks") or []
+        if len(ranks) < 2:
+            continue
+        prev_rank, cur_rank = ranks[-2], ranks[-1]
+        prev_in = prev_rank <= 10
+        cur_in = cur_rank <= 10
+        if not prev_in and cur_in:
+            just_in.append({"meta_name": meta_name, "prev_rank": prev_rank, "cur_rank": cur_rank})
+        elif prev_in and not cur_in:
+            just_out.append({"meta_name": meta_name, "prev_rank": prev_rank, "cur_rank": cur_rank})
+
+    just_in.sort(key=lambda r: r["prev_rank"] - r["cur_rank"], reverse=True)
+    just_out.sort(key=lambda r: r["cur_rank"] - r["prev_rank"], reverse=True)
+    return {"just_in": just_in, "just_out": just_out}
+
+
 def find_anomaly_cards(
     meta_perf: List[Dict[str, Any]],
     meta_signals: Dict[str, Dict[str, Any]],
@@ -408,6 +443,7 @@ _VOL_ANOMALY_PRICE_FLAT_MAX = 2.0
 def build_sector_recap(
     cards: List[Dict[str, Any]],
     heatgrid_windows: Dict[str, Dict[str, Any]],
+    rank_history: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """
     族群近況（視覺 spec §4 擴充版）：升溫/退燒/今日爆發/外資悄悄佈局/投信悄悄佈局/量能異常，
@@ -457,6 +493,9 @@ def build_sector_recap(
     # 但turning_points卻還顯示它，是自相矛盾的輸出。
     active_names = {c["meta_name"] for c in cards}
     active_windows = {name: data for name, data in heatgrid_windows.items() if name in active_names}
+    active_rank_history = {
+        name: data for name, data in (rank_history or {}).items() if name in active_names
+    }
 
     return {
         "hot_top5": hot_top5,
@@ -466,6 +505,7 @@ def build_sector_recap(
         "trust_stealth": trust_stealth,
         "volume_anomaly": volume_anomaly,
         "turning_points": find_turning_points(active_windows),
+        "rank_crossings": find_rank_crossings(active_rank_history),
     }
 
 
@@ -797,6 +837,31 @@ table.stock-list-table{width:100%;border-collapse:collapse}
 .turning-pill{padding:3px 9px;border-radius:20px;font-weight:700}
 .turning-arrow{color:var(--ink-3)}
 .turning-desc{margin-left:auto;font-size:.72rem;color:var(--ink-2);font-style:italic;font-family:var(--serif)}
+.rankmove-wrap{margin:26px 26px 0;background:var(--panel);border:1px solid var(--border-2);border-radius:5px;padding:18px 22px}
+.rankmove-head{font-family:var(--serif);font-weight:700;font-size:1rem;color:var(--ink);margin-bottom:4px}
+.rankmove-sub{font-size:.72rem;color:var(--ink-3);margin-bottom:14px}
+.rankmove-cols{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.rankmove-col h4{margin:0 0 8px;font-family:var(--mono);font-size:.66rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
+.rankmove-col.in h4{color:var(--up)}
+.rankmove-col.out h4{color:var(--down)}
+.rankmove-item{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);font-size:.85rem}
+.rankmove-item:last-child{border-bottom:none}
+.rankmove-item .rm-name{font-family:var(--serif);font-weight:600;color:var(--ink)}
+.rankmove-item .rm-shift{font-family:var(--mono);font-size:.74rem;color:var(--ink-2)}
+.rankmove-empty{color:var(--ink-3);font-size:.78rem;font-family:var(--serif)}
+.history-wrap{margin-top:16px}
+.history-summary{font-family:var(--serif);font-size:.92rem;color:var(--ink);margin-bottom:10px;
+  padding:9px 13px;background:var(--panel-2);border-left:3px solid var(--accent);border-radius:0 4px 4px 0}
+.history-summary b{color:var(--accent)}
+.history-weekline-label{font-family:var(--mono);font-size:.6rem;font-weight:700;color:var(--ink-3);
+  letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px}
+.history-weekline{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
+.history-week{border:1px solid var(--border);border-radius:5px;padding:7px 8px;background:var(--panel-3);
+  font-family:var(--mono);font-size:.64rem;color:var(--ink-2);text-align:center}
+.history-week .hw-label{display:block;color:var(--ink-3)}
+.history-week .hw-rank{display:block;margin-top:3px;font-size:.86rem;font-weight:700;color:var(--ink)}
+.history-week.in-top10{border-color:color-mix(in srgb, var(--accent) 45%, var(--border))}
+.history-week.in-top10 .hw-rank{color:var(--accent)}
 """
 
 _TIER_COLOR_VAR = {
@@ -960,6 +1025,28 @@ def _sector_recap_html(recap: Dict[str, Any]) -> str:
     else:
         turning_html = '<div class="detail-empty">本週沒有族群發生等級翻轉</div>'
 
+    def _rankmove_col(items: List[Dict[str, Any]], direction: str) -> str:
+        if not items:
+            return '<div class="rankmove-empty">目前沒有族群{}</div>'.format(
+                "剛進榜" if direction == "in" else "剛掉出榜"
+            )
+        return "".join(
+            f'<div class="rankmove-item"><span class="rm-name">{_esc(r["meta_name"])}</span>'
+            f'<span class="rm-shift tabular">#{r["prev_rank"]}→#{r["cur_rank"]}</span></div>'
+            for r in items
+        )
+
+    rank_crossings = recap.get("rank_crossings", {"just_in": [], "just_out": []})
+    rankmove_html = f"""
+<div class="rankmove-wrap">
+  <div class="rankmove-head">排名進出榜</div>
+  <div class="rankmove-sub">這週剛擠進/掉出前10名的族群（跟上週排名比較，不是自身動能——跟上面「轉折點」是不同角度的訊號）</div>
+  <div class="rankmove-cols">
+    <div class="rankmove-col in"><h4>剛進榜</h4>{_rankmove_col(rank_crossings["just_in"], "in")}</div>
+    <div class="rankmove-col out"><h4>剛掉出榜</h4>{_rankmove_col(rank_crossings["just_out"], "out")}</div>
+  </div>
+</div>"""
+
     return f"""
 <div class="section-head"><h2>族群近況</h2><span class="count">6大類排行・轉折點</span></div>
 <div class="section-rule"></div>
@@ -984,7 +1071,8 @@ def _sector_recap_html(recap: Dict[str, Any]) -> str:
   <div class="turning-head">轉折點：等級真的翻轉的族群</div>
   <div class="turning-sub">不是看誰漲最多，是看「上週的等級」跟「這週的等級」是否真的換了一級。</div>
   <div>{turning_html}</div>
-</div>"""
+</div>
+{rankmove_html}"""
 
 
 def generate(
@@ -1001,6 +1089,7 @@ def generate(
     cum_data: Optional[List[Dict[str, Any]]] = None,
     market_regime: Optional[Dict[str, Any]] = None,
     vol_turnover_signals: Optional[List[Dict[str, Any]]] = None,
+    rank_history: Optional[Dict[str, Dict[str, Any]]] = None,
     output_path: str = "docs/index.html",
 ) -> None:
     """
@@ -1015,6 +1104,8 @@ def generate(
     - cum_data：calc_cumulative_meta() 輸出(list)，熱區格3/5/7日累積漲跌badge。
     - market_regime：main.py 算好的大盤分級dict，大盤現況儀表板。
     - vol_turnover_signals：scan_volume_turnover() 輸出(list)，巨量換手訊號區塊。
+    - rank_history：calc_meta_rank_history() 輸出，族群近況「排名進出榜」跟單一族群
+      「歷史出現紀錄」用。
     """
     if not meta_perf:
         return
@@ -1024,7 +1115,7 @@ def generate(
 
     cards = build_heatgrid_cards(meta_perf, meta_signals, meta_chips, heatgrid_windows, cum_data)
     anomaly_cards = find_anomaly_cards(meta_perf, meta_signals, heatgrid_windows)
-    recap = build_sector_recap(cards, heatgrid_windows)
+    recap = build_sector_recap(cards, heatgrid_windows, rank_history)
     stock_detail = build_stock_detail_data(universe_df, prices_df, stock_sparklines, rolling_returns, chips_df)
 
     stock_detail_js = json.dumps(stock_detail, ensure_ascii=False).replace("</", "<\\/")
@@ -1033,6 +1124,7 @@ def generate(
         meta_name = c["meta_name"]
         sig = meta_signals.get(meta_name, {})
         chips = meta_chips.get(meta_name, {})
+        rank_row = (rank_history or {}).get(meta_name, {})
         card_meta[meta_name] = {
             "pct": c["pct"], "up_count": c["up_count"], "down_count": c["down_count"],
             "daily_pct": sig.get("daily_pct", []), "dates": sig.get("dates", []),
@@ -1045,6 +1137,11 @@ def generate(
             "margin_change_today": chips.get("margin_change_today", 0),
             "margin_balance_today": chips.get("margin_balance_today", 0),
             "margin_alert": bool(chips.get("margin_alert", False)),
+            "weekly_ranks": rank_row.get("weekly_ranks", []),
+            "in_top10_this_week": rank_row.get("in_top10_this_week", False),
+            "consecutive_weeks_in_top10": rank_row.get("consecutive_weeks_in_top10", 0),
+            "last_top10_week_index": rank_row.get("last_top10_week_index"),
+            "last_top10_rank": rank_row.get("last_top10_rank"),
         }
     card_meta_js = json.dumps(card_meta, ensure_ascii=False).replace("</", "<\\/")
 
@@ -1248,6 +1345,38 @@ function buildChipsSummary(meta) {{
   return rows.length ? `<div class="chips-summary">${{rows.join('')}}</div>` : '';
 }}
 
+// 單一族群「歷史出現紀錄」：近幾週精確排名軌跡+文字摘要。meta是CARD_META[name]，
+// weekly_ranks/in_top10_this_week/consecutive_weeks_in_top10/last_top10_week_index/
+// last_top10_rank都是Python端calc_meta_rank_history()算好的數值，不是使用者輸入，不用escHtml。
+function buildHistoryRecord(meta) {{
+  const ranks = meta.weekly_ranks || [];
+  if (!ranks.length) return '';
+
+  let summary;
+  if (meta.in_top10_this_week) {{
+    summary = `連續 <b>${{meta.consecutive_weeks_in_top10}}</b> 週進榜（前10名）`;
+  }} else if (meta.last_top10_week_index !== null && meta.last_top10_week_index !== undefined) {{
+    const weeksAgo = ranks.length - 1 - meta.last_top10_week_index;
+    summary = `上次進榜是 <b>W-${{weeksAgo}}</b>，當時排第 <b>#${{meta.last_top10_rank}}</b> 名`;
+  }} else {{
+    summary = `近${{ranks.length}}週都沒有進前10`;
+  }}
+
+  const weekCells = ranks.map((rank, i) => {{
+    const isCurrent = i === ranks.length - 1;
+    const label = isCurrent ? '本週' : `W-${{ranks.length - 1 - i}}`;
+    const inTop10 = rank <= 10;
+    const cls = 'history-week' + (inTop10 ? ' in-top10' : '');
+    return `<div class="${{cls}}"><span class="hw-label">${{label}}</span><span class="hw-rank tabular">#${{rank}}</span></div>`;
+  }}).join('');
+
+  return `<div class="history-wrap">
+    <div class="history-summary">${{summary}}</div>
+    <div class="history-weekline-label">近${{ranks.length}}週排行軌跡</div>
+    <div class="history-weekline">${{weekCells}}</div>
+  </div>`;
+}}
+
 // 收盤價格式：>=100且整數才用千分位逗號分隔，其餘2位小數——比照舊版
 // html_generator.py::_fmt_price() 的規則，避免小型股價位（例如12.35）被誤格式化。
 function fmtPrice(v) {{
@@ -1423,18 +1552,19 @@ function selectGroup(name) {{
 
   const metaSpark = buildSparkline(meta.daily_pct, meta.dates, 'meta-sparkline');
   const chipsSum = buildChipsSummary(meta);
+  const historyRecord = buildHistoryRecord(meta);
 
   if (!stocks.length) {{
     panel.innerHTML = `
       <div class="detail-head"><h3>${{safeName}}</h3><span class="dpct" style="color:${{pctColor}}">${{pctStr}}</span></div>
       <div class="detail-sub">▲${{meta.up_count}}檔 ▼${{meta.down_count}}檔</div>
-      ${{metaSpark}}${{chipsSum}}
+      ${{metaSpark}}${{chipsSum}}${{historyRecord}}
       <div class="detail-empty">這個族群目前沒有個股行情資料。</div>`;
   }} else {{
     panel.innerHTML = `
       <div class="detail-head"><h3>${{safeName}}</h3><span class="dpct" style="color:${{pctColor}}">${{pctStr}}</span></div>
       <div class="detail-sub">▲${{meta.up_count}}檔 ▼${{meta.down_count}}檔　・　共 ${{stocks.length}} 檔</div>
-      ${{metaSpark}}${{chipsSum}}
+      ${{metaSpark}}${{chipsSum}}${{historyRecord}}
       <div class="overflow-wrap"><table class="stock-list-table">
         <thead><tr>
           <th aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'id')">股票</button></th>

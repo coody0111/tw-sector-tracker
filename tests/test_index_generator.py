@@ -74,7 +74,7 @@ def test_heat_bg_handles_zero_max_abs_without_crash():
     assert "var(--up)" in result  # pct=0視為非負，走up分支，alpha取t=0的最低值
 
 
-from export.index_generator import find_turning_points, find_anomaly_cards
+from export.index_generator import find_turning_points, find_anomaly_cards, find_rank_crossings
 
 
 def test_find_turning_points_detects_flip_and_labels_direction():
@@ -112,6 +112,61 @@ def test_find_turning_points_skips_when_five_days_ago_data_is_none():
     }
     result = find_turning_points(heatgrid_windows)
     assert result == []
+
+
+def test_find_rank_crossings_detects_just_in_and_just_out():
+    """複刻討論用的真實案例：散熱上週#14(不在前10)、本週#3(前10)=剛進榜；
+    半導體設備上週#7(前10)、本週#28(不在前10)=剛掉出榜。"""
+    rank_history = {
+        "散熱": {"weekly_ranks": [20, 18, 16, 14, 3], "in_top10_this_week": True,
+                 "consecutive_weeks_in_top10": 1, "last_top10_week_index": None, "last_top10_rank": None},
+        "半導體設備": {"weekly_ranks": [10, 9, 8, 7, 28], "in_top10_this_week": False,
+                      "consecutive_weeks_in_top10": 0, "last_top10_week_index": 3, "last_top10_rank": 7},
+        "穩定族群": {"weekly_ranks": [5, 5, 5, 5, 5], "in_top10_this_week": True,
+                    "consecutive_weeks_in_top10": 5, "last_top10_week_index": None, "last_top10_rank": None},
+    }
+
+    result = find_rank_crossings(rank_history)
+
+    just_in_names = {r["meta_name"] for r in result["just_in"]}
+    just_out_names = {r["meta_name"] for r in result["just_out"]}
+    assert just_in_names == {"散熱"}
+    assert just_out_names == {"半導體設備"}
+    assert "穩定族群" not in just_in_names and "穩定族群" not in just_out_names
+
+    sereater = next(r for r in result["just_in"] if r["meta_name"] == "散熱")
+    assert sereater["prev_rank"] == 14 and sereater["cur_rank"] == 3
+
+    semi = next(r for r in result["just_out"] if r["meta_name"] == "半導體設備")
+    assert semi["prev_rank"] == 7 and semi["cur_rank"] == 28
+
+
+def test_find_rank_crossings_skips_when_fewer_than_two_weeks_of_data():
+    """weekly_ranks長度<2(例如剛上線第一天只算得出1週)時，沒有『上週』可以比較，
+    不能誤判成剛進榜/剛掉出榜。"""
+    rank_history = {
+        "新族群": {"weekly_ranks": [3], "in_top10_this_week": True,
+                  "consecutive_weeks_in_top10": 1, "last_top10_week_index": None, "last_top10_rank": None},
+    }
+
+    result = find_rank_crossings(rank_history)
+
+    assert result["just_in"] == []
+    assert result["just_out"] == []
+
+
+def test_find_rank_crossings_sorts_by_magnitude_of_change():
+    """剛進榜/剛掉出榜清單依變動幅度排序，變動最大的排最前面。"""
+    rank_history = {
+        "小幅進榜": {"weekly_ranks": [12, 9], "in_top10_this_week": True,
+                    "consecutive_weeks_in_top10": 1, "last_top10_week_index": None, "last_top10_rank": None},
+        "大幅進榜": {"weekly_ranks": [30, 2], "in_top10_this_week": True,
+                    "consecutive_weeks_in_top10": 1, "last_top10_week_index": None, "last_top10_rank": None},
+    }
+
+    result = find_rank_crossings(rank_history)
+
+    assert [r["meta_name"] for r in result["just_in"]] == ["大幅進榜", "小幅進榜"]
 
 
 def test_find_anomaly_cards_burst_requires_volume_and_rank_jump():
@@ -383,6 +438,53 @@ def test_build_sector_recap_includes_turning_points():
     recap = build_sector_recap(cards, heatgrid_windows)
     assert recap["turning_points"][0]["meta_name"] == "翻轉族群"
     assert recap["turning_points"][0]["direction"] == "轉強訊號"
+
+
+def test_build_sector_recap_includes_rank_crossings():
+    meta_perf = [
+        {"meta_name": "散熱", "avg_change_pct": 1.0, "up_count": 1, "down_count": 0, "flat_count": 0},
+    ]
+    heatgrid_windows = {}
+    rank_history = {
+        "散熱": {"weekly_ranks": [14, 3], "in_top10_this_week": True,
+                 "consecutive_weeks_in_top10": 1, "last_top10_week_index": None, "last_top10_rank": None},
+    }
+    cards = build_heatgrid_cards(meta_perf, {}, {}, heatgrid_windows)
+    recap = build_sector_recap(cards, heatgrid_windows, rank_history)
+
+    assert recap["rank_crossings"]["just_in"][0]["meta_name"] == "散熱"
+
+
+def test_build_sector_recap_rank_crossings_defaults_empty_without_rank_history():
+    """rank_history沒傳(None)時rank_crossings要是空list，不能crash——跟其他
+    enrichment參數(cum_data等)的fail-soft慣例一致。"""
+    meta_perf = [
+        {"meta_name": "族群A", "avg_change_pct": 1.0, "up_count": 1, "down_count": 0, "flat_count": 0},
+    ]
+    cards = build_heatgrid_cards(meta_perf, {}, {}, {})
+    recap = build_sector_recap(cards, {})
+
+    assert recap["rank_crossings"] == {"just_in": [], "just_out": []}
+
+
+def test_build_sector_recap_excludes_stale_sector_from_rank_crossings():
+    """rank_history有某族群的進榜資料，但meta_perf已經不包含它——跟turning_points的
+    過濾邏輯一致，不能顯示已下架族群。"""
+    meta_perf = [
+        {"meta_name": "有效族群", "avg_change_pct": 1.0, "up_count": 1, "down_count": 0, "flat_count": 0},
+    ]
+    rank_history = {
+        "有效族群": {"weekly_ranks": [14, 3], "in_top10_this_week": True,
+                    "consecutive_weeks_in_top10": 1, "last_top10_week_index": None, "last_top10_rank": None},
+        "已下架族群": {"weekly_ranks": [14, 3], "in_top10_this_week": True,
+                     "consecutive_weeks_in_top10": 1, "last_top10_week_index": None, "last_top10_rank": None},
+    }
+    cards = build_heatgrid_cards(meta_perf, {}, {}, {})
+    recap = build_sector_recap(cards, {}, rank_history)
+
+    just_in_names = {r["meta_name"] for r in recap["rank_crossings"]["just_in"]}
+    assert "已下架族群" not in just_in_names
+    assert "有效族群" in just_in_names
 
 
 def test_build_sector_recap_excludes_stale_sector_from_turning_points():
@@ -1098,3 +1200,69 @@ def test_generate_renders_candlestick_chart_with_ohlc_data(tmp_path):
     assert '"lows": [97.0, 98.5]' in html
     assert '"closes": [99.0, 100.0]' in html
     assert "function buildCandlestick" in html
+
+
+def test_generate_renders_rank_crossings_section_in_sector_recap(tmp_path):
+    """排名進出榜區塊要出現在族群近況裡，緊接在轉折點列表(.turning-wrap)後面，
+    左右兩欄分別列剛進榜/剛掉出榜的族群名稱跟排名變化。"""
+    meta_perf = [
+        {"meta_name": "散熱", "avg_change_pct": 1.0, "up_count": 1, "down_count": 0, "flat_count": 0},
+        {"meta_name": "半導體設備", "avg_change_pct": -1.0, "up_count": 0, "down_count": 1, "flat_count": 0},
+    ]
+    universe_df = pd.DataFrame([
+        {"stock_id": "1", "stock_name": "股票一", "meta_sector": "散熱"},
+        {"stock_id": "2", "stock_name": "股票二", "meta_sector": "半導體設備"},
+    ])
+    prices_df = pd.DataFrame([
+        {"stock_id": "1", "change_pct": 1.0, "close": 100.0},
+        {"stock_id": "2", "change_pct": -1.0, "close": 50.0},
+    ])
+    rank_history = {
+        "散熱": {"weekly_ranks": [14, 3], "in_top10_this_week": True,
+                 "consecutive_weeks_in_top10": 1, "last_top10_week_index": None, "last_top10_rank": None},
+        "半導體設備": {"weekly_ranks": [7, 28], "in_top10_this_week": False,
+                     "consecutive_weeks_in_top10": 0, "last_top10_week_index": 0, "last_top10_rank": 7},
+    }
+
+    output_path = tmp_path / "index.html"
+    generate(
+        date(2026, 7, 29), meta_perf, universe_df,
+        meta_signals={}, meta_chips={}, prices_df=prices_df,
+        heatgrid_windows={}, rank_history=rank_history,
+        output_path=str(output_path),
+    )
+
+    html = output_path.read_text(encoding="utf-8")
+    assert "排名進出榜" in html
+    assert "散熱" in html and "半導體設備" in html
+    assert "rankmove-wrap" in html
+
+
+def test_generate_embeds_rank_history_into_card_meta_for_history_record(tmp_path):
+    """單一族群的排名歷史資料要塞進CARD_META，供點開族群詳細面板時
+    buildHistoryRecord()渲染「歷史出現紀錄」使用。"""
+    meta_perf = [
+        {"meta_name": "工業電腦", "avg_change_pct": 1.0, "up_count": 1, "down_count": 0, "flat_count": 0},
+    ]
+    universe_df = pd.DataFrame([
+        {"stock_id": "1", "stock_name": "股票一", "meta_sector": "工業電腦"},
+    ])
+    prices_df = pd.DataFrame([{"stock_id": "1", "change_pct": 1.0, "close": 100.0}])
+    rank_history = {
+        "工業電腦": {"weekly_ranks": [18, 9, 7, 4, 1], "in_top10_this_week": True,
+                    "consecutive_weeks_in_top10": 3, "last_top10_week_index": None, "last_top10_rank": None},
+    }
+
+    output_path = tmp_path / "index.html"
+    generate(
+        date(2026, 7, 29), meta_perf, universe_df,
+        meta_signals={}, meta_chips={}, prices_df=prices_df,
+        heatgrid_windows={}, rank_history=rank_history,
+        output_path=str(output_path),
+    )
+
+    html = output_path.read_text(encoding="utf-8")
+    assert '"weekly_ranks":[18,9,7,4,1]' in html.replace(" ", "")
+    assert '"in_top10_this_week":true' in html.replace(" ", "")
+    assert '"consecutive_weeks_in_top10":3' in html.replace(" ", "")
+    assert "buildHistoryRecord(meta)" in html  # selectGroup()有呼叫這支函式

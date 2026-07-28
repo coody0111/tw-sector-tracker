@@ -3481,3 +3481,39 @@ Cody要求v27 mockup補上個股列表的K棒/走勢/量能。查證時發現**�
 - ✅ **Debugger 驗證通過(2026-07-24)**：13 綠、`load_existing_exchange()` 缺檔/缺欄回空 dict
   防禦正確、輸出 6 欄序正確、掉欄地雷確認根除。Developer 可 push。（詳見 bug-reports.md 同日
   「驗證(續2)」那則。）
+
+## [2026-07-29] 族群排名歷史：排名進出榜＋歷史出現紀錄
+
+### 改了什麼
+- 異動檔案：processors/performance.py, export/index_generator.py, main.py,
+  tests/test_processors.py, tests/test_index_generator.py
+- 邏輯說明：新增calc_meta_rank_history()即時從daily_prices全歷史算族群週排名
+  (5交易日滾動視窗一週，不存快照表，用目前族群分類回推)。族群近況新增「排名
+  進出榜」子類別(這週vs上週跨過前10門檻的族群)，跟既有轉折點列表並存不合併。
+  單一族群詳細面板新增「歷史出現紀錄」(近5週精確排名軌跡+文字摘要)。
+  設計討論見CONTEXT.md、docs/adr/0001-*.md、docs/adr/0003-*.md，spec見
+  docs/superpowers/specs/2026-07-29-sector-rank-history-design.md，實作計畫見
+  docs/superpowers/plans/2026-07-29-sector-rank-history.md。
+- 這是走過完整grill-with-docs討論→spec→writing-plans→TDD實作的功能，8個task
+  逐一TDD完成(每個新函式都先寫失敗測試、確認失敗、再實作、確認通過、才commit)，
+  另外用jsdom實際模擬點擊驗證過HTML/JS的render行為(不只看程式碼)，確認：
+  頁面層級排名進出榜區塊正確渲染、點開族群面板「歷史出現紀錄」正確顯示連續
+  進榜週數/上次進榜週次與名次/5格排名軌跡的in-top10樣式。
+
+### 資料來源相關（如有異動）
+- 上市/上櫃資料：無異動，純粹是daily_prices既有change_pct欄位的新用法(即時算
+  週排名)，沒有新增資料源或改變抓取邏輯。
+
+### 請 Debugger 驗證
+- [ ] 全部428個測試通過(pytest -q全綠，本機已跑過)
+- [ ] 族群近況區塊新增「排名進出榜」，位置在轉折點列表下面，左右兩欄剛進榜/
+      剛掉出榜
+- [ ] 點進任一族群詳細面板，走勢圖/籌碼摘要之後有「歷史出現紀錄」，顯示5格
+      排名軌跡+一句文字摘要
+- [ ] 沒有進前10的族群面板要顯示「上次進榜是W-x第Y名」或「近N週都沒有進前10」
+- [ ] 族群分類異動(例如工業電腦)的歷史排名要能正確反映目前分類，不是卡在舊分類
+
+### 特別注意
+- 這個功能完全是即時計算，不需要等待資料庫累積新資料——上線當天就有完整5週
+  歷史可看(資料庫回溯到2025-01-02，遠超過5週所需天數)
+- 這批commit尚未push到origin，等Cody指示

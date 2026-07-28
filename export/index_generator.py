@@ -837,6 +837,18 @@ table.stock-list-table{width:100%;border-collapse:collapse}
 .turning-pill{padding:3px 9px;border-radius:20px;font-weight:700}
 .turning-arrow{color:var(--ink-3)}
 .turning-desc{margin-left:auto;font-size:.72rem;color:var(--ink-2);font-style:italic;font-family:var(--serif)}
+.rankmove-wrap{margin:26px 26px 0;background:var(--panel);border:1px solid var(--border-2);border-radius:5px;padding:18px 22px}
+.rankmove-head{font-family:var(--serif);font-weight:700;font-size:1rem;color:var(--ink);margin-bottom:4px}
+.rankmove-sub{font-size:.72rem;color:var(--ink-3);margin-bottom:14px}
+.rankmove-cols{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.rankmove-col h4{margin:0 0 8px;font-family:var(--mono);font-size:.66rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
+.rankmove-col.in h4{color:var(--up)}
+.rankmove-col.out h4{color:var(--down)}
+.rankmove-item{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);font-size:.85rem}
+.rankmove-item:last-child{border-bottom:none}
+.rankmove-item .rm-name{font-family:var(--serif);font-weight:600;color:var(--ink)}
+.rankmove-item .rm-shift{font-family:var(--mono);font-size:.74rem;color:var(--ink-2)}
+.rankmove-empty{color:var(--ink-3);font-size:.78rem;font-family:var(--serif)}
 """
 
 _TIER_COLOR_VAR = {
@@ -1000,6 +1012,28 @@ def _sector_recap_html(recap: Dict[str, Any]) -> str:
     else:
         turning_html = '<div class="detail-empty">本週沒有族群發生等級翻轉</div>'
 
+    def _rankmove_col(items: List[Dict[str, Any]], direction: str) -> str:
+        if not items:
+            return '<div class="rankmove-empty">目前沒有族群{}</div>'.format(
+                "剛進榜" if direction == "in" else "剛掉出榜"
+            )
+        return "".join(
+            f'<div class="rankmove-item"><span class="rm-name">{_esc(r["meta_name"])}</span>'
+            f'<span class="rm-shift tabular">#{r["prev_rank"]}→#{r["cur_rank"]}</span></div>'
+            for r in items
+        )
+
+    rank_crossings = recap.get("rank_crossings", {"just_in": [], "just_out": []})
+    rankmove_html = f"""
+<div class="rankmove-wrap">
+  <div class="rankmove-head">排名進出榜</div>
+  <div class="rankmove-sub">這週剛擠進/掉出前10名的族群（跟上週排名比較，不是自身動能——跟上面「轉折點」是不同角度的訊號）</div>
+  <div class="rankmove-cols">
+    <div class="rankmove-col in"><h4>剛進榜</h4>{_rankmove_col(rank_crossings["just_in"], "in")}</div>
+    <div class="rankmove-col out"><h4>剛掉出榜</h4>{_rankmove_col(rank_crossings["just_out"], "out")}</div>
+  </div>
+</div>"""
+
     return f"""
 <div class="section-head"><h2>族群近況</h2><span class="count">6大類排行・轉折點</span></div>
 <div class="section-rule"></div>
@@ -1024,7 +1058,8 @@ def _sector_recap_html(recap: Dict[str, Any]) -> str:
   <div class="turning-head">轉折點：等級真的翻轉的族群</div>
   <div class="turning-sub">不是看誰漲最多，是看「上週的等級」跟「這週的等級」是否真的換了一級。</div>
   <div>{turning_html}</div>
-</div>"""
+</div>
+{rankmove_html}"""
 
 
 def generate(
@@ -1041,6 +1076,7 @@ def generate(
     cum_data: Optional[List[Dict[str, Any]]] = None,
     market_regime: Optional[Dict[str, Any]] = None,
     vol_turnover_signals: Optional[List[Dict[str, Any]]] = None,
+    rank_history: Optional[Dict[str, Dict[str, Any]]] = None,
     output_path: str = "docs/index.html",
 ) -> None:
     """
@@ -1055,6 +1091,8 @@ def generate(
     - cum_data：calc_cumulative_meta() 輸出(list)，熱區格3/5/7日累積漲跌badge。
     - market_regime：main.py 算好的大盤分級dict，大盤現況儀表板。
     - vol_turnover_signals：scan_volume_turnover() 輸出(list)，巨量換手訊號區塊。
+    - rank_history：calc_meta_rank_history() 輸出，族群近況「排名進出榜」跟單一族群
+      「歷史出現紀錄」用。
     """
     if not meta_perf:
         return
@@ -1064,7 +1102,7 @@ def generate(
 
     cards = build_heatgrid_cards(meta_perf, meta_signals, meta_chips, heatgrid_windows, cum_data)
     anomaly_cards = find_anomaly_cards(meta_perf, meta_signals, heatgrid_windows)
-    recap = build_sector_recap(cards, heatgrid_windows)
+    recap = build_sector_recap(cards, heatgrid_windows, rank_history)
     stock_detail = build_stock_detail_data(universe_df, prices_df, stock_sparklines, rolling_returns, chips_df)
 
     stock_detail_js = json.dumps(stock_detail, ensure_ascii=False).replace("</", "<\\/")

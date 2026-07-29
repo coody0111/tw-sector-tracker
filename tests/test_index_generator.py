@@ -690,6 +690,121 @@ def test_build_stock_detail_data_defaults_rolling_and_chips_to_none_without_data
     assert stock["margin_balance"] is None and stock["margin_change"] is None
 
 
+def test_build_stock_detail_data_calculates_financing_and_short_metrics():
+    """複刻真實案例：凌華 close=159.5、20日均價=139.35、TWSE(financing_ratio=0.6)、
+    融資餘額3385張、融券餘額196張、已發行股數217779257股：
+    融資佔比=3385*1000/217779257*100=1.55%、融資維持率=159.5/139.35/0.6*100=190.8%、
+    融券餘額佔比=196*1000/217779257*100=0.09%、融券維持率=139.35/159.5/0.6*100=145.6%
+    （融券維持率公式分子分母跟融資對調，方向相反）。"""
+    universe_df = pd.DataFrame([
+        {"stock_id": "6166", "stock_name": "凌華", "meta_sector": "工業電腦", "exchange": "TWSE"},
+    ])
+    prices_df = pd.DataFrame([{"stock_id": "6166", "close": 159.5, "change_pct": 10.0}])
+    chips_df = pd.DataFrame([
+        {"stock_id": "6166", "foreign_net": 0, "trust_net": 0,
+         "margin_balance": 3385, "margin_change": 0,
+         "short_balance": 196, "short_change": 0},
+    ])
+    total_shares_df = pd.DataFrame([{"stock_id": "6166", "total_shares": 217779257, "date": "2026-07-09"}])
+    avg20_map = {"6166": 139.35}
+
+    stock = build_stock_detail_data(
+        universe_df, prices_df, chips_df=chips_df,
+        total_shares_df=total_shares_df, avg20_map=avg20_map,
+    )["工業電腦"][0]
+
+    assert stock["financed_pct"] == 1.55
+    assert stock["maintenance_est"] == 190.8
+    assert stock["shorted_pct"] == 0.09
+    assert stock["short_maintenance_est"] == 145.6
+    assert stock["total_shares_asof"] == "2026-07-09"
+
+
+def test_build_stock_detail_data_short_maintenance_drops_when_price_rallies_hard():
+    """放空情境：股價相對20日均價大漲，代表放空者正在虧損，融券維持率(估)應該
+    明顯低於100%，驗證公式方向跟融資維持率相反(分子分母對調)——這裡刻意只給
+    short_balance不給margin_balance，驗證融資側正確回None、不受融券側資料影響。"""
+    universe_df = pd.DataFrame([
+        {"stock_id": "9999", "stock_name": "暴衝股", "meta_sector": "測試族群", "exchange": "TWSE"},
+    ])
+    prices_df = pd.DataFrame([{"stock_id": "9999", "close": 200.0, "change_pct": 50.0}])
+    chips_df = pd.DataFrame([
+        {"stock_id": "9999", "foreign_net": 0, "trust_net": 0,
+         "margin_balance": 0, "margin_change": 0,
+         "short_balance": 500, "short_change": 0},
+    ])
+    total_shares_df = pd.DataFrame([{"stock_id": "9999", "total_shares": 100000000, "date": "2026-07-09"}])
+    avg20_map = {"9999": 100.0}
+
+    stock = build_stock_detail_data(
+        universe_df, prices_df, chips_df=chips_df,
+        total_shares_df=total_shares_df, avg20_map=avg20_map,
+    )["測試族群"][0]
+
+    assert stock["short_maintenance_est"] == 83.3  # 100/200/0.6*100
+    assert stock["financed_pct"] is None
+    assert stock["maintenance_est"] is None
+
+
+def test_build_stock_detail_data_financing_and_short_fields_null_independently():
+    """融資餘額=0時融資兩欄回None；融券餘額=0時融券兩欄回None——兩組各自獨立判斷，
+    不會因為其中一組有值就連帶影響另一組。"""
+    universe_df = pd.DataFrame([
+        {"stock_id": "1111", "stock_name": "只有融資", "meta_sector": "測試族群", "exchange": "TWSE"},
+        {"stock_id": "2222", "stock_name": "只有融券", "meta_sector": "測試族群", "exchange": "TWSE"},
+    ])
+    prices_df = pd.DataFrame([
+        {"stock_id": "1111", "close": 100.0, "change_pct": 1.0},
+        {"stock_id": "2222", "close": 100.0, "change_pct": 1.0},
+    ])
+    chips_df = pd.DataFrame([
+        {"stock_id": "1111", "foreign_net": 0, "trust_net": 0,
+         "margin_balance": 1000, "margin_change": 0, "short_balance": 0, "short_change": 0},
+        {"stock_id": "2222", "foreign_net": 0, "trust_net": 0,
+         "margin_balance": 0, "margin_change": 0, "short_balance": 500, "short_change": 0},
+    ])
+    total_shares_df = pd.DataFrame([
+        {"stock_id": "1111", "total_shares": 100000000, "date": "2026-07-09"},
+        {"stock_id": "2222", "total_shares": 100000000, "date": "2026-07-09"},
+    ])
+    avg20_map = {"1111": 90.0, "2222": 90.0}
+
+    result = build_stock_detail_data(
+        universe_df, prices_df, chips_df=chips_df,
+        total_shares_df=total_shares_df, avg20_map=avg20_map,
+    )["測試族群"]
+    only_financed = next(s for s in result if s["stock_id"] == "1111")
+    only_shorted = next(s for s in result if s["stock_id"] == "2222")
+
+    assert only_financed["financed_pct"] is not None
+    assert only_financed["maintenance_est"] is not None
+    assert only_financed["shorted_pct"] is None
+    assert only_financed["short_maintenance_est"] is None
+
+    assert only_shorted["financed_pct"] is None
+    assert only_shorted["maintenance_est"] is None
+    assert only_shorted["shorted_pct"] is not None
+    assert only_shorted["short_maintenance_est"] is not None
+
+
+def test_build_stock_detail_data_defaults_financing_fields_to_none_without_data():
+    """total_shares_df/avg20_map都沒傳時，四個新欄位+total_shares_asof都要是None，
+    不能crash——跟其他enrichment參數(stock_sparklines/rolling_returns/chips_df)的
+    fail-soft慣例一致。"""
+    universe_df = pd.DataFrame([
+        {"stock_id": "1000", "stock_name": "股票甲", "meta_sector": "族群A", "exchange": "TWSE"},
+    ])
+    prices_df = pd.DataFrame([{"stock_id": "1000", "close": 100.0, "change_pct": 2.0}])
+
+    stock = build_stock_detail_data(universe_df, prices_df)["族群A"][0]
+
+    assert stock["financed_pct"] is None
+    assert stock["maintenance_est"] is None
+    assert stock["shorted_pct"] is None
+    assert stock["short_maintenance_est"] is None
+    assert stock["total_shares_asof"] is None
+
+
 def test_build_stock_detail_data_attaches_volume_and_vol_ratio():
     """Cody回報「個股相關量價都不見了」——這裡確認stock_sparklines的volumes(今日成交量)/
     vol_ratio(今日量/5日均量)有正確附加到對應股票上，不是只有pcts/dates。"""

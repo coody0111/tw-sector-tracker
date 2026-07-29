@@ -830,6 +830,9 @@ table.stock-list-table{width:100%;border-collapse:collapse}
 .vol-ratio.strong{color:var(--accent);font-weight:700}
 .vol-burst-badge{display:inline-block;padding:1px 5px;border-radius:3px;font-size:.68rem;font-weight:700;
   background:color-mix(in srgb, var(--accent) 20%, transparent);color:var(--accent);vertical-align:middle}
+.maint-badge{display:inline-block;padding:1px 5px;border-radius:3px;font-size:.68rem;font-weight:700;
+  background:color-mix(in srgb, var(--down) 20%, transparent);color:var(--down);vertical-align:middle;margin-left:3px}
+.asof-note{font-size:.68rem;color:var(--ink-3);margin:6px 0 0;font-family:var(--mono)}
 .sc-spark-empty{display:block;margin-bottom:10px;font-size:.76rem;color:var(--ink-3);font-family:var(--serif)}
 .sc-sparkline{margin-bottom:10px;line-height:0}
 .sc-sparkline svg{width:100%;height:auto;display:block}
@@ -1148,6 +1151,8 @@ def generate(
     market_regime: Optional[Dict[str, Any]] = None,
     vol_turnover_signals: Optional[List[Dict[str, Any]]] = None,
     rank_history: Optional[Dict[str, Dict[str, Any]]] = None,
+    total_shares_df: Optional[pd.DataFrame] = None,
+    avg20_map: Optional[Dict[str, float]] = None,
     output_path: str = "docs/index.html",
 ) -> None:
     """
@@ -1164,6 +1169,9 @@ def generate(
     - vol_turnover_signals：scan_volume_turnover() 輸出(list)，巨量換手訊號區塊。
     - rank_history：calc_meta_rank_history() 輸出，族群近況「排名進出榜」跟單一族群
       「歷史出現紀錄」用。
+    - total_shares_df：get_latest_total_shares() 輸出，個股融資/融券佔比的分母
+      (已發行股數)+集保資料實際日期。
+    - avg20_map：calc_avg20_close() 輸出，個股融資/融券維持率(估)的成本基準。
     """
     if not meta_perf:
         return
@@ -1174,7 +1182,10 @@ def generate(
     cards = build_heatgrid_cards(meta_perf, meta_signals, meta_chips, heatgrid_windows, cum_data)
     anomaly_cards = find_anomaly_cards(meta_perf, meta_signals, heatgrid_windows)
     recap = build_sector_recap(cards, heatgrid_windows, rank_history)
-    stock_detail = build_stock_detail_data(universe_df, prices_df, stock_sparklines, rolling_returns, chips_df)
+    stock_detail = build_stock_detail_data(
+        universe_df, prices_df, stock_sparklines, rolling_returns, chips_df,
+        total_shares_df, avg20_map,
+    )
 
     stock_detail_js = json.dumps(stock_detail, ensure_ascii=False).replace("</", "<\\/")
     card_meta = {}
@@ -1460,10 +1471,26 @@ function _volTd(v) {{
   return `<td class="num tabular" style="${{style}}">${{v.toFixed(2)}}x${{badge}}</td>`;
 }}
 
+// 融資佔比/融券餘額佔比：純數字顯示，不設警示門檻(沒有客觀依據硬設門檻)。
+function _plainPctTd(v) {{
+  if (v === null || v === undefined) return '<td class="num tabular">─</td>';
+  return `<td class="num tabular">${{v.toFixed(2)}}%</td>`;
+}}
+
+// 融資/融券維持率(估)：低於130%(法規追繳門檻)視為警示，用警示色+粗體+文字徽章明確標示。
+// 融資/融券兩欄共用同一套門檻邏輯(見docs/adr/0002-margin-maintenance-ratio-is-an-estimate.md)。
+function _maintTd(v) {{
+  if (v === null || v === undefined) return '<td class="num tabular">─</td>';
+  const isDanger = v < 130;
+  const style = isDanger ? 'color:var(--down);font-weight:700' : 'color:var(--ink-2)';
+  const badge = isDanger ? ' <span class="maint-badge">追繳risk</span>' : '';
+  return `<td class="num tabular" style="${{style}}">${{v.toFixed(1)}}%${{badge}}</td>`;
+}}
+
 function renderStockListItem(s) {{
   const sid = escHtml(s.stock_id);
   if (s.no_data) {{
-    return `<tr class="stock-item no-data"><td><span class="si-id">${{sid}}</span><span class="si-name">${{escHtml(s.stock_name)}}</span></td><td colspan="7">無行情</td></tr>`;
+    return `<tr class="stock-item no-data"><td><span class="si-id">${{sid}}</span><span class="si-name">${{escHtml(s.stock_name)}}</span></td><td colspan="11">無行情</td></tr>`;
   }}
   const color = s.change_pct >= 0 ? 'var(--up)' : 'var(--down)';
   const sign = s.change_pct >= 0 ? '+' : '';
@@ -1474,6 +1501,10 @@ function renderStockListItem(s) {{
     + `<td class="num tabular">${{fmtPrice(s.close)}}</td>`
     + `<td class="num tabular" style="color:${{color}}">${{arrow}} ${{sign}}${{s.change_pct.toFixed(2)}}%</td>`
     + `${{_volTd(s.vol_ratio)}}`
+    + `${{_plainPctTd(s.financed_pct)}}`
+    + `${{_maintTd(s.maintenance_est)}}`
+    + `${{_plainPctTd(s.shorted_pct)}}`
+    + `${{_maintTd(s.short_maintenance_est)}}`
     + `${{_rollTd(s.roll5)}}${{_rollTd(s.roll7)}}${{_rollTd(s.roll10)}}${{_rollTd(s.roll14)}}</tr>`;
 }}
 
@@ -1545,6 +1576,10 @@ function _sortValue(s, key) {{
   if (key === 'id') return s.stock_id;
   if (key === 'close') return s.close;
   if (key === 'vol') return s.vol_ratio;
+  if (key === 'financed') return s.financed_pct;
+  if (key === 'maint') return s.maintenance_est;
+  if (key === 'shorted') return s.shorted_pct;
+  if (key === 'shortmaint') return s.short_maintenance_est;
   if (key === '5' || key === '7' || key === '10' || key === '14') return s['roll' + key];
   return null;
 }}
@@ -1616,6 +1651,8 @@ function selectGroup(name, toggle) {{
   const metaSpark = buildSparkline(meta.daily_pct, meta.dates, 'meta-sparkline');
   const chipsSum = buildChipsSummary(meta);
   const historyRecord = buildHistoryRecord(meta);
+  const asofStock = stocks.find(s => s.total_shares_asof);
+  const asofNote = asofStock ? `<div class="asof-note">集保資料：${{escHtml(asofStock.total_shares_asof)}}</div>` : '';
 
   if (!stocks.length) {{
     panel.innerHTML = `
@@ -1627,13 +1664,17 @@ function selectGroup(name, toggle) {{
     panel.innerHTML = `
       <div class="detail-head"><h3>${{safeName}}</h3><span class="dpct" style="color:${{pctColor}}">${{pctStr}}</span></div>
       <div class="detail-sub">▲${{meta.up_count}}檔 ▼${{meta.down_count}}檔　・　共 ${{stocks.length}} 檔</div>
-      ${{metaSpark}}${{chipsSum}}${{historyRecord}}
+      ${{metaSpark}}${{chipsSum}}${{historyRecord}}${{asofNote}}
       <div class="overflow-wrap"><table class="stock-list-table">
         <thead><tr>
           <th aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'id')">股票</button></th>
           <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'close')">收盤</button></th>
           <th class="num" aria-sort="descending"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'pct')">漲跌%</button></th>
           <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'vol')">量比</button></th>
+          <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'financed')">融資佔比</button></th>
+          <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'maint')">融資維持率(估)</button></th>
+          <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'shorted')">融券餘額佔比</button></th>
+          <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'shortmaint')">融券維持率(估)</button></th>
           <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'5')">5日</button></th>
           <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'7')">7日</button></th>
           <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'10')">10日</button></th>

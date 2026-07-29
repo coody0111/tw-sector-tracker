@@ -846,3 +846,57 @@ def test_calc_meta_rank_history_returns_empty_dict_when_no_price_data(tmp_path):
 
     result = calc_meta_rank_history(universe, db_path=str(db_path))
     assert result == {}
+
+
+def test_calc_avg20_close_returns_average_of_available_days(tmp_path):
+    import duckdb
+    from processors.performance import calc_avg20_close
+
+    db_path = str(tmp_path / "avg20.db")
+    con = duckdb.connect(db_path)
+    con.execute("CREATE TABLE daily_prices (stock_id VARCHAR, date DATE, close DOUBLE)")
+    con.executemany(
+        "INSERT INTO daily_prices VALUES (?, ?, ?)",
+        [
+            ("2330", "2026-07-13", 900.0),
+            ("2330", "2026-07-14", 910.0),
+            ("2330", "2026-07-15", 920.0),
+        ],
+    )
+    con.close()
+
+    result = calc_avg20_close(pd.DataFrame([{"stock_id": "2330"}]), db_path=db_path, lookback=20)
+
+    assert result["2330"] == 910.0  # (900+910+920)/3
+
+
+def test_calc_avg20_close_uses_actual_days_when_insufficient_history(tmp_path):
+    """股票只有8天歷史(不滿20天lookback窗口)：用實際8天平均，不強湊、不回None。"""
+    from processors.performance import calc_avg20_close
+
+    db_path = str(tmp_path / "avg20-partial.db")
+    con = duckdb.connect(db_path)
+    con.execute("CREATE TABLE daily_prices (stock_id VARCHAR, date DATE, close DOUBLE)")
+    con.executemany(
+        "INSERT INTO daily_prices VALUES (?, ?, ?)",
+        [("2330", f"2026-07-{d:02d}", 100.0 + d) for d in range(1, 9)],  # 8天
+    )
+    con.close()
+
+    result = calc_avg20_close(pd.DataFrame([{"stock_id": "2330"}]), db_path=db_path, lookback=20)
+
+    expected = round(sum(100.0 + d for d in range(1, 9)) / 8, 2)
+    assert result["2330"] == expected
+
+
+def test_calc_avg20_close_returns_empty_dict_when_no_price_data(tmp_path):
+    import duckdb
+    from processors.performance import calc_avg20_close
+
+    db_path = str(tmp_path / "avg20-empty.db")
+    con = duckdb.connect(db_path)
+    con.execute("CREATE TABLE daily_prices (stock_id VARCHAR, date DATE, close DOUBLE)")
+    con.close()
+
+    result = calc_avg20_close(pd.DataFrame([{"stock_id": "2330"}]), db_path=db_path, lookback=20)
+    assert result == {}

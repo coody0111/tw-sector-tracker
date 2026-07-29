@@ -301,6 +301,26 @@ def get_chips_today(trade_date: str) -> pd.DataFrame:
     return df
 
 
+def get_latest_total_shares(trade_date: str) -> pd.DataFrame:
+    """
+    取每支股票最新一筆(<= trade_date)集保已發行股數(total_shares)，供融資/融券佔比計算。
+    trade_date: 'YYYY-MM-DD'
+
+    跟 get_chips_today() 一樣做 per-stock fallback：每支股票各自取 <= trade_date 的
+    最新一筆，不是整張表取單一最新日期——shareholder 表是每週更新，同一批股票裡
+    不同股票的「最新一筆」日期可能不同（例如某股某週資料抓取失敗、跳過一週）。
+    """
+    con = get_conn()
+    df = con.execute("""
+        SELECT stock_id, total_shares, date
+        FROM shareholder
+        WHERE date <= ?
+        QUALIFY ROW_NUMBER() OVER (PARTITION BY stock_id ORDER BY date DESC) = 1
+    """, [trade_date]).df()
+    con.close()
+    return df
+
+
 def get_shareholder_top(n: int = 50) -> pd.DataFrame:
     """取最新週大戶持倉資料，含週變化、連增週數、張數變化與上週日期，
     以及 400張(lv12)/1000張(lv15) 分層的現況與週張數變化，按 streak desc 排序。"""

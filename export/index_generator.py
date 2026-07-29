@@ -521,6 +521,8 @@ def build_stock_detail_data(
     stock_sparklines: Optional[Dict[str, dict]] = None,
     rolling_returns: Optional[Dict[str, dict]] = None,
     chips_df: Optional[pd.DataFrame] = None,
+    total_shares_df: Optional[pd.DataFrame] = None,
+    avg20_map: Optional[Dict[str, float]] = None,
 ) -> Dict[str, List[Dict[str, Any]]]:
     """
     個股點開面板資料（視覺 spec §「點開個股清單」）。全部 meta_sector 都要有 key（即使該族群
@@ -537,11 +539,20 @@ def build_stock_detail_data(
     chips_df：screener/database.py::get_chips_today() 的輸出（stock_id欄位，非index），
     供外資/投信/融資卡片摘要。以上三者任一沒傳、或這支股票沒有對應資料，都回傳None/空list，
     不補假資料、不crash。
+    total_shares_df：screener/database.py::get_latest_total_shares() 的輸出（含
+    stock_id/total_shares/date欄位），供financed_pct/shorted_pct的分母(已發行股數)
+    +集保資料實際日期(total_shares_asof)。
+    avg20_map：processors/performance.py::calc_avg20_close() 的輸出，供
+    maintenance_est/short_maintenance_est的成本基準。兩者任一沒傳、或這支股票
+    沒有對應資料，四個新欄位都回傳None（不補假資料）。
 
     無行情的個股不再跳過——改成標記 no_data=True（比照舊版html_generator.py的「無行情」
     佔位符慣例），close/change_pct/pcts/dates/roll*/chips都是None/空，前端顯示成灰階佔位卡。
     """
-    universe = universe_df[["stock_id", "stock_name", "meta_sector"]].copy()
+    universe_cols = ["stock_id", "stock_name", "meta_sector"]
+    if "exchange" in universe_df.columns:
+        universe_cols.append("exchange")
+    universe = universe_df[universe_cols].copy()
     universe["stock_id"] = universe["stock_id"].astype(str)
     prices = prices_df.copy()
     if not prices.empty:
@@ -553,6 +564,11 @@ def build_stock_detail_data(
     if not chips.empty:
         chips["stock_id"] = chips["stock_id"].astype(str)
     chips_map = chips.set_index("stock_id") if not chips.empty else pd.DataFrame()
+    total_shares = total_shares_df.copy() if total_shares_df is not None and not total_shares_df.empty else pd.DataFrame()
+    if not total_shares.empty:
+        total_shares["stock_id"] = total_shares["stock_id"].astype(str)
+    total_shares_map = total_shares.set_index("stock_id") if not total_shares.empty else pd.DataFrame()
+    avg20 = avg20_map or {}
 
     result: Dict[str, List[Dict[str, Any]]] = {
         meta_name: [] for meta_name in universe["meta_sector"].dropna().unique()
@@ -567,11 +583,48 @@ def build_stock_detail_data(
         spark = sparklines.get(sid, {})
         roll = rolling.get(sid, {})
         c = chips_map.loc[sid] if sid in chips_map.index else None
+        close_price = float(prices_map.loc[sid]["close"]) if has_price else None
+
+        # 融資成數：上市6成/上櫃5成，注意股/處置股例外不處理（見spec Out of Scope）
+        exchange = row.get("exchange")
+        financing_ratio = 0.6 if exchange == "TWSE" else 0.5
+
+        margin_balance_lots = _chips_num(c["margin_balance"]) if c is not None else None
+        short_balance_lots = _chips_num(c.get("short_balance")) if c is not None else None
+        total_shares_val = (
+            int(total_shares_map.loc[sid, "total_shares"]) if sid in total_shares_map.index else None
+        )
+        total_shares_asof_raw = (
+            total_shares_map.loc[sid, "date"] if sid in total_shares_map.index else None
+        )
+        total_shares_asof = (
+            pd.Timestamp(total_shares_asof_raw).strftime("%Y-%m-%d")
+            if total_shares_asof_raw is not None and pd.notna(total_shares_asof_raw) else None
+        )
+        avg20_close = avg20.get(sid)
+
+        financed_pct = (
+            round(margin_balance_lots * 1000 / total_shares_val * 100, 2)
+            if margin_balance_lots and total_shares_val else None
+        )
+        maintenance_est = (
+            round(close_price / avg20_close / financing_ratio * 100, 1)
+            if margin_balance_lots and avg20_close and close_price is not None else None
+        )
+        shorted_pct = (
+            round(short_balance_lots * 1000 / total_shares_val * 100, 2)
+            if short_balance_lots and total_shares_val else None
+        )
+        short_maintenance_est = (
+            round(avg20_close / close_price / financing_ratio * 100, 1)
+            if short_balance_lots and avg20_close and close_price is not None else None
+        )
+
         entry: Dict[str, Any] = {
             "stock_id": sid,
             "stock_name": row["stock_name"],
             "no_data": not has_price,
-            "close": float(prices_map.loc[sid]["close"]) if has_price else None,
+            "close": close_price,
             "change_pct": float(prices_map.loc[sid]["change_pct"]) if has_price else None,
             "pcts": spark.get("pcts", []),
             "dates": spark.get("dates", []),
@@ -587,6 +640,11 @@ def build_stock_detail_data(
             "trust_net": _chips_num(c["trust_net"]) if c is not None else None,
             "margin_balance": _chips_num(c["margin_balance"]) if c is not None else None,
             "margin_change": _chips_num(c["margin_change"]) if c is not None else None,
+            "financed_pct": financed_pct,
+            "maintenance_est": maintenance_est,
+            "shorted_pct": shorted_pct,
+            "short_maintenance_est": short_maintenance_est,
+            "total_shares_asof": total_shares_asof,
         }
         result[meta_name].append(entry)
 
@@ -772,6 +830,9 @@ table.stock-list-table{width:100%;border-collapse:collapse}
 .vol-ratio.strong{color:var(--accent);font-weight:700}
 .vol-burst-badge{display:inline-block;padding:1px 5px;border-radius:3px;font-size:.68rem;font-weight:700;
   background:color-mix(in srgb, var(--accent) 20%, transparent);color:var(--accent);vertical-align:middle}
+.maint-badge{display:inline-block;padding:1px 5px;border-radius:3px;font-size:.68rem;font-weight:700;
+  background:color-mix(in srgb, var(--down) 20%, transparent);color:var(--down);vertical-align:middle;margin-left:3px}
+.asof-note{font-size:.68rem;color:var(--ink-3);margin:6px 0 0;font-family:var(--mono)}
 .sc-spark-empty{display:block;margin-bottom:10px;font-size:.76rem;color:var(--ink-3);font-family:var(--serif)}
 .sc-sparkline{margin-bottom:10px;line-height:0}
 .sc-sparkline svg{width:100%;height:auto;display:block}
@@ -1090,6 +1151,8 @@ def generate(
     market_regime: Optional[Dict[str, Any]] = None,
     vol_turnover_signals: Optional[List[Dict[str, Any]]] = None,
     rank_history: Optional[Dict[str, Dict[str, Any]]] = None,
+    total_shares_df: Optional[pd.DataFrame] = None,
+    avg20_map: Optional[Dict[str, float]] = None,
     output_path: str = "docs/index.html",
 ) -> None:
     """
@@ -1106,6 +1169,9 @@ def generate(
     - vol_turnover_signals：scan_volume_turnover() 輸出(list)，巨量換手訊號區塊。
     - rank_history：calc_meta_rank_history() 輸出，族群近況「排名進出榜」跟單一族群
       「歷史出現紀錄」用。
+    - total_shares_df：get_latest_total_shares() 輸出，個股融資/融券佔比的分母
+      (已發行股數)+集保資料實際日期。
+    - avg20_map：calc_avg20_close() 輸出，個股融資/融券維持率(估)的成本基準。
     """
     if not meta_perf:
         return
@@ -1116,7 +1182,10 @@ def generate(
     cards = build_heatgrid_cards(meta_perf, meta_signals, meta_chips, heatgrid_windows, cum_data)
     anomaly_cards = find_anomaly_cards(meta_perf, meta_signals, heatgrid_windows)
     recap = build_sector_recap(cards, heatgrid_windows, rank_history)
-    stock_detail = build_stock_detail_data(universe_df, prices_df, stock_sparklines, rolling_returns, chips_df)
+    stock_detail = build_stock_detail_data(
+        universe_df, prices_df, stock_sparklines, rolling_returns, chips_df,
+        total_shares_df, avg20_map,
+    )
 
     stock_detail_js = json.dumps(stock_detail, ensure_ascii=False).replace("</", "<\\/")
     card_meta = {}
@@ -1402,10 +1471,26 @@ function _volTd(v) {{
   return `<td class="num tabular" style="${{style}}">${{v.toFixed(2)}}x${{badge}}</td>`;
 }}
 
+// 融資佔比/融券餘額佔比：純數字顯示，不設警示門檻(沒有客觀依據硬設門檻)。
+function _plainPctTd(v) {{
+  if (v === null || v === undefined) return '<td class="num tabular">─</td>';
+  return `<td class="num tabular">${{v.toFixed(2)}}%</td>`;
+}}
+
+// 融資/融券維持率(估)：低於130%(法規追繳門檻)視為警示，用警示色+粗體+文字徽章明確標示。
+// 融資/融券兩欄共用同一套門檻邏輯(見docs/adr/0002-margin-maintenance-ratio-is-an-estimate.md)。
+function _maintTd(v) {{
+  if (v === null || v === undefined) return '<td class="num tabular">─</td>';
+  const isDanger = v < 130;
+  const style = isDanger ? 'color:var(--down);font-weight:700' : 'color:var(--ink-2)';
+  const badge = isDanger ? ' <span class="maint-badge">追繳risk</span>' : '';
+  return `<td class="num tabular" style="${{style}}">${{v.toFixed(1)}}%${{badge}}</td>`;
+}}
+
 function renderStockListItem(s) {{
   const sid = escHtml(s.stock_id);
   if (s.no_data) {{
-    return `<tr class="stock-item no-data"><td><span class="si-id">${{sid}}</span><span class="si-name">${{escHtml(s.stock_name)}}</span></td><td colspan="7">無行情</td></tr>`;
+    return `<tr class="stock-item no-data"><td><span class="si-id">${{sid}}</span><span class="si-name">${{escHtml(s.stock_name)}}</span></td><td colspan="11">無行情</td></tr>`;
   }}
   const color = s.change_pct >= 0 ? 'var(--up)' : 'var(--down)';
   const sign = s.change_pct >= 0 ? '+' : '';
@@ -1416,6 +1501,10 @@ function renderStockListItem(s) {{
     + `<td class="num tabular">${{fmtPrice(s.close)}}</td>`
     + `<td class="num tabular" style="color:${{color}}">${{arrow}} ${{sign}}${{s.change_pct.toFixed(2)}}%</td>`
     + `${{_volTd(s.vol_ratio)}}`
+    + `${{_plainPctTd(s.financed_pct)}}`
+    + `${{_maintTd(s.maintenance_est)}}`
+    + `${{_plainPctTd(s.shorted_pct)}}`
+    + `${{_maintTd(s.short_maintenance_est)}}`
     + `${{_rollTd(s.roll5)}}${{_rollTd(s.roll7)}}${{_rollTd(s.roll10)}}${{_rollTd(s.roll14)}}</tr>`;
 }}
 
@@ -1487,6 +1576,10 @@ function _sortValue(s, key) {{
   if (key === 'id') return s.stock_id;
   if (key === 'close') return s.close;
   if (key === 'vol') return s.vol_ratio;
+  if (key === 'financed') return s.financed_pct;
+  if (key === 'maint') return s.maintenance_est;
+  if (key === 'shorted') return s.shorted_pct;
+  if (key === 'shortmaint') return s.short_maintenance_est;
   if (key === '5' || key === '7' || key === '10' || key === '14') return s['roll' + key];
   return null;
 }}
@@ -1553,6 +1646,8 @@ function selectGroup(name) {{
   const metaSpark = buildSparkline(meta.daily_pct, meta.dates, 'meta-sparkline');
   const chipsSum = buildChipsSummary(meta);
   const historyRecord = buildHistoryRecord(meta);
+  const asofStock = stocks.find(s => s.total_shares_asof);
+  const asofNote = asofStock ? `<div class="asof-note">集保資料：${{escHtml(asofStock.total_shares_asof)}}</div>` : '';
 
   if (!stocks.length) {{
     panel.innerHTML = `
@@ -1564,13 +1659,17 @@ function selectGroup(name) {{
     panel.innerHTML = `
       <div class="detail-head"><h3>${{safeName}}</h3><span class="dpct" style="color:${{pctColor}}">${{pctStr}}</span></div>
       <div class="detail-sub">▲${{meta.up_count}}檔 ▼${{meta.down_count}}檔　・　共 ${{stocks.length}} 檔</div>
-      ${{metaSpark}}${{chipsSum}}${{historyRecord}}
+      ${{metaSpark}}${{chipsSum}}${{historyRecord}}${{asofNote}}
       <div class="overflow-wrap"><table class="stock-list-table">
         <thead><tr>
           <th aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'id')">股票</button></th>
           <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'close')">收盤</button></th>
           <th class="num" aria-sort="descending"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'pct')">漲跌%</button></th>
           <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'vol')">量比</button></th>
+          <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'financed')">融資佔比</button></th>
+          <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'maint')">融資維持率(估)</button></th>
+          <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'shorted')">融券餘額佔比</button></th>
+          <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'shortmaint')">融券維持率(估)</button></th>
           <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'5')">5日</button></th>
           <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'7')">7日</button></th>
           <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'10')">10日</button></th>

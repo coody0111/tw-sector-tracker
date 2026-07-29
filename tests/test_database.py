@@ -6,6 +6,7 @@ from screener.database import (
     get_chips_today,
     get_shareholder_top,
     get_shareholder_trend,
+    get_latest_total_shares,
     import_csv_prices,
     init_db,
 )
@@ -377,3 +378,44 @@ def test_import_csv_prices_keeps_real_ohlc_from_csv(tmp_path, monkeypatch):
     assert new_row[1] == 900.0 and new_row[2] == 910.0 and new_row[3] == 898.0, (
         "新格式CSV真的有OHLC資料時，匯入DB應該保留，不能被寫死成NULL"
     )
+
+
+def test_get_latest_total_shares_per_stock_fallback(tmp_path, monkeypatch):
+    """跟get_chips_today()一樣的per-stock fallback：每支股票各自取<=trade_date的
+    最新一筆，不是整表取單一最新日期——某股集保資料比整表最新日期舊，仍要抓到
+    自己的最新一筆，不是回空。"""
+    import screener.database as db_mod
+    db_path = str(tmp_path / "t.db")
+    monkeypatch.setattr(db_mod, "DB_PATH", db_path)
+
+    con = duckdb.connect(db_path)
+    con.execute("CREATE TABLE shareholder (stock_id VARCHAR, date DATE, total_shares BIGINT)")
+    con.execute("INSERT INTO shareholder VALUES ('2330', '2026-07-09', 100000000)")
+    con.execute("INSERT INTO shareholder VALUES ('2330', '2026-07-16', 100000000)")
+    con.execute("INSERT INTO shareholder VALUES ('2317', '2026-07-02', 50000000)")  # 更舊一週，沒跟上
+    con.close()
+
+    df = get_latest_total_shares("2026-07-16")
+
+    # date 是 DuckDB DATE → pandas datetime64（Timestamp），跟本檔其他測試一致做法
+    # （見 test_get_shareholder_top_returns_prev_date_and_share_chg），故只比日期部分
+    row_2330 = df[df["stock_id"] == "2330"].iloc[0]
+    assert row_2330["total_shares"] == 100000000
+    assert str(row_2330["date"])[:10] == "2026-07-16"
+
+    row_2317 = df[df["stock_id"] == "2317"].iloc[0]
+    assert row_2317["total_shares"] == 50000000
+    assert str(row_2317["date"])[:10] == "2026-07-02"
+
+
+def test_get_latest_total_shares_returns_empty_dataframe_when_no_data(tmp_path, monkeypatch):
+    import screener.database as db_mod
+    db_path = str(tmp_path / "empty.db")
+    monkeypatch.setattr(db_mod, "DB_PATH", db_path)
+
+    con = duckdb.connect(db_path)
+    con.execute("CREATE TABLE shareholder (stock_id VARCHAR, date DATE, total_shares BIGINT)")
+    con.close()
+
+    df = get_latest_total_shares("2026-07-16")
+    assert df.empty

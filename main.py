@@ -16,7 +16,7 @@ from scrapers.chips import fetch_institutional, fetch_institutional_tpex, fetch_
 from scrapers.taiex import fetch_taiex_index
 from scrapers.backfill import backfill_twse_monthly, backfill_institutional, backfill_margin, backfill_yfinance
 from processors.changes import detect_changes
-from processors.performance import calc_sector_performance, calc_meta_performance, calc_universe_performance, calc_cumulative_meta, calc_meta_signals, calc_meta_chips_signals, get_stock_chips_ranking, get_margin_divergence, calc_market_breadth, calc_capital_concentration, classify_market_regime, calc_meta_heatgrid_windows, calc_stock_sparklines, calc_meta_rank_history
+from processors.performance import calc_sector_performance, calc_meta_performance, calc_universe_performance, calc_cumulative_meta, calc_meta_signals, calc_meta_chips_signals, get_stock_chips_ranking, get_margin_divergence, calc_market_breadth, calc_capital_concentration, classify_market_regime, calc_meta_heatgrid_windows, calc_stock_sparklines, calc_meta_rank_history, calc_avg20_close
 from storage.csv_writer import CsvWriter
 from export.index_generator import generate as generate_index_html
 from export.chips_generator import generate as generate_chips_html
@@ -752,6 +752,19 @@ def run(trade_date: date = None, realtime: bool = False) -> None:
             index_chips_df = pd.DataFrame()
 
         try:
+            from screener.database import get_latest_total_shares
+            total_shares_df = get_latest_total_shares(trade_date.isoformat())
+        except Exception as exc:
+            logger.warning("集保已發行股數計算失敗，index.html融資/融券佔比本次不顯示: %s", exc)
+            total_shares_df = pd.DataFrame()
+
+        try:
+            avg20_map = calc_avg20_close(universe_df) if universe_df is not None else {}
+        except Exception as exc:
+            logger.warning("20日均價計算失敗，index.html融資/融券維持率(估)本次不顯示: %s", exc)
+            avg20_map = {}
+
+        try:
             vol_turnover_signals = scan_volume_turnover(trade_date.isoformat()) if universe_df is not None else []
         except Exception as exc:
             logger.warning("巨量換手訊號計算失敗，index.html本次不顯示: %s", exc)
@@ -769,7 +782,9 @@ def run(trade_date: date = None, realtime: bool = False) -> None:
                                  cum_data=cum_data,
                                  market_regime=market_regime,
                                  vol_turnover_signals=vol_turnover_signals,
-                                 rank_history=rank_history)
+                                 rank_history=rank_history,
+                                 total_shares_df=total_shares_df,
+                                 avg20_map=avg20_map)
             logger.info("HTML generated → docs/index.html")
         else:
             logger.warning("universe_df 未載入（data/stock_universe.csv 不存在），本次不產生 docs/index.html")

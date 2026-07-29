@@ -1381,3 +1381,40 @@ def test_generate_embeds_rank_history_into_card_meta_for_history_record(tmp_path
     assert '"in_top10_this_week":true' in html.replace(" ", "")
     assert '"consecutive_weeks_in_top10":3' in html.replace(" ", "")
     assert "buildHistoryRecord(meta)" in html  # selectGroup()有呼叫這支函式
+
+
+def test_generate_renders_financing_and_short_columns_with_warning_badges(tmp_path):
+    """個股列表新增融資佔比/融資維持率(估)/融券餘額佔比/融券維持率(估)四欄，
+    低於130%時要有警示徽章，欄位都可點排序，且集保資料日期有顯示提示。"""
+    output_path = tmp_path / "index.html"
+    meta_perf = [{"meta_name": "族群A", "avg_change_pct": 2.0, "up_count": 1, "down_count": 0, "flat_count": 0}]
+    universe_df = pd.DataFrame([
+        {"stock_id": "1000", "stock_name": "測試股", "meta_sector": "族群A", "exchange": "TWSE"},
+    ])
+    prices_df = pd.DataFrame([{"stock_id": "1000", "close": 200.0, "change_pct": 2.0}])
+    chips_df = pd.DataFrame([
+        {"stock_id": "1000", "foreign_net": 0, "trust_net": 0,
+         "margin_balance": 1000, "margin_change": 0, "short_balance": 500, "short_change": 0},
+    ])
+    total_shares_df = pd.DataFrame([{"stock_id": "1000", "total_shares": 100000000, "date": "2026-07-09"}])
+    avg20_map = {"1000": 100.0}  # close(200)遠高於avg20(100) → short_maintenance_est<130，觸發警示
+
+    generate(
+        date(2026, 7, 29), meta_perf, universe_df, {}, {}, prices_df, {},
+        chips_df=chips_df, total_shares_df=total_shares_df, avg20_map=avg20_map,
+        output_path=str(output_path),
+    )
+
+    html = output_path.read_text(encoding="utf-8")
+    assert ">融資佔比</button>" in html
+    assert ">融資維持率(估)</button>" in html
+    assert ">融券餘額佔比</button>" in html
+    assert ">融券維持率(估)</button>" in html
+    assert "onclick=\"sortStockList(this.parentElement,'financed')\"" in html
+    assert "onclick=\"sortStockList(this.parentElement,'maint')\"" in html
+    assert "onclick=\"sortStockList(this.parentElement,'shorted')\"" in html
+    assert "onclick=\"sortStockList(this.parentElement,'shortmaint')\"" in html
+    assert "function _plainPctTd" in html
+    assert "function _maintTd" in html
+    assert "maint-badge" in html
+    assert "集保資料：" in html

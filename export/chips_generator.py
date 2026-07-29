@@ -1319,16 +1319,16 @@ def generate(
       <h1>台股電子半導體族群追蹤</h1>
       <span class="page-name">籌碼分析</span>
     </div>
+    <div class="data-status" aria-label="籌碼資料日期">
+      <span>資料日期</span>
+      <strong>{chips_date}（週{weekday}）</strong>
+    </div>
     <nav class="nav-links" aria-label="主要功能">
       <a class="nav-link" href="index.html">族群績效</a>
       <a class="nav-link active" href="chips.html" aria-current="page">籌碼分析</a>
       <a class="nav-link" href="patterns.html">形態掃描</a>
       <a class="nav-link" href="momentum.html">逆轟策略</a>
     </nav>
-    <div class="data-status" aria-label="籌碼資料日期">
-      <span>資料日期</span>
-      <strong>{chips_date}（週{weekday}）</strong>
-    </div>
   </header>
   <div class="workspace">
     <aside class="section-nav" aria-label="籌碼分析視角">

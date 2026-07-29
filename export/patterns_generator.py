@@ -342,7 +342,8 @@ _CSS = """
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:#080B12;color:#DADFE8;font-family:system-ui,sans-serif;padding:12px 20px}
 a{color:#F0BB55}
-.nav-links{display:flex;gap:8px;margin:8px 0 0}
+.page-head{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap}
+.nav-links{display:flex;gap:8px;margin-left:auto}
 .nav-link{font-size:.78rem;padding:5px 14px;border-radius:6px;border:1px solid #293346;color:#636B80;text-decoration:none;transition:all .15s}
 .nav-link:hover{border-color:#37435C;color:#98A0B4}
 .nav-link.active{border-color:#37435C;color:#DADFE8;background:#161D2C}
@@ -456,14 +457,16 @@ def generate(trade_date: date, results: list[dict], output_path: str) -> None:
 <style>{_CSS}</style>
 </head>
 <body>
-<div style="color:#98A0B4;font-size:1rem;font-weight:600;margin-bottom:2px">形態掃描
-  <span style="color:#37435C;font-size:.78rem;font-weight:400;margin-left:8px">{date_str}</span>
-</div>
-<div class="nav-links">
-  <a class="nav-link" href="index.html">族群績效</a>
-  <a class="nav-link" href="chips.html">籌碼分析</a>
-  <a class="nav-link active" href="patterns.html">形態掃描</a>
-  <a class="nav-link" href="momentum.html">逆轟策略</a>
+<div class="page-head">
+  <div style="color:#98A0B4;font-size:1rem;font-weight:600">形態掃描
+    <span style="color:#37435C;font-size:.78rem;font-weight:400;margin-left:8px">{date_str}</span>
+  </div>
+  <div class="nav-links">
+    <a class="nav-link" href="index.html">族群績效</a>
+    <a class="nav-link" href="chips.html">籌碼分析</a>
+    <a class="nav-link active" href="patterns.html">形態掃描</a>
+    <a class="nav-link" href="momentum.html">逆轟策略</a>
+  </div>
 </div>
 <div class="filter-bar">
   <button class="exch-btn active" data-exch="" onclick="applyFilters(this)">全部</button>

@@ -1161,3 +1161,48 @@ def calc_meta_rank_history(
         }
 
     return results
+
+
+def calc_avg20_close(
+    universe_df: pd.DataFrame,
+    db_path: str = "data/screener.db",
+    lookback: int = 20,
+) -> Dict[str, float]:
+    """
+    每支股票近N個交易日(預設20日)的平均收盤價，供融資/融券維持率(估)當成本基準
+    (docs/adr/0002-margin-maintenance-ratio-is-an-estimate.md)。比照
+    calc_stock_sparklines() 的pivot模式；不足20天的股票用實際天數的平均值，
+    不強求剛好20筆、不硬湊假資料。
+
+    Returns
+    -------
+    {stock_id: avg_close}，只包含有資料的股票；完全沒有價格資料時回空dict。
+    """
+    try:
+        con = duckdb.connect(db_path, read_only=True)
+        dates_df = con.execute(
+            f"SELECT DISTINCT date FROM daily_prices ORDER BY date DESC LIMIT {lookback}"
+        ).fetchdf()
+        prices_df = con.execute(
+            "SELECT stock_id, date, close FROM daily_prices"
+        ).fetchdf()
+        con.close()
+    except Exception:
+        return {}
+
+    if prices_df.empty or dates_df.empty:
+        return {}
+
+    all_dates = set(dates_df["date"].tolist())
+    stock_ids = set(universe_df["stock_id"].astype(str))
+    prices_df["stock_id"] = prices_df["stock_id"].astype(str)
+    prices_df = prices_df[
+        prices_df["stock_id"].isin(stock_ids) & prices_df["date"].isin(all_dates)
+    ]
+    prices_df = prices_df.dropna(subset=["close"])
+
+    if prices_df.empty:
+        return {}
+
+    avg_by_stock = prices_df.groupby("stock_id")["close"].mean()
+    return {sid: round(float(v), 2) for sid, v in avg_by_stock.items()}

@@ -52,3 +52,18 @@ def test_render_headline_zone_escapes_malicious_stock_name():
     )
     assert "<script>alert(1)</script>" not in html
     assert "&lt;script&gt;" in html
+
+
+def test_render_headline_zone_renders_populated_holder_focus_rows():
+    """實際render含資料的holder_focus列，涵蓋direction bar/week_chg/lv12_15_pct格式化邏輯
+    （lv12_15_pct=None的列用來鎖定None-vs-missing防呆的回歸測試）。"""
+    holder_focus = [
+        {"stock_id": "5347", "stock_name": "世界先進", "lv12_15_pct": 68.4, "week_chg": 2.1},
+        {"stock_id": "8261", "stock_name": "富鼎", "lv12_15_pct": None, "week_chg": -0.8},
+    ]
+    html = render_headline_zone(candidate_cards=[], holder_focus=holder_focus)
+
+    assert "世界先進" in html
+    assert "富鼎" in html
+    assert 'hm-delta up">+2.1%' in html
+    assert 'hm-delta down">-0.8%' in html

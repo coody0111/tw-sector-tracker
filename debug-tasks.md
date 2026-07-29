@@ -3653,3 +3653,30 @@ Cody要求v27 mockup補上個股列表的K棒/走勢/量能。查證時發現**�
 - ⚠️ 目前master領先origin 19個commit、落後19個commit(分岔)——是另一台機器的
   main.py自動commit累積出來的，不是這次改動造成的。push前需要先git pull --rebase
   處理，照CLAUDE.md的防分岔鐵律，不要force push
+
+## [2026-07-30] 大戶持倉本週焦點：拿掉長條圖
+
+### 改了什麼
+- 異動檔案：export/chips_headline.py, export/chips_generator.py
+- 邏輯說明：籌碼頁(docs/chips.html)首頁「今日焦點」的「大戶持倉本週焦點」子區塊，
+  拿掉發散長條圖(.hm-divbar)，改成股票名稱｜週變化%pill｜目前水位% 純文字一行式。
+  Cody反饋長條圖沒有比旁邊數字多傳達資訊，是視覺雜訊。排序邏輯（依|週變化%|絕對值
+  排序前5，不分方向）完全沒動。
+- spec: docs/superpowers/specs/2026-07-30-holder-focus-remove-bar-chart-design.md
+- plan: docs/superpowers/plans/2026-07-30-holder-focus-remove-bar-chart.md
+
+### 資料來源相關（如有異動）
+- 無資料來源異動，純呈現層調整（HTML/CSS）
+
+### 請 Debugger 驗證
+- [ ] 全部測試通過(pytest -q全綠，本機已跑過，479個)
+- [ ] 「大戶持倉本週焦點」區塊視覺上正確顯示3欄（名稱/週變化%pill/目前水位%），沒有長條
+- [ ] 週變化%的紅漲綠跌pill樣式跟頁面其他地方(連買/連賣天數)視覺一致
+- [ ] 沒有影響「候選觀察」卡片（同一個headline zone的另一半，這次沒有動）
+- [ ] 沒有影響完整「大戶籌碼」分頁（Section8，本來就沒有長條圖）
+
+### 特別注意
+- debug worktree的 docs/superpowers/mockups/2026-07-23-chips-v3-final.html 裡有一段
+  解釋「為什麼改用發散長條」的註解，前提現在已經不成立，是歷史紀錄不用改，但對照時
+  別誤以為現行程式碼還在用發散長條
+- 這批commit尚未push到origin，等Cody指示

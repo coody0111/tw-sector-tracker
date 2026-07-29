@@ -855,6 +855,12 @@ def run(trade_date: date = None, realtime: bool = False) -> None:
                 except Exception:
                     _roll_map = {}
 
+                try:
+                    from screener.database import get_shareholder_trend
+                    _trend_map = get_shareholder_trend(weeks=5)
+                except Exception:
+                    _trend_map = {}
+
                 sh_rows = []
                 for _, row in sh_df.iterrows():
                     sid = str(row["stock_id"])
@@ -901,6 +907,7 @@ def run(trade_date: date = None, realtime: bool = False) -> None:
                         "lv15_shares": int(row["lv15_shares"]) if pd.notna(row["lv15_shares"]) else None,
                         "lv15_pct":    float(row["lv15_pct"]) if pd.notna(row["lv15_pct"]) else None,
                         "lv15_chg":    int(row["lv15_chg"]) if pd.notna(row["lv15_chg"]) else None,
+                        "trend":       _trend_map.get(sid, []),
                     })
             else:
                 sh_rows = []

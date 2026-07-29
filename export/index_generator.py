@@ -943,8 +943,8 @@ def _anomaly_cards_html(anomaly_cards: List[Dict[str, Any]]) -> str:
         kind_label = "爆量暴衝" if c["kind"] == "burst" else "連續噴出"
         cards.append(
             f'<div class="anomaly-card {c["kind"]}" data-meta-name="{_esc(c["meta_name"])}" '
-            f'role="button" tabindex="0" onclick="selectGroup(this.dataset.metaName)" '
-            f'onkeydown="if(event.key===\'Enter\'||event.key===\' \'){{event.preventDefault();selectGroup(this.dataset.metaName)}}">'
+            f'role="button" tabindex="0" onclick="selectGroup(this.dataset.metaName,true)" '
+            f'onkeydown="if(event.key===\'Enter\'||event.key===\' \'){{event.preventDefault();selectGroup(this.dataset.metaName,true)}}">'
             f'<div class="anomaly-kind {c["kind"]}">{kind_label}</div>'
             f'<span class="anomaly-pct tabular">{_pct_str(c["pct"])}</span>'
             f'<div class="anomaly-name">{_esc(c["meta_name"])}</div>'
@@ -1031,8 +1031,8 @@ def _heatgrid_html(cards: List[Dict[str, Any]]) -> str:
         meta_name_safe = _esc(c["meta_name"])
         tiles.append(
             f'<div class="heat-tile" data-meta-name="{meta_name_safe}" '
-            f'role="button" tabindex="0" onclick="selectGroup(this.dataset.metaName)" '
-            f'onkeydown="if(event.key===\'Enter\'||event.key===\' \'){{event.preventDefault();selectGroup(this.dataset.metaName)}}" '
+            f'role="button" tabindex="0" onclick="selectGroup(this.dataset.metaName,true)" '
+            f'onkeydown="if(event.key===\'Enter\'||event.key===\' \'){{event.preventDefault();selectGroup(this.dataset.metaName,true)}}" '
             f'style="background:{c["heat_bg"]};border-top-color:{_TIER_COLOR_VAR[tier["key"]] if tier else "transparent"}">'
             f'<div class="ht-top"><span class="ht-rank tabular">{rank_html}</span>'
             f'<span class="ht-name" title="{meta_name_safe}">{meta_name_safe}</span>'
@@ -1612,11 +1612,16 @@ function sortStockList(th, key) {{
   renderPanelStocks();
 }}
 
-function selectGroup(name) {{
+function selectGroup(name, toggle) {{
   closeStockCard();
   const existing = document.getElementById('detailPanel');
+  // toggle=true（點族群格/anomaly卡/收合鈕）時，若點的正是目前已展開的族群 → 收合後結束，
+  // 不重新展開。判斷基準用目前帶.active的heat-tile（不論當初是從哪個元件開的都會標記它）。
+  const activeTile = document.querySelector('.heat-tile.active');
+  const alreadyOpen = existing && activeTile && activeTile.dataset.metaName === name;
   if (existing) existing.remove();
   document.querySelectorAll('.heat-tile').forEach(t => t.classList.remove('active'));
+  if (toggle && alreadyOpen) return;
 
   const tiles = [...document.querySelectorAll('.heat-tile')];
   const tile = tiles.find(t => t.dataset.metaName === name);
@@ -1641,7 +1646,7 @@ function selectGroup(name) {{
   const closeBtn = document.createElement('button');
   closeBtn.className = 'detail-close';
   closeBtn.textContent = '收合';
-  closeBtn.onclick = () => selectGroup(name);
+  closeBtn.onclick = () => selectGroup(name, true);
 
   const metaSpark = buildSparkline(meta.daily_pct, meta.dates, 'meta-sparkline');
   const chipsSum = buildChipsSummary(meta);

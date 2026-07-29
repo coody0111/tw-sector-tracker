@@ -46,6 +46,47 @@ Developer 做了 `export/html_generator.py`（舊版）vs `export/index_generato
 - [ ] 鍵盤操作、手機版 auto-fit grid 兩項視覺/互動測試持續待補（連續兩次交接都提到，需要
       瀏覽器環境才能真正驗證，不是我這邊能決定要不要做的事）。
 
+## [2026-07-29] 修 🟡→改善 - 族群頁再按同一族群可收合(toggle)（Cody 授權 Debugger 直接改）
+
+### 背景
+Cody 回報：`docs/index.html` 族群頁點單一族群會展開個股列表，但**再按同一個族群不會收回**——
+按第一下展開、按第二下留在那邊。Cody 明確授權直接改。
+
+### 根因
+`export/index_generator.py::selectGroup(name)`（JS）每次都無條件「移除舊 panel → 重建」，
+沒有「點到已展開的同一族群就收合」的分支。連「收合」鈕 `closeBtn.onclick = () => selectGroup(name)`
+其實也壞的——它呼叫同一個函式，等於移除後又重建，畫面看起來沒收合（只是重新 render 留在原地）。
+
+### 改法
+`selectGroup(name)` → `selectGroup(name, toggle)`，開頭加收合判斷：
+- 用目前帶 `.active` 的 heat-tile 判斷「現在展開的是不是同一個族群」(`alreadyOpen`)；
+- `if (toggle && alreadyOpen) return;`（移除 panel/active 後直接結束＝收合，不重新展開）。
+- 呼叫端分兩類意圖：
+  - **會 toggle（傳 `true`）**：族群格 heat-tile 的 onclick/onkeydown、anomaly 卡、「收合」鈕
+    → 再按同一個＝收合。
+  - **只展開（不傳）**：搜尋結果選族群/選個股、`#meta=` hash 連結進頁 → 是「檢視這個族群」的
+    意圖，維持只展開、不會誤收合。
+- 切到**不同**族群仍是正常切換（`alreadyOpen` 為 false）。
+
+### 資料來源相關
+- 純前端互動邏輯，不碰任何抓取/資料來源/計算，`generate()` 產出的其餘內容不變。
+
+### 驗證
+- 全專案 `pytest`：**427 passed**（2 個既有 FutureWarning/DeprecationWarning 與本次無關）。
+- 更新既有 XSS 安全回歸測試（`..._uses_this_dataset_metaname_...`）斷言為
+  `selectGroup(this.dataset.metaName,true)`——仍鎖住「用 dataset 屬性、不 interpolate 原始名稱」
+  的安全寫法。
+- 新增 `test_generate_selectgroup_toggles_closed_on_repeat_click`：驗簽章帶 toggle 參數、收合 guard
+  存在、收合鈕傳 true、搜尋/hash 呼叫端維持不傳（只展開）。
+- 各情境逐一推演：無→展開、同一族群再按→收合、切他族→切換、收合鈕→收合、搜尋/hash→只展開。
+
+### 特別注意
+- **live 頁面何時生效**：改的是 generator，不是已產出的 `docs/index.html`（那份仍是舊 JS）。
+  我**刻意不手動重產**——這台 `data/screener.db` 是 7/2 舊資料，重產會用舊族群資料覆蓋掉 cron
+  每天產的新資料。下次 cron 的 `update: sector performance` 跑 main.py 時會用新 generator 產出
+  帶 toggle 的頁面，自動生效。
+- 依 CLAUDE.md 例外條款（Cody 授權直接改）：已 commit 並當場同步回 master，避免分岔。
+
 ---
 
 ## [2026-07-24] 驗證(續2) - build 重建自動保留 exchange 欄（Developer @ master c6f98dd）

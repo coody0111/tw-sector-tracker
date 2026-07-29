@@ -765,7 +765,32 @@ def test_generate_uses_this_dataset_metaname_not_raw_string_interpolation(tmp_pa
 
     html = output_path.read_text(encoding="utf-8")
     assert "onclick=\"selectGroup('機器人/自動化')\"" not in html
-    assert "onclick=\"selectGroup(this.dataset.metaName)\"" in html
+    assert "onclick=\"selectGroup(this.dataset.metaName,true)\"" in html
+
+
+def test_generate_selectgroup_toggles_closed_on_repeat_click(tmp_path):
+    """再按一次已展開的族群要能收合(toggle)：selectGroup 需吃 toggle 參數，且在
+    toggle 且該族群已展開時直接 return 不重新展開。族群格/anomaly卡/收合鈕都要傳 true。"""
+    output_path = tmp_path / "index.html"
+    meta_perf = [
+        {"meta_name": "光通訊", "avg_change_pct": 1.0, "up_count": 1, "down_count": 0, "flat_count": 0},
+    ]
+    universe_df = pd.DataFrame([
+        {"stock_id": "3081", "stock_name": "聯亞", "meta_sector": "光通訊"},
+    ])
+    prices_df = pd.DataFrame([{"stock_id": "3081", "close": 10.0, "change_pct": 1.0}])
+
+    generate(date(2026, 7, 22), meta_perf, universe_df, {}, {}, prices_df, {}, output_path=str(output_path))
+    html = output_path.read_text(encoding="utf-8")
+
+    # 函式簽章帶 toggle 參數 + 收合 guard 存在
+    assert "function selectGroup(name, toggle)" in html
+    assert "if (toggle && alreadyOpen) return;" in html
+    # 收合鈕主動傳 true（讓「收合」真的收合，而非重新 render 留在原地）
+    assert "selectGroup(name, true)" in html
+    # 搜尋/hash 呼叫端維持「只展開、不 toggle」(不帶第二參數)
+    assert "selectGroup(entry.meta)" in html
+    assert "selectGroup(h.slice(6))" in html
 
 
 def test_generate_includes_nav_links_to_other_three_pages(tmp_path):

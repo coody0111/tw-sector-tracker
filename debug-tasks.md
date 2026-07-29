@@ -3517,3 +3517,48 @@ Cody要求v27 mockup補上個股列表的K棒/走勢/量能。查證時發現**�
 - 這個功能完全是即時計算，不需要等待資料庫累積新資料——上線當天就有完整5週
   歷史可看(資料庫回溯到2025-01-02，遠超過5週所需天數)
 - 這批commit尚未push到origin，等Cody指示
+
+## [2026-07-29] 個股列表新增融資/融券佔比與維持率(估)
+
+### 改了什麼
+- 異動檔案：screener/database.py, processors/performance.py, export/index_generator.py,
+  main.py, tests/test_database.py, tests/test_processors.py, tests/test_index_generator.py
+- 邏輯說明：新增get_latest_total_shares()(集保已發行股數，per-stock fallback)+
+  calc_avg20_close()(20日均收盤價)兩支資料函式，接進build_stock_detail_data()算出
+  四個新欄位：融資佔比、融資維持率(估)(現價/20日均價/融資成數*100%，<130%警示)、
+  融券餘額佔比、融券維持率(估)(20日均價/現價/融資成數*100%，方向跟融資相反，
+  同樣<130%警示)。個股列表新增這四欄可排序，緊接在量比後面，多空方各自分組相鄰。
+  設計討論見CONTEXT.md、docs/adr/0002-margin-maintenance-ratio-is-an-estimate.md，
+  spec見docs/superpowers/specs/2026-07-29-stock-margin-metrics-design.md，實作計畫見
+  docs/superpowers/plans/2026-07-29-stock-margin-metrics.md。
+- 6個task用subagent-driven-development逐一執行，每個task獨立TDD(先寫失敗測試、
+  確認失敗、再實作、確認通過、才commit)。過程中subagent自己抓到並修正2個小問題：
+  一次是插入位置意外把前一個函式的return statement吃掉(靠全套測試發現)、一次是
+  測試程式碼漏了一個既有慣例的import(跟同檔案其他測試風格對齊後補上)。
+
+### 資料來源相關（如有異動）
+- 融資佔比/融券餘額佔比：來源是集保股權分散表(shareholder表total_shares)，每週更新，
+  比其他每日欄位新鮮度較低，個股列表上方會顯示「集保資料：YYYY-MM-DD」實際日期。
+- 融資維持率(估)/融券維持率(估)：兩者都是估算值，不是真實維持率(真實維持率是帳戶
+  層級資料，交易所不公布)，用20日均價當成本基準是業界慣例做法。
+- 上市/上櫃資料：無異動，都是既有daily_prices/margin/shareholder表的新用法。
+
+### 請 Debugger 驗證
+- [ ] 全部測試通過(pytest -q全綠，本機已跑過，438個)
+- [ ] 點進任一族群的個股列表，新增4欄：融資佔比/融資維持率(估)/融券餘額佔比/
+      融券維持率(估)，位置在量比後面
+- [ ] 四欄都可以點欄名排序
+- [ ] 融資維持率(估)/融券維持率(估)低於130%時要有警示色+「追繳risk」徽章
+- [ ] 個股列表上方要有「集保資料：YYYY-MM-DD」的日期提示
+- [ ] 融資餘額=0的股票，融資佔比/融資維持率(估)兩欄顯示「─」；融券餘額=0時，
+      融券餘額佔比/融券維持率(估)兩欄顯示「─」——兩組各自獨立判斷
+
+### 特別注意
+- 這兩個維持率都是**估算值**，不是真實維持率——UI上「(估)」是刻意標註，不能被誤會
+  成精確數字
+- 融資成數固定用交易所預設值(上市6成/上櫃5成)，沒有處理注意股/處置股等可能有不同
+  融資成數的例外情況(見spec Out of Scope)
+- 這批commit尚未push到origin，等Cody指示
+- ⚠️ 目前master領先origin 19個commit、落後19個commit(分岔)——是另一台機器的
+  main.py自動commit累積出來的，不是這次改動造成的。push前需要先git pull --rebase
+  處理，照CLAUDE.md的防分岔鐵律，不要force push

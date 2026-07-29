@@ -1,3 +1,94 @@
+## [2026-07-29] 籌碼頁（chips.html）今日焦點 headline zone + 大戶持倉卡片化完成
+
+### 背景
+`docs/chips.html` 大戶持倉區塊原本是13欄密集表格，Cody 反饋「太亂了、抓不到重點」。改版
+設計定案於 mockup `docs/superpowers/mockups/2026-07-23-chips-v3-final.html`（發布版
+https://claude.ai/code/artifact/c5f948f5-3852-4a39-a385-d3598da65e33），拆成9-task plan
+（`docs/superpowers/plans/2026-07-29-chips-headline-and-holder-redesign.md`），全部走
+subagent-driven-development（implementer → spec-compliance review → code-quality review，
+每個 Task 都過兩階段，發現問題就resume同一個implementer修完再review一輪，不是重派新的）。
+
+### 改了什麼
+- 新增檔案：`export/chips_headline.py`（候選觀察卡片 `build_candidate_cards()`、headline
+  zone渲染 `render_headline_zone()`）、`tests/test_chips_headline.py`（6個測試）。
+- 異動檔案：
+  - `screener/database.py`：新增 `get_shareholder_trend(weeks=5)`，緊接在 `get_shareholder_top()`
+    後面，沿用同一個 `ROW_NUMBER() OVER(PARTITION BY stock_id ORDER BY date DESC)` pattern，
+    把 `rn` 上限從硬寫的2改成可設定的週數。
+  - `export/chips_generator.py`：新增 `_calc_trend_svg()`（SVG viewBox座標計算，單一座標系統
+    避免對不齊）、`_holder_card_html()`/`_holder_column_html()`（大戶持倉卡片渲染，取代
+    `_shareholder_table()` 在 `_build_section8()` 的用途）；側欄9個分頁籤分成3組（法人動向/
+    特殊型態/持股結構）；接線 `chips_headline.py` 的 headline zone 進 `generate()`，插在
+    `<main>` 開頭、`exch_filter_btns` 之前。
+  - `main.py`：呼叫 `get_shareholder_trend(weeks=5)`，合併進 `sh_rows` 每筆的 `"trend"` 欄位。
+- 邏輯說明：
+  - 候選觀察卡片資料源**完全沿用**既有 `rank_joint_buy_candidates()`（跟「法人同步觀察」分頁
+    完整榜單同一份資料，同一次 `generate()` 呼叫內不重算兩次），不是重新設計排序邏輯。
+  - **誠實揭露文案是強制項**：候選觀察卡片區塊固定顯示「條件篩選觀察名單，不是投資建議。
+    排序邏輯尚未完成配對組／統計顯著性驗證，命中率無法保證優於隨機選股。」——因為籌碼策略的
+    配對組/bootstrap/樣本外驗證都還沒做完（見下方「桌電待驗」條目），UI 不能暗示這是已證實
+    有效的訊號。這段文字在 `render_headline_zone()` 裡是無條件渲染（不在任何 if 分支內），
+    已用測試鎖住。
+  - 大戶持倉維持「連增倉／連減倉」兩張獨立清單，不合併混排——跟現行 production 分組邏輯一致，
+    只換渲染方式（表格→卡片+發散長條+近5週趨勢SVG走勢圖）。
+  - `_shareholder_table()` 函式**故意保留、沒刪除**——`test_shareholder_table_*` 系列既有測試
+    還在測這支函式，這次任務範圍是「新增卡片渲染路徑」不是「刪除舊表格函式」，死碼清理是獨立
+    後續任務。已用 `grep -n "_shareholder_table(" export/chips_generator.py` 確認只剩函式自己
+    的定義那一行，`_build_section8()` 內的呼叫已經在改用 `_holder_column_html()`。
+- 這次 review 迴圈抓到並修好的問題（每個都是真的 bug，不是吹毛求疵）：
+  1. **Task 3**：`_holder_card_html()` 的 `row.get('lv12_15_pct', 0)`/`row.get('close', '─')`
+     用「有key就不補預設值」的 `.get(key, default)` pattern，但真實資料（`main.py`）這兩個
+     欄位的值本來就可能是 `None`（key存在，值是None）——`.get(key, default)` 對這種情況完全
+     沒防呆，會在 `:.1f` 格式化時 crash。已改用 `row.get(key) or 0` / 明確 `is not None` 判斷。
+  2. **Task 4**：`_holder_column_html()` 的 `direction` 參數docstring聲稱「只影響空狀態文案」
+     但實際空狀態文案不分方向都是同一句「無資料」——docstring跟行為不一致，已記錄但判定低風險
+     延後修（只影響某一欄剛好全空的邊界情況）。
+  3. **Task 5**：側欄分頁分成3組後，鍵盤導覽（ArrowLeft/Right/Home/End）用
+     `document.querySelector('.tab-bar')` 綁定監聽器，分組前DOM裡只有1個`.tab-bar`所以正確，
+     分組後變成3個`.tab-bar`（每組一個），`querySelector`只抓到第一組，導致另外6個分頁（特殊
+     型態組+持股結構組）鍵盤導覽完全失效——已改綁 `.tab-groups`（分組後仍唯一的外層容器）。
+     同時發現 mobile斷點（`max-width:1100px`）CSS沒隱藏新的分組標籤、沒把`.tab-groups`攤平成
+     單一橫向卷軸列，導致手機版側欄變成3倍高、3個各自獨立卷軸的區塊——已修正CSS。這兩個都是
+     code quality review抓到，不是spec review範圍（spec review只確認HTML結構符合規格，不會
+     執行JS/檢查CSS視覺行為）。
+  4. **Task 6**：`export/chips_headline.py` 的大戶持倉本週焦點迷你面板同樣有
+     `row.get('lv12_15_pct', 0)` 的None-vs-missing bug（跟Task 3是同一類bug，不同檔案），且
+     原本5個測試全部只測`holder_focus=[]`空清單，完全沒測到會踩到這個bug的populated資料分支
+     ——已修正並補上用`lv12_15_pct: None`當測資的回歸測試。
+  5. **Task 6 fix階段的git狀態插曲**：implementer修完bug、要commit前發現 `.git` 有進行中的
+     merge（`MERGE_HEAD`存在、`tests/test_database.py`有衝突標記）——正確判斷「兩個session別
+     同時動git」風險，回報BLOCKED而不是硬commit。查證後確認是Developer session的
+     `git merge master`已經跑完（merge commit `109c1dd`乾淨落地，無殘留衝突），確認安全後才
+     讓implementer繼續commit。沒有東西遺失或衝突。
+- 全部9個Task（含2次因code review發現問題而resume修正）最終皆通過spec-compliance +
+  code-quality兩階段review，判定"Ready to merge: Yes"。
+- 最終 `tests/test_chips_generator.py`：**50 passed**；`tests/test_chips_headline.py`：
+  **6 passed**；`tests/test_database.py`（含新增 `get_shareholder_trend()` 4個測試）；全 repo
+  測試套件：**477 passed, 1 failed**（唯一failure是既有已知限制 `test_scan_patterns_returns_list`，
+  需要本機 `data/screener.db`，這個debug worktree沒有，跟這次改動無關）。
+
+### 資料來源相關（如有異動）
+- 無新資料來源異動。純新增一支DB查詢函式（`get_shareholder_trend()`，讀既有 `shareholder` 表，
+  沿用 `get_shareholder_top()` 已驗證過的離群值防護邏輯 `WHERE lv12_15_pct < _MAX_VALID_HOLDER_PCT`）
+  + HTML/CSS/SVG組裝邏輯，不動 scrapers 層。
+
+### 請 Debugger 驗證（桌電，這個debug worktree沒有 `data/screener.db`）
+- [ ] `docs/chips.html` headline zone 是否正確顯示今日真實的候選觀察（跟「法人同步觀察」分頁
+      的完整榜單前3名比對，應該一致，因為兩處資料源是同一支 `rank_joint_buy_candidates()`）
+- [ ] 大戶持倉本週焦點迷你面板的5檔是否正確（依 `|week_chg|` 降冪排序前5名）
+- [ ] 大戶籌碼分頁的卡片化渲染：連增倉/連減倉兩欄是否正確、發散長條方向跟數字對得起來、近5週
+      趨勢走勢圖的Y軸/X軸文字是否對齊（不要只看程式碼，實際瀏覽器縮放看一次——這次開發過程中
+      mockup階段真的踩過對不齊的bug，教訓是純程式碼審查抓不到視覺對齊問題）
+- [ ] 側欄9個分頁分成3組（法人動向/特殊型態/持股結構）後，點擊切換分頁功能是否正常；**鍵盤
+      導覽**（Tab focus到任一分頁按鈕後按ArrowLeft/ArrowRight/Home/End）在3組都要能正常切換
+      （這是這次review抓到才修好的功能，麻煩實際測一次，不要只看程式碼）；手機寬度（或縮小
+      瀏覽器視窗到1100px以下）確認側欄不會變成3倍高的樣子
+- [ ] 誠實揭露文案「條件篩選觀察名單，不是投資建議」是否清楚可見，不會被其他元素遮住或不小心
+      被使用者忽略
+- [ ] `python -m pytest -q` 跑一次確認全數 PASS（除了已知限制的 `test_scan_patterns_returns_list`）
+
+---
+
 ## [2026-07-22] 族群總覽頁（index.html）熱區格改版完成：新建 export/index_generator.py 取代 export/html_generator.py
 
 ### 背景

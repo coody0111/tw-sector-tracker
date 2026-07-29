@@ -4,9 +4,9 @@ import pandas as pd
 
 from screener.database import (
     get_chips_today,
+    get_latest_total_shares,
     get_shareholder_top,
     get_shareholder_trend,
-    get_latest_total_shares,
     import_csv_prices,
     init_db,
 )

@@ -67,3 +67,13 @@ def test_render_headline_zone_renders_populated_holder_focus_rows():
     assert "富鼎" in html
     assert 'hm-delta up">+2.1%' in html
     assert 'hm-delta down">-0.8%' in html
+
+
+def test_render_headline_zone_holder_focus_rows_have_no_bar_chart():
+    """Cody反饋長條圖是視覺雜訊、沒有用，拿掉後不能再有.hm-divbar相關HTML。"""
+    holder_focus = [
+        {"stock_id": "5347", "stock_name": "世界先進", "lv12_15_pct": 68.4, "week_chg": 2.1},
+    ]
+    html = render_headline_zone(candidate_cards=[], holder_focus=holder_focus)
+
+    assert "hm-divbar" not in html

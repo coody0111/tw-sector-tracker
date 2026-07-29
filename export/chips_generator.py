@@ -8,6 +8,8 @@ from pathlib import Path
 from urllib.parse import quote
 import json
 
+from export.chips_headline import build_candidate_cards, render_headline_zone
+
 _CUM_THRESHOLD = 15
 
 
@@ -666,7 +668,7 @@ def _chg_cell(pct) -> str:
 
 
 _CSS = """
-  :root{--bg:#080B12;--surface:#0F1420;--surface-2:#161D2C;--surface-3:#1E2738;--border:#293346;--border-strong:#37435C;--text:#DADFE8;--muted:#98A0B4;--subtle:#636B80;--accent:#F0BB55;--accent-soft:rgba(240,187,85,.16);--focus:#F0BB55;--up:#E6432F;--down:#37B25C;--radius:8px}
+  :root{--bg:#080B12;--surface:#0F1420;--surface-2:#161D2C;--surface-3:#1E2738;--border:#293346;--border-strong:#37435C;--text:#DADFE8;--muted:#98A0B4;--subtle:#636B80;--accent:#F0BB55;--accent-soft:rgba(240,187,85,.16);--caution:#6E8CB0;--caution-soft:rgba(110,140,176,.16);--focus:#F0BB55;--up:#E6432F;--down:#37B25C;--radius:8px}
   *{box-sizing:border-box}
   html{background:var(--bg);overflow-x:hidden}
   body{margin:0;min-width:320px;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans TC",sans-serif;background:var(--bg);color:var(--text);line-height:1.5;overflow-x:hidden}
@@ -790,6 +792,35 @@ _CSS = """
   .hc-trend.down .trend-end{fill:var(--down)}
   .hc-trend .trend-grid{stroke:var(--border);stroke-width:1;stroke-dasharray:2,2}
   .hc-trend-empty{font-size:.68rem;color:var(--subtle);padding:6px 0;font-style:italic}
+  .hero{display:grid;grid-template-columns:1.2fr 1fr;gap:14px;padding:16px 20px;margin-bottom:8px}
+  @media(max-width:980px){.hero{grid-template-columns:1fr}}
+  .hero-panel{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px 18px}
+  .hero-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:4px}
+  .hero-head h2{font-size:.92rem;font-weight:700;margin:0}
+  .hero-head .count{font-size:.66rem;color:var(--subtle);font-family:ui-monospace,monospace}
+  .disclosure{display:flex;gap:7px;padding:8px 0 12px;font-size:.7rem;color:var(--muted);border-bottom:1px solid var(--border);margin-bottom:10px}
+  .disclosure b{color:var(--caution);font-weight:700}
+  .pick-row{display:grid;grid-template-columns:16px 1fr auto;gap:10px;align-items:center;padding:9px 0 9px 8px;border-left:2px solid transparent;border-bottom:1px solid var(--border)}
+  .pick-row:last-child{border-bottom:none}
+  .pick-row.primary{border-left-color:var(--accent);background:var(--accent-soft)}
+  .pr-rank{font-family:ui-monospace,monospace;font-size:.66rem;color:var(--subtle)}
+  .pr-name{font-weight:700;font-size:.86rem}
+  .pr-sid{font-family:ui-monospace,monospace;color:var(--subtle);font-size:.68rem;margin-left:5px;font-weight:400}
+  .pr-evidence{font-size:.68rem;color:var(--subtle);font-family:ui-monospace,monospace;margin-top:2px}
+  .pr-pct{font-family:ui-monospace,monospace;font-weight:700;font-size:.88rem;color:var(--up);text-align:right}
+  .pr-pct .lbl{display:block;font-size:.58rem;color:var(--subtle);font-weight:400}
+  .hero-footnote{padding-top:12px;font-size:.66rem;color:var(--subtle)}
+  .holder-mini-row{display:grid;grid-template-columns:76px 1fr 46px 50px;gap:8px;align-items:center;padding:6px 0}
+  .hm-name{font-size:.8rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .hm-divbar{height:6px;background:var(--surface-2);border-radius:2px;position:relative;overflow:hidden}
+  .hm-divbar span{position:absolute;top:0;bottom:0;border-radius:2px}
+  .hm-divbar span.up{left:50%;background:var(--up)}
+  .hm-divbar span.down{right:50%;background:var(--down)}
+  .hm-delta{font-family:ui-monospace,monospace;font-weight:700;font-size:.7rem;text-align:center;padding:2px 0;border-radius:8px;border:1px solid}
+  .hm-delta.up{color:#FF9585;background:rgba(230,67,47,.32);border-color:rgba(230,67,47,.55)}
+  .hm-delta.down{color:#7FE8A8;background:rgba(55,178,92,.32);border-color:rgba(55,178,92,.55)}
+  .hm-abs{font-family:ui-monospace,monospace;font-size:.66rem;color:var(--subtle);text-align:right}
+  .detail-empty{color:var(--subtle);font-size:.8rem;padding:16px 0;font-style:italic}
 """
 
 _TAB_JS = """
@@ -1264,6 +1295,11 @@ def generate(
     s4_html = _build_section4(stock_chips)
     s5_html = _build_section5(meta_chips)
     s6a_html, s6_foreign_html, s6_trust_html = _build_section6(inst_scan)
+    candidate_cards = build_candidate_cards(inst_scan, limit=3)
+    holder_focus_sorted = sorted(
+        shareholder_data, key=lambda r: -abs(r.get("week_chg") or 0)
+    )[:5]
+    headline_html = render_headline_zone(candidate_cards, holder_focus_sorted)
     s7_html = _build_section7(margin_divergence)
     s8_html, s8_note, s_insider_html = _build_section8(shareholder_data, insider_data)
 
@@ -1332,6 +1368,7 @@ def generate(
       </div>
     </aside>
     <main id="main-content" class="main-content" tabindex="-1">
+      {headline_html}
       {exch_filter_btns}
 
       <div class="tab-panel" id="tab-signal" role="tabpanel" aria-labelledby="tab-btn-signal">

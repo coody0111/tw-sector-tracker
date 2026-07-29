@@ -810,12 +810,8 @@ _CSS = """
   .pr-pct{font-family:ui-monospace,monospace;font-weight:700;font-size:.88rem;color:var(--up);text-align:right}
   .pr-pct .lbl{display:block;font-size:.58rem;color:var(--subtle);font-weight:400}
   .hero-footnote{padding-top:12px;font-size:.66rem;color:var(--subtle)}
-  .holder-mini-row{display:grid;grid-template-columns:76px 1fr 46px 50px;gap:8px;align-items:center;padding:6px 0}
+  .holder-mini-row{display:grid;grid-template-columns:1fr 52px 50px;gap:8px;align-items:center;padding:6px 0}
   .hm-name{font-size:.8rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .hm-divbar{height:6px;background:var(--surface-2);border-radius:2px;position:relative;overflow:hidden}
-  .hm-divbar span{position:absolute;top:0;bottom:0;border-radius:2px}
-  .hm-divbar span.up{left:50%;background:var(--up)}
-  .hm-divbar span.down{right:50%;background:var(--down)}
   .hm-delta{font-family:ui-monospace,monospace;font-weight:700;font-size:.7rem;text-align:center;padding:2px 0;border-radius:8px;border:1px solid}
   .hm-delta.up{color:#FF9585;background:rgba(230,67,47,.32);border-color:rgba(230,67,47,.55)}
   .hm-delta.down{color:#7FE8A8;background:rgba(55,178,92,.32);border-color:rgba(55,178,92,.55)}

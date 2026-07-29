@@ -17,6 +17,8 @@ from screener.institutional import rank_joint_buy_candidates
 
 
 def _esc(value) -> str:
+    """HTML-escape 外部資料（股票名稱/族群名稱等來自 TWSE/TPEx API 回應的字串），
+    避免被竄改的回應內容注入進發布到 GitHub Pages 的 chips.html。"""
     return _html_escape(str(value)) if value else ""
 
 
@@ -27,8 +29,6 @@ def build_candidate_cards(inst_scan: list[dict], limit: int = 3) -> list[dict]:
 
 
 def _candidate_card_html(row: dict, rank: int) -> str:
-    price_pct = row.get("change_pct")
-    price_pct_str = f"{price_pct:+.1f}%" if price_pct is not None else "─"
     flow_ratio = row.get("institutional_flow_ratio_pct")
     flow_str = f"{flow_ratio:.2f}%" if flow_ratio is not None else "─"
     price_cum = row.get("price_cum_pct")
@@ -61,16 +61,17 @@ def render_headline_zone(candidate_cards: list[dict], holder_focus: list[dict]) 
         holder_html = '<div class="detail-empty">今日無資料</div>'
     else:
         rows_html = []
+        max_abs = max((abs(r.get("week_chg") or 0) for r in holder_focus[:5]), default=1.0) or 1.0
         for row in holder_focus[:5]:
             week_chg = row.get("week_chg") or 0.0
             direction = "up" if week_chg >= 0 else "down"
-            max_abs = max((abs(r.get("week_chg") or 0) for r in holder_focus[:5]), default=1.0) or 1.0
             bar_pct = abs(week_chg) / max_abs * 50
+            lv12_15_pct = row.get("lv12_15_pct") or 0
             rows_html.append(f"""<div class="holder-mini-row">
   <span class="hm-name">{_esc(row.get('stock_name', ''))}</span>
   <div class="hm-divbar"><span class="{direction}" style="width:{bar_pct:.1f}%"></span></div>
   <span class="hm-delta {direction}">{week_chg:+.1f}%</span>
-  <span class="hm-abs">{row.get('lv12_15_pct', 0):.1f}%</span>
+  <span class="hm-abs">{lv12_15_pct:.1f}%</span>
 </div>""")
         holder_html = "".join(rows_html)
 

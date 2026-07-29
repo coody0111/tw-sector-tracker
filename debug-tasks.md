@@ -3679,4 +3679,34 @@ Cody要求v27 mockup補上個股列表的K棒/走勢/量能。查證時發現**�
 - debug worktree的 docs/superpowers/mockups/2026-07-23-chips-v3-final.html 裡有一段
   解釋「為什麼改用發散長條」的註解，前提現在已經不成立，是歷史紀錄不用改，但對照時
   別誤以為現行程式碼還在用發散長條
+
+## [2026-07-30] 統一四頁導覽列位置到右上角
+
+### 改了什麼
+- 異動檔案：export/chips_generator.py, export/patterns_generator.py
+- 邏輯說明：Cody反饋族群/籌碼/型態/策略四頁的導覽列(nav-links)位置不一致——
+  index.html跟momentum.html是靠右上，chips.html跟patterns.html是靠左上(緊接標題旁)。
+  確認統一成右上(跟index.html/momentum.html一致，多數頁面已是這樣，改動量較小)。
+  - chips.html：把`<nav class="nav-links">`移到`<div class="data-status">`後面
+    (跟著data-status的`margin-left:auto`一起被推到右邊)，CSS沒改，手機版768px以下
+    本來就用`order:3`明確排序，不受這次HTML順序調整影響。
+  - patterns.html：本來連`<header>`都沒有，只是純block排版的標題div+獨立的nav-links
+    div。新增`.page-head{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap}`
+    包住標題+nav，並把`.nav-links`的`margin:8px 0 0`改成`margin-left:auto`讓它被推到
+    右側，跟其他三頁視覺一致。
+  - index.html/momentum.html本來就是右上，沒有改動。
+
+### 資料來源相關（如有異動）
+- 無資料來源異動，純呈現層調整（HTML結構+CSS）
+
+### 請 Debugger 驗證
+- [ ] 全部測試通過(pytest -q全綠，本機已跑過，479個，這次改動沒有新增/刪除測試，
+      因為現有測試都不斷言header/nav的HTML結構)
+- [ ] 四個頁面(index/chips/patterns/momentum)桌面版導覽列都在右上角，视覺一致
+- [ ] chips.html手機版(<=760px)導覽列還是維持原本的完整寬度、排在最下面那一行
+      的響應式行為，沒有被這次HTML順序調整影響
+- [ ] patterns.html新增的.page-head flex容器沒有把標題或日期的樣式弄亂
+
+### 特別注意
+- 這批commit尚未push到origin，等Cody指示
 - 這批commit尚未push到origin，等Cody指示

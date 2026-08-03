@@ -837,6 +837,27 @@ def test_calc_meta_rank_history_partial_weeks_when_insufficient_history(tmp_path
     assert len(result["新資料族群"]["weekly_ranks"]) == 1
 
 
+def test_calc_meta_rank_history_includes_weekly_returns_alongside_ranks(tmp_path):
+    """weekly_returns要跟weekly_ranks平行(同index對齊、同樣舊到新)，數值是排名依據的
+    複利報酬本身，供find_rank_crossings()的絕對報酬閘門使用。"""
+    db_path = tmp_path / "test.db"
+    rows = []
+    for d in range(1, 6):  # 5天
+        rows.append(("A1", f"2026-06-{d:02d}", 3.0))   # 族群A：每天+3%
+        rows.append(("B1", f"2026-06-{d:02d}", -2.0))  # 族群B：每天-2%
+    _seed_rank_history_db(db_path, rows)
+    universe = pd.DataFrame([
+        {"stock_id": "A1", "meta_sector": "族群A"},
+        {"stock_id": "B1", "meta_sector": "族群B"},
+    ])
+
+    result = calc_meta_rank_history(universe, db_path=str(db_path), weeks_back=5)
+
+    assert len(result["族群A"]["weekly_returns"]) == len(result["族群A"]["weekly_ranks"])
+    assert result["族群A"]["weekly_returns"][-1] > 0
+    assert result["族群B"]["weekly_returns"][-1] < 0
+
+
 def test_calc_meta_rank_history_returns_empty_dict_when_no_price_data(tmp_path):
     db_path = tmp_path / "empty.db"
     con = duckdb.connect(str(db_path))

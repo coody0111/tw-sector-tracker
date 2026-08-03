@@ -115,14 +115,17 @@ def test_find_turning_points_skips_when_five_days_ago_data_is_none():
 
 
 def test_find_rank_crossings_detects_just_in_and_just_out():
-    """複刻討論用的真實案例：散熱上週#14(不在前10)、本週#3(前10)=剛進榜；
-    半導體設備上週#7(前10)、本週#28(不在前10)=剛掉出榜。"""
+    """複刻討論用的真實案例：散熱上週#14(不在前10)、本週#3(前10)、本週自身報酬為正=剛進榜；
+    半導體設備上週#7(前10)、本週#28(不在前10)、本週自身報酬為負=剛掉出榜。"""
     rank_history = {
-        "散熱": {"weekly_ranks": [20, 18, 16, 14, 3], "in_top10_this_week": True,
+        "散熱": {"weekly_ranks": [20, 18, 16, 14, 3], "weekly_returns": [-8.0, -6.0, -4.0, -2.0, 5.0],
+                 "in_top10_this_week": True,
                  "consecutive_weeks_in_top10": 1, "last_top10_week_index": None, "last_top10_rank": None},
-        "半導體設備": {"weekly_ranks": [10, 9, 8, 7, 28], "in_top10_this_week": False,
+        "半導體設備": {"weekly_ranks": [10, 9, 8, 7, 28], "weekly_returns": [3.0, 4.0, 5.0, 6.0, -3.0],
+                      "in_top10_this_week": False,
                       "consecutive_weeks_in_top10": 0, "last_top10_week_index": 3, "last_top10_rank": 7},
-        "穩定族群": {"weekly_ranks": [5, 5, 5, 5, 5], "in_top10_this_week": True,
+        "穩定族群": {"weekly_ranks": [5, 5, 5, 5, 5], "weekly_returns": [1.0, 1.0, 1.0, 1.0, 1.0],
+                    "in_top10_this_week": True,
                     "consecutive_weeks_in_top10": 5, "last_top10_week_index": None, "last_top10_rank": None},
     }
 
@@ -158,15 +161,47 @@ def test_find_rank_crossings_skips_when_fewer_than_two_weeks_of_data():
 def test_find_rank_crossings_sorts_by_magnitude_of_change():
     """剛進榜/剛掉出榜清單依變動幅度排序，變動最大的排最前面。"""
     rank_history = {
-        "小幅進榜": {"weekly_ranks": [12, 9], "in_top10_this_week": True,
+        "小幅進榜": {"weekly_ranks": [12, 9], "weekly_returns": [-1.0, 2.0],
+                    "in_top10_this_week": True,
                     "consecutive_weeks_in_top10": 1, "last_top10_week_index": None, "last_top10_rank": None},
-        "大幅進榜": {"weekly_ranks": [30, 2], "in_top10_this_week": True,
+        "大幅進榜": {"weekly_ranks": [30, 2], "weekly_returns": [-5.0, 8.0],
+                    "in_top10_this_week": True,
                     "consecutive_weeks_in_top10": 1, "last_top10_week_index": None, "last_top10_rank": None},
     }
 
     result = find_rank_crossings(rank_history)
 
     assert [r["meta_name"] for r in result["just_in"]] == ["大幅進榜", "小幅進榜"]
+
+
+def test_find_rank_crossings_excludes_just_in_when_own_return_still_negative():
+    """絕對報酬閘門：排名跨進前10，但本週自身5日複利報酬仍是負的(只是跌最少)，
+    不能算剛進榜——複刻Cody實際看到的「散熱」案例(上週#24跌9.6%，本週#1但仍跌1.21%)。"""
+    rank_history = {
+        "散熱": {"weekly_ranks": [24, 1], "weekly_returns": [-9.6, -1.21],
+                 "in_top10_this_week": True,
+                 "consecutive_weeks_in_top10": 1, "last_top10_week_index": None, "last_top10_rank": None},
+    }
+
+    result = find_rank_crossings(rank_history)
+
+    assert result["just_in"] == []
+    assert result["just_out"] == []
+
+
+def test_find_rank_crossings_excludes_just_out_when_own_return_still_positive():
+    """絕對報酬閘門的對稱情境：排名跨出前10，但本週自身5日複利報酬仍是正的(只是漲最少)，
+    不能算剛掉出榜。"""
+    rank_history = {
+        "漲最少": {"weekly_ranks": [3, 15], "weekly_returns": [8.0, 0.5],
+                  "in_top10_this_week": False,
+                  "consecutive_weeks_in_top10": 0, "last_top10_week_index": None, "last_top10_rank": None},
+    }
+
+    result = find_rank_crossings(rank_history)
+
+    assert result["just_in"] == []
+    assert result["just_out"] == []
 
 
 def test_find_anomaly_cards_burst_requires_volume_and_rank_jump():
@@ -446,7 +481,7 @@ def test_build_sector_recap_includes_rank_crossings():
     ]
     heatgrid_windows = {}
     rank_history = {
-        "散熱": {"weekly_ranks": [14, 3], "in_top10_this_week": True,
+        "散熱": {"weekly_ranks": [14, 3], "weekly_returns": [-2.0, 5.0], "in_top10_this_week": True,
                  "consecutive_weeks_in_top10": 1, "last_top10_week_index": None, "last_top10_rank": None},
     }
     cards = build_heatgrid_cards(meta_perf, {}, {}, heatgrid_windows)
@@ -474,9 +509,9 @@ def test_build_sector_recap_excludes_stale_sector_from_rank_crossings():
         {"meta_name": "有效族群", "avg_change_pct": 1.0, "up_count": 1, "down_count": 0, "flat_count": 0},
     ]
     rank_history = {
-        "有效族群": {"weekly_ranks": [14, 3], "in_top10_this_week": True,
+        "有效族群": {"weekly_ranks": [14, 3], "weekly_returns": [-2.0, 5.0], "in_top10_this_week": True,
                     "consecutive_weeks_in_top10": 1, "last_top10_week_index": None, "last_top10_rank": None},
-        "已下架族群": {"weekly_ranks": [14, 3], "in_top10_this_week": True,
+        "已下架族群": {"weekly_ranks": [14, 3], "weekly_returns": [-2.0, 5.0], "in_top10_this_week": True,
                      "consecutive_weeks_in_top10": 1, "last_top10_week_index": None, "last_top10_rank": None},
     }
     cards = build_heatgrid_cards(meta_perf, {}, {}, {})

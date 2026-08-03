@@ -1052,6 +1052,8 @@ def calc_meta_rank_history(
     {meta_name: {
         "weekly_ranks": List[int]，舊→新排列，長度<=weeks_back(資料不足5週時回較短list，
             不強湊)，最後一筆是本週。
+        "weekly_returns": List[float]，跟weekly_ranks平行(同index對齊)，該週排名依據的
+            5日複利報酬%本身(不是名次)，供find_rank_crossings()的絕對報酬閘門使用。
         "in_top10_this_week": bool，本週排名是否<=10(資料完全不足、weekly_ranks為空時False)
         "consecutive_weeks_in_top10": int，連續進榜週數(含本週)，本週未進榜則為0
         "last_top10_week_index": int | None，本週未進榜時，weekly_ranks裡最近一次進榜的
@@ -1101,9 +1103,10 @@ def calc_meta_rank_history(
             factor *= (1 + v / 100)
         return round((factor - 1) * 100, 2)
 
-    # week_ranks_by_week[i] = {meta_name: rank}，i=0是weeks_available裡最舊那週，
-    # i=weeks_available-1是本週
+    # week_ranks_by_week[i] = {meta_name: rank}，week_pcts_by_week[i] = {meta_name: 複利報酬%}，
+    # 兩者平行、同index對齊。i=0是weeks_available裡最舊那週，i=weeks_available-1是本週。
     week_ranks_by_week: List[Dict[str, int]] = []
+    week_pcts_by_week: List[Dict[str, float]] = []
     for i in range(weeks_available):
         start = total_days - 5 * (weeks_available - i)
         end = total_days - 5 * (weeks_available - i - 1)
@@ -1118,14 +1121,16 @@ def calc_meta_rank_history(
 
         ranked = sorted(week_pcts.items(), key=lambda x: -x[1])
         week_ranks_by_week.append({name: idx + 1 for idx, (name, _) in enumerate(ranked)})
+        week_pcts_by_week.append(week_pcts)
 
     results: Dict[str, Dict[str, Any]] = {}
     for meta_name in meta_names:
         weekly_ranks_raw = [week_ranks_by_week[i].get(meta_name) for i in range(weeks_available)]
+        weekly_returns_raw = [week_pcts_by_week[i].get(meta_name) for i in range(weeks_available)]
         weekly_ranks = [r for r in weekly_ranks_raw if r is not None]
         if not weekly_ranks:
             results[meta_name] = {
-                "weekly_ranks": [], "in_top10_this_week": False,
+                "weekly_ranks": [], "weekly_returns": [], "in_top10_this_week": False,
                 "consecutive_weeks_in_top10": 0,
                 "last_top10_week_index": None, "last_top10_rank": None,
             }
@@ -1154,6 +1159,7 @@ def calc_meta_rank_history(
 
         results[meta_name] = {
             "weekly_ranks": weekly_ranks_raw,
+            "weekly_returns": weekly_returns_raw,
             "in_top10_this_week": in_top10_this_week,
             "consecutive_weeks_in_top10": consecutive,
             "last_top10_week_index": last_top10_week_index,

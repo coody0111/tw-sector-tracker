@@ -151,6 +151,13 @@ def find_rank_crossings(rank_history: Dict[str, Dict[str, Any]]) -> Dict[str, Li
     是刻意並存的不同訊號——tier只看自身動能，這裡純粹比較相對排名，見
     docs/adr/0003-rank-crossing-signal-kept-separate-from-tier-signal.md。
 
+    絕對報酬閘門：光跨過排名門檻還不夠，還要本週自身5日複利報酬方向跟排名方向一致，才算
+    真的「進榜/掉出榜」——否則全市場普遍走弱時，「跌最少」的族群會被誤判成剛進榜(看起來
+    像在噴，其實只是相對沒那麼差)，見
+    docs/superpowers/specs/2026-08-03-rank-crossing-absolute-return-gate-design.md。
+    剛進榜需本週weekly_returns > 0；剛掉出榜需本週weekly_returns < 0。沒有weekly_returns
+    資料(例如舊格式rank_history)時視為不通過閘門，不列入任一份清單。
+
     rank_history: calc_meta_rank_history()的輸出。weekly_ranks長度<2(沒有『上週』可比較)
     的族群不參與判定。
 
@@ -164,14 +171,16 @@ def find_rank_crossings(rank_history: Dict[str, Dict[str, Any]]) -> Dict[str, Li
     just_out = []
     for meta_name, data in rank_history.items():
         ranks = data.get("weekly_ranks") or []
+        returns = data.get("weekly_returns") or []
         if len(ranks) < 2:
             continue
         prev_rank, cur_rank = ranks[-2], ranks[-1]
+        cur_return = returns[-1] if returns else None
         prev_in = prev_rank <= 10
         cur_in = cur_rank <= 10
-        if not prev_in and cur_in:
+        if not prev_in and cur_in and cur_return is not None and cur_return > 0:
             just_in.append({"meta_name": meta_name, "prev_rank": prev_rank, "cur_rank": cur_rank})
-        elif prev_in and not cur_in:
+        elif prev_in and not cur_in and cur_return is not None and cur_return < 0:
             just_out.append({"meta_name": meta_name, "prev_rank": prev_rank, "cur_rank": cur_rank})
 
     just_in.sort(key=lambda r: r["prev_rank"] - r["cur_rank"], reverse=True)
@@ -1101,7 +1110,7 @@ def _sector_recap_html(recap: Dict[str, Any]) -> str:
     rankmove_html = f"""
 <div class="rankmove-wrap">
   <div class="rankmove-head">排名進出榜</div>
-  <div class="rankmove-sub">這週剛擠進/掉出前10名的族群（跟上週排名比較，不是自身動能——跟上面「轉折點」是不同角度的訊號）</div>
+  <div class="rankmove-sub">這週剛擠進/掉出前10名、且自身報酬方向一致的族群（單純排名進步但自身仍是負報酬、或退步但自身仍是正報酬不算——跟上面「轉折點」是不同角度的訊號）</div>
   <div class="rankmove-cols">
     <div class="rankmove-col in"><h4>剛進榜</h4>{_rankmove_col(rank_crossings["just_in"], "in")}</div>
     <div class="rankmove-col out"><h4>剛掉出榜</h4>{_rankmove_col(rank_crossings["just_out"], "out")}</div>

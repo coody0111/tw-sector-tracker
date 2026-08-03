@@ -522,7 +522,7 @@ def test_holder_card_html_renders_divergent_bar_matching_direction():
     assert "5347" in html
     assert 'class="hc-divbar"' in html
     assert '<span class="up"' in html
-    assert "連增6週" in html
+    assert "大戶連增6週" in html  # 標籤要清楚標明是「大戶」在增，不是股價/成交量等其他指標
     assert "68.4" in html  # 絕對水位
 
 
@@ -540,7 +540,7 @@ def test_holder_card_html_negative_week_chg_uses_down_direction():
     html = _holder_card_html(row, rank=1, max_abs_week_chg=2.1)
 
     assert '<span class="down"' in html
-    assert "連減2週" in html
+    assert "大戶連減2週" in html
 
 
 def test_holder_card_html_shows_insufficient_data_when_trend_missing():
@@ -625,6 +625,22 @@ def test_build_section8_uses_card_rendering_not_old_table():
     assert "holder-grid" in s8_html
     assert "holder-card" in s8_html
     assert "大戶連增倉" in s8_html
+
+
+def test_build_section8_titles_have_methodology_description():
+    """Cody反饋「連增/連減」標籤不清楚指的是什麼——標題下面要有說明文字講清楚是
+    ≥400張大戶合計持股比例連續上升/下降，且要誠實標注資料源不含散戶/中小戶級距。"""
+    shareholder_data = [
+        {"stock_id": "5347", "stock_name": "世界先進", "meta_sector": "晶圓代工",
+         "close": 128.5, "change_pct": 1.2, "lv12_15_pct": 68.4, "week_chg": 2.1,
+         "streak": 6, "share_chg": 412000, "lv15_pct": 22.6, "date": "2026-07-17",
+         "trend": []},
+    ]
+    s8_html, _, _ = _build_section8(shareholder_data, [])
+
+    assert "cs-description" in s8_html
+    assert "400張" in s8_html
+    assert "散戶" in s8_html
 
 
 def test_build_section8_splits_increasing_and_decreasing_columns():
@@ -732,3 +748,33 @@ def test_generate_headline_zone_uses_shareholder_data_for_holder_focus(tmp_path)
     stock_positions = [m for m in range(len(html)) if html.startswith("世界先進", m)]
     assert any(hero_idx < p < tab_holder_idx for p in stock_positions), \
         "大戶持倉本週焦點應該顯示shareholder_data裡的股票，且要出現在hero zone(tab-holder之前)"
+
+
+def test_generate_headline_zone_holder_focus_excludes_zero_streak_stocks(tmp_path):
+    """Cody反饋「本週焦點」跟下面完整清單(依streak排序)標準不一致，導致焦點股在完整清單
+    裡找不到——修法是本週焦點只從streak!=0(有連續增/減倉紀錄)的股票裡挑，這樣焦點股一定
+    也符合完整清單Top30/20的篩選前提(streak!=0)，體感落差變小。"""
+    output_path = tmp_path / "chips.html"
+    shareholder_data = [
+        {"stock_id": "9999", "stock_name": "剛開始異動股", "meta_sector": "測試",
+         "close": 50.0, "change_pct": 5.0, "lv12_15_pct": 40.0, "week_chg": 20.0,
+         "streak": 0, "share_chg": 0, "lv15_pct": 0.0, "date": "2026-07-29", "trend": []},
+        {"stock_id": "5347", "stock_name": "世界先進", "meta_sector": "晶圓代工",
+         "close": 128.5, "change_pct": 1.2, "lv12_15_pct": 68.4, "week_chg": 2.1,
+         "streak": 6, "share_chg": 412000, "lv15_pct": 22.6, "date": "2026-07-29",
+         "trend": [],
+        },
+    ]
+    generate(
+        trade_date=date(2026, 7, 29),
+        meta_chips={"外資連買": {}}, stock_chips={"chips_date": "2026-07-29"},
+        shareholder_data=shareholder_data, output_path=str(output_path),
+    )
+    html = output_path.read_text(encoding="utf-8")
+
+    hero_idx = html.index("大戶持倉本週焦點")
+    tab_holder_idx = html.index('id="tab-holder"')
+    hero_zone = html[hero_idx:tab_holder_idx]
+    assert "世界先進" in hero_zone
+    assert "剛開始異動股" not in hero_zone, \
+        "streak=0(當週剛開始異動、還沒形成連續紀錄)的股票不該出現在本週焦點，即使週變化幅度最大"

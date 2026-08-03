@@ -456,7 +456,7 @@ def _holder_card_html(row: dict, rank: int, max_abs_week_chg: float) -> str:
     direction = "up" if week_chg >= 0 else "down"
     bar_pct = abs(week_chg) / max_abs_week_chg * 50 if max_abs_week_chg > 0 else 0
     streak = row.get("streak") or 0
-    streak_txt = f"連增{streak}週" if streak > 0 else (f"連減{abs(streak)}週" if streak < 0 else "")
+    streak_txt = f"大戶連增{streak}週" if streak > 0 else (f"大戶連減{abs(streak)}週" if streak < 0 else "")
     streak_pill = (
         f'<span class="hc-streak-pill {direction}">{streak_txt}</span>' if streak_txt else ""
     )
@@ -1226,10 +1226,12 @@ def _build_section8(shareholder_data: list, insider_data: list | None = None) ->
 <div class="chips-grid">
   <div class="chips-section-half">
     <div class="cs-title">大戶連增倉 Top 30（≥400張，集保）</div>
+    <p class="cs-description">依TDCC集保股權分散表第12-15級（≥400張）大戶合計持股比例，連續上升週數排序；資料源不含400張以下中小戶／散戶級距，無法對照散戶動向。</p>
     {_holder_column_html(top_increasing, direction="inc")}
   </div>
   <div class="chips-section-half">
     <div class="cs-title">大戶連減倉 Top 20</div>
+    <p class="cs-description">同一指標連續下降週數排序（由多至少）。</p>
     {_holder_column_html(top_decreasing, direction="dec")}
   </div>
 </div>"""
@@ -1293,7 +1295,8 @@ def generate(
     s6a_html, s6_foreign_html, s6_trust_html = _build_section6(inst_scan)
     candidate_cards = build_candidate_cards(inst_scan, limit=3)
     holder_focus_sorted = sorted(
-        shareholder_data, key=lambda r: -abs(r.get("week_chg") or 0)
+        (r for r in shareholder_data if (r.get("streak") or 0) != 0),
+        key=lambda r: -abs(r.get("week_chg") or 0),
     )[:5]
     headline_html = render_headline_zone(candidate_cards, holder_focus_sorted)
     s7_html = _build_section7(margin_divergence)

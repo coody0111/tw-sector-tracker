@@ -5,6 +5,36 @@
 
 ---
 
+## 2026-08-25 首頁（index.html）版面/視覺重設 — brainstorming 完成，等 Cody review spec
+
+**進度：** `superpowers:brainstorming` 走完全程，spec 已寫好+commit：
+`docs/superpowers/specs/2026-08-24-index-homepage-redesign-design.md`（commit `4744d19`）。
+**尚未開始實作**，`writing-plans` 也還沒跑。
+
+**定案的 6 項改動：**
+1. 版面重排：熱區格滿版置頂當主角（現況「異動族群→熱區格→族群近況」順序跟優先序不符）；
+   下方雙欄：異動族群（左）｜族群近況+轉折點合併（右）
+2. 異動族群加排序：`find_anomaly_cards()`（`export/index_generator.py:191`）目前完全沒排序，
+   卡片依 dict 插入順序輸出——改成 burst 優先、同 kind 內依 `abs(pct)` 降冪，卡片視覺大小不變
+3. 視覺「深色進化版」：CSS 變數（配色/字型）完全不動，只加玻璃質感+微光暈到超強tier/警示狀態，
+   spec 裡特別註記淺色主題（`:root[data-theme="light"]`）要另外處理色值，不能沿用深色寫死的
+   rgba
+4. 個股明細面板改錨定在熱區格區塊「下方」（`selectGroup()`，現況插進 tile 網格中間、打斷排列）
+5. 面板內走勢/籌碼摘要/歷史進榜三區從垂直堆疊改並排三欄
+6. 補齊 4 項已算好但沒接進面板的資料：自營商(`dealer_net`)、每週報酬%(`weekly_returns`)、
+   大戶佔比+週變化(`shareholder`表)、外資/投信本週累計買賣超(新算法，近5交易日加總)
+
+**明確排除（YAGNI，另立後續任務）：** 異動族群門檻（`vol_ratio>=1.5`/排名跳動`>=10`/
+`streak>=5`）緊化需要回測數據支持，跟這次版面/視覺調整性質不同，不在這次範圍內。
+
+**順便撿到的舊帳：** 2026-07-23 遺留的兩項驗證欠款（熱區格鍵盤操作 Tab/Enter/Space、手機版
+responsive）已經寫進這次 spec 的測試策略，要求跟這次新排版一起補測，不是另開新欠款。
+
+**下一步：** 等 Cody review `docs/superpowers/specs/2026-08-24-index-homepage-redesign-design.md`，
+確認後續跑 `writing-plans` 拆成實作任務。
+
+---
+
 ## 2026-07-22 族群總覽頁熱區格改版計畫 Task 1 完成
 
 **完成內容：**

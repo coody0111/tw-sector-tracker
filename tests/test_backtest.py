@@ -103,6 +103,34 @@ def test_foreign_continuation_ablation_variants_use_isolated_ranking(monkeypatch
     assert [p["stock_id"] for p in price_only] == ["B", "A"], "純價格漲幅排序，B（+50%）該排第一"
 
 
+def test_dip_buy_rule_requires_streak_and_five_day_drop(monkeypatch):
+    rows = [
+        {"stock_id": "A", "date": "2026-07-01", "meta_sector": "測試",
+         "foreign_streak": 2, "trust_streak": 0, "price_cum_pct": -3.0},   # 符合：外資連買+跌逾1%
+        {"stock_id": "B", "date": "2026-07-01", "meta_sector": "測試",
+         "foreign_streak": 0, "trust_streak": 0, "price_cum_pct": -5.0},   # 沒有法人連買，不該入選
+        {"stock_id": "C", "date": "2026-07-01", "meta_sector": "測試",
+         "foreign_streak": 5, "trust_streak": 0, "price_cum_pct": 2.0},    # 有連買但沒跌，不該入選
+    ]
+    monkeypatch.setattr(backtest_module, "scan_institutional", lambda *args, **kwargs: rows)
+    picks = make_chips_rule_scanner("dip_buy")("2026-07-01", "ignored.db")
+    assert [p["stock_id"] for p in picks] == ["A"]
+
+
+def test_stealth_buy_rule_requires_foreign_streak_and_flat_price(monkeypatch):
+    rows = [
+        {"stock_id": "A", "date": "2026-07-01", "meta_sector": "測試",
+         "foreign_streak": 3, "price_cum_pct": 0.5, "foreign_net": 1000},   # 符合：外資連買+盤整
+        {"stock_id": "B", "date": "2026-07-01", "meta_sector": "測試",
+         "foreign_streak": 0, "price_cum_pct": 0.2, "foreign_net": 5000},   # 沒有外資連買，不該入選
+        {"stock_id": "C", "date": "2026-07-01", "meta_sector": "測試",
+         "foreign_streak": 6, "price_cum_pct": 3.0, "foreign_net": 200},    # 有連買但已經漲多，不該入選
+    ]
+    monkeypatch.setattr(backtest_module, "scan_institutional", lambda *args, **kwargs: rows)
+    picks = make_chips_rule_scanner("stealth_buy")("2026-07-01", "ignored.db")
+    assert [p["stock_id"] for p in picks] == ["A"]
+
+
 def test_backtest_chips_config_covers_all_continuation_ablation_rules():
     """每個 CHIPS_RULES 都要有對應的 CHIPS_RULE_CONFIG，否則 run_chips_rule_backtests()
     會在跑到該規則時 KeyError——這是純粹的設定完整性檢查，不用真的跑回測。"""

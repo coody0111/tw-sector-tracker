@@ -38,6 +38,7 @@ _CONTINUATION_RULE_SPECS = {
 CHIPS_RULES = (
     "joint_buy",
     *_CONTINUATION_RULE_SPECS.keys(),
+    "dip_buy", "stealth_buy",
     "margin_bearish", "tdcc_accumulation",
 )
 
@@ -50,6 +51,8 @@ CHIPS_RULE_CONFIG = {
     "joint_buy": {"success_direction": "positive", "skip_no_fill": True, "cost_pct": 0.6},
     **{name: {"success_direction": "positive", "skip_no_fill": True, "cost_pct": 0.6}
        for name in _CONTINUATION_RULE_SPECS},
+    "dip_buy": {"success_direction": "positive", "skip_no_fill": True, "cost_pct": 0.6},
+    "stealth_buy": {"success_direction": "positive", "skip_no_fill": True, "cost_pct": 0.6},
     "margin_bearish": {"success_direction": "negative", "skip_no_fill": False, "cost_pct": 0.0},
     "tdcc_accumulation": {"success_direction": "positive", "skip_no_fill": True, "cost_pct": 0.6},
 }
@@ -138,6 +141,35 @@ def scan_chips_rule(date_str: str, db_path: str, rule: str) -> List[Dict[str, An
         return rank_continuation_candidates(
             candidates, spec["streak_field"], limit=15, weight_mode=spec["weight_mode"],
         )
+
+    if rule in ("dip_buy", "stealth_buy"):
+        first_date, _ = _table_date_range(db_path, "institutional")
+        if first_date and date_str < first_date:
+            return []
+        available_dates = _table_dates(db_path, "institutional")
+        if available_dates and date_str not in available_dates:
+            return []
+        # chips.html 的「越跌越買」「外資偷偷買」原版門檻是族群層級（族群5日累計報酬 +
+        # 族群層級外資/投信連買，見 export/chips_generator.py::_build_section35/_build_section_stealth）。
+        # 回測需要買到具體個股才有價格可查後續報酬，沒有可交易的「族群」標的，這裡改用
+        # 個股自己的 5日累計漲跌(price_cum_pct, price_window=5) + 個股自己的
+        # foreign_streak/trust_streak 做近似——語意略窄於原版族群訊號，但方向一致，
+        # 足以驗證「跌時法人還連買」「盤整時外資偷偷買」這兩個假設本身有沒有 edge。
+        rows = scan_institutional(date_str, db_path=db_path, lookback=40, price_window=5)
+        if not any(r.get("date") == date_str for r in rows):
+            return []
+        candidates = [r for r in rows if r.get("meta_sector") and r.get("price_cum_pct") is not None]
+        if rule == "dip_buy":
+            picks = [r for r in candidates
+                     if (r.get("foreign_streak", 0) > 0 or r.get("trust_streak", 0) > 0)
+                     and r["price_cum_pct"] <= -1.0]
+            picks.sort(key=lambda r: r["price_cum_pct"])  # 跌最多排前面
+        else:
+            picks = [r for r in candidates
+                     if r.get("foreign_streak", 0) > 0
+                     and -1.0 <= r["price_cum_pct"] <= 1.0]
+            picks.sort(key=lambda r: (r.get("foreign_streak", 0), r.get("foreign_net", 0)), reverse=True)
+        return picks[:30]
 
     if rule == "margin_bearish":
         first_date, _ = _table_date_range(db_path, "margin")

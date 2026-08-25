@@ -956,6 +956,47 @@ def test_build_stock_detail_data_defaults_to_empty_sparkline_when_missing():
     assert stock_1001["pcts"] == []
 
 
+def test_build_stock_detail_data_attaches_holder_pct_and_week_chg():
+    """大戶佔比(lv12_15_pct)+週變化(week_chg)要從shareholder_df接進個股資料，
+    跟chips.html的get_shareholder_top()同一份資料、同一套離群值防護(該函式內已過濾)。"""
+    universe_df = pd.DataFrame([
+        {"stock_id": "2330", "stock_name": "台積電", "meta_sector": "半導體"},
+    ])
+    prices_df = pd.DataFrame([{"stock_id": "2330", "close": 1080.0, "change_pct": 3.2}])
+    shareholder_df = pd.DataFrame([
+        {"stock_id": "2330", "lv12_15_pct": 68.4, "week_chg": 0.6},
+    ])
+
+    stock = build_stock_detail_data(
+        universe_df, prices_df, shareholder_df=shareholder_df,
+    )["半導體"][0]
+
+    assert stock["holder_pct"] == 68.4
+    assert stock["holder_week_chg"] == 0.6
+
+
+def test_build_stock_detail_data_defaults_holder_fields_to_none_without_data():
+    """shareholder_df沒傳、或這支股票不在裡面(可能被離群值防護排除、或還沒有集保資料)，
+    holder_pct/holder_week_chg回None，不補假資料，前端顯示「—」。"""
+    universe_df = pd.DataFrame([
+        {"stock_id": "9999", "stock_name": "無資料股", "meta_sector": "測試族群"},
+    ])
+    prices_df = pd.DataFrame([{"stock_id": "9999", "close": 10.0, "change_pct": 1.0}])
+
+    stock = build_stock_detail_data(universe_df, prices_df)["測試族群"][0]
+
+    assert stock["holder_pct"] is None
+    assert stock["holder_week_chg"] is None
+
+    # 也確認shareholder_df有傳、但這支股票不在裡面的情況
+    shareholder_df = pd.DataFrame([{"stock_id": "2330", "lv12_15_pct": 68.4, "week_chg": 0.6}])
+    stock2 = build_stock_detail_data(
+        universe_df, prices_df, shareholder_df=shareholder_df,
+    )["測試族群"][0]
+    assert stock2["holder_pct"] is None
+    assert stock2["holder_week_chg"] is None
+
+
 from datetime import date
 from export.index_generator import generate
 

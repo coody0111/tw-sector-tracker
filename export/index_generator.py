@@ -537,6 +537,7 @@ def build_stock_detail_data(
     chips_df: Optional[pd.DataFrame] = None,
     total_shares_df: Optional[pd.DataFrame] = None,
     avg20_map: Optional[Dict[str, float]] = None,
+    shareholder_df: Optional[pd.DataFrame] = None,
 ) -> Dict[str, List[Dict[str, Any]]]:
     """
     個股點開面板資料（視覺 spec §「點開個股清單」）。全部 meta_sector 都要有 key（即使該族群
@@ -559,6 +560,10 @@ def build_stock_detail_data(
     avg20_map：processors/performance.py::calc_avg20_close() 的輸出，供
     maintenance_est/short_maintenance_est的成本基準。兩者任一沒傳、或這支股票
     沒有對應資料，四個新欄位都回傳None（不補假資料）。
+    shareholder_df：screener/database.py::get_shareholder_top() 的輸出（含stock_id/
+    lv12_15_pct/week_chg欄位），供個股表格「大戶佔比」「大戶週變化」兩欄。這支函式已經
+    內建離群值防護(_MAX_VALID_HOLDER_PCT)並過濾掉異常值，這裡不用再重覆過濾——沒傳、或
+    這支股票不在裡面(被防護排除、或還沒有集保資料)，兩欄都回None，前端顯示「—」。
 
     無行情的個股不再跳過——改成標記 no_data=True（比照舊版html_generator.py的「無行情」
     佔位符慣例），close/change_pct/pcts/dates/roll*/chips都是None/空，前端顯示成灰階佔位卡。
@@ -583,6 +588,10 @@ def build_stock_detail_data(
         total_shares["stock_id"] = total_shares["stock_id"].astype(str)
     total_shares_map = total_shares.set_index("stock_id") if not total_shares.empty else pd.DataFrame()
     avg20 = avg20_map or {}
+    shareholder = shareholder_df.copy() if shareholder_df is not None and not shareholder_df.empty else pd.DataFrame()
+    if not shareholder.empty:
+        shareholder["stock_id"] = shareholder["stock_id"].astype(str)
+    shareholder_map = shareholder.set_index("stock_id") if not shareholder.empty else pd.DataFrame()
 
     result: Dict[str, List[Dict[str, Any]]] = {
         meta_name: [] for meta_name in universe["meta_sector"].dropna().unique()
@@ -616,6 +625,14 @@ def build_stock_detail_data(
             if total_shares_asof_raw is not None and pd.notna(total_shares_asof_raw) else None
         )
         avg20_close = avg20.get(sid)
+        holder_pct = (
+            float(shareholder_map.loc[sid, "lv12_15_pct"])
+            if sid in shareholder_map.index and pd.notna(shareholder_map.loc[sid, "lv12_15_pct"]) else None
+        )
+        holder_week_chg = (
+            float(shareholder_map.loc[sid, "week_chg"])
+            if sid in shareholder_map.index and pd.notna(shareholder_map.loc[sid, "week_chg"]) else None
+        )
 
         financed_pct = (
             round(margin_balance_lots * 1000 / total_shares_val * 100, 2)
@@ -659,6 +676,8 @@ def build_stock_detail_data(
             "shorted_pct": shorted_pct,
             "short_maintenance_est": short_maintenance_est,
             "total_shares_asof": total_shares_asof,
+            "holder_pct": holder_pct,
+            "holder_week_chg": holder_week_chg,
         }
         result[meta_name].append(entry)
 

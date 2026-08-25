@@ -1771,3 +1771,21 @@ def test_generate_renders_heatgrid_before_secondary_row_with_anomaly_and_recap_s
 
     assert heatgrid_pos < anomaly_pos, "熱區格要在異動族群前面(滿版置頂當主角)"
     assert secondary_row_pos < anomaly_pos < recap_pos, "異動族群跟族群近況要包在secondary-row容器裡，異動族群在前(左欄)"
+
+
+def test_generate_wraps_spark_chips_history_in_three_column_grid(tmp_path):
+    """走勢/籌碼動向/歷史進榜三個摘要區塊要包在.detail-three-col容器裡並排三欄，
+    不是原本的垂直堆疊(各自獨立一整行)。"""
+    output_path = tmp_path / "index.html"
+    generate(date(2026, 8, 25), _sample_meta_perf(), _sample_universe_df(), {}, {}, _sample_prices_df(), {},
+             output_path=str(output_path))
+
+    html = output_path.read_text(encoding="utf-8")
+    select_group_start = html.index("function selectGroup(")
+    select_group_end = html.index("/* ── 個股/族群搜尋 ── */")
+    select_group_body = html[select_group_start:select_group_end]
+
+    assert '"detail-three-col"' in select_group_body or "detail-three-col" in select_group_body
+    assert "metaSpark" in select_group_body
+    assert "chipsSum" in select_group_body
+    assert "historyRecord" in select_group_body

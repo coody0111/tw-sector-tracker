@@ -829,9 +829,12 @@ table.vt-table{width:100%;border-collapse:collapse}
 .detail-head .dpct{font-family:var(--mono);font-size:.98rem;font-weight:700}
 .detail-close{margin-left:auto;font-family:var(--mono);font-size:.68rem;background:none;border:1px solid var(--border);color:var(--ink-3);padding:4px 10px;border-radius:4px;cursor:pointer}
 .detail-sub{font-size:.75rem;color:var(--ink-3);margin-bottom:8px;font-family:var(--mono)}
-.meta-sparkline{margin:4px 0 10px;line-height:0}
-.meta-sparkline svg{width:100%;height:auto;display:block;max-width:420px}
-.chips-summary{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:14px;padding:8px 12px;background:var(--panel-2);border-radius:5px;font-size:.76rem}
+.detail-three-col{display:grid;grid-template-columns:1fr 1fr 1.3fr;gap:12px;margin:10px 0 14px}
+@media (max-width:768px){.detail-three-col{grid-template-columns:1fr}}
+.tc-box{background:var(--panel-2);border-radius:5px;padding:10px 12px}
+.meta-sparkline{margin:0;line-height:0}
+.meta-sparkline svg{width:100%;height:auto;display:block}
+.chips-summary{display:flex;flex-direction:column;gap:6px;flex-wrap:wrap;margin:0;padding:0;background:none;font-size:.76rem}
 .cs-row{display:flex;align-items:center;gap:6px}
 .cs-row .cs-label{color:var(--ink-3)}
 .cs-row .cs-sub{color:var(--ink-3);font-size:.68rem}
@@ -1764,13 +1767,22 @@ function selectGroup(name, toggle) {{
     panel.innerHTML = `
       <div class="detail-head"><h3>${{safeName}}</h3><span class="dpct" style="color:${{pctColor}}">${{pctStr}}</span></div>
       <div class="detail-sub">▲${{meta.up_count}}檔 ▼${{meta.down_count}}檔</div>
-      ${{metaSpark}}${{chipsSum}}${{historyRecord}}
+      <div class="detail-three-col">
+        <div class="tc-box">${{metaSpark}}</div>
+        <div class="tc-box">${{chipsSum}}</div>
+        <div class="tc-box">${{historyRecord}}</div>
+      </div>
       <div class="detail-empty">這個族群目前沒有個股行情資料。</div>`;
   }} else {{
     panel.innerHTML = `
       <div class="detail-head"><h3>${{safeName}}</h3><span class="dpct" style="color:${{pctColor}}">${{pctStr}}</span></div>
       <div class="detail-sub">▲${{meta.up_count}}檔 ▼${{meta.down_count}}檔　・　共 ${{stocks.length}} 檔</div>
-      ${{metaSpark}}${{chipsSum}}${{historyRecord}}${{asofNote}}
+      <div class="detail-three-col">
+        <div class="tc-box">${{metaSpark}}</div>
+        <div class="tc-box">${{chipsSum}}</div>
+        <div class="tc-box">${{historyRecord}}</div>
+      </div>
+      ${{asofNote}}
       <div class="overflow-wrap"><table class="stock-list-table">
         <thead><tr>
           <th aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'id')">股票</button></th>

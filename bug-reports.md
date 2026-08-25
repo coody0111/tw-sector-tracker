@@ -2663,3 +2663,47 @@ reimport 完成：共 372163 筆
 
 ### 結論
 - [x] 已修並加測試 — 回答 Cody「以後同一個資料來源 OK 嗎」：歷史（backfill 順序）+ 以後（每週更新重跑）兩條路現在都正確。建議之後例行更新可安心設每日 cron，不會再洗壞 streak。
+
+---
+
+## [2026-08-25] 驗證 - 首頁（index.html）版面/視覺重設 13個Task
+
+### 驗證方式
+- 靜態 review：`export/index_generator.py`（`git diff c82903a..3633fea`，376 行）、`processors/performance.py`、`main.py` 的完整改動
+- `python -m pytest -q`：**502 passed, 1 failed**（唯一失敗是 `test_scan_patterns_returns_list`，這個 debug worktree 本來就沒有 `data/screener.db`，CLAUDE.md 已記載的既有環境限制，與本次改動無關）
+- 實跑對照桌電 Developer 那份正式 DB（`C:\Users\Cody\Desktop\tw-sector-tracker\data\screener.db`，read-only）：
+  - `calc_meta_chips_signals()` 對 42 個 meta_sector 全部跑成功，`dealer_net_today`/`foreign_net_week`/`trust_net_week` 三個新欄位都正確出現，無缺漏
+  - `get_shareholder_top()` 對正式 DB 跑出 1040 檔完整資料（不是只有前 N 檔）
+  - `build_stock_detail_data(..., shareholder_df=sh)` 對正式 universe+shareholder 資料跑通，抽查 `5543` 的 `holder_pct`/`holder_week_chg` 正確帶出（72.9949 / 0.0407）
+- 檢查 `docs/momentum.html`／`docs/patterns.html`／`docs/chips.html`／nav 連結是否受影響
+- 檢查 `docs/index.html` 目前內容是否反映這批改動
+
+### ✅ 驗證通過（對照 debug-tasks.md 的「請 Debugger 驗證」清單）
+- **`dealer_net` 的 SELECT 修改不影響 production**：正式 `institutional` 表本來就有 `dealer_net` 欄位（`scrapers/chips.py`／`screener/institutional.py` 早就在寫入），這次只是新增讀取，schema 上零風險；實跑驗證 42 個 meta_sector 全部正常回傳。
+- **`shareholder_df` 在 `main.py` 正確接線**：`main.py:768-769` 呼叫 `get_shareholder_top()` → 傳進 `generate_index_html(..., shareholder_df=index_shareholder_df)` → `build_stock_detail_data()` 用 `stock_id` 對齊塞進 `holder_pct`/`holder_week_chg`。對正式資料實跑驗證正確（見上）。跟 `main.py:824-826` 既有那次 `get_shareholder_top()` 呼叫各自獨立，功能上沒問題，只是重複查一次 DB（效能小備註，見下方 🟡）。
+- **上市/上櫃資料來源沒有混用**：這次沒有新增任何 scraper 呼叫，全部改動都是讀取既有的 `institutional`／`shareholder` 表（早就是 TWSE+TPEx 統一寫入），沒有引入新的資料源混用風險。
+- **沒有影響其他模組**：`git log c82903a..3633fea -- docs/momentum.html docs/patterns.html docs/chips.html` 查出來這三個檔案在這批 12 個 commit 範圍內完全沒被動到（改動的那幾筆是各自獨立的「update: sector performance」自動重產生 commit，時間點在這批之前）；`nav-link` 的 HTML（`export/index_generator.py:1309-1313`）也不在 diff 範圍內，四頁互連不受影響。
+- **異動族群排序邏輯正確**：`results.sort(key=lambda r: (r["kind"] != "burst", -abs(r["pct"])))`，burst 優先、同 kind 內 abs(pct) 降冪，跟 `test_find_anomaly_cards_sorts_burst_before_trend`／`..._sorts_by_abs_pct_within_same_kind` 兩個新測試邏輯一致。
+- **面板錨定邏輯正確**：`selectGroup()` 改用 `document.getElementById('heatgrid').insertAdjacentElement('afterend', panel)`，不再用被點 tile 所在列的 `rowTiles` 算插入點，熱區格 41 格排列不會被打斷；`test_generate_selectgroup_inserts_panel_after_heatgrid_container_not_inside_a_row` 直接檢查原始碼字串確認 `rowTiles` 已不存在於 `selectGroup()` 內。
+- **表格欄數與 colspan 一致**：個股表格新增「大戶佔比」「大戶週變化」兩欄後，`<th>` 總數是 14（含「股票」欄），無資料列的 `colspan="13"` = 14 − 1（股票欄自己是獨立 `<td>`，不算進 colspan），數字對得上，不是舊的 11。
+- **玻璃光暈雙主題都合理**：`.heat-tile.tier-super` 用 `color-mix(in srgb, var(--accent) N%, transparent)`，深色主題 `--accent:#F0BB55`、淺色主題 `--accent:#93701E`（`export/index_generator.py:704,719`），色相跟著主題走，不是寫死同一組 rgba，程式碼邏輯上兩個主題都會有合理的光暈色（實際視覺效果仍需瀏覽器肉眼確認，見下方跳過項）。
+- **`detail-three-col`／`secondary-row` 有 responsive media query**：分別在 768px／900px 收合成單欄，CSS 規則存在且邏輯正確（實際窄螢幕渲染仍需瀏覽器確認，見下方跳過項）。
+- **鍵盤操作（Tab focus + Enter/Space）程式碼面已具備**：熱區格 tile 有 `role="button" tabindex="0"`、`onkeydown` 處理 Enter/Space、`.heat-tile:focus-visible{outline:3px solid var(--accent)}`——這是 2026-07-23 遺留的補測項，程式碼確認存在且邏輯正確，但沒有瀏覽器無法實際按鍵確認焦點視覺與觸發效果。
+- pytest **502 passed**（Developer 回報 501，多出的 1 個是本機環境差異或後續小改動，非負面訊號）。14 個新測試名稱與涵蓋範圍跟本次 6 大項改動逐一對應，無明顯遺漏。
+
+### 🟡 建議改善
+- **`docs/index.html` 目前在 repo 裡是舊的，尚未反映這批改動**。查 `git log -- docs/index.html`，最後一次重新產生是 `a19e780`（2026-08-25 10:20），但這批 12 個功能 commit 的時間是 19:54~21:46，全部晚於那次產生時間。也就是說 debug-tasks.md checklist 明確要求的「實際跑一次 main.py 確認 docs/index.html 有大戶佔比/週變化欄」這件事**目前為止還沒有真的做過**——Developer 的「手動 smoke test」是直接呼叫 `generate()` 搭配測試 fixture，不是完整 `python main.py` 流程。我在這台 debug worktree 沒有 `data/screener.db`，只能對 Developer 那份正式 DB 用個別函式（`calc_meta_chips_signals`／`get_shareholder_top`／`build_stock_detail_data`）分別 read-only 實跑驗證邏輯正確，但沒有跑過完整 `python main.py` 產生真正的 `docs/index.html` 並用瀏覽器打開看過。建議 push 前（或 push 後）在有完整 `data/` 的機器上跑一次 `python main.py`，重新產生 `docs/index.html` 並實際打開看一眼，這是目前唯一還沒閉環的一步。
+  位置：`docs/index.html`（generated artifact，git 歷史顯示落後於程式碼）。
+- **`weekly_ranks` 理論上可能含 `None`，前端沒 guard**：`calc_meta_rank_history()`（`processors/performance.py:1146`）在某個 meta_sector 當週價格資料不完整時，該週的 rank 會是 `None`（`week_ranks_by_week[i].get(meta_name)` 找不到值），`weekly_ranks_raw` 直接回傳給前端、不過濾。前端 `buildHistoryRecord()` 的 `inTop10 = rank <= 10` 在 JS 裡 `null <= 10` 會是 `true`（null 數值轉型為 0），加上 `#${rank}` 沒判斷 null，會顯示成「#null」且被誤標成 in-top10（加 `.in-top10` 樣式）。**這是既有邏輯（不在今天的 diff 範圍內，`weekly_ranks` 的處理方式維持原樣）**，但今天新增的 `weekly_returns`/`returns[i]` 是有正確 guard 的（`ret !== null && ret !== undefined`），對照之下這個舊缺口比較明顯。目前 41-42 個既有 meta_sector 每天都有完整價格覆蓋，實務上大機率不會觸發，屬於低優先度、非阻擋的既有邊界情況，附帶記錄供之後參考。
+  位置：`export/index_generator.py` 的 `buildHistoryRecord()` JS 函式（`rank <= 10` 那行）。
+- 小備註：`main.py` 對 `get_shareholder_top()` 呼叫了兩次（`768-769` 供 index.html、`824-826` 供既有籌碼排行用途），各自獨立不會互相干擾，Developer 也已註明是刻意取捨，只是會多一次 DB 查詢，非正確性問題。
+
+### 未能在本機完成的驗證項（需瀏覽器工具或 Cody 協助）
+- 熱區格 41 格實際排列、面板實際插入位置的視覺確認
+- 三欄並排在窄螢幕（<768px）／`secondary-row` 在 <900px 的實際 responsive 渲染
+- 深色/淺色主題切換時，超強 tier 光暈的實際視覺觀感是否兩個主題都好看
+- Tab 鍵盤 focus 順序、Enter/Space 實際觸發熱區格展開的手感
+- 完整 `python main.py` 產生真正的 `docs/index.html` 後打開瀏覽器確認（見上方 🟡 第一項）
+
+### 結論
+- [ ] 需要修改後再確認 — 主體邏輯（dealer_net/holder_pct 接線、排序、面板錨定、colspan、nav 不受影響）程式碼 review + 對正式 DB 實跑驗證皆正確，可視為邏輯面已過關；但 **checklist 明確要求的「實際跑 main.py 確認 docs/index.html」這步尚未完成**，建議在有完整 `data/` 的機器上補跑一次、真正打開瀏覽器看過之後再 push。`weekly_ranks` 的 None 邊界情況為既有低優先度改善項，不阻擋。

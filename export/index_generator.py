@@ -202,6 +202,7 @@ def find_anomaly_cards(
     連續噴出(trend)：classify_temp(accel)=="hot" 且 streak_today >= 5（草案，要求持續而非
     曇花一現）。
     同一族群兩者都成立時，burst 優先（量能異常是更即時的訊號）。
+    回傳結果依嚴重程度排序：burst 排在 trend 前面，同 kind 內依 abs(pct) 降冪。
     """
     ranked = sorted(meta_perf, key=lambda r: r["avg_change_pct"], reverse=True)
     today_rank = {row["meta_name"]: i + 1 for i, row in enumerate(ranked)}
@@ -241,6 +242,10 @@ def find_anomaly_cards(
                 "reason": f"上週 {last_week_pct:+.1f}% → 本週 {this_week_pct:+.1f}%　加速 {accel:+.1f}pt",
             })
 
+    # 排序：burst(爆量暴衝)優先於trend(連續噴出)——量能異常是更即時的訊號；同kind內依
+    # abs(pct)降冪(幅度大的優先)。用pct(卡片上本來就顯示給人看的數字)當排序依據，而不是
+    # vol_ratio/accel，使用者比較看得懂「為什麼這張排前面」。卡片視覺大小不變，只調整順序。
+    results.sort(key=lambda r: (r["kind"] != "burst", -abs(r["pct"])))
     return results
 
 
@@ -532,6 +537,7 @@ def build_stock_detail_data(
     chips_df: Optional[pd.DataFrame] = None,
     total_shares_df: Optional[pd.DataFrame] = None,
     avg20_map: Optional[Dict[str, float]] = None,
+    shareholder_df: Optional[pd.DataFrame] = None,
 ) -> Dict[str, List[Dict[str, Any]]]:
     """
     個股點開面板資料（視覺 spec §「點開個股清單」）。全部 meta_sector 都要有 key（即使該族群
@@ -554,6 +560,10 @@ def build_stock_detail_data(
     avg20_map：processors/performance.py::calc_avg20_close() 的輸出，供
     maintenance_est/short_maintenance_est的成本基準。兩者任一沒傳、或這支股票
     沒有對應資料，四個新欄位都回傳None（不補假資料）。
+    shareholder_df：screener/database.py::get_shareholder_top() 的輸出（含stock_id/
+    lv12_15_pct/week_chg欄位），供個股表格「大戶佔比」「大戶週變化」兩欄。這支函式已經
+    內建離群值防護(_MAX_VALID_HOLDER_PCT)並過濾掉異常值，這裡不用再重覆過濾——沒傳、或
+    這支股票不在裡面(被防護排除、或還沒有集保資料)，兩欄都回None，前端顯示「—」。
 
     無行情的個股不再跳過——改成標記 no_data=True（比照舊版html_generator.py的「無行情」
     佔位符慣例），close/change_pct/pcts/dates/roll*/chips都是None/空，前端顯示成灰階佔位卡。
@@ -578,6 +588,10 @@ def build_stock_detail_data(
         total_shares["stock_id"] = total_shares["stock_id"].astype(str)
     total_shares_map = total_shares.set_index("stock_id") if not total_shares.empty else pd.DataFrame()
     avg20 = avg20_map or {}
+    shareholder = shareholder_df.copy() if shareholder_df is not None and not shareholder_df.empty else pd.DataFrame()
+    if not shareholder.empty:
+        shareholder["stock_id"] = shareholder["stock_id"].astype(str)
+    shareholder_map = shareholder.set_index("stock_id") if not shareholder.empty else pd.DataFrame()
 
     result: Dict[str, List[Dict[str, Any]]] = {
         meta_name: [] for meta_name in universe["meta_sector"].dropna().unique()
@@ -611,6 +625,14 @@ def build_stock_detail_data(
             if total_shares_asof_raw is not None and pd.notna(total_shares_asof_raw) else None
         )
         avg20_close = avg20.get(sid)
+        holder_pct = (
+            float(shareholder_map.loc[sid, "lv12_15_pct"])
+            if sid in shareholder_map.index and pd.notna(shareholder_map.loc[sid, "lv12_15_pct"]) else None
+        )
+        holder_week_chg = (
+            float(shareholder_map.loc[sid, "week_chg"])
+            if sid in shareholder_map.index and pd.notna(shareholder_map.loc[sid, "week_chg"]) else None
+        )
 
         financed_pct = (
             round(margin_balance_lots * 1000 / total_shares_val * 100, 2)
@@ -654,6 +676,8 @@ def build_stock_detail_data(
             "shorted_pct": shorted_pct,
             "short_maintenance_est": short_maintenance_est,
             "total_shares_asof": total_shares_asof,
+            "holder_pct": holder_pct,
+            "holder_week_chg": holder_week_chg,
         }
         result[meta_name].append(entry)
 
@@ -804,6 +828,7 @@ table.vt-table{width:100%;border-collapse:collapse}
 .cs-row .cs-streak-up{color:var(--up);font-size:.68rem}
 .cs-row .cs-streak-dn{color:var(--down);font-size:.68rem}
 .cs-row .cs-alert{color:var(--accent);font-size:.68rem;font-weight:700}
+.cs-row.cs-week{width:100%;border-top:1px solid var(--border);padding-top:8px;margin-top:2px;gap:14px}
 .overflow-wrap{overflow-x:auto}
 table.stock-list-table{width:100%;border-collapse:collapse}
 .stock-list-table thead th{text-align:left;padding:0 12px 10px;border-bottom:1px solid var(--border-2)}
@@ -930,6 +955,7 @@ table.stock-list-table{width:100%;border-collapse:collapse}
   font-family:var(--mono);font-size:.64rem;color:var(--ink-2);text-align:center}
 .history-week .hw-label{display:block;color:var(--ink-3)}
 .history-week .hw-rank{display:block;margin-top:3px;font-size:.86rem;font-weight:700;color:var(--ink)}
+.history-week .hw-pct{display:block;margin-top:2px;font-size:.62rem;font-weight:600}
 .history-week.in-top10{border-color:color-mix(in srgb, var(--accent) 45%, var(--border))}
 .history-week.in-top10 .hw-rank{color:var(--accent)}
 """
@@ -1162,6 +1188,7 @@ def generate(
     rank_history: Optional[Dict[str, Dict[str, Any]]] = None,
     total_shares_df: Optional[pd.DataFrame] = None,
     avg20_map: Optional[Dict[str, float]] = None,
+    shareholder_df: Optional[pd.DataFrame] = None,
     output_path: str = "docs/index.html",
 ) -> None:
     """
@@ -1181,6 +1208,7 @@ def generate(
     - total_shares_df：get_latest_total_shares() 輸出，個股融資/融券佔比的分母
       (已發行股數)+集保資料實際日期。
     - avg20_map：calc_avg20_close() 輸出，個股融資/融券維持率(估)的成本基準。
+    - shareholder_df：get_shareholder_top() 輸出，個股表格「大戶佔比」「大戶週變化」兩欄。
     """
     if not meta_perf:
         return
@@ -1193,7 +1221,7 @@ def generate(
     recap = build_sector_recap(cards, heatgrid_windows, rank_history)
     stock_detail = build_stock_detail_data(
         universe_df, prices_df, stock_sparklines, rolling_returns, chips_df,
-        total_shares_df, avg20_map,
+        total_shares_df, avg20_map, shareholder_df,
     )
 
     stock_detail_js = json.dumps(stock_detail, ensure_ascii=False).replace("</", "<\\/")
@@ -1208,6 +1236,9 @@ def generate(
             "daily_pct": sig.get("daily_pct", []), "dates": sig.get("dates", []),
             "foreign_net_today": chips.get("foreign_net_today", 0),
             "trust_net_today": chips.get("trust_net_today", 0),
+            "dealer_net_today": chips.get("dealer_net_today", 0),
+            "foreign_net_week": chips.get("foreign_net_week", 0),
+            "trust_net_week": chips.get("trust_net_week", 0),
             "foreign_buy_count": chips.get("foreign_buy_count", 0),
             "total_stocks": chips.get("total_stocks", 0),
             "foreign_streak": chips.get("foreign_streak", 0),
@@ -1216,6 +1247,7 @@ def generate(
             "margin_balance_today": chips.get("margin_balance_today", 0),
             "margin_alert": bool(chips.get("margin_alert", False)),
             "weekly_ranks": rank_row.get("weekly_ranks", []),
+            "weekly_returns": rank_row.get("weekly_returns", []),
             "in_top10_this_week": rank_row.get("in_top10_this_week", False),
             "consecutive_weeks_in_top10": rank_row.get("consecutive_weeks_in_top10", 0),
             "last_top10_week_index": rank_row.get("last_top10_week_index"),
@@ -1413,12 +1445,29 @@ function buildChipsSummary(meta) {{
     }}
     rows.push(`<div class="cs-row"><span class="cs-label">投信</span><span style="color:${{color}};font-weight:700">${{sign}}${{k.toLocaleString()}}張</span>${{streak}}</div>`);
   }}
+  if (meta.dealer_net_today) {{
+    const dn = meta.dealer_net_today, k = Math.trunc(dn / 1000);
+    const color = dn > 0 ? 'var(--up)' : 'var(--down)';
+    const sign = dn > 0 ? '+' : '';
+    rows.push(`<div class="cs-row"><span class="cs-label">自營商</span><span style="color:${{color}};font-weight:700">${{sign}}${{k.toLocaleString()}}張</span></div>`);
+  }}
   if (meta.margin_change_today && meta.margin_balance_today > 0) {{
     const pct = meta.margin_change_today / meta.margin_balance_today * 100;
     const arrow = meta.margin_change_today > 0 ? '↑' : '↓';
     const color = meta.margin_change_today > 0 ? 'var(--accent)' : 'var(--ink-3)';
     const alert = meta.margin_alert ? '<span class="cs-alert">融資擴張</span>' : '';
     rows.push(`<div class="cs-row"><span class="cs-label">融資</span><span style="color:${{color}};font-weight:700">${{arrow}}${{Math.abs(pct).toFixed(1)}}%</span>${{alert}}</div>`);
+  }}
+  if (meta.foreign_net_week || meta.trust_net_week) {{
+    const fw = meta.foreign_net_week || 0, tw = meta.trust_net_week || 0;
+    const fwK = Math.trunc(fw / 1000), twK = Math.trunc(tw / 1000);
+    const fColor = fw >= 0 ? 'var(--up)' : 'var(--down)';
+    const tColor = tw >= 0 ? 'var(--up)' : 'var(--down)';
+    rows.push(
+      `<div class="cs-row cs-week"><span class="cs-label">本週累計</span>`
+      + `<span>外資 <span style="color:${{fColor}};font-weight:700">${{fw>=0?'+':''}}${{fwK.toLocaleString()}}張</span></span>`
+      + `<span>投信 <span style="color:${{tColor}};font-weight:700">${{tw>=0?'+':''}}${{twK.toLocaleString()}}張</span></span></div>`
+    );
   }}
   return rows.length ? `<div class="chips-summary">${{rows.join('')}}</div>` : '';
 }}
@@ -1429,6 +1478,7 @@ function buildChipsSummary(meta) {{
 function buildHistoryRecord(meta) {{
   const ranks = meta.weekly_ranks || [];
   if (!ranks.length) return '';
+  const returns = meta.weekly_returns || [];
 
   let summary;
   if (meta.in_top10_this_week) {{
@@ -1445,7 +1495,11 @@ function buildHistoryRecord(meta) {{
     const label = isCurrent ? '本週' : `W-${{ranks.length - 1 - i}}`;
     const inTop10 = rank <= 10;
     const cls = 'history-week' + (inTop10 ? ' in-top10' : '');
-    return `<div class="${{cls}}"><span class="hw-label">${{label}}</span><span class="hw-rank tabular">#${{rank}}</span></div>`;
+    const ret = returns[i];
+    const retHtml = (ret !== null && ret !== undefined)
+      ? `<span class="hw-pct tabular" style="color:${{ret >= 0 ? 'var(--up)' : 'var(--down)'}}">${{ret>=0?'+':''}}${{ret.toFixed(1)}}%</span>`
+      : '';
+    return `<div class="${{cls}}"><span class="hw-label">${{label}}</span><span class="hw-rank tabular">#${{rank}}</span>${{retHtml}}</div>`;
   }}).join('');
 
   return `<div class="history-wrap">
@@ -1486,6 +1540,19 @@ function _plainPctTd(v) {{
   return `<td class="num tabular">${{v.toFixed(2)}}%</td>`;
 }}
 
+// 大戶佔比：純數字顯示，跟融資/融券佔比一樣不設門檻。
+function _holderPctTd(v) {{
+  if (v === null || v === undefined) return '<td class="num tabular">─</td>';
+  return `<td class="num tabular">${{v.toFixed(2)}}%</td>`;
+}}
+
+// 大戶週變化：有正負號，紅漲綠跌配色(比照_rollTd的漲跌色慣例)。
+function _holderChgTd(v) {{
+  if (v === null || v === undefined) return '<td class="num tabular">─</td>';
+  const c = v >= 0 ? 'var(--up)' : 'var(--down)';
+  return `<td class="num tabular" style="color:${{c}}">${{v>=0?'+':''}}${{v.toFixed(2)}}%</td>`;
+}}
+
 // 融資/融券維持率(估)：低於130%(法規追繳門檻)視為警示，用警示色+粗體+文字徽章明確標示。
 // 融資/融券兩欄共用同一套門檻邏輯(見docs/adr/0002-margin-maintenance-ratio-is-an-estimate.md)。
 function _maintTd(v) {{
@@ -1499,7 +1566,7 @@ function _maintTd(v) {{
 function renderStockListItem(s) {{
   const sid = escHtml(s.stock_id);
   if (s.no_data) {{
-    return `<tr class="stock-item no-data"><td><span class="si-id">${{sid}}</span><span class="si-name">${{escHtml(s.stock_name)}}</span></td><td colspan="11">無行情</td></tr>`;
+    return `<tr class="stock-item no-data"><td><span class="si-id">${{sid}}</span><span class="si-name">${{escHtml(s.stock_name)}}</span></td><td colspan="13">無行情</td></tr>`;
   }}
   const color = s.change_pct >= 0 ? 'var(--up)' : 'var(--down)';
   const sign = s.change_pct >= 0 ? '+' : '';
@@ -1510,6 +1577,8 @@ function renderStockListItem(s) {{
     + `<td class="num tabular">${{fmtPrice(s.close)}}</td>`
     + `<td class="num tabular" style="color:${{color}}">${{arrow}} ${{sign}}${{s.change_pct.toFixed(2)}}%</td>`
     + `${{_volTd(s.vol_ratio)}}`
+    + `${{_holderPctTd(s.holder_pct)}}`
+    + `${{_holderChgTd(s.holder_week_chg)}}`
     + `${{_plainPctTd(s.financed_pct)}}`
     + `${{_maintTd(s.maintenance_est)}}`
     + `${{_plainPctTd(s.shorted_pct)}}`
@@ -1585,6 +1654,8 @@ function _sortValue(s, key) {{
   if (key === 'id') return s.stock_id;
   if (key === 'close') return s.close;
   if (key === 'vol') return s.vol_ratio;
+  if (key === 'holder') return s.holder_pct;
+  if (key === 'holderchg') return s.holder_week_chg;
   if (key === 'financed') return s.financed_pct;
   if (key === 'maint') return s.maintenance_est;
   if (key === 'shorted') return s.shorted_pct;
@@ -1680,6 +1751,8 @@ function selectGroup(name, toggle) {{
           <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'close')">收盤</button></th>
           <th class="num" aria-sort="descending"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'pct')">漲跌%</button></th>
           <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'vol')">量比</button></th>
+          <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'holder')">大戶佔比</button></th>
+          <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'holderchg')">大戶週變化</button></th>
           <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'financed')">融資佔比</button></th>
           <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'maint')">融資維持率(估)</button></th>
           <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'shorted')">融券餘額佔比</button></th>

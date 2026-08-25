@@ -102,15 +102,20 @@ from processors.performance import calc_meta_chips_signals
 
 
 def _seed_chips_db(db_path, inst_rows, margin_rows=None):
-    """inst_rows: list of (stock_id, date, foreign_net, trust_net)
+    """inst_rows: list of (stock_id, date, foreign_net, trust_net) or
+    (stock_id, date, foreign_net, trust_net, dealer_net) — 5th element optional,
+    defaults to 0 for existing callers that don't test dealer_net.
     margin_rows: list of (stock_id, date, margin_balance, margin_change)"""
     con = duckdb.connect(str(db_path))
     con.execute("""
         CREATE TABLE institutional (
-            stock_id VARCHAR, date DATE, foreign_net BIGINT, trust_net BIGINT
+            stock_id VARCHAR, date DATE, foreign_net BIGINT, trust_net BIGINT, dealer_net BIGINT
         )
     """)
-    con.executemany("INSERT INTO institutional VALUES (?, ?, ?, ?)", inst_rows)
+    normalized_inst_rows = [
+        (r[0], r[1], r[2], r[3], r[4] if len(r) > 4 else 0) for r in inst_rows
+    ]
+    con.executemany("INSERT INTO institutional VALUES (?, ?, ?, ?, ?)", normalized_inst_rows)
     con.execute("""
         CREATE TABLE margin (
             stock_id VARCHAR, date DATE, margin_balance BIGINT, margin_change BIGINT
@@ -236,6 +241,61 @@ def test_calc_meta_chips_signals_margin_not_zeroed_when_margin_lags_inst(tmp_pat
     # margin 應退到自己的 07-06、加總 800+300=1100，不該因對不到 institutional 的 07-07 而歸零
     assert result["測試族群"]["margin_change_today"] == 1100, "margin 落後一天時不該被歸零"
     assert result["測試族群"]["margin_balance_today"] == 15000
+
+
+def test_calc_meta_chips_signals_includes_dealer_net_today(tmp_path):
+    """dealer_net(自營商買賣超)要跟foreign_net/trust_net一樣，加總進signals，
+    即使screener/database.py::get_chips_today()早就抓了這個欄位，這裡先前沒有用到。"""
+    db_path = tmp_path / "test.db"
+    universe = _make_universe([
+        ("1101", "測試族群", "TWSE"),
+    ])
+    _seed_chips_db(db_path, [
+        ("1101", "2026-07-03", 1000, 100, -300),  # dealer_net=-300
+    ])
+
+    result = calc_meta_chips_signals(universe, db_path=str(db_path), lookback=1)
+
+    assert result["測試族群"]["dealer_net_today"] == -300
+
+
+def test_calc_meta_chips_signals_computes_foreign_and_trust_weekly_totals(tmp_path):
+    """foreign_net_week/trust_net_week = 近5個交易日foreign_net/trust_net加總，
+    口徑對齊現有「近5日」滾動視窗慣例(不是自然日曆週)。"""
+    db_path = tmp_path / "test.db"
+    universe = _make_universe([
+        ("1101", "測試族群", "TWSE"),
+    ])
+    _seed_chips_db(db_path, [
+        ("1101", "2026-06-29", 100, 10),
+        ("1101", "2026-06-30", 200, 20),
+        ("1101", "2026-07-01", 300, 30),
+        ("1101", "2026-07-02", 400, 40),
+        ("1101", "2026-07-03", 500, 50),
+    ])
+
+    result = calc_meta_chips_signals(universe, db_path=str(db_path), lookback=10)
+
+    assert result["測試族群"]["foreign_net_week"] == 100 + 200 + 300 + 400 + 500
+    assert result["測試族群"]["trust_net_week"] == 10 + 20 + 30 + 40 + 50
+
+
+def test_calc_meta_chips_signals_weekly_totals_use_available_days_when_fewer_than_5(tmp_path):
+    """資料不足5個交易日時，加總有多少天算多少天，不強制補齊——比照
+    get_shareholder_trend()的既有慣例，不是回傳None或0。"""
+    db_path = tmp_path / "test.db"
+    universe = _make_universe([
+        ("1101", "測試族群", "TWSE"),
+    ])
+    _seed_chips_db(db_path, [
+        ("1101", "2026-07-02", 100, 10),
+        ("1101", "2026-07-03", 200, 20),
+    ])
+
+    result = calc_meta_chips_signals(universe, db_path=str(db_path), lookback=10)
+
+    assert result["測試族群"]["foreign_net_week"] == 100 + 200
+    assert result["測試族群"]["trust_net_week"] == 10 + 20
 
 
 # ── get_stock_chips_ranking（#3 margin skew / #4 NaN close）──────────────

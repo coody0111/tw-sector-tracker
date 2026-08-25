@@ -3752,3 +3752,141 @@ Cody要求review籌碼頁資料，過程中連帶發現index.html「排名進出
   另開一輪，不要誤以為這次順便處理掉了
 - 這批commit尚未push到origin，等Cody指示
 - 這批commit尚未push到origin，等Cody指示
+
+---
+
+## [2026-08-25] 環境交接：桌電要補跑的 plugin/skill 設定（在筆電做的，git 帶不過去）
+
+### 改了什麼
+- 異動檔案：`CLAUDE-developer.md`（commit `409a4e3`）
+- 邏輯說明：設計原則的 brainstorming 規則，從 `mattpocock-skills:grill-with-docs`
+  改成直接點名 `mattpocock-skills:grilling` ＋ `mattpocock-skills:domain-modeling`。
+  原因：`grill-with-docs` 標了 `disable-model-invocation`，只能人手動打 slash command，
+  規則寫它等於流程永遠要 Cody 先下指令；它本體只有一行「呼叫 grilling 和 domain-modeling」，
+  而這兩個都沒鎖 → 拆開點名，行為完全一樣但 Claude 可以自動觸發。
+- 本機（筆電）另外做了 plugin 增減，見下方⚠️。
+
+### ⚠️ 桌電必須手動補跑（git 同步不到）
+今天的改動有三項，只有一項會跟著 git 走：
+
+| 改動 | 存在哪 | git 帶得過去嗎 |
+|---|---|---|
+| 裝 `mattpocock-skills` v1.2.3（user scope） | `~/.claude/settings.json` + `~/.claude/plugins/` | ❌ |
+| 移除 `superpowers`（project scope） | 專案 `.claude/settings.json` | ❌ 該檔沒進 git（`git ls-files .claude/` 為空） |
+| `CLAUDE-developer.md` 規則 | git tracked | ✅ |
+
+→ **桌電 pull 之後，會拿到一條叫它用 `mattpocock-skills:grilling` 的規則，但那台上面沒有這個 skill。**
+桌電請依序跑：
+
+```bash
+git pull --rebase
+claude plugin marketplace add mattpocock/skills          # 若尚未加過
+claude plugin install mattpocock-skills@mattpocock --scope user
+claude plugin uninstall superpowers@superpowers-marketplace --scope project
+claude plugin marketplace add nextlevelbuilder/ui-ux-pro-max-skill
+claude plugin install ui-ux-pro-max@ui-ux-pro-max-skill --scope user
+cp CLAUDE-developer.md CLAUDE.md                          # ← 最容易漏的一步
+```
+
+### 追記：`ui-ux-pro-max` 找回來了（2026-08-25 稍晚）
+- 盤點時發現 `CLAUDE.md:107` 指定的 `ui-ux-pro-max` skill **本機根本不存在**，
+  三個已註冊的 marketplace 也都沒有 → 跟 `superpowers:brainstorming` 同一種病：
+  規則指向不存在的 skill，等於整條是空的。而它在 `debug-tasks.md`、
+  `docs/superpowers/plans/`、`specs/` 裡被引用多處（「這段留到下一階段用
+  ui-ux-pro-max 設計」），影響範圍不小。
+- 查到出處是 `nextlevelbuilder/ui-ux-pro-max-skill`（GitHub 120,680 stars /
+  12,950 forks，MIT，2026-08-24 仍在更新），已裝 v2.13.0（user scope）。
+- **文件不用改**：規則本來就寫 `ui-ux-pro-max`，裝回來之後所有既有引用自動生效。
+- 內容檢查：23MB，含 92 個 .py / 14 個 .cjs 腳本（風格/配色/字體 CSV 資料庫的查詢工具）。
+  **無 hooks、不會自動執行**，腳本只在 skill 主動呼叫時才跑。唯二會連網的是
+  `design-system/scripts/fetch-background.py`（抓 Pexels 簡報背景圖，URL 寫死）與
+  `brand/scripts/sync-brand-to-tokens.cjs`（`execFileSync` 呼叫同包本地腳本）。
+- ⚠️ **名稱衝突**：這個 plugin 另外夾帶 7 支 skill，其中一支叫 `design`，
+  跟 Claude Code 內建的 `design`（畫布式設計）同名。要用哪個要講清楚。
+
+### 順帶修掉的舊缺口
+- `bf93ab0`（2026-07-23，桌電做的）把規則改成 `grill-with-docs` 並 push，
+  筆電雖然 pull 到了 `CLAUDE-developer.md`，但**沒人補跑 `cp`** →
+  筆電的 `CLAUDE.md` 停在 `superpowers:brainstorming` 停了一個多月才被發現。
+  這次已 `cp` 補上。**教訓：每次 pull 到 `CLAUDE-*.md` 的改動，該台就要重跑一次 `cp`。**
+
+### 資料來源相關（如有異動）
+- 無。純環境/文件設定，沒碰 scrapers/processors/screener，TWSE(上市)/TPEx(上櫃) 流程完全未動。
+
+### 請 Debugger 驗證
+- [ ] `CLAUDE.md` 與 `CLAUDE-developer.md` 內容一致（`diff` 應為空）——**兩台各自確認**
+- [ ] 桌電上 `superpowers` 已移除、`mattpocock-skills` 已安裝
+- [ ] `docs/superpowers/specs/` 與 `plans/` 兩個資料夾**沒有被動到**
+      （那是專案自己的設計文件，只是剛好同名，跟被移除的 plugin 無關）
+
+### 特別注意
+- `domain-modeling` 不只問問題，會主動維護 `CONTEXT.md` 和 ADR。本 repo 目前沒有
+  `CONTEXT.md`，第一次觸發時它可能提議新建，屆時由 Cody 決定要不要。
+- **debug worktree 尚未同步**：`../tw-sector-tracker-debug` 有未 commit 的 untracked 檔
+  `options-bearish-hedging.md`，依規則先問 Cody、未擅自 merge。
+  另發現該 worktree 的 `origin/debug` 已是 `[gone]`（遠端分支被刪、追蹤關係斷了），
+  下次 Debugger 要 push 會出事，建議一併處理。
+- 這批 commit 已 push 到 `origin/master`（2026-08-25，Cody 指示）。桌電直接 `git pull --rebase` 即可拿到。
+
+---
+
+## [2026-08-25] 新增 dip_buy/stealth_buy 籌碼回測規則（籌碼頁重構前置調查）
+
+### 背景
+Cody 想討論籌碼頁重構，範圍/程度都還沒定案。討論中發現 `screener/backtest.py` 的
+`CHIPS_RULES` 只覆蓋 chips.html 9 個 tab 裡的 5 個（法人同步觀察/外資籌碼/投信籌碼/
+融資警示/大戶籌碼），另外 3 個 tab（越跌越買/外資偷偷買/董監持股）從未被回測驗證過
+訊號有沒有 edge。這次先補上「越跌越買」「外資偷偷買」兩個，湊齊全貌後再跟 Cody
+一起決定重構方向（用「訊號有沒有用」當資訊架構優先順序的依據，不是純美感重排）。
+「董監持股」查過資料量後判斷暫時無法回測（見下方特別注意）。
+
+### 改了什麼
+- 異動檔案：`screener/backtest.py`、`tests/test_backtest.py`
+- 邏輯說明：
+  1. `scan_chips_rule()` 新增 `dip_buy`/`stealth_buy` 分支，`CHIPS_RULES`/
+     `CHIPS_RULE_CONFIG` 對應加入這兩條規則
+  2. chips.html 原版「越跌越買」「外資偷偷買」門檻是**族群層級**（族群5日累計報酬 +
+     族群層級外資/投信連買，見 `export/chips_generator.py::_build_section35`/
+     `_build_section_stealth`）。回測需要買到具體個股才有價格可查後續報酬，沒有可交易的
+     「族群」標的，這裡改用**個股自己的** `price_cum_pct`（`scan_institutional(...,
+     price_window=5)`，5日累計漲跌）+ **個股自己的** `foreign_streak`/`trust_streak`
+     做近似——語意略窄於原版族群訊號，但方向一致，足以驗證「跌時法人還連買」「盤整時
+     外資偷偷買」這兩個假設本身有沒有 edge
+  3. `dip_buy`：`(foreign_streak>0 或 trust_streak>0) 且 price_cum_pct<=-1.0`，跌最多排前面
+  4. `stealth_buy`：`foreign_streak>0 且 -1.0<=price_cum_pct<=1.0`，連買天數排前面
+
+### 資料來源相關（如有異動）
+- 無新資料源，沿用既有 `institutional`/`daily_prices` 表，跟既有 `foreign_continuation`/
+  `trust_continuation` 規則共用同一批資料，只是換了篩選條件
+
+### 已跑過的驗證
+- **本機已用 `python main.py --backtest-chips dip_buy` / `stealth_buy` 各跑過一次**，
+  兩個都能正常產出回測摘要（無例外、格式跟其他規則一致），這次是我（Developer）直接跑的
+  ——因為這是純讀取 `data/screener.db` 算統計、不抓即時資料、不寫入、不觸發 commit/push
+  的分析指令，跟每日更新流程性質不同，Cody 這次也有在對話中明確要我直接跑並回報數字，
+  不是我自己判斷的例外
+- **新增的兩個 unit test（`test_dip_buy_rule_...`/`test_stealth_buy_rule_...`）我沒有自己
+  跑 pytest**，照規矩留給 Debugger
+
+### 請 Debugger 驗證
+- [ ] `pytest tests/test_backtest.py -q` 全綠，尤其兩個新測試
+      `test_dip_buy_rule_requires_streak_and_five_day_drop`/
+      `test_stealth_buy_rule_requires_foreign_streak_and_flat_price`
+- [ ] 全專案 `pytest -q` 沒有因為 `CHIPS_RULES` tuple 新增兩個成員而連帶壞掉其他測試
+      （例如任何寫死 `len(CHIPS_RULES)` 或逐一枚舉規則名稱的地方）
+- [ ] `scan_chips_rule()` 新分支的資料可用性 guard（`_table_date_range`/`_table_dates`
+      對 `institutional` 表）邏輯跟既有 `joint_buy`/`foreign_continuation` 分支一致，
+      沒有漏掉「法人資料尚未發布時 fallback 到前一天，可能重複計數同一批資料」這個既有雷區
+      （既有分支用 `if not any(r.get("date") == date_str for r in rows): return []` 擋掉，
+      新分支照抄了同一段，確認邏輯抄對）
+
+### 特別注意
+- `dip_buy`/`stealth_buy` 只是**回測用的近似版**，跟 chips.html 上線頁面實際顯示的族群
+  層級「越跌越買」「外資偷偷買」表格是兩套不同的計算（頁面本身沒有動），這次沒有改頁面
+  顯示邏輯，純粹是新增獨立的回測驗證路徑
+- 「董監持股」(`insider_holdings` 表) 查過 `report_date` 只有 3 筆相異值
+  （2026-05-01/06-01/07-01，月頻），樣本量太小（不到 3 個月變化量可用），這次**沒有**
+  幫它補回測規則——跟 Cody 討論後的判斷是資料累積不夠前硬做回測會產出不可信的假結論，
+  比沒有回測更糟，等資料再累積幾個月後再議
+- 這批 commit（`92389fb`）尚未 push 到 origin，等 Cody 指示（且等 Debugger 跑完 pytest
+  回報 ✅）

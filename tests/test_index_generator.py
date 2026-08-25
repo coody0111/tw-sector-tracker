@@ -299,6 +299,50 @@ def test_find_anomaly_cards_silently_excludes_sector_missing_from_signals_and_wi
     assert result == []
 
 
+def test_find_anomaly_cards_sorts_burst_before_trend():
+    """burst(爆量暴衝)排在trend(連續噴出)前面，不管兩者在meta_perf裡的原始順序。"""
+    meta_perf = [
+        {"meta_name": "連續噴出族群", "avg_change_pct": 2.0, "up_count": 1, "down_count": 0, "flat_count": 0},
+        {"meta_name": "爆量族群", "avg_change_pct": 1.0, "up_count": 1, "down_count": 0, "flat_count": 0},
+    ]
+    meta_signals = {
+        "連續噴出族群": {"vol_ratio": 1.0, "yesterday_rank": 2},
+        "爆量族群": {"vol_ratio": 1.8, "yesterday_rank": 15},  # 排名跳動13 >= 10
+    }
+    heatgrid_windows = {
+        "連續噴出族群": {"streak_today": 6, "last_week_pct_today": 1.0, "this_week_pct_today": 9.0,
+                        "streak_5d_ago": None, "last_week_pct_5d_ago": None},
+        "爆量族群": {"streak_today": 1, "last_week_pct_today": 1.0, "this_week_pct_today": 1.5,
+                    "streak_5d_ago": None, "last_week_pct_5d_ago": None},
+    }
+    result = find_anomaly_cards(meta_perf, meta_signals, heatgrid_windows)
+    assert [r["meta_name"] for r in result] == ["爆量族群", "連續噴出族群"]
+    assert result[0]["kind"] == "burst"
+    assert result[1]["kind"] == "trend"
+
+
+def test_find_anomaly_cards_sorts_by_abs_pct_within_same_kind():
+    """同kind(都是burst)內依abs(pct)降冪排列，幅度大的排前面。"""
+    meta_perf = [
+        {"meta_name": "小漲爆量", "avg_change_pct": 1.0, "up_count": 1, "down_count": 0, "flat_count": 0},
+        {"meta_name": "大跌爆量", "avg_change_pct": -8.0, "up_count": 0, "down_count": 1, "flat_count": 0},
+        {"meta_name": "中漲爆量", "avg_change_pct": 3.0, "up_count": 1, "down_count": 0, "flat_count": 0},
+    ]
+    meta_signals = {
+        "小漲爆量": {"vol_ratio": 1.8, "yesterday_rank": 13},
+        "大跌爆量": {"vol_ratio": 1.8, "yesterday_rank": 13},
+        "中漲爆量": {"vol_ratio": 1.8, "yesterday_rank": 13},
+    }
+    heatgrid_windows = {
+        name: {"streak_today": 1, "last_week_pct_today": 1.0, "this_week_pct_today": 1.5,
+               "streak_5d_ago": None, "last_week_pct_5d_ago": None}
+        for name in ["小漲爆量", "大跌爆量", "中漲爆量"]
+    }
+    result = find_anomaly_cards(meta_perf, meta_signals, heatgrid_windows)
+    # abs(pct)：大跌爆量=8.0 > 中漲爆量=3.0 > 小漲爆量=1.0
+    assert [r["meta_name"] for r in result] == ["大跌爆量", "中漲爆量", "小漲爆量"]
+
+
 from export.index_generator import build_heatgrid_cards
 
 
@@ -912,6 +956,47 @@ def test_build_stock_detail_data_defaults_to_empty_sparkline_when_missing():
     assert stock_1001["pcts"] == []
 
 
+def test_build_stock_detail_data_attaches_holder_pct_and_week_chg():
+    """大戶佔比(lv12_15_pct)+週變化(week_chg)要從shareholder_df接進個股資料，
+    跟chips.html的get_shareholder_top()同一份資料、同一套離群值防護(該函式內已過濾)。"""
+    universe_df = pd.DataFrame([
+        {"stock_id": "2330", "stock_name": "台積電", "meta_sector": "半導體"},
+    ])
+    prices_df = pd.DataFrame([{"stock_id": "2330", "close": 1080.0, "change_pct": 3.2}])
+    shareholder_df = pd.DataFrame([
+        {"stock_id": "2330", "lv12_15_pct": 68.4, "week_chg": 0.6},
+    ])
+
+    stock = build_stock_detail_data(
+        universe_df, prices_df, shareholder_df=shareholder_df,
+    )["半導體"][0]
+
+    assert stock["holder_pct"] == 68.4
+    assert stock["holder_week_chg"] == 0.6
+
+
+def test_build_stock_detail_data_defaults_holder_fields_to_none_without_data():
+    """shareholder_df沒傳、或這支股票不在裡面(可能被離群值防護排除、或還沒有集保資料)，
+    holder_pct/holder_week_chg回None，不補假資料，前端顯示「—」。"""
+    universe_df = pd.DataFrame([
+        {"stock_id": "9999", "stock_name": "無資料股", "meta_sector": "測試族群"},
+    ])
+    prices_df = pd.DataFrame([{"stock_id": "9999", "close": 10.0, "change_pct": 1.0}])
+
+    stock = build_stock_detail_data(universe_df, prices_df)["測試族群"][0]
+
+    assert stock["holder_pct"] is None
+    assert stock["holder_week_chg"] is None
+
+    # 也確認shareholder_df有傳、但這支股票不在裡面的情況
+    shareholder_df = pd.DataFrame([{"stock_id": "2330", "lv12_15_pct": 68.4, "week_chg": 0.6}])
+    stock2 = build_stock_detail_data(
+        universe_df, prices_df, shareholder_df=shareholder_df,
+    )["測試族群"][0]
+    assert stock2["holder_pct"] is None
+    assert stock2["holder_week_chg"] is None
+
+
 from datetime import date
 from export.index_generator import generate
 
@@ -1443,6 +1528,62 @@ def test_generate_embeds_rank_history_into_card_meta_for_history_record(tmp_path
     assert "buildHistoryRecord(meta)" in html  # selectGroup()有呼叫這支函式
 
 
+def test_generate_embeds_dealer_net_and_weekly_totals_into_card_meta(tmp_path):
+    """自營商今日買賣超+外資/投信本週累計買賣超要塞進CARD_META，
+    供buildChipsSummary()渲染籌碼摘要用。"""
+    meta_perf = [
+        {"meta_name": "測試族群", "avg_change_pct": 1.0, "up_count": 1, "down_count": 0, "flat_count": 0},
+    ]
+    universe_df = pd.DataFrame([{"stock_id": "1", "stock_name": "股票一", "meta_sector": "測試族群"}])
+    prices_df = pd.DataFrame([{"stock_id": "1", "change_pct": 1.0, "close": 100.0}])
+    meta_chips = {
+        "測試族群": {
+            "dealer_net_today": -300000, "foreign_net_week": 9100000, "trust_net_week": 2050000,
+        },
+    }
+
+    output_path = tmp_path / "index.html"
+    generate(
+        date(2026, 8, 25), meta_perf, universe_df,
+        meta_signals={}, meta_chips=meta_chips, prices_df=prices_df,
+        heatgrid_windows={}, output_path=str(output_path),
+    )
+
+    html = output_path.read_text(encoding="utf-8")
+    compact = html.replace(" ", "")
+    assert '"dealer_net_today":-300000' in compact
+    assert '"foreign_net_week":9100000' in compact
+    assert '"trust_net_week":2050000' in compact
+
+
+def test_generate_embeds_weekly_returns_into_card_meta(tmp_path):
+    """weekly_returns(跟weekly_ranks平行對齊的每週複利報酬%)要塞進CARD_META，
+    供buildHistoryRecord()渲染每週小字報酬%用。"""
+    meta_perf = [
+        {"meta_name": "工業電腦", "avg_change_pct": 1.0, "up_count": 1, "down_count": 0, "flat_count": 0},
+    ]
+    universe_df = pd.DataFrame([{"stock_id": "1", "stock_name": "股票一", "meta_sector": "工業電腦"}])
+    prices_df = pd.DataFrame([{"stock_id": "1", "change_pct": 1.0, "close": 100.0}])
+    rank_history = {
+        "工業電腦": {
+            "weekly_ranks": [18, 9, 7, 4, 1], "weekly_returns": [-2.0, 1.2, 2.8, 3.5, 5.7],
+            "in_top10_this_week": True, "consecutive_weeks_in_top10": 3,
+            "last_top10_week_index": None, "last_top10_rank": None,
+        },
+    }
+
+    output_path = tmp_path / "index.html"
+    generate(
+        date(2026, 8, 25), meta_perf, universe_df,
+        meta_signals={}, meta_chips={}, prices_df=prices_df,
+        heatgrid_windows={}, rank_history=rank_history, output_path=str(output_path),
+    )
+
+    html = output_path.read_text(encoding="utf-8")
+    compact = html.replace(" ", "")
+    assert '"weekly_returns":[-2.0,1.2,2.8,3.5,5.7]' in compact
+
+
 def test_generate_renders_financing_and_short_columns_with_warning_badges(tmp_path):
     """個股列表新增融資佔比/融資維持率(估)/融券餘額佔比/融券維持率(估)四欄，
     低於130%時要有警示徽章，欄位都可點排序，且集保資料日期有顯示提示。"""
@@ -1478,3 +1619,86 @@ def test_generate_renders_financing_and_short_columns_with_warning_badges(tmp_pa
     assert "function _maintTd" in html
     assert "maint-badge" in html
     assert "集保資料：" in html
+
+
+def test_generate_passes_shareholder_df_through_to_stock_detail(tmp_path):
+    """generate()要把shareholder_df透傳給build_stock_detail_data()，
+    確認大戶佔比/週變化真的接到STOCKS的個股資料裡（不只是Task4測過的底層函式本身）。"""
+    meta_perf = [{"meta_name": "半導體", "avg_change_pct": 3.2, "up_count": 1, "down_count": 0, "flat_count": 0}]
+    universe_df = pd.DataFrame([{"stock_id": "2330", "stock_name": "台積電", "meta_sector": "半導體"}])
+    prices_df = pd.DataFrame([{"stock_id": "2330", "close": 1080.0, "change_pct": 3.2}])
+    shareholder_df = pd.DataFrame([{"stock_id": "2330", "lv12_15_pct": 68.4, "week_chg": 0.6}])
+
+    output_path = tmp_path / "index.html"
+    generate(
+        date(2026, 8, 25), meta_perf, universe_df, {}, {}, prices_df, {},
+        shareholder_df=shareholder_df, output_path=str(output_path),
+    )
+
+    html = output_path.read_text(encoding="utf-8")
+    compact = html.replace(" ", "")
+    assert '"holder_pct":68.4' in compact
+    assert '"holder_week_chg":0.6' in compact
+
+
+def test_generate_renders_holder_pct_and_week_chg_columns(tmp_path):
+    """個股列表新增「大戶佔比」「大戶週變化」兩欄(11→13欄)，插在量比跟融資佔比之間，
+    可點排序，無資料時顯示「─」不是空白或crash。"""
+    output_path = tmp_path / "index.html"
+    meta_perf = [{"meta_name": "族群A", "avg_change_pct": 2.0, "up_count": 1, "down_count": 0, "flat_count": 0}]
+    universe_df = pd.DataFrame([
+        {"stock_id": "1000", "stock_name": "測試股", "meta_sector": "族群A"},
+    ])
+    prices_df = pd.DataFrame([{"stock_id": "1000", "close": 100.0, "change_pct": 2.0}])
+    shareholder_df = pd.DataFrame([{"stock_id": "1000", "lv12_15_pct": 41.2, "week_chg": -1.1}])
+
+    generate(
+        date(2026, 8, 25), meta_perf, universe_df, {}, {}, prices_df, {},
+        shareholder_df=shareholder_df, output_path=str(output_path),
+    )
+
+    html = output_path.read_text(encoding="utf-8")
+    assert ">大戶佔比</button>" in html
+    assert ">大戶週變化</button>" in html
+    assert "onclick=\"sortStockList(this.parentElement,'holder')\"" in html
+    assert "onclick=\"sortStockList(this.parentElement,'holderchg')\"" in html
+    assert "function _holderPctTd" in html
+    assert "function _holderChgTd" in html
+    assert "colspan=\"13\"" in html  # 無行情佔位列的colspan要跟著新欄位數更新(原本11)
+    assert "colspan=\"11\"" not in html
+
+
+def test_generate_includes_dealer_and_weekly_rows_in_chips_summary_function(tmp_path):
+    """buildChipsSummary()的JS原始碼要包含自營商那一行的邏輯+本週累計那一行的邏輯
+    (這是JS函式定義本身的原始碼檢查，不是渲染後的HTML——buildChipsSummary()只在使用者
+    點開族群時才在瀏覽器裡執行，見測試策略「無法自動化測試JS」的既有限制)。"""
+    output_path = tmp_path / "index.html"
+    generate(date(2026, 8, 25), _sample_meta_perf(), _sample_universe_df(), {}, {}, _sample_prices_df(), {},
+             output_path=str(output_path))
+
+    html = output_path.read_text(encoding="utf-8")
+    build_chips_start = html.index("function buildChipsSummary(meta)")
+    build_chips_end = html.index("function buildHistoryRecord(meta)")
+    build_chips_body = html[build_chips_start:build_chips_end]
+
+    assert "自營商" in build_chips_body
+    assert "meta.dealer_net_today" in build_chips_body
+    assert "本週累計" in build_chips_body
+    assert "meta.foreign_net_week" in build_chips_body
+    assert "meta.trust_net_week" in build_chips_body
+
+
+def test_generate_includes_weekly_return_pct_in_history_record_function(tmp_path):
+    """buildHistoryRecord()的JS原始碼要讀取meta.weekly_returns、每個週格子多渲染一行
+    小字報酬%(hw-pct)。原始碼層級檢查，理由同上個Task的JS檢查慣例。"""
+    output_path = tmp_path / "index.html"
+    generate(date(2026, 8, 25), _sample_meta_perf(), _sample_universe_df(), {}, {}, _sample_prices_df(), {},
+             output_path=str(output_path))
+
+    html = output_path.read_text(encoding="utf-8")
+    history_start = html.index("function buildHistoryRecord(meta)")
+    history_end = html.index("// 收盤價格式")
+    history_body = html[history_start:history_end]
+
+    assert "meta.weekly_returns" in history_body
+    assert "hw-pct" in history_body

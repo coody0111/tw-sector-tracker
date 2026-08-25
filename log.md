@@ -5,6 +5,35 @@
 
 ---
 
+## 2026-08-25 籌碼頁（chips.html）重構前置：訊號有效性稽核 — spec 已寫好，等 Cody review 分類
+
+**起因：** Cody 想重構籌碼頁但不確定方向/程度，brainstorming 挖出更根本的問題——不確定籌碼
+資料本身有沒有實際用得上的價值。與其找外部 paper，改用專案自己現成的回測框架
+（`screener/backtest.py`）驗證，資料更貼近實際使用情境。
+
+**進度：** spec 已寫好+commit：
+`docs/superpowers/specs/2026-08-25-chips-page-signal-audit-design.md`。**尚未開始視覺/資訊架構
+改版**，`ui-ux-pro-max` 還沒跑。
+
+**做了什麼：**
+1. 盤點發現 chips.html 9 個 tab 只有 5 個對應到 `CHIPS_RULES` 已定義的回測規則
+2. 補上「越跌越買」「外資偷偷買」對應的 `dip_buy`/`stealth_buy` 規則（commit `92389fb`），
+   讓 7 個 tab 有回測結果可查——族群層級訊號改用個股自己的 `price_cum_pct`(5日) +
+   `foreign_streak`/`trust_streak` 做近似（回測需要買到具體個股，沒有可交易的族群標的）
+3. review 過回測框架核心機制（進出場時序/成本處理/漲停剔除/regime分段），確認無前瞻偏誤，
+   唯一 caveat 是「大盤基準」用的是等權平均而非真正 TAIEX（`docs/superpowers/plans/
+   2026-07-14-backtest-framework.md` 記錄的刻意決定，非 bug）
+4. 「董監持股」查證後資料只有 3 個月頻快照，樣本不足，本次不勉強補回測
+
+**結論：** 11 條規則裡沒有一條展現穩定 edge。表現最不糟的是 `stealth_buy`（外資偷偷買）也只是
+接近打平；唯一在做自己該做的事的是 `margin_bearish`（融資警示，它本來就是風險提示不是選股
+訊號）。依證據強度分四級（🔴建議砍/🟡降級改觀察性語氣/🟢保留現有定位/⚪樣本不足待補），詳見
+spec。
+
+**下一步：** 等 Cody 逐項確認四級分類，確認後進 `ui-ux-pro-max` skill 做視覺/資訊架構設計。
+
+---
+
 ## 2026-08-25 首頁（index.html）版面/視覺重設 — brainstorming 完成，等 Cody review spec
 
 **進度：** `superpowers:brainstorming` 走完全程，spec 已寫好+commit：

@@ -630,6 +630,8 @@ def calc_meta_chips_signals(
         trust_streak,
         margin_change_today, margin_balance_today,
         margin_alert,                         # bool
+        dealer_net_today,                     # 自營商今日買賣超（原始股數）
+        foreign_net_week, trust_net_week,      # 近5個交易日累計買賣超（原始股數）
     }}
     """
     try:
@@ -643,7 +645,7 @@ def calc_meta_chips_signals(
             return {}
         min_date = dates_df["date"].min()
         inst_df = con.execute(
-            "SELECT stock_id, date, foreign_net, trust_net FROM institutional WHERE date >= ?",
+            "SELECT stock_id, date, foreign_net, trust_net, dealer_net FROM institutional WHERE date >= ?",
             [min_date],
         ).fetchdf()
         margin_df = con.execute(
@@ -676,6 +678,10 @@ def calc_meta_chips_signals(
     )
     trust_pivot = (
         inst_merged.groupby(["meta_sector", "date"])["trust_net"].sum()
+        .unstack(level="date").reindex(columns=all_dates).fillna(0)
+    )
+    dealer_pivot = (
+        inst_merged.groupby(["meta_sector", "date"])["dealer_net"].sum()
         .unstack(level="date").reindex(columns=all_dates).fillna(0)
     )
 
@@ -727,9 +733,18 @@ def calc_meta_chips_signals(
     for meta_name in foreign_pivot.index:
         f_row = foreign_pivot.loc[meta_name]
         t_row = trust_pivot.loc[meta_name]
+        d_row = dealer_pivot.loc[meta_name]
 
         foreign_net_today = int(f_row.get(today, 0))
         trust_net_today = int(t_row.get(today, 0))
+        dealer_net_today = int(d_row.get(today, 0))
+
+        # 本週累計：近5個交易日foreign_net/trust_net加總(不是自然日曆週)，口徑對齊現有
+        # 「近5日」滾動視窗慣例(get_rolling_returns等)。all_dates不足5天時，有多少天就加
+        # 多少天，不強制補齊——比照get_shareholder_trend()的既有慣例。
+        last5_dates = all_dates[-5:]
+        foreign_net_week = int(f_row[last5_dates].sum())
+        trust_net_week = int(t_row[last5_dates].sum())
 
         meta_today = today_inst[today_inst["meta_sector"] == meta_name]
         covered_exchanges = meta_today["exchange"].dropna().unique().tolist()
@@ -760,6 +775,9 @@ def calc_meta_chips_signals(
         signals[meta_name] = {
             "foreign_net_today": foreign_net_today,
             "trust_net_today": trust_net_today,
+            "dealer_net_today": dealer_net_today,
+            "foreign_net_week": foreign_net_week,
+            "trust_net_week": trust_net_week,
             "foreign_buy_count": buy_count,
             "total_stocks": total_stocks,
             "foreign_buy_ratio": round(buy_count / total_stocks, 2) if total_stocks > 0 else 0,

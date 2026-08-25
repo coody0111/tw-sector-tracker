@@ -1702,3 +1702,20 @@ def test_generate_includes_weekly_return_pct_in_history_record_function(tmp_path
 
     assert "meta.weekly_returns" in history_body
     assert "hw-pct" in history_body
+
+
+def test_generate_renders_heatgrid_before_secondary_row_with_anomaly_and_recap_side_by_side(tmp_path):
+    """熱區格(族群排行)要在HTML裡出現在異動族群前面(滿版置頂當主角)；異動族群跟族群近況
+    要被包在同一個.secondary-row容器裡並排兩欄，不是各自獨立佔滿版寬的區塊。"""
+    output_path = tmp_path / "index.html"
+    generate(date(2026, 8, 25), _sample_meta_perf(), _sample_universe_df(), {}, {}, _sample_prices_df(), {},
+             output_path=str(output_path))
+
+    html = output_path.read_text(encoding="utf-8")
+    heatgrid_pos = html.index('id="heatgrid"')
+    anomaly_pos = html.index('<h2>異動族群</h2>')
+    recap_pos = html.index('<h2>族群近況</h2>')
+    secondary_row_pos = html.index('class="secondary-row"')
+
+    assert heatgrid_pos < anomaly_pos, "熱區格要在異動族群前面(滿版置頂當主角)"
+    assert secondary_row_pos < anomaly_pos < recap_pos, "異動族群跟族群近況要包在secondary-row容器裡，異動族群在前(左欄)"

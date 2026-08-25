@@ -941,6 +941,16 @@ table.stock-list-table{width:100%;border-collapse:collapse}
 .rankmove-col.out h4{color:var(--down)}
 .rankmove-item{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);font-size:.85rem}
 .rankmove-item:last-child{border-bottom:none}
+.secondary-row{display:grid;grid-template-columns:1fr 1fr;gap:24px;padding:0 26px;align-items:start}
+@media (max-width:900px){.secondary-row{grid-template-columns:1fr}}
+.secondary-row .section-head{padding:20px 0 8px}
+.secondary-row .section-rule{margin:0 0 4px}
+.secondary-row .section-sub{padding:0 0 14px}
+.secondary-row .anomaly-wrap{margin:0}
+.secondary-row .role-note{margin:0 0 20px}
+.secondary-row .status-cols{padding:0}
+.secondary-row .turning-wrap{margin:20px 0 0}
+.secondary-row .rankmove-wrap{margin:20px 0 0}
 .rankmove-item .rm-name{font-family:var(--serif);font-weight:600;color:var(--ink)}
 .rankmove-item .rm-shift{font-family:var(--mono);font-size:.74rem;color:var(--ink-2)}
 .rankmove-empty{color:var(--ink-3);font-size:.78rem;font-family:var(--serif)}
@@ -1292,10 +1302,6 @@ def generate(
 <main id="main-content">
 {_market_regime_html(market_regime)}
 {_vol_turnover_html(vol_turnover_signals)}
-<div class="section-head"><h2>異動族群</h2><span class="count">{len(anomaly_cards)} 檔符合</span></div>
-<div class="section-sub">「現在正在發生」的瞬間訊號——爆量排名跳動、或連續多週噴出。跟下面「族群近況」不同：這裡是單日事件，族群近況是週度趨勢。</div>
-<div class="anomaly-wrap"><div class="anomaly-strip">{_anomaly_cards_html(anomaly_cards)}</div></div>
-
 <div class="section-head"><h2>族群排行</h2><span class="count">今日漲跌% ・{len(cards)} 個族群</span></div>
 <div class="section-rule"></div>
 <div class="section-sub">動能狀態標籤是這版的重點：不是只看今日漲跌，而是綜合「連漲天數＋本週比上週是否加速」判斷這個族群現在的動能還在不在。</div>
@@ -1309,7 +1315,16 @@ def generate(
 <div class="heatgrid" id="heatgrid">{_heatgrid_html(cards)}</div>
 <div class="legend-note">動能狀態標籤（超強/強/整理/弱/超弱）是族群層級獨立算的草案規則（連漲天數+本週比上週加速度），跟個股層級或觀察分頁面的五級分類不共用計算依據，門檻未經回測驗證。「近5日→前5日」是滾動5個交易日的複利累積漲跌幅，不是自然日曆週。</div>
 
-{_sector_recap_html(recap)}
+<div class="secondary-row">
+  <div class="secondary-col">
+    <div class="section-head"><h2>異動族群</h2><span class="count">{len(anomaly_cards)} 檔符合</span></div>
+    <div class="section-sub">「現在正在發生」的瞬間訊號——爆量排名跳動、或連續多週噴出。跟旁邊「族群近況」不同：這裡是單日事件，族群近況是週度趨勢。</div>
+    <div class="anomaly-wrap"><div class="anomaly-strip">{_anomaly_cards_html(anomaly_cards)}</div></div>
+  </div>
+  <div class="secondary-col">
+    {_sector_recap_html(recap)}
+  </div>
+</div>
 </main>
 <script>
 const STOCKS = {stock_detail_js};

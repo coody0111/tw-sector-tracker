@@ -8,8 +8,6 @@ from pathlib import Path
 from urllib.parse import quote
 import json
 
-from export.chips_headline import build_candidate_cards, render_headline_zone
-
 _CUM_THRESHOLD = 15
 
 
@@ -1303,11 +1301,6 @@ def generate(
     s4_html = _build_section4(stock_chips)
     s5_html = _build_section5(meta_chips)
     s6a_html, s6_foreign_html, s6_trust_html = _build_section6(inst_scan)
-    candidate_cards = build_candidate_cards(inst_scan, limit=3)
-    holder_focus_sorted = sorted(
-        shareholder_data, key=lambda r: -abs(r.get("week_chg") or 0)
-    )[:5]
-    headline_html = render_headline_zone(candidate_cards, holder_focus_sorted)
     s7_html = _build_section7(margin_divergence)
     s8_html, s8_note, s_insider_html = _build_section8(shareholder_data, insider_data)
 
@@ -1376,7 +1369,6 @@ def generate(
       </div>
     </aside>
     <main id="main-content" class="main-content" tabindex="-1">
-      {headline_html}
       {exch_filter_btns}
 
       <div class="tab-panel" id="tab-signal" role="tabpanel" aria-labelledby="tab-btn-signal">

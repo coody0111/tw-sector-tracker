@@ -738,45 +738,15 @@ def test_generate_groups_sidebar_tabs_into_three_clusters(tmp_path):
     assert label_structure_group < pos_inst < pos_holder < pos_insider
 
 
-def test_generate_includes_headline_zone(tmp_path):
+def test_generate_no_longer_shows_candidate_observation_hero(tmp_path):
+    """候選觀察/大戶持倉本週焦點的開頁hero已移除——joint_buy跟tdcc_accumulation
+    回測都沒有展現edge，不該再佔全頁最顯眼的hero版位（見2026-08-25 spec）。
+    法人同步觀察的完整榜單仍在tab-signal面板，不受影響。"""
     output_path = tmp_path / "chips.html"
-    inst_scan = [{
-        "stock_id": "2317", "stock_name": "鴻海", "meta_sector": "AI伺服器",
-        "close": 257.0, "change_pct": 2.4, "foreign_streak": 5, "trust_streak": 3,
-        "both_streak": 3, "foreign_net": 24000000, "trust_net": 559000,
-        "total_net": 25000000, "institutional_flow_ratio_pct": 39.3,
-        "price_cum_pct": 8.5, "volume": 50000,
-    }]
-    generate(
-        trade_date=date(2026, 7, 29),
-        meta_chips={"外資連買": {}}, stock_chips={"chips_date": "2026-07-29"},
-        inst_scan=inst_scan, output_path=str(output_path),
-    )
+    generate(date(2026, 7, 5), {"測試族群": {"foreign_net_today": 100}}, {}, output_path=str(output_path))
     html = output_path.read_text(encoding="utf-8")
-
-    assert "候選觀察" in html
-    assert "大戶持倉本週焦點" in html
-    assert "鴻海" in html
-    assert "不是投資建議" in html
+    assert 'class="hero"' not in html
+    assert "候選觀察" not in html
+    assert "大戶持倉本週焦點" not in html
 
 
-def test_generate_headline_zone_uses_shareholder_data_for_holder_focus(tmp_path):
-    output_path = tmp_path / "chips.html"
-    shareholder_data = [{
-        "stock_id": "5347", "stock_name": "世界先進", "meta_sector": "晶圓代工",
-        "close": 128.5, "change_pct": 1.2, "lv12_15_pct": 68.4, "week_chg": 2.1,
-        "streak": 6, "share_chg": 412000, "lv15_pct": 22.6, "date": "2026-07-29",
-        "trend": [],
-    }]
-    generate(
-        trade_date=date(2026, 7, 29),
-        meta_chips={"外資連買": {}}, stock_chips={"chips_date": "2026-07-29"},
-        shareholder_data=shareholder_data, output_path=str(output_path),
-    )
-    html = output_path.read_text(encoding="utf-8")
-
-    hero_idx = html.index("大戶持倉本週焦點")
-    tab_holder_idx = html.index('id="tab-holder"')
-    stock_positions = [m for m in range(len(html)) if html.startswith("世界先進", m)]
-    assert any(hero_idx < p < tab_holder_idx for p in stock_positions), \
-        "大戶持倉本週焦點應該顯示shareholder_data裡的股票，且要出現在hero zone(tab-holder之前)"

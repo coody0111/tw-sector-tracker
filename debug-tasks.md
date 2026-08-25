@@ -3783,8 +3783,26 @@ git pull --rebase
 claude plugin marketplace add mattpocock/skills          # 若尚未加過
 claude plugin install mattpocock-skills@mattpocock --scope user
 claude plugin uninstall superpowers@superpowers-marketplace --scope project
+claude plugin marketplace add nextlevelbuilder/ui-ux-pro-max-skill
+claude plugin install ui-ux-pro-max@ui-ux-pro-max-skill --scope user
 cp CLAUDE-developer.md CLAUDE.md                          # ← 最容易漏的一步
 ```
+
+### 追記：`ui-ux-pro-max` 找回來了（2026-08-25 稍晚）
+- 盤點時發現 `CLAUDE.md:107` 指定的 `ui-ux-pro-max` skill **本機根本不存在**，
+  三個已註冊的 marketplace 也都沒有 → 跟 `superpowers:brainstorming` 同一種病：
+  規則指向不存在的 skill，等於整條是空的。而它在 `debug-tasks.md`、
+  `docs/superpowers/plans/`、`specs/` 裡被引用多處（「這段留到下一階段用
+  ui-ux-pro-max 設計」），影響範圍不小。
+- 查到出處是 `nextlevelbuilder/ui-ux-pro-max-skill`（GitHub 120,680 stars /
+  12,950 forks，MIT，2026-08-24 仍在更新），已裝 v2.13.0（user scope）。
+- **文件不用改**：規則本來就寫 `ui-ux-pro-max`，裝回來之後所有既有引用自動生效。
+- 內容檢查：23MB，含 92 個 .py / 14 個 .cjs 腳本（風格/配色/字體 CSV 資料庫的查詢工具）。
+  **無 hooks、不會自動執行**，腳本只在 skill 主動呼叫時才跑。唯二會連網的是
+  `design-system/scripts/fetch-background.py`（抓 Pexels 簡報背景圖，URL 寫死）與
+  `brand/scripts/sync-brand-to-tokens.cjs`（`execFileSync` 呼叫同包本地腳本）。
+- ⚠️ **名稱衝突**：這個 plugin 另外夾帶 7 支 skill，其中一支叫 `design`，
+  跟 Claude Code 內建的 `design`（畫布式設計）同名。要用哪個要講清楚。
 
 ### 順帶修掉的舊缺口
 - `bf93ab0`（2026-07-23，桌電做的）把規則改成 `grill-with-docs` 並 push，

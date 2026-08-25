@@ -299,6 +299,50 @@ def test_find_anomaly_cards_silently_excludes_sector_missing_from_signals_and_wi
     assert result == []
 
 
+def test_find_anomaly_cards_sorts_burst_before_trend():
+    """burst(爆量暴衝)排在trend(連續噴出)前面，不管兩者在meta_perf裡的原始順序。"""
+    meta_perf = [
+        {"meta_name": "連續噴出族群", "avg_change_pct": 2.0, "up_count": 1, "down_count": 0, "flat_count": 0},
+        {"meta_name": "爆量族群", "avg_change_pct": 1.0, "up_count": 1, "down_count": 0, "flat_count": 0},
+    ]
+    meta_signals = {
+        "連續噴出族群": {"vol_ratio": 1.0, "yesterday_rank": 2},
+        "爆量族群": {"vol_ratio": 1.8, "yesterday_rank": 15},  # 排名跳動13 >= 10
+    }
+    heatgrid_windows = {
+        "連續噴出族群": {"streak_today": 6, "last_week_pct_today": 1.0, "this_week_pct_today": 9.0,
+                        "streak_5d_ago": None, "last_week_pct_5d_ago": None},
+        "爆量族群": {"streak_today": 1, "last_week_pct_today": 1.0, "this_week_pct_today": 1.5,
+                    "streak_5d_ago": None, "last_week_pct_5d_ago": None},
+    }
+    result = find_anomaly_cards(meta_perf, meta_signals, heatgrid_windows)
+    assert [r["meta_name"] for r in result] == ["爆量族群", "連續噴出族群"]
+    assert result[0]["kind"] == "burst"
+    assert result[1]["kind"] == "trend"
+
+
+def test_find_anomaly_cards_sorts_by_abs_pct_within_same_kind():
+    """同kind(都是burst)內依abs(pct)降冪排列，幅度大的排前面。"""
+    meta_perf = [
+        {"meta_name": "小漲爆量", "avg_change_pct": 1.0, "up_count": 1, "down_count": 0, "flat_count": 0},
+        {"meta_name": "大跌爆量", "avg_change_pct": -8.0, "up_count": 0, "down_count": 1, "flat_count": 0},
+        {"meta_name": "中漲爆量", "avg_change_pct": 3.0, "up_count": 1, "down_count": 0, "flat_count": 0},
+    ]
+    meta_signals = {
+        "小漲爆量": {"vol_ratio": 1.8, "yesterday_rank": 13},
+        "大跌爆量": {"vol_ratio": 1.8, "yesterday_rank": 13},
+        "中漲爆量": {"vol_ratio": 1.8, "yesterday_rank": 13},
+    }
+    heatgrid_windows = {
+        name: {"streak_today": 1, "last_week_pct_today": 1.0, "this_week_pct_today": 1.5,
+               "streak_5d_ago": None, "last_week_pct_5d_ago": None}
+        for name in ["小漲爆量", "大跌爆量", "中漲爆量"]
+    }
+    result = find_anomaly_cards(meta_perf, meta_signals, heatgrid_windows)
+    # abs(pct)：大跌爆量=8.0 > 中漲爆量=3.0 > 小漲爆量=1.0
+    assert [r["meta_name"] for r in result] == ["大跌爆量", "中漲爆量", "小漲爆量"]
+
+
 from export.index_generator import build_heatgrid_cards
 
 

@@ -202,6 +202,7 @@ def find_anomaly_cards(
     連續噴出(trend)：classify_temp(accel)=="hot" 且 streak_today >= 5（草案，要求持續而非
     曇花一現）。
     同一族群兩者都成立時，burst 優先（量能異常是更即時的訊號）。
+    回傳結果依嚴重程度排序：burst 排在 trend 前面，同 kind 內依 abs(pct) 降冪。
     """
     ranked = sorted(meta_perf, key=lambda r: r["avg_change_pct"], reverse=True)
     today_rank = {row["meta_name"]: i + 1 for i, row in enumerate(ranked)}
@@ -241,6 +242,10 @@ def find_anomaly_cards(
                 "reason": f"上週 {last_week_pct:+.1f}% → 本週 {this_week_pct:+.1f}%　加速 {accel:+.1f}pt",
             })
 
+    # 排序：burst(爆量暴衝)優先於trend(連續噴出)——量能異常是更即時的訊號；同kind內依
+    # abs(pct)降冪(幅度大的優先)。用pct(卡片上本來就顯示給人看的數字)當排序依據，而不是
+    # vol_ratio/accel，使用者比較看得懂「為什麼這張排前面」。卡片視覺大小不變，只調整順序。
+    results.sort(key=lambda r: (r["kind"] != "burst", -abs(r["pct"])))
     return results
 
 

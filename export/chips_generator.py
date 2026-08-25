@@ -696,10 +696,22 @@ _CSS = """
   .tab-group{display:flex;flex-direction:column;gap:4px}
   .tab-group-label{font-size:.62rem;letter-spacing:.08em;text-transform:uppercase;color:var(--subtle);padding-left:2px}
   .tab-bar{display:flex;flex-direction:column;gap:3px}
-  .tab-btn{width:100%;min-height:44px;padding:9px 11px;border:0;border-left:3px solid transparent;border-radius:6px;background:transparent;color:var(--muted);text-align:left;cursor:pointer;font-size:.8125rem;font-weight:680;transition:background .16s,color .16s,border-color .16s}
+  .tab-btn{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;min-height:44px;padding:9px 11px;border:0;border-left:3px solid transparent;border-radius:6px;background:transparent;color:var(--muted);text-align:left;cursor:pointer;font-size:.8125rem;font-weight:680;transition:background .16s,color .16s,border-color .16s}
   .tab-btn:hover{color:var(--text);background:var(--surface)}
   .tab-btn:active{background:var(--surface-3)}
   .tab-btn.active{color:var(--text);border-left-color:var(--accent);background:var(--accent-soft)}
+  .evid{display:inline-flex;align-items:center;padding:1px 7px;border-radius:9px;font-size:.6rem;font-weight:750;letter-spacing:.02em;white-space:nowrap;flex-shrink:0}
+  .evid-verified{background:var(--accent-soft);color:var(--accent);border:1px solid rgba(240,187,85,.35)}
+  .evid-observe{background:var(--surface-3);color:var(--muted);border:1px solid var(--border-strong)}
+  .evid-unproven{background:var(--caution-soft);color:var(--caution);border:1px solid rgba(110,140,176,.35)}
+  .evid-weak{background:transparent;color:var(--subtle);border:1px dashed var(--border)}
+  .evid-card{display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px;margin-bottom:14px;padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:6px;font-size:.75rem;color:var(--muted)}
+  .evid-card b{color:var(--text);font-variant-numeric:tabular-nums}
+  .evid-card .src{margin-left:auto;color:var(--subtle);font-size:.6875rem}
+  .caution-banner{margin-bottom:14px;padding:11px 14px;background:var(--caution-soft);border:1px solid rgba(110,140,176,.4);border-radius:6px;color:var(--text);font-size:.75rem}
+  .caution-banner b{color:var(--caution)}
+  .weak-banner{margin-bottom:14px;padding:11px 14px;background:transparent;border:1px dashed var(--border-strong);border-radius:6px;color:var(--muted);font-size:.75rem}
+  .weak-banner b{color:var(--subtle)}
   .section-nav-note{margin:18px 10px 0;padding-top:14px;border-top:1px solid var(--border);color:var(--subtle);font-size:.6875rem;line-height:1.65}
   .main-content{min-width:0;padding:20px 24px 32px}
   .chips-toolbar{position:sticky;top:76px;z-index:10;display:flex;align-items:end;gap:12px;margin:0 0 16px;padding:10px 12px;background:rgba(15,20,32,.97);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 8px 24px rgba(3,4,7,.24)}

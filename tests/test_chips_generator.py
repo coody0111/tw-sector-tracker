@@ -106,6 +106,16 @@ def test_generate_uses_actual_chips_date_weekday(tmp_path):
     assert "2026-07-03（週五）" in html
 
 
+def test_generate_includes_evidence_tier_css_classes(tmp_path):
+    """證據分級的 CSS class 要出現在 <style> 裡，四級徽章+證據卡+兩種banner。"""
+    output_path = tmp_path / "chips.html"
+    generate(date(2026, 7, 5), {"測試族群": {"foreign_net_today": 100}}, {}, output_path=str(output_path))
+    html = output_path.read_text(encoding="utf-8")
+    for cls in (".evid-verified", ".evid-observe", ".evid-unproven", ".evid-weak",
+                ".evid-card", ".caution-banner", ".weak-banner"):
+        assert cls in html, f"{cls} 應該出現在 <style> 裡"
+
+
 def test_coverage_flag_empty_when_not_partial():
     assert _coverage_flag({"partial_coverage": False}) == ""
     assert _coverage_flag({}) == ""

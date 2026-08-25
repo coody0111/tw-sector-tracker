@@ -3940,3 +3940,55 @@ Cody 想討論籌碼頁重構，範圍/程度都還沒定案。討論中發現 `
 - main.py 新增了第二次 `get_shareholder_top()` 呼叫(index.html用)，跟chips.html既有那次呼叫
   各自獨立，這是刻意的取捨，不是遺漏。
 - 這批 commit 尚未 push 到 origin，等 Cody 指示（且等 Debugger 跑完驗證回報 ✅）。
+
+---
+
+## [2026-08-25] 籌碼頁證據分級改版實作（4個Task，Subagent-Driven Development執行完成）
+
+### 背景
+接續同日稍早的「dip_buy/stealth_buy籌碼回測規則」跟「證據分級spec/mockup」，這次是實際動
+`chips_generator.py`把9個tab依回測證據強度重新設計。全程用`superpowers:subagent-driven-development`
+skill執行：4個Task各自獨立implementer+task reviewer（1個Task修復1輪、其餘3個Task零修復一次過），
+最後跑了最高階模型的全分支review，抓到2個Important+多個Minor（見下），已修復並過scoped re-review，
+全部確認clean。
+
+### 改了什麼
+- 異動檔案：`export/chips_generator.py`（CSS/tab nav/hero移除/證據卡+banner）、
+  `tests/test_chips_generator.py`（新增/更新測試）、`export/chips_headline.py`（僅加1行狀態註解，
+  邏輯不變）
+- 邏輯說明：
+  1. CSS新增4級證據徽章(`.evid-verified`/`.evid-observe`/`.evid-unproven`/`.evid-weak`)+證據卡
+     (`.evid-card`)+2種banner(`.caution-banner`/`.weak-banner`)，全部沿用既有CSS變數，沒有新增色相
+  2. 9個tab按鈕加證據徽章、組內依證據強度重排（分組結構不變：法人動向/特殊型態/持股結構，只是
+     特殊型態組移到最前面，因為它含唯一的🟢已驗證項目），`_tabs` JS陣列跟預設分頁(從法人同步觀察
+     改成融資警示)同步更新
+  3. 拿掉「候選觀察」開頁hero（joint_buy/tdcc_accumulation回測皆無edge，不該再佔全頁最顯眼位置）
+     ——`chips_headline.py`模組本身沒刪，只是`generate()`不再呼叫，保留可能的重用
+  4. 9個tab面板頂部各加一張證據卡/banner，數字/文案抄自
+     `docs/superpowers/specs/2026-08-25-chips-page-signal-audit-design.md`回測總表（靜態文案，
+     不是即時計算）
+
+### 資料來源相關（如有異動）
+- 無資料來源異動，純樣板/資訊架構調整，不動`screener/`/`processors/`/`scrapers/`任何計算邏輯
+
+### 請 Debugger 驗證
+- [ ] 全部測試通過（本機Subagent已跑過pytest -q：507 passed，含2個新增/更新測試檔）
+- [ ] 實際產生一次`docs/chips.html`（或直接看瀏覽器），確認：
+  - 9個tab按鈕徽章顯示正確、組內順序符合證據強度（特殊型態組：融資警示→外資偷偷買→越跌越買）
+  - 預設進頁看到的是「融資警示」tab，不是「法人同步觀察」
+  - 開頁不再有「候選觀察」大卡片區塊
+  - 每個tab面板頂部證據卡/banner數字讀起來合理、跟該tab的nav徽章等級一致
+- [ ] Global-branch review有2個Minor留著沒修（刻意決定，不是遺漏）：badge文字「融資警示已驗證」
+  這種label+等級文字中間沒有分隔符號（中文語境下影響小，已裁定不修）；tab按鈕文字沒有超長截斷
+  防護（目前沒有任何label會超長，已裁定不修）——如果之後真的改了某個tab名稱變超長，記得補上
+  `min-width:0;overflow:hidden;text-overflow:ellipsis`
+
+### 特別注意
+- **這批 commit 尚未 push 到 origin**，等 Cody 指示（且等 Debugger 跑完驗證回報 ✅）
+- **debug worktree 同步這次卡住了**：`git merge master`在`export/chips_generator.py`跟
+  `tests/test_chips_generator.py`撞到**真的**衝突（不是平常append型檔那種），我已經
+  `git merge --abort`安全退出、沒有硬解，debug worktree目前狀態沒變（乾淨可回溯，只是
+  master的這批commit還沒同步過去）。懷疑是debug worktree這邊也有session在跑
+  `python main.py`（看到一筆`7ba5168 update: sector performance 2026-08-25`是Cody帳號在今天
+  22:17產生的，同時`bug-reports.md`目前也有未commit的異動）——建議先確認debug端沒有其他
+  session在動，再手動處理這次的merge conflict，我這邊沒有硬蓋過去。

@@ -3827,3 +3827,66 @@ cp CLAUDE-developer.md CLAUDE.md                          # ← 最容易漏的�
   另發現該 worktree 的 `origin/debug` 已是 `[gone]`（遠端分支被刪、追蹤關係斷了），
   下次 Debugger 要 push 會出事，建議一併處理。
 - 這批 commit 已 push 到 `origin/master`（2026-08-25，Cody 指示）。桌電直接 `git pull --rebase` 即可拿到。
+
+---
+
+## [2026-08-25] 新增 dip_buy/stealth_buy 籌碼回測規則（籌碼頁重構前置調查）
+
+### 背景
+Cody 想討論籌碼頁重構，範圍/程度都還沒定案。討論中發現 `screener/backtest.py` 的
+`CHIPS_RULES` 只覆蓋 chips.html 9 個 tab 裡的 5 個（法人同步觀察/外資籌碼/投信籌碼/
+融資警示/大戶籌碼），另外 3 個 tab（越跌越買/外資偷偷買/董監持股）從未被回測驗證過
+訊號有沒有 edge。這次先補上「越跌越買」「外資偷偷買」兩個，湊齊全貌後再跟 Cody
+一起決定重構方向（用「訊號有沒有用」當資訊架構優先順序的依據，不是純美感重排）。
+「董監持股」查過資料量後判斷暫時無法回測（見下方特別注意）。
+
+### 改了什麼
+- 異動檔案：`screener/backtest.py`、`tests/test_backtest.py`
+- 邏輯說明：
+  1. `scan_chips_rule()` 新增 `dip_buy`/`stealth_buy` 分支，`CHIPS_RULES`/
+     `CHIPS_RULE_CONFIG` 對應加入這兩條規則
+  2. chips.html 原版「越跌越買」「外資偷偷買」門檻是**族群層級**（族群5日累計報酬 +
+     族群層級外資/投信連買，見 `export/chips_generator.py::_build_section35`/
+     `_build_section_stealth`）。回測需要買到具體個股才有價格可查後續報酬，沒有可交易的
+     「族群」標的，這裡改用**個股自己的** `price_cum_pct`（`scan_institutional(...,
+     price_window=5)`，5日累計漲跌）+ **個股自己的** `foreign_streak`/`trust_streak`
+     做近似——語意略窄於原版族群訊號，但方向一致，足以驗證「跌時法人還連買」「盤整時
+     外資偷偷買」這兩個假設本身有沒有 edge
+  3. `dip_buy`：`(foreign_streak>0 或 trust_streak>0) 且 price_cum_pct<=-1.0`，跌最多排前面
+  4. `stealth_buy`：`foreign_streak>0 且 -1.0<=price_cum_pct<=1.0`，連買天數排前面
+
+### 資料來源相關（如有異動）
+- 無新資料源，沿用既有 `institutional`/`daily_prices` 表，跟既有 `foreign_continuation`/
+  `trust_continuation` 規則共用同一批資料，只是換了篩選條件
+
+### 已跑過的驗證
+- **本機已用 `python main.py --backtest-chips dip_buy` / `stealth_buy` 各跑過一次**，
+  兩個都能正常產出回測摘要（無例外、格式跟其他規則一致），這次是我（Developer）直接跑的
+  ——因為這是純讀取 `data/screener.db` 算統計、不抓即時資料、不寫入、不觸發 commit/push
+  的分析指令，跟每日更新流程性質不同，Cody 這次也有在對話中明確要我直接跑並回報數字，
+  不是我自己判斷的例外
+- **新增的兩個 unit test（`test_dip_buy_rule_...`/`test_stealth_buy_rule_...`）我沒有自己
+  跑 pytest**，照規矩留給 Debugger
+
+### 請 Debugger 驗證
+- [ ] `pytest tests/test_backtest.py -q` 全綠，尤其兩個新測試
+      `test_dip_buy_rule_requires_streak_and_five_day_drop`/
+      `test_stealth_buy_rule_requires_foreign_streak_and_flat_price`
+- [ ] 全專案 `pytest -q` 沒有因為 `CHIPS_RULES` tuple 新增兩個成員而連帶壞掉其他測試
+      （例如任何寫死 `len(CHIPS_RULES)` 或逐一枚舉規則名稱的地方）
+- [ ] `scan_chips_rule()` 新分支的資料可用性 guard（`_table_date_range`/`_table_dates`
+      對 `institutional` 表）邏輯跟既有 `joint_buy`/`foreign_continuation` 分支一致，
+      沒有漏掉「法人資料尚未發布時 fallback 到前一天，可能重複計數同一批資料」這個既有雷區
+      （既有分支用 `if not any(r.get("date") == date_str for r in rows): return []` 擋掉，
+      新分支照抄了同一段，確認邏輯抄對）
+
+### 特別注意
+- `dip_buy`/`stealth_buy` 只是**回測用的近似版**，跟 chips.html 上線頁面實際顯示的族群
+  層級「越跌越買」「外資偷偷買」表格是兩套不同的計算（頁面本身沒有動），這次沒有改頁面
+  顯示邏輯，純粹是新增獨立的回測驗證路徑
+- 「董監持股」(`insider_holdings` 表) 查過 `report_date` 只有 3 筆相異值
+  （2026-05-01/06-01/07-01，月頻），樣本量太小（不到 3 個月變化量可用），這次**沒有**
+  幫它補回測規則——跟 Cody 討論後的判斷是資料累積不夠前硬做回測會產出不可信的假結論，
+  比沒有回測更糟，等資料再累積幾個月後再議
+- 這批 commit（`92389fb`）尚未 push 到 origin，等 Cody 指示（且等 Debugger 跑完 pytest
+  回報 ✅）

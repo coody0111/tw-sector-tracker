@@ -111,7 +111,7 @@ def test_generate_includes_evidence_tier_css_classes(tmp_path):
     output_path = tmp_path / "chips.html"
     generate(date(2026, 7, 5), {"測試族群": {"foreign_net_today": 100}}, {}, output_path=str(output_path))
     html = output_path.read_text(encoding="utf-8")
-    for cls in (".evid-verified", ".evid-observe", ".evid-unproven", ".evid-weak",
+    for cls in (".evid", ".evid-verified", ".evid-observe", ".evid-unproven", ".evid-weak",
                 ".evid-card", ".caution-banner", ".weak-banner"):
         assert cls in html, f"{cls} 應該出現在 <style> 裡"
 

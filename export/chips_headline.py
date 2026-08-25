@@ -10,6 +10,9 @@ export/chips_generator.py::_build_section6() 的「法人同步買超觀察」�
 ⚠️ 誠實揭露原則：候選觀察是條件篩選出的觀察名單，籌碼策略的配對組/bootstrap/樣本外驗證
 （見 debug-tasks.md「桌電待驗：籌碼策略是否真的有增益」）都還沒做完，UI 文案不能暗示這是
 已證實有效的投資建議。render_headline_zone() 的揭露文字是強制項，修改時不要拿掉。
+
+📌 目前狀態（2026-08-25 起）：`export/chips_generator.py::generate()` 已移除開頁 hero 呼叫，
+本模組（`build_candidate_cards()`/`render_headline_zone()`）目前沒有任何呼叫端，保留備用。
 """
 from html import escape as _html_escape
 

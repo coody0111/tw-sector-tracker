@@ -138,15 +138,21 @@ def _evidence_card(tier: str, badge_label: str, stats: str, note: str) -> str:
     """回測證據卡：固定顯示在有回測結果的 tab 面板頂部。tier 是 CSS class
     （evid-verified/evid-observe/evid-unproven），數字/文字全部是靜態字串，直接抄自
     docs/superpowers/specs/2026-08-25-chips-page-signal-audit-design.md 總表——回測結果是
-    離線跑 `python main.py --backtest-chips` 才會更新，不隨每日資料變動，故不接即時查詢。"""
+    離線跑 `python main.py --backtest-chips` 才會更新，不隨每日資料變動，故不接即時查詢。
+    注意：`stats` 不會被 `_esc()` 處理，允許帶 `<b>` 之類的行內標記強調數字——僅限這裡
+    硬編碼的回測文案使用，絕對不能傳入外部/使用者資料，信任邊界跟本檔其他呼叫端一致。"""
     return (f'<div class="evid-card"><span class="evid {tier}">{badge_label}</span>'
             f'<span>{stats}</span><span class="src">{note}</span></div>')
 
 
+_BANNER_CLASSES = {"caution": "caution-banner", "weak": "weak-banner"}
+
+
 def _evidence_banner(kind: str, title: str, body: str) -> str:
     """證據不足/證據偏弱的說明 banner。kind='caution'(樣本不足待驗證) 或
-    'weak'(已驗證但沒展現edge)，對應 Task 1 新增的 .caution-banner/.weak-banner CSS。"""
-    cls = "caution-banner" if kind == "caution" else "weak-banner"
+    'weak'(已驗證但沒展現edge)，對應 Task 1 新增的 .caution-banner/.weak-banner CSS。
+    kind 不在 _BANNER_CLASSES 裡會直接 KeyError，避免打錯字時悄悄套錯等級的樣式。"""
+    cls = _BANNER_CLASSES[kind]
     return f'<div class="{cls}"><b>{_esc(title)}</b> — {_esc(body)}</div>'
 
 
@@ -818,6 +824,7 @@ _CSS = """
   .hc-trend.down .trend-end{fill:var(--down)}
   .hc-trend .trend-grid{stroke:var(--border);stroke-width:1;stroke-dasharray:2,2}
   .hc-trend-empty{font-size:.68rem;color:var(--subtle);padding:6px 0;font-style:italic}
+  /* 以下 hero/pick-row/holder-mini 樣式屬於 export/chips_headline.py，2026-08-25 起未接入 generate()，保留備用，勿刪 */
   .hero{display:grid;grid-template-columns:1.2fr 1fr;gap:14px;padding:16px 20px;margin-bottom:8px}
   @media(max-width:980px){.hero{grid-template-columns:1fr}}
   .hero-panel{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px 18px}
@@ -1320,24 +1327,30 @@ def generate(
     s7_html = _build_section7(margin_divergence)
     s8_html, s8_note, s_insider_html = _build_section8(shareholder_data, insider_data)
 
-    evid_signal = _evidence_card("evid-observe", "觀察用", "訊號日 61．筆數 377",
-        "勝率43-44%，平均超額+1.55%但中位數-2.58%(均值被少數大贏家拉正)，非穩定訊號")
+    evid_signal = _evidence_card("evid-observe", "觀察用",
+        "訊號日 <b>61</b>．筆數 <b>377</b>　勝率 <b>43-44%</b>　平均超額 <b>+1.55%</b>",
+        "中位數-2.58%(均值被少數大贏家拉正)，非穩定訊號，僅供觀察")
     evid_dipbuy = _evidence_banner("weak", "回測顯示這個假設目前沒有得到支持",
         "1722筆訊號中D+14平均落後大盤0.53%，是11條規則裡樣本最大、表現也最差的，"
         "保留供觀察但不建議當作進場依據")
-    evid_stealth = _evidence_card("evid-observe", "觀察用", "訊號日 63．筆數 1615",
-        "勝率42-43%，平均超額+0.57%，11條規則裡表現相對最好，但仍不到50%勝率")
-    evid_inst = _evidence_card("evid-observe", "觀察用", "與「外資籌碼」共用同一組回測證據",
-        "族群層級彙總版，外資連買本身在回測中沒有展現預測力，僅供觀察")
-    evid_foreign = _evidence_card("evid-observe", "觀察用", "訊號日 61．筆數 732-754",
-        "勝率34-39%，平均超額-0.42%~-1.11%，盤整/空頭更差，連買本身沒有展現預測力")
-    evid_trust = _evidence_card("evid-observe", "觀察用", "訊號日 57．筆數 437-439",
-        "勝率37-40%，平均超額約0~+0.26%，略優於外資版但仍不到50%")
-    evid_margin = _evidence_card("evid-verified", "已驗證", "訊號日 63．筆數 1154",
-        "D+5避險命中54%．D+10 51%．D+14 47%，短期(5日內)參考價值較高，拉長會退化——"
-        "這是示警用途不是選股訊號")
-    evid_holder = _evidence_card("evid-observe", "觀察用", "訊號日 29(樣本最小)．筆數 834",
-        "勝率37-40%，多頭市場平均超額反而-0.51%")
+    evid_stealth = _evidence_card("evid-observe", "觀察用",
+        "訊號日 <b>63</b>．筆數 <b>1615</b>　勝率 <b>42-43%</b>　平均超額 <b>+0.57%</b>",
+        "11條規則裡表現相對最好，但仍不到50%勝率，僅供觀察")
+    evid_inst = _evidence_card("evid-observe", "觀察用",
+        "與「外資籌碼」共用同一組回測證據(族群層級彙總版)",
+        "外資連買本身在回測中沒有展現預測力，僅供觀察")
+    evid_foreign = _evidence_card("evid-observe", "觀察用",
+        "訊號日 <b>61</b>．筆數 <b>732-754</b>　勝率 <b>34-39%</b>　平均超額 <b>-0.42%~-1.11%</b>",
+        "盤整/空頭更差，連買本身沒有展現預測力")
+    evid_trust = _evidence_card("evid-observe", "觀察用",
+        "訊號日 <b>57</b>．筆數 <b>437-439</b>　勝率 <b>37-40%</b>　平均超額 <b>約0~+0.26%</b>",
+        "略優於外資版但仍不到50%")
+    evid_margin = _evidence_card("evid-verified", "已驗證",
+        "訊號日 <b>63</b>．筆數 <b>1154</b>　D+5避險命中 <b>54%</b>　D+10 <b>51%</b>　D+14 <b>47%</b>",
+        "短期(5日內)參考價值較高，拉長會退化——這是示警用途不是選股訊號")
+    evid_holder = _evidence_card("evid-observe", "觀察用",
+        "訊號日 <b>29</b>(樣本最小)．筆數 <b>834</b>　勝率 <b>37-40%</b>　平均超額 <b>+0.10%</b>",
+        "多頭市場平均超額反而-0.51%")
     evid_insider = _evidence_banner("caution", "樣本不足，尚未驗證",
         "集保揭露資料目前只有3個月頻快照(5月/6月/7月)，不足以做任何統計結論，"
         "這裡顯示的是最新一期原始數字，僅供參考，等資料再累積幾個月後會補回測")

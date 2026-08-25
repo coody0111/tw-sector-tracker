@@ -774,30 +774,67 @@ def test_generate_shows_evidence_card_in_every_backtested_tab(tmp_path):
     html = output_path.read_text(encoding="utf-8")
 
     tab_signal = html[html.index('id="tab-signal"'):html.index('id="tab-dipbuy"')]
-    assert 'evid-observe' in tab_signal and "訊號日 61" in tab_signal
+    assert 'evid-observe' in tab_signal and "<b>61</b>" in tab_signal
 
     tab_dipbuy = html[html.index('id="tab-dipbuy"'):html.index('id="tab-stealth"')]
     assert 'weak-banner' in tab_dipbuy and "回測顯示這個假設目前沒有得到支持" in tab_dipbuy
 
     tab_stealth = html[html.index('id="tab-stealth"'):html.index('id="tab-inst"')]
-    assert 'evid-observe' in tab_stealth and "訊號日 63" in tab_stealth
+    assert 'evid-observe' in tab_stealth and "<b>63</b>" in tab_stealth
 
     tab_inst = html[html.index('id="tab-inst"'):html.index('id="tab-foreign"')]
     assert 'evid-observe' in tab_inst
 
     tab_foreign = html[html.index('id="tab-foreign"'):html.index('id="tab-trust"')]
-    assert 'evid-observe' in tab_foreign and "訊號日 61" in tab_foreign
+    assert 'evid-observe' in tab_foreign and "<b>61</b>" in tab_foreign
 
     tab_trust = html[html.index('id="tab-trust"'):html.index('id="tab-margin"')]
-    assert 'evid-observe' in tab_trust and "訊號日 57" in tab_trust
+    assert 'evid-observe' in tab_trust and "<b>57</b>" in tab_trust
 
     tab_margin = html[html.index('id="tab-margin"'):html.index('id="tab-holder"')]
-    assert 'evid-verified' in tab_margin and "訊號日 63" in tab_margin
+    assert 'evid-verified' in tab_margin and "<b>63</b>" in tab_margin
 
     tab_holder = html[html.index('id="tab-holder"'):html.index('id="tab-insider"')]
-    assert 'evid-observe' in tab_holder and "訊號日 29" in tab_holder
+    assert 'evid-observe' in tab_holder and "<b>29</b>" in tab_holder
 
     tab_insider = html[html.index('id="tab-insider"'):]
     assert 'caution-banner' in tab_insider and "樣本不足，尚未驗證" in tab_insider
 
 
+def test_nav_badges_match_panel_cards_and_tabs_array_order(tmp_path):
+    """單一測試同時鎖住三件事：(1) 每個 tab 按鈕的證據徽章跟同一個 tab 面板的證據卡/banner
+    等級一致，不會出現按鈕說「已驗證」但面板卡片說「觀察用」這種漂移；(2) `_tabs` JS 陣列順序
+    跟畫面上按鈕的實際順序一致，否則方向鍵/Tab循環會跟視覺順序對不上。"""
+    import re
+    output_path = tmp_path / "chips.html"
+    generate(date(2026, 7, 5), {"測試族群": {"foreign_net_today": 100}}, {}, output_path=str(output_path))
+    html = output_path.read_text(encoding="utf-8")
+
+    tiers = [
+        ("margin", "evid-verified", "已驗證"),
+        ("stealth", "evid-observe", "觀察用"),
+        ("dipbuy", "evid-weak", "證據偏弱"),
+        ("foreign", "evid-observe", "觀察用"),
+        ("trust", "evid-observe", "觀察用"),
+        ("signal", "evid-observe", "觀察用"),
+        ("inst", "evid-observe", "觀察用"),
+        ("holder", "evid-observe", "觀察用"),
+        ("insider", "evid-unproven", "待驗證"),
+    ]
+
+    for tab, cls, label in tiers:
+        btn_match = re.search(rf'id="tab-btn-{tab}".*?</button>', html, re.S)
+        assert btn_match, f"找不到 tab-btn-{tab} 按鈕"
+        btn_html = btn_match.group(0)
+        assert cls in btn_html and label in btn_html, f"{tab} 按鈕徽章應為 {cls}/{label}"
+
+    # 按鈕的實際 DOM 順序要跟 tiers 表格一致
+    nav_order = re.findall(r'id="tab-btn-([a-z]+)"', html)
+    assert nav_order == [t for t, _, _ in tiers], "按鈕實際順序跟預期的證據強度排序不一致"
+
+    # _tabs JS 陣列順序要跟按鈕實際順序一致
+    tabs_array_match = re.search(r"const _tabs=\[(.*?)\];", html)
+    assert tabs_array_match, "找不到 _tabs 陣列"
+    expected_tabs_str = ",".join(f"'tab-{t}'" for t, _, _ in tiers)
+    assert tabs_array_match.group(1) == expected_tabs_str, \
+        f"_tabs 陣列順序跟按鈕順序不一致：{tabs_array_match.group(1)} != {expected_tabs_str}"

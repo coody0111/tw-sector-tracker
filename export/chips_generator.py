@@ -134,6 +134,22 @@ def _section(title: str, body: str, icon: str = "") -> str:
 </div>"""
 
 
+def _evidence_card(tier: str, badge_label: str, stats: str, note: str) -> str:
+    """回測證據卡：固定顯示在有回測結果的 tab 面板頂部。tier 是 CSS class
+    （evid-verified/evid-observe/evid-unproven），數字/文字全部是靜態字串，直接抄自
+    docs/superpowers/specs/2026-08-25-chips-page-signal-audit-design.md 總表——回測結果是
+    離線跑 `python main.py --backtest-chips` 才會更新，不隨每日資料變動，故不接即時查詢。"""
+    return (f'<div class="evid-card"><span class="evid {tier}">{badge_label}</span>'
+            f'<span>{stats}</span><span class="src">{note}</span></div>')
+
+
+def _evidence_banner(kind: str, title: str, body: str) -> str:
+    """證據不足/證據偏弱的說明 banner。kind='caution'(樣本不足待驗證) 或
+    'weak'(已驗證但沒展現edge)，對應 Task 1 新增的 .caution-banner/.weak-banner CSS。"""
+    cls = "caution-banner" if kind == "caution" else "weak-banner"
+    return f'<div class="{cls}"><b>{_esc(title)}</b> — {_esc(body)}</div>'
+
+
 def _meta_streak_table(meta_chips: dict, streak_key: str, sort_desc: bool = True) -> str:
     rows = [
         (name, data.get(streak_key, 0), data)
@@ -1304,6 +1320,28 @@ def generate(
     s7_html = _build_section7(margin_divergence)
     s8_html, s8_note, s_insider_html = _build_section8(shareholder_data, insider_data)
 
+    evid_signal = _evidence_card("evid-observe", "觀察用", "訊號日 61．筆數 377",
+        "勝率43-44%，平均超額+1.55%但中位數-2.58%(均值被少數大贏家拉正)，非穩定訊號")
+    evid_dipbuy = _evidence_banner("weak", "回測顯示這個假設目前沒有得到支持",
+        "1722筆訊號中D+14平均落後大盤0.53%，是11條規則裡樣本最大、表現也最差的，"
+        "保留供觀察但不建議當作進場依據")
+    evid_stealth = _evidence_card("evid-observe", "觀察用", "訊號日 63．筆數 1615",
+        "勝率42-43%，平均超額+0.57%，11條規則裡表現相對最好，但仍不到50%勝率")
+    evid_inst = _evidence_card("evid-observe", "觀察用", "與「外資籌碼」共用同一組回測證據",
+        "族群層級彙總版，外資連買本身在回測中沒有展現預測力，僅供觀察")
+    evid_foreign = _evidence_card("evid-observe", "觀察用", "訊號日 61．筆數 732-754",
+        "勝率34-39%，平均超額-0.42%~-1.11%，盤整/空頭更差，連買本身沒有展現預測力")
+    evid_trust = _evidence_card("evid-observe", "觀察用", "訊號日 57．筆數 437-439",
+        "勝率37-40%，平均超額約0~+0.26%，略優於外資版但仍不到50%")
+    evid_margin = _evidence_card("evid-verified", "已驗證", "訊號日 63．筆數 1154",
+        "D+5避險命中54%．D+10 51%．D+14 47%，短期(5日內)參考價值較高，拉長會退化——"
+        "這是示警用途不是選股訊號")
+    evid_holder = _evidence_card("evid-observe", "觀察用", "訊號日 29(樣本最小)．筆數 834",
+        "勝率37-40%，多頭市場平均超額反而-0.51%")
+    evid_insider = _evidence_banner("caution", "樣本不足，尚未驗證",
+        "集保揭露資料目前只有3個月頻快照(5月/6月/7月)，不足以做任何統計結論，"
+        "這裡顯示的是最新一期原始數字，僅供參考，等資料再累積幾個月後會補回測")
+
     html = f"""<!DOCTYPE html>
 <html lang="zh-TW">
 <head>
@@ -1372,43 +1410,52 @@ def generate(
       {exch_filter_btns}
 
       <div class="tab-panel" id="tab-signal" role="tabpanel" aria-labelledby="tab-btn-signal">
+        {evid_signal}
         {s6a_html}
       </div>
 
       <div class="tab-panel" id="tab-dipbuy" role="tabpanel" aria-labelledby="tab-btn-dipbuy">
+        {evid_dipbuy}
         {s35_html}
       </div>
 
       <div class="tab-panel" id="tab-stealth" role="tabpanel" aria-labelledby="tab-btn-stealth">
+        {evid_stealth}
         {s_stealth_html}
       </div>
 
       <div class="tab-panel" id="tab-inst" role="tabpanel" aria-labelledby="tab-btn-inst">
+        {evid_inst}
         {s1_html}
       </div>
 
       <div class="tab-panel" id="tab-foreign" role="tabpanel" aria-labelledby="tab-btn-foreign">
+        {evid_foreign}
         {s6_foreign_html}
         {s2_html}
         {s5_html}
       </div>
 
       <div class="tab-panel" id="tab-trust" role="tabpanel" aria-labelledby="tab-btn-trust">
+        {evid_trust}
         {s6_trust_html}
         {s3_html}
       </div>
 
       <div class="tab-panel" id="tab-margin" role="tabpanel" aria-labelledby="tab-btn-margin">
+        {evid_margin}
         {s7_html}
         {s4_html}
       </div>
 
       <div class="tab-panel" id="tab-holder" role="tabpanel" aria-labelledby="tab-btn-holder">
+        {evid_holder}
         {s8_note}
         {s8_html}
       </div>
 
       <div class="tab-panel" id="tab-insider" role="tabpanel" aria-labelledby="tab-btn-insider">
+        {evid_insider}
         {s_insider_html}
       </div>
 

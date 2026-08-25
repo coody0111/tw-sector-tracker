@@ -1,6 +1,6 @@
 from datetime import date
 
-from export.chips_generator import _build_section2, _build_section4, _build_section6, _build_section8, _calc_trend_svg, _composite_sort, _coverage_flag, _esc, _holder_card_html, _holder_column_html, _insider_holdings_table, _inst_streak_table, _margin_alert_table, _meta_link, _percentile_ranks, _shareholder_table, _stock_rank_table, generate
+from export.chips_generator import _build_section2, _build_section4, _build_section6, _build_section8, _calc_trend_svg, _composite_sort, _coverage_flag, _esc, _evidence_card, _evidence_banner, _holder_card_html, _holder_column_html, _insider_holdings_table, _inst_streak_table, _margin_alert_table, _meta_link, _percentile_ranks, _shareholder_table, _stock_rank_table, generate
 
 
 def test_esc_escapes_html_special_characters():
@@ -748,5 +748,56 @@ def test_generate_no_longer_shows_candidate_observation_hero(tmp_path):
     assert 'class="hero"' not in html
     assert "候選觀察" not in html
     assert "大戶持倉本週焦點" not in html
+
+
+def test_evidence_card_renders_badge_and_stats():
+    html = _evidence_card("evid-verified", "已驗證", "訊號日 63．筆數 1154", "短期參考價值較高")
+    assert 'class="evid evid-verified"' in html
+    assert "已驗證" in html
+    assert "訊號日 63" in html
+    assert "短期參考價值較高" in html
+
+
+def test_evidence_banner_caution_and_weak_variants():
+    caution = _evidence_banner("caution", "樣本不足，尚未驗證", "資料只有3個月頻快照")
+    assert 'class="caution-banner"' in caution
+    assert "樣本不足，尚未驗證" in caution
+
+    weak = _evidence_banner("weak", "回測顯示這個假設目前沒有得到支持", "D+14平均落後大盤0.53%")
+    assert 'class="weak-banner"' in weak
+    assert "回測顯示這個假設目前沒有得到支持" in weak
+
+
+def test_generate_shows_evidence_card_in_every_backtested_tab(tmp_path):
+    output_path = tmp_path / "chips.html"
+    generate(date(2026, 7, 5), {"測試族群": {"foreign_net_today": 100}}, {}, output_path=str(output_path))
+    html = output_path.read_text(encoding="utf-8")
+
+    tab_signal = html[html.index('id="tab-signal"'):html.index('id="tab-dipbuy"')]
+    assert 'evid-observe' in tab_signal and "訊號日 61" in tab_signal
+
+    tab_dipbuy = html[html.index('id="tab-dipbuy"'):html.index('id="tab-stealth"')]
+    assert 'weak-banner' in tab_dipbuy and "回測顯示這個假設目前沒有得到支持" in tab_dipbuy
+
+    tab_stealth = html[html.index('id="tab-stealth"'):html.index('id="tab-inst"')]
+    assert 'evid-observe' in tab_stealth and "訊號日 63" in tab_stealth
+
+    tab_inst = html[html.index('id="tab-inst"'):html.index('id="tab-foreign"')]
+    assert 'evid-observe' in tab_inst
+
+    tab_foreign = html[html.index('id="tab-foreign"'):html.index('id="tab-trust"')]
+    assert 'evid-observe' in tab_foreign and "訊號日 61" in tab_foreign
+
+    tab_trust = html[html.index('id="tab-trust"'):html.index('id="tab-margin"')]
+    assert 'evid-observe' in tab_trust and "訊號日 57" in tab_trust
+
+    tab_margin = html[html.index('id="tab-margin"'):html.index('id="tab-holder"')]
+    assert 'evid-verified' in tab_margin and "訊號日 63" in tab_margin
+
+    tab_holder = html[html.index('id="tab-holder"'):html.index('id="tab-insider"')]
+    assert 'evid-observe' in tab_holder and "訊號日 29" in tab_holder
+
+    tab_insider = html[html.index('id="tab-insider"'):]
+    assert 'caution-banner' in tab_insider and "樣本不足，尚未驗證" in tab_insider
 
 

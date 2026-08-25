@@ -3752,3 +3752,60 @@ Cody要求review籌碼頁資料，過程中連帶發現index.html「排名進出
   另開一輪，不要誤以為這次順便處理掉了
 - 這批commit尚未push到origin，等Cody指示
 - 這批commit尚未push到origin，等Cody指示
+
+---
+
+## [2026-08-25] 環境交接：桌電要補跑的 plugin/skill 設定（在筆電做的，git 帶不過去）
+
+### 改了什麼
+- 異動檔案：`CLAUDE-developer.md`（commit `409a4e3`）
+- 邏輯說明：設計原則的 brainstorming 規則，從 `mattpocock-skills:grill-with-docs`
+  改成直接點名 `mattpocock-skills:grilling` ＋ `mattpocock-skills:domain-modeling`。
+  原因：`grill-with-docs` 標了 `disable-model-invocation`，只能人手動打 slash command，
+  規則寫它等於流程永遠要 Cody 先下指令；它本體只有一行「呼叫 grilling 和 domain-modeling」，
+  而這兩個都沒鎖 → 拆開點名，行為完全一樣但 Claude 可以自動觸發。
+- 本機（筆電）另外做了 plugin 增減，見下方⚠️。
+
+### ⚠️ 桌電必須手動補跑（git 同步不到）
+今天的改動有三項，只有一項會跟著 git 走：
+
+| 改動 | 存在哪 | git 帶得過去嗎 |
+|---|---|---|
+| 裝 `mattpocock-skills` v1.2.3（user scope） | `~/.claude/settings.json` + `~/.claude/plugins/` | ❌ |
+| 移除 `superpowers`（project scope） | 專案 `.claude/settings.json` | ❌ 該檔沒進 git（`git ls-files .claude/` 為空） |
+| `CLAUDE-developer.md` 規則 | git tracked | ✅ |
+
+→ **桌電 pull 之後，會拿到一條叫它用 `mattpocock-skills:grilling` 的規則，但那台上面沒有這個 skill。**
+桌電請依序跑：
+
+```bash
+git pull --rebase
+claude plugin marketplace add mattpocock/skills          # 若尚未加過
+claude plugin install mattpocock-skills@mattpocock --scope user
+claude plugin uninstall superpowers@superpowers-marketplace --scope project
+cp CLAUDE-developer.md CLAUDE.md                          # ← 最容易漏的一步
+```
+
+### 順帶修掉的舊缺口
+- `bf93ab0`（2026-07-23，桌電做的）把規則改成 `grill-with-docs` 並 push，
+  筆電雖然 pull 到了 `CLAUDE-developer.md`，但**沒人補跑 `cp`** →
+  筆電的 `CLAUDE.md` 停在 `superpowers:brainstorming` 停了一個多月才被發現。
+  這次已 `cp` 補上。**教訓：每次 pull 到 `CLAUDE-*.md` 的改動，該台就要重跑一次 `cp`。**
+
+### 資料來源相關（如有異動）
+- 無。純環境/文件設定，沒碰 scrapers/processors/screener，TWSE(上市)/TPEx(上櫃) 流程完全未動。
+
+### 請 Debugger 驗證
+- [ ] `CLAUDE.md` 與 `CLAUDE-developer.md` 內容一致（`diff` 應為空）——**兩台各自確認**
+- [ ] 桌電上 `superpowers` 已移除、`mattpocock-skills` 已安裝
+- [ ] `docs/superpowers/specs/` 與 `plans/` 兩個資料夾**沒有被動到**
+      （那是專案自己的設計文件，只是剛好同名，跟被移除的 plugin 無關）
+
+### 特別注意
+- `domain-modeling` 不只問問題，會主動維護 `CONTEXT.md` 和 ADR。本 repo 目前沒有
+  `CONTEXT.md`，第一次觸發時它可能提議新建，屆時由 Cody 決定要不要。
+- **debug worktree 尚未同步**：`../tw-sector-tracker-debug` 有未 commit 的 untracked 檔
+  `options-bearish-hedging.md`，依規則先問 Cody、未擅自 merge。
+  另發現該 worktree 的 `origin/debug` 已是 `[gone]`（遠端分支被刪、追蹤關係斷了），
+  下次 Debugger 要 push 會出事，建議一併處理。
+- 這批 commit 已 push 到 `origin/master`（2026-08-25，Cody 指示）。桌電直接 `git pull --rebase` 即可拿到。

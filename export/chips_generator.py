@@ -849,7 +849,7 @@ function switchTab(id, focusTab=false){
   history.replaceState(null,'','#'+id);
   if(typeof applyFilters==='function')applyFilters();
 }
-const _tabs=['tab-signal','tab-dipbuy','tab-stealth','tab-inst','tab-foreign','tab-trust','tab-margin','tab-holder','tab-insider'];
+const _tabs=['tab-margin','tab-stealth','tab-dipbuy','tab-foreign','tab-trust','tab-signal','tab-inst','tab-holder','tab-insider'];
 document.querySelector('.tab-groups').addEventListener('keydown',e=>{
   if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;
   e.preventDefault();
@@ -859,7 +859,7 @@ document.querySelector('.tab-groups').addEventListener('keydown',e=>{
   switchTab(_tabs[next],true);
 });
 const _h=location.hash.slice(1);
-switchTab(_tabs.includes(_h)?_h:'tab-signal');
+switchTab(_tabs.includes(_h)?_h:'tab-margin');
 </script>
 """
 
@@ -1348,27 +1348,27 @@ def generate(
         <div class="section-nav-label">分析視角</div>
         <div class="tab-groups" role="tablist" aria-label="籌碼分析分類">
           <div class="tab-group">
-            <span class="tab-group-label">法人動向</span>
+            <span class="tab-group-label">特殊型態</span>
             <div class="tab-bar">
-              <button id="tab-btn-signal" type="button" role="tab" aria-controls="tab-signal" aria-selected="false" class="tab-btn" data-tab="tab-signal" onclick="switchTab('tab-signal')">法人同步觀察</button>
-              <button id="tab-btn-foreign" type="button" role="tab" aria-controls="tab-foreign" aria-selected="false" class="tab-btn" data-tab="tab-foreign" onclick="switchTab('tab-foreign')">外資籌碼</button>
-              <button id="tab-btn-trust" type="button" role="tab" aria-controls="tab-trust" aria-selected="false" class="tab-btn" data-tab="tab-trust" onclick="switchTab('tab-trust')">投信籌碼</button>
+              <button id="tab-btn-margin" type="button" role="tab" aria-controls="tab-margin" aria-selected="false" class="tab-btn" data-tab="tab-margin" onclick="switchTab('tab-margin')"><span>融資警示</span><span class="evid evid-verified">已驗證</span></button>
+              <button id="tab-btn-stealth" type="button" role="tab" aria-controls="tab-stealth" aria-selected="false" class="tab-btn" data-tab="tab-stealth" onclick="switchTab('tab-stealth')"><span>外資偷偷買</span><span class="evid evid-observe">觀察用</span></button>
+              <button id="tab-btn-dipbuy" type="button" role="tab" aria-controls="tab-dipbuy" aria-selected="false" class="tab-btn" data-tab="tab-dipbuy" onclick="switchTab('tab-dipbuy')"><span>越跌越買</span><span class="evid evid-weak">證據偏弱</span></button>
             </div>
           </div>
           <div class="tab-group">
-            <span class="tab-group-label">特殊型態</span>
+            <span class="tab-group-label">法人動向</span>
             <div class="tab-bar">
-              <button id="tab-btn-dipbuy" type="button" role="tab" aria-controls="tab-dipbuy" aria-selected="false" class="tab-btn" data-tab="tab-dipbuy" onclick="switchTab('tab-dipbuy')">越跌越買</button>
-              <button id="tab-btn-stealth" type="button" role="tab" aria-controls="tab-stealth" aria-selected="false" class="tab-btn" data-tab="tab-stealth" onclick="switchTab('tab-stealth')">外資偷偷買</button>
-              <button id="tab-btn-margin" type="button" role="tab" aria-controls="tab-margin" aria-selected="false" class="tab-btn" data-tab="tab-margin" onclick="switchTab('tab-margin')">融資警示</button>
+              <button id="tab-btn-foreign" type="button" role="tab" aria-controls="tab-foreign" aria-selected="false" class="tab-btn" data-tab="tab-foreign" onclick="switchTab('tab-foreign')"><span>外資籌碼</span><span class="evid evid-observe">觀察用</span></button>
+              <button id="tab-btn-trust" type="button" role="tab" aria-controls="tab-trust" aria-selected="false" class="tab-btn" data-tab="tab-trust" onclick="switchTab('tab-trust')"><span>投信籌碼</span><span class="evid evid-observe">觀察用</span></button>
+              <button id="tab-btn-signal" type="button" role="tab" aria-controls="tab-signal" aria-selected="false" class="tab-btn" data-tab="tab-signal" onclick="switchTab('tab-signal')"><span>法人同步觀察</span><span class="evid evid-observe">觀察用</span></button>
             </div>
           </div>
           <div class="tab-group">
             <span class="tab-group-label">持股結構</span>
             <div class="tab-bar">
-              <button id="tab-btn-inst" type="button" role="tab" aria-controls="tab-inst" aria-selected="false" class="tab-btn" data-tab="tab-inst" onclick="switchTab('tab-inst')">法人買賣</button>
-              <button id="tab-btn-holder" type="button" role="tab" aria-controls="tab-holder" aria-selected="false" class="tab-btn" data-tab="tab-holder" onclick="switchTab('tab-holder')">大戶籌碼</button>
-              <button id="tab-btn-insider" type="button" role="tab" aria-controls="tab-insider" aria-selected="false" class="tab-btn" data-tab="tab-insider" onclick="switchTab('tab-insider')">董監持股</button>
+              <button id="tab-btn-inst" type="button" role="tab" aria-controls="tab-inst" aria-selected="false" class="tab-btn" data-tab="tab-inst" onclick="switchTab('tab-inst')"><span>法人買賣</span><span class="evid evid-observe">觀察用</span></button>
+              <button id="tab-btn-holder" type="button" role="tab" aria-controls="tab-holder" aria-selected="false" class="tab-btn" data-tab="tab-holder" onclick="switchTab('tab-holder')"><span>大戶籌碼</span><span class="evid evid-observe">觀察用</span></button>
+              <button id="tab-btn-insider" type="button" role="tab" aria-controls="tab-insider" aria-selected="false" class="tab-btn" data-tab="tab-insider" onclick="switchTab('tab-insider')"><span>董監持股</span><span class="evid evid-unproven">待驗證</span></button>
             </div>
           </div>
         </div>

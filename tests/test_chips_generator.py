@@ -116,6 +116,44 @@ def test_generate_includes_evidence_tier_css_classes(tmp_path):
         assert cls in html, f"{cls} 應該出現在 <style> 裡"
 
 
+def test_generate_tab_nav_orders_by_evidence_strength_with_badges(tmp_path):
+    """特殊型態組內第一個該是融資警示(已驗證)，法人同步觀察不再是第一個 tab-group 的第一個
+    按鈕；每個按鈕都要帶對應的證據徽章。"""
+    output_path = tmp_path / "chips.html"
+    generate(date(2026, 7, 5), {"測試族群": {"foreign_net_today": 100}}, {}, output_path=str(output_path))
+    html = output_path.read_text(encoding="utf-8")
+
+    # 特殊型態組：融資警示排最前面（已驗證優先）
+    margin_idx = html.index('data-tab="tab-margin"')
+    stealth_idx = html.index('data-tab="tab-stealth"')
+    dipbuy_idx = html.index('data-tab="tab-dipbuy"')
+    assert margin_idx < stealth_idx < dipbuy_idx
+
+    # 每個 tab 按鈕都帶對應徽章（用 button id 附近的文字片段確認，不是全域計數，
+    # 避免不同 tab 剛好同一種徽章互相混淆）。切片區間要照「新排列順序」抓下一個按鈕的
+    # id 當結尾，順序是 margin→stealth→dipbuy→foreign→trust→signal→inst→holder→insider——
+    # 抓錯順序會讓 start > stop，Python 切出空字串，斷言會誤判過（第一版寫錯過，這裡已修正）。
+    margin_btn = html[html.index('id="tab-btn-margin"'):html.index('id="tab-btn-stealth"')]
+    assert 'evid-verified' in margin_btn and '已驗證' in margin_btn
+
+    dipbuy_btn = html[html.index('id="tab-btn-dipbuy"'):html.index('id="tab-btn-foreign"')]
+    assert 'evid-weak' in dipbuy_btn and '證據偏弱' in dipbuy_btn
+
+    signal_btn = html[html.index('id="tab-btn-signal"'):html.index('id="tab-btn-inst"')]
+    assert 'evid-observe' in signal_btn and '觀察用' in signal_btn
+
+    insider_btn = html[html.index('id="tab-btn-insider"'):]
+    assert 'evid-unproven' in insider_btn and '待驗證' in insider_btn
+
+
+def test_generate_default_tab_is_margin_not_signal(tmp_path):
+    """預設分頁改成證據最強的融資警示，不再預設開在法人同步觀察。"""
+    output_path = tmp_path / "chips.html"
+    generate(date(2026, 7, 5), {"測試族群": {"foreign_net_today": 100}}, {}, output_path=str(output_path))
+    html = output_path.read_text(encoding="utf-8")
+    assert "switchTab(_tabs.includes(_h)?_h:'tab-margin')" in html
+
+
 def test_coverage_flag_empty_when_not_partial():
     assert _coverage_flag({"partial_coverage": False}) == ""
     assert _coverage_flag({}) == ""
@@ -677,26 +715,26 @@ def test_generate_groups_sidebar_tabs_into_three_clusters(tmp_path):
         assert f'data-tab="tab-{tab_id}"' in html
         assert f'aria-controls="tab-{tab_id}"' in html
 
-    label_signal_group = html.index("法人動向")
     label_pattern_group = html.index("特殊型態")
+    label_signal_group = html.index("法人動向")
     label_structure_group = html.index("持股結構")
-    assert label_signal_group < label_pattern_group < label_structure_group
+    assert label_pattern_group < label_signal_group < label_structure_group
 
-    pos_signal = html.index('id="tab-btn-signal"')
+    pos_margin = html.index('id="tab-btn-margin"')
+    pos_stealth = html.index('id="tab-btn-stealth"')
+    pos_dipbuy = html.index('id="tab-btn-dipbuy"')
     pos_foreign = html.index('id="tab-btn-foreign"')
     pos_trust = html.index('id="tab-btn-trust"')
-    pos_dipbuy = html.index('id="tab-btn-dipbuy"')
-    pos_stealth = html.index('id="tab-btn-stealth"')
-    pos_margin = html.index('id="tab-btn-margin"')
+    pos_signal = html.index('id="tab-btn-signal"')
     pos_inst = html.index('id="tab-btn-inst"')
     pos_holder = html.index('id="tab-btn-holder"')
     pos_insider = html.index('id="tab-btn-insider"')
 
+    # 特殊型態 group（已驗證優先）的按鈕都要落在自己的標籤跟下一組標籤之間
+    assert label_pattern_group < pos_margin < pos_stealth < pos_dipbuy < label_signal_group
     # 法人動向 group的按鈕都要落在自己的標籤跟下一組標籤之間
-    assert label_signal_group < pos_signal < pos_foreign < pos_trust < label_pattern_group
-    # 特殊型態 group的按鈕都要落在自己的標籤跟下一組標籤之間
-    assert label_pattern_group < pos_dipbuy < pos_stealth < pos_margin < label_structure_group
-    # 持股結構 group的按鈕都要落在自己的標籤之後
+    assert label_signal_group < pos_foreign < pos_trust < pos_signal < label_structure_group
+    # 持股結構 group的按鈕都要落在自己的標籤之後（組內順序不變）
     assert label_structure_group < pos_inst < pos_holder < pos_insider
 
 

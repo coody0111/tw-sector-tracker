@@ -1793,10 +1793,10 @@ function selectGroup(name, toggle) {{
   }}
   panel.querySelector('.detail-head').appendChild(closeBtn);
 
-  const rowTop = tile.offsetTop;
-  const rowTiles = tiles.filter(t => t.offsetTop === rowTop);
-  const lastInRow = rowTiles[rowTiles.length - 1];
-  lastInRow.insertAdjacentElement('afterend', panel);
+  // 面板錨定在#heatgrid容器「之後」(不是被點tile所在列的最後一格後面)——這樣熱區格
+  // 41格的排列永遠完整不被打斷，換族群時直接點旁邊的tile就換，不用先收合再點。
+  const heatgrid = document.getElementById('heatgrid');
+  heatgrid.insertAdjacentElement('afterend', panel);
   // renderPanelStocks()一定要在panel插入document「之後」呼叫——它內部用
   // document.getElementById('panelStocksWrap')找tbody，插入前panel還是離線節點，
   // document.getElementById找不到，會被wrap===null的guard擋掉，表格永遠是空的

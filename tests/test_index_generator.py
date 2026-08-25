@@ -1401,6 +1401,24 @@ def test_generate_calls_render_panel_stocks_after_panel_is_attached_to_dom(tmp_p
     )
 
 
+def test_generate_selectgroup_inserts_panel_after_heatgrid_container_not_inside_a_row(tmp_path):
+    """個股明細面板要插在#heatgrid容器「之後」(整個熱區格結束後)，不是插進被點tile
+    所在列的最後一格後面——避免面板打斷41格熱區格的排列。用原始碼字串檢查selectGroup()
+    的insertAdjacentElement()呼叫對象是heatgrid變數，不是tiles/rowTiles相關的東西。"""
+    output_path = tmp_path / "index.html"
+    generate(date(2026, 8, 25), _sample_meta_perf(), _sample_universe_df(), {}, {}, _sample_prices_df(), {},
+             output_path=str(output_path))
+
+    html = output_path.read_text(encoding="utf-8")
+    select_group_start = html.index("function selectGroup(")
+    select_group_end = html.index("/* ── 個股/族群搜尋 ── */")
+    select_group_body = html[select_group_start:select_group_end]
+
+    assert "heatgrid.insertAdjacentElement('afterend', panel)" in select_group_body
+    assert "rowTiles" not in select_group_body
+    assert "document.getElementById('heatgrid')" in select_group_body
+
+
 def test_generate_renders_rolling_return_columns_directly_on_stock_list(tmp_path):
     """Cody要求5/7/10/14日累積漲跌直接顯示在族群個股列表上（不是只藏在點開的
     個股卡片裡）——確認欄位標題跟資料列都有正確產生，且這4欄也能點標題排序。"""

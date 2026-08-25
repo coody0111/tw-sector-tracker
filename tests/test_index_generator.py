@@ -1639,3 +1639,30 @@ def test_generate_passes_shareholder_df_through_to_stock_detail(tmp_path):
     compact = html.replace(" ", "")
     assert '"holder_pct":68.4' in compact
     assert '"holder_week_chg":0.6' in compact
+
+
+def test_generate_renders_holder_pct_and_week_chg_columns(tmp_path):
+    """個股列表新增「大戶佔比」「大戶週變化」兩欄(11→13欄)，插在量比跟融資佔比之間，
+    可點排序，無資料時顯示「─」不是空白或crash。"""
+    output_path = tmp_path / "index.html"
+    meta_perf = [{"meta_name": "族群A", "avg_change_pct": 2.0, "up_count": 1, "down_count": 0, "flat_count": 0}]
+    universe_df = pd.DataFrame([
+        {"stock_id": "1000", "stock_name": "測試股", "meta_sector": "族群A"},
+    ])
+    prices_df = pd.DataFrame([{"stock_id": "1000", "close": 100.0, "change_pct": 2.0}])
+    shareholder_df = pd.DataFrame([{"stock_id": "1000", "lv12_15_pct": 41.2, "week_chg": -1.1}])
+
+    generate(
+        date(2026, 8, 25), meta_perf, universe_df, {}, {}, prices_df, {},
+        shareholder_df=shareholder_df, output_path=str(output_path),
+    )
+
+    html = output_path.read_text(encoding="utf-8")
+    assert ">大戶佔比</button>" in html
+    assert ">大戶週變化</button>" in html
+    assert "onclick=\"sortStockList(this.parentElement,'holder')\"" in html
+    assert "onclick=\"sortStockList(this.parentElement,'holderchg')\"" in html
+    assert "function _holderPctTd" in html
+    assert "function _holderChgTd" in html
+    assert "colspan=\"13\"" in html  # 無行情佔位列的colspan要跟著新欄位數更新(原本11)
+    assert "colspan=\"11\"" not in html

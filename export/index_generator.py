@@ -1516,6 +1516,19 @@ function _plainPctTd(v) {{
   return `<td class="num tabular">${{v.toFixed(2)}}%</td>`;
 }}
 
+// 大戶佔比：純數字顯示，跟融資/融券佔比一樣不設門檻。
+function _holderPctTd(v) {{
+  if (v === null || v === undefined) return '<td class="num tabular">─</td>';
+  return `<td class="num tabular">${{v.toFixed(2)}}%</td>`;
+}}
+
+// 大戶週變化：有正負號，紅漲綠跌配色(比照_rollTd的漲跌色慣例)。
+function _holderChgTd(v) {{
+  if (v === null || v === undefined) return '<td class="num tabular">─</td>';
+  const c = v >= 0 ? 'var(--up)' : 'var(--down)';
+  return `<td class="num tabular" style="color:${{c}}">${{v>=0?'+':''}}${{v.toFixed(2)}}%</td>`;
+}}
+
 // 融資/融券維持率(估)：低於130%(法規追繳門檻)視為警示，用警示色+粗體+文字徽章明確標示。
 // 融資/融券兩欄共用同一套門檻邏輯(見docs/adr/0002-margin-maintenance-ratio-is-an-estimate.md)。
 function _maintTd(v) {{
@@ -1529,7 +1542,7 @@ function _maintTd(v) {{
 function renderStockListItem(s) {{
   const sid = escHtml(s.stock_id);
   if (s.no_data) {{
-    return `<tr class="stock-item no-data"><td><span class="si-id">${{sid}}</span><span class="si-name">${{escHtml(s.stock_name)}}</span></td><td colspan="11">無行情</td></tr>`;
+    return `<tr class="stock-item no-data"><td><span class="si-id">${{sid}}</span><span class="si-name">${{escHtml(s.stock_name)}}</span></td><td colspan="13">無行情</td></tr>`;
   }}
   const color = s.change_pct >= 0 ? 'var(--up)' : 'var(--down)';
   const sign = s.change_pct >= 0 ? '+' : '';
@@ -1540,6 +1553,8 @@ function renderStockListItem(s) {{
     + `<td class="num tabular">${{fmtPrice(s.close)}}</td>`
     + `<td class="num tabular" style="color:${{color}}">${{arrow}} ${{sign}}${{s.change_pct.toFixed(2)}}%</td>`
     + `${{_volTd(s.vol_ratio)}}`
+    + `${{_holderPctTd(s.holder_pct)}}`
+    + `${{_holderChgTd(s.holder_week_chg)}}`
     + `${{_plainPctTd(s.financed_pct)}}`
     + `${{_maintTd(s.maintenance_est)}}`
     + `${{_plainPctTd(s.shorted_pct)}}`
@@ -1615,6 +1630,8 @@ function _sortValue(s, key) {{
   if (key === 'id') return s.stock_id;
   if (key === 'close') return s.close;
   if (key === 'vol') return s.vol_ratio;
+  if (key === 'holder') return s.holder_pct;
+  if (key === 'holderchg') return s.holder_week_chg;
   if (key === 'financed') return s.financed_pct;
   if (key === 'maint') return s.maintenance_est;
   if (key === 'shorted') return s.shorted_pct;
@@ -1710,6 +1727,8 @@ function selectGroup(name, toggle) {{
           <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'close')">收盤</button></th>
           <th class="num" aria-sort="descending"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'pct')">漲跌%</button></th>
           <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'vol')">量比</button></th>
+          <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'holder')">大戶佔比</button></th>
+          <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'holderchg')">大戶週變化</button></th>
           <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'financed')">融資佔比</button></th>
           <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'maint')">融資維持率(估)</button></th>
           <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'shorted')">融券餘額佔比</button></th>

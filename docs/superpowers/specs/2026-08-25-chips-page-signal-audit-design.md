@@ -111,13 +111,42 @@ Cody 想重構籌碼頁，但一開始就卡在「不知道該怎麼下手、該
 - 這批 commit 尚未 push 到 origin，等 Debugger 跑完 `pytest` 回報 ✅ 後再 push（見
   `debug-tasks.md` 2026-08-25 條目）
 
+## 視覺／資訊架構設計（`ui-ux-pro-max` skill 產出，2026-08-25）
+
+Mockup：`docs/superpowers/mockups/2026-08-25-chips-page-evidence-tiers-mockup.html`（瀏覽器直接
+開啟即可看外觀，只示範新元件/新排序，不是完整頁面重繪）。
+
+**設計原則**：不換色票字型系統（沿用 `docs/chips.html` 既有 CSS 變數），四個等級全部用現有
+token 組出，不新增色相：
+
+| 等級 | Token | 說明 |
+|---|---|---|
+| 🟢 已驗證 | `--accent`（金）+ `--accent-soft` | 現況已用於 active tab/排序箭頭，語意本來就是「值得注意」 |
+| 🟡 觀察用 | `--muted` + `--surface-3` | 中性、不強調，跟既有 `.market-badge` 同一套語言 |
+| ⚪ 待驗證 | `--caution`（藍灰）+ `--caution-soft` | 這個變數現況只用在 1 處 disclosure 文字，語意本來就契合「需要留意但不是壞消息」 |
+| 🔴 證據偏弱 | `--subtle` + 虛線框 | 不用警示色（`--up`/`--down` 已被漲跌語意佔用，混用會撞色），用「視覺重量減到最低」表達降級 |
+
+徽章一律「文字+顏色」雙重編碼（已驗證/觀察用/待驗證/證據偏弱四種不同文字），不單靠顏色分辨，
+呼應 `ui-ux-pro-max` 的 accessibility「Color Only」規則（Don't convey information by color alone）。
+
+**四項具體改動**：
+
+1. **側邊 tab nav 組內重排**：沿用現有 3 個功能分組（法人動向／特殊型態／持股結構）不重新
+   發明分類，但**組內順序改成證據強度排序**（原順序是功能上線時間先後）。例如「特殊型態」組
+   內原本是 越跌越買→外資偷偷買→融資警示，改成 融資警示→外資偷偷買→越跌越買。
+2. **每個 tab 加證據徽章**：直接掛在 tab 按鈕文字旁，四級對應四色四文字（見上表）。
+3. **拿掉「候選觀察」開頁 hero**：現況 `joint_buy`（法人同步觀察）是全頁最顯眼的開頁區塊，
+   但證據強度只是「觀察用」，改成跟其他觀察用項目同一層級的一般 tab，不再享有 hero 版位。
+4. **每個有回測結果的 tab 面板頂部固定顯示「證據卡」**：訊號日數/筆數/勝率/平均超額，數字
+   直接對應 spec 總表，讓 Cody 在頁面上就能自己判斷可信度，不用回頭翻 spec 或問我。「待驗證」
+   跟「證據偏弱」兩型不用證據卡，改用對應語氣的說明 banner（見 mockup ③④）。
+
 ## Open Questions / 下一步
 
-1. Cody 逐項確認/調整上面的四級分類
-2. 分類確認後，進 `ui-ux-pro-max` skill 做視覺/資訊架構設計（照 CLAUDE.md 規矩，UI 相關一定要
-   過這個 skill）
-3. 設計過完 Cody 確認後，才拆成實作任務清單真的動 `export/chips_generator.py`
-4. 董監持股：等 `insider_holdings` 資料再累積幾個月（多幾個月頻快照）後補回測，屆時可比照這次
+1. Cody 逐項確認/調整四級分類 + 上面的視覺/資訊架構設計（mockup 四個示範區塊）
+2. 確認後才拆成實作任務清單真的動 `export/chips_generator.py`（照 CLAUDE.md 規矩，較大規模
+   改動建議先 `writing-plans` 拆 task，不要一次全部重寫）
+3. 董監持股：等 `insider_holdings` 資料再累積幾個月（多幾個月頻快照）後補回測，屆時可比照這次
    的方法論加進 `CHIPS_RULES`
 
 ## 相關文件

@@ -807,9 +807,19 @@ table.vt-table{width:100%;border-collapse:collapse}
 }
 .heat-tile:hover{transform:translateY(-2px);box-shadow:var(--shadow-2);z-index:2}
 .heat-tile.active{outline:2px solid var(--accent);outline-offset:-2px}
+/* 超強tier玻璃質感+光暈：故意不覆寫background(每個tile已有inline style來自heat_bg()，
+   CSS class的background會被inline覆蓋蓋掉，寫了也不會顯示)，只加border-color+box-shadow。
+   用color-mix(in srgb, var(--accent) N%, transparent)而非寫死rgba(240,187,85,...)，
+   因為--accent深色(#F0BB55)/淺色(#93701E)主題色相不同，color-mix自動跟著--accent變色，
+   兩個主題都合理，不用另外在:root[data-theme="light"]開一組rgba數值。*/
+.heat-tile.tier-super{
+  border-color:color-mix(in srgb, var(--accent) 50%, transparent);
+  box-shadow:0 0 22px color-mix(in srgb, var(--accent) 18%, transparent), var(--shadow-2);
+}
+.heat-tile.tier-super:hover{box-shadow:0 0 26px color-mix(in srgb, var(--accent) 24%, transparent), var(--shadow-2)}
 
 .detail-panel{
-  grid-column:1/-1;background:var(--panel);border:1px solid var(--border-2);border-radius:5px;
+  margin:20px 26px 0;background:var(--panel);border:1px solid var(--accent);border-radius:5px;
   padding:22px 26px;box-shadow:var(--shadow-2);scroll-margin-top:20px;
   animation:expandIn .22s ease-out;
 }
@@ -819,9 +829,12 @@ table.vt-table{width:100%;border-collapse:collapse}
 .detail-head .dpct{font-family:var(--mono);font-size:.98rem;font-weight:700}
 .detail-close{margin-left:auto;font-family:var(--mono);font-size:.68rem;background:none;border:1px solid var(--border);color:var(--ink-3);padding:4px 10px;border-radius:4px;cursor:pointer}
 .detail-sub{font-size:.75rem;color:var(--ink-3);margin-bottom:8px;font-family:var(--mono)}
-.meta-sparkline{margin:4px 0 10px;line-height:0}
-.meta-sparkline svg{width:100%;height:auto;display:block;max-width:420px}
-.chips-summary{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:14px;padding:8px 12px;background:var(--panel-2);border-radius:5px;font-size:.76rem}
+.detail-three-col{display:grid;grid-template-columns:1fr 1fr 1.3fr;gap:12px;margin:10px 0 14px}
+@media (max-width:768px){.detail-three-col{grid-template-columns:1fr}}
+.tc-box{background:var(--panel-2);border-radius:5px;padding:10px 12px}
+.meta-sparkline{margin:0;line-height:0}
+.meta-sparkline svg{width:100%;height:auto;display:block}
+.chips-summary{display:flex;flex-direction:column;gap:6px;flex-wrap:wrap;margin:0;padding:0;background:none;font-size:.76rem}
 .cs-row{display:flex;align-items:center;gap:6px}
 .cs-row .cs-label{color:var(--ink-3)}
 .cs-row .cs-sub{color:var(--ink-3);font-size:.68rem}
@@ -1074,8 +1087,9 @@ def _heatgrid_html(cards: List[Dict[str, Any]]) -> str:
 
         pct_color = "var(--up)" if c["pct"] >= 0 else "var(--down)"
         meta_name_safe = _esc(c["meta_name"])
+        tile_class = "heat-tile tier-super" if tier is not None and tier["key"] == "super" else "heat-tile"
         tiles.append(
-            f'<div class="heat-tile" data-meta-name="{meta_name_safe}" '
+            f'<div class="{tile_class}" data-meta-name="{meta_name_safe}" '
             f'role="button" tabindex="0" onclick="selectGroup(this.dataset.metaName,true)" '
             f'onkeydown="if(event.key===\'Enter\'||event.key===\' \'){{event.preventDefault();selectGroup(this.dataset.metaName,true)}}" '
             f'style="background:{c["heat_bg"]};border-top-color:{_TIER_COLOR_VAR[tier["key"]] if tier else "transparent"}">'
@@ -1753,13 +1767,22 @@ function selectGroup(name, toggle) {{
     panel.innerHTML = `
       <div class="detail-head"><h3>${{safeName}}</h3><span class="dpct" style="color:${{pctColor}}">${{pctStr}}</span></div>
       <div class="detail-sub">▲${{meta.up_count}}檔 ▼${{meta.down_count}}檔</div>
-      ${{metaSpark}}${{chipsSum}}${{historyRecord}}
+      <div class="detail-three-col">
+        <div class="tc-box">${{metaSpark}}</div>
+        <div class="tc-box">${{chipsSum}}</div>
+        <div class="tc-box">${{historyRecord}}</div>
+      </div>
       <div class="detail-empty">這個族群目前沒有個股行情資料。</div>`;
   }} else {{
     panel.innerHTML = `
       <div class="detail-head"><h3>${{safeName}}</h3><span class="dpct" style="color:${{pctColor}}">${{pctStr}}</span></div>
       <div class="detail-sub">▲${{meta.up_count}}檔 ▼${{meta.down_count}}檔　・　共 ${{stocks.length}} 檔</div>
-      ${{metaSpark}}${{chipsSum}}${{historyRecord}}${{asofNote}}
+      <div class="detail-three-col">
+        <div class="tc-box">${{metaSpark}}</div>
+        <div class="tc-box">${{chipsSum}}</div>
+        <div class="tc-box">${{historyRecord}}</div>
+      </div>
+      ${{asofNote}}
       <div class="overflow-wrap"><table class="stock-list-table">
         <thead><tr>
           <th aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'id')">股票</button></th>
@@ -1782,10 +1805,10 @@ function selectGroup(name, toggle) {{
   }}
   panel.querySelector('.detail-head').appendChild(closeBtn);
 
-  const rowTop = tile.offsetTop;
-  const rowTiles = tiles.filter(t => t.offsetTop === rowTop);
-  const lastInRow = rowTiles[rowTiles.length - 1];
-  lastInRow.insertAdjacentElement('afterend', panel);
+  // 面板錨定在#heatgrid容器「之後」(不是被點tile所在列的最後一格後面)——這樣熱區格
+  // 41格的排列永遠完整不被打斷，換族群時直接點旁邊的tile就換，不用先收合再點。
+  const heatgrid = document.getElementById('heatgrid');
+  heatgrid.insertAdjacentElement('afterend', panel);
   // renderPanelStocks()一定要在panel插入document「之後」呼叫——它內部用
   // document.getElementById('panelStocksWrap')找tbody，插入前panel還是離線節點，
   // document.getElementById找不到，會被wrap===null的guard擋掉，表格永遠是空的

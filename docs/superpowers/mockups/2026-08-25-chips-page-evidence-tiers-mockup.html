@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>chips.html 證據分級設計 mockup（2026-08-25）</title>
+<style>
+  :root{--bg:#080B12;--surface:#0F1420;--surface-2:#161D2C;--surface-3:#1E2738;--border:#293346;--border-strong:#37435C;--text:#DADFE8;--muted:#98A0B4;--subtle:#636B80;--accent:#F0BB55;--accent-soft:rgba(240,187,85,.16);--caution:#6E8CB0;--caution-soft:rgba(110,140,176,.16);--up:#E6432F;--down:#37B25C;--radius:8px}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans TC",sans-serif;line-height:1.5;padding:32px 24px 80px}
+  .note-banner{max-width:920px;margin:0 auto 28px;padding:14px 16px;background:var(--surface);border:1px solid var(--border-strong);border-radius:var(--radius);color:var(--muted);font-size:.8125rem}
+  .note-banner b{color:var(--accent)}
+  h1{max-width:920px;margin:0 auto 4px;font-size:1.05rem}
+  .sub{max-width:920px;margin:0 auto 24px;color:var(--subtle);font-size:.75rem}
+  .demo{max-width:920px;margin:0 auto 40px;display:grid;grid-template-columns:220px 1fr;gap:0;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+  .demo-label{grid-column:1/-1;padding:8px 14px;background:var(--surface-3);color:var(--subtle);font-size:.6875rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;border-bottom:1px solid var(--border)}
+
+  /* ── 側邊 tab nav（依證據分級重排＋加證據徽章）── */
+  .nav{background:#0B0F19;padding:16px 12px;border-right:1px solid var(--border)}
+  .nav-label{padding:0 8px 8px;color:var(--subtle);font-size:.6875rem;font-weight:800;letter-spacing:.08em}
+  .tab-group{margin-bottom:14px}
+  .tab-group-label{display:block;padding:0 6px 6px;font-size:.62rem;letter-spacing:.08em;text-transform:uppercase;color:var(--subtle)}
+  .tab-row{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;min-height:40px;padding:7px 9px;border:0;border-left:3px solid transparent;border-radius:6px;background:transparent;color:var(--muted);font-size:.8rem;font-weight:650;cursor:pointer}
+  .tab-row:hover{color:var(--text);background:var(--surface)}
+  .tab-row.active{color:var(--text);border-left-color:var(--accent);background:var(--accent-soft)}
+  .tab-row.weak{opacity:.62}
+  .evid{display:inline-flex;align-items:center;padding:1px 7px;border-radius:9px;font-size:.6rem;font-weight:750;letter-spacing:.02em;white-space:nowrap;flex-shrink:0}
+  .evid-verified{background:var(--accent-soft);color:var(--accent);border:1px solid rgba(240,187,85,.35)}
+  .evid-observe{background:var(--surface-3);color:var(--muted);border:1px solid var(--border-strong)}
+  .evid-unproven{background:var(--caution-soft);color:var(--caution);border:1px solid rgba(110,140,176,.35)}
+  .evid-weak{background:transparent;color:var(--subtle);border:1px dashed var(--border)}
+
+  /* ── 右側面板示範 ── */
+  .panel{padding:20px 22px}
+  .panel h2{margin:0 0 12px;font-size:.95rem}
+  .evid-card{display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px;margin-bottom:16px;padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:6px;font-size:.75rem;color:var(--muted)}
+  .evid-card b{color:var(--text);font-variant-numeric:tabular-nums}
+  .evid-card .src{margin-left:auto;color:var(--subtle);font-size:.6875rem}
+  .caution-banner{margin-bottom:16px;padding:11px 14px;background:var(--caution-soft);border:1px solid rgba(110,140,176,.4);border-radius:6px;color:var(--text);font-size:.75rem}
+  .caution-banner b{color:var(--caution)}
+  .weak-banner{margin-bottom:16px;padding:11px 14px;background:transparent;border:1px dashed var(--border-strong);border-radius:6px;color:var(--muted);font-size:.75rem}
+  .weak-banner b{color:var(--subtle)}
+  .mini-table{width:100%;border-collapse:collapse;font-size:.75rem}
+  .mini-table th{text-align:left;padding:6px 8px;color:var(--muted);background:var(--surface-2);border-bottom:1px solid var(--border);font-size:.6875rem}
+  .mini-table td{padding:6px 8px;border-bottom:1px solid var(--border)}
+  .up{color:var(--up);font-weight:700}.down{color:var(--down);font-weight:700}
+</style>
+</head>
+<body>
+
+<h1>chips.html 證據分級設計 mockup</h1>
+<p class="sub">依 2026-08-25-chips-page-signal-audit-design.md 四級分類 — 只示範新元件/新排序，不是完整頁面重繪</p>
+
+<div class="note-banner">
+  <b>設計原則</b>：不換色票字型系統。四個等級全部用現有 CSS 變數組出——
+  <code>--accent</code>(已驗證)／<code>--muted</code>+<code>--surface-3</code>(觀察用)／
+  <code>--caution</code>(待驗證，此變數目前只用在 1 處 disclosure 文字，語意本來就契合)／
+  <code>--subtle</code>+虛線(證據偏弱)。徽章一律「文字+顏色」雙重編碼，不單靠顏色分辨
+  （呼應 ui-ux-pro-max 的 Color-Only a11y 規則）。
+</div>
+
+<div class="demo">
+  <div class="demo-label">① 側邊 tab nav — 組內依證據強度重排＋加徽章（分組結構沿用現有「法人動向／特殊型態／持股結構」，不重新發明）</div>
+  <div class="nav" style="grid-column:1/-1;display:grid;grid-template-columns:220px 1fr;gap:0">
+    <div>
+      <div class="nav-label">分析視角</div>
+
+      <div class="tab-group">
+        <span class="tab-group-label">特殊型態</span>
+        <button class="tab-row active"><span>融資警示</span><span class="evid evid-verified">已驗證</span></button>
+        <button class="tab-row"><span>外資偷偷買</span><span class="evid evid-observe">觀察用</span></button>
+        <button class="tab-row weak"><span>越跌越買</span><span class="evid evid-weak">證據偏弱</span></button>
+      </div>
+
+      <div class="tab-group">
+        <span class="tab-group-label">法人動向</span>
+        <button class="tab-row"><span>外資籌碼</span><span class="evid evid-observe">觀察用</span></button>
+        <button class="tab-row"><span>投信籌碼</span><span class="evid evid-observe">觀察用</span></button>
+        <button class="tab-row"><span>法人同步觀察</span><span class="evid evid-observe">觀察用</span></button>
+      </div>
+
+      <div class="tab-group">
+        <span class="tab-group-label">持股結構</span>
+        <button class="tab-row"><span>大戶籌碼</span><span class="evid evid-observe">觀察用</span></button>
+        <button class="tab-row"><span>董監持股</span><span class="evid evid-unproven">待驗證</span></button>
+      </div>
+    </div>
+    <div style="padding:16px 20px;color:var(--subtle);font-size:.75rem;display:flex;align-items:center">
+      ← 組內順序改成證據強度排序（原本組內順序是功能上線時間先後，現在改成勝率/超額報酬高到低），
+      「法人同步觀察」原本是全頁最顯眼的開頁 hero，改成跟其他「觀察用」項目同一層級的一般 tab。
+    </div>
+  </div>
+</div>
+
+<div class="demo">
+  <div class="demo-label">② 面板頂部「證據卡」— 每個有回測結果的 tab 都固定顯示，數字直接來自 spec 總表</div>
+  <div class="panel" style="grid-column:1/-1">
+    <h2>融資警示</h2>
+    <div class="evid-card">
+      <span class="evid evid-verified">已驗證</span>
+      <span>訊號日 <b>63</b>．筆數 <b>1154</b></span>
+      <span>D+5 避險命中 <b>54%</b></span>
+      <span>D+14 避險命中 <b>47%</b></span>
+      <span class="src">短期(5日內)參考價值較高，拉長會退化——這是示警用途，不是選股訊號</span>
+    </div>
+    <table class="mini-table">
+      <thead><tr><th>股票</th><th>融資增幅</th><th>股價背離</th></tr></thead>
+      <tbody>
+        <tr><td>（示意列）2454 聯發科</td><td class="up">+8.2%</td><td class="down">-1.4%</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="demo">
+  <div class="demo-label">③ 「待驗證」型 — 董監持股：跟已驗證無效要用不同視覺語言，不是降級是誠實標示「還不知道」</div>
+  <div class="panel" style="grid-column:1/-1">
+    <h2>董監持股</h2>
+    <div class="caution-banner">
+      <b>樣本不足，尚未驗證</b> — 集保揭露資料目前只有 3 個月頻快照（5月/6月/7月），
+      不足以做任何統計結論。這裡顯示的是最新一期原始數字，僅供參考，等資料再累積幾個月後會補回測。
+    </div>
+    <table class="mini-table">
+      <thead><tr><th>股票</th><th>公司派持股%</th><th>月變化</th></tr></thead>
+      <tbody>
+        <tr><td>（示意列）2330 台積電</td><td>6.1%</td><td class="up">+0.2%</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="demo">
+  <div class="demo-label">④ 「證據偏弱」型 — 越跌越買：保留但大幅降級，虛線框、無強調色、面板內第一眼就看到證偽說明</div>
+  <div class="panel" style="grid-column:1/-1">
+    <h2>越跌越買</h2>
+    <div class="weak-banner">
+      <b>回測顯示這個假設目前沒有得到支持</b> — 1722 筆訊號中，D+14 平均落後大盤 0.53%，
+      是 11 條規則裡樣本最大、表現也最差的。保留這個區塊供觀察，但不建議當作進場依據。
+    </div>
+    <table class="mini-table">
+      <thead><tr><th>族群</th><th>5日跌幅</th><th>外資狀態</th></tr></thead>
+      <tbody>
+        <tr><td>（示意列）被動元件</td><td class="down">-3.2%</td><td>連買4日</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+</body>
+</html>

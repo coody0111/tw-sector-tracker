@@ -3890,3 +3890,53 @@ Cody 想討論籌碼頁重構，範圍/程度都還沒定案。討論中發現 `
   比沒有回測更糟，等資料再累積幾個月後再議
 - 這批 commit（`92389fb`）尚未 push 到 origin，等 Cody 指示（且等 Debugger 跑完 pytest
   回報 ✅）
+
+## [2026-08-25] 首頁（index.html）版面/視覺重設 — 13個Task全部完成
+
+### 改了什麼
+- 異動檔案：export/index_generator.py, processors/performance.py, main.py,
+  tests/test_index_generator.py, tests/test_processors.py
+- 邏輯說明：
+  1. 版面重排：熱區格滿版置頂當主角；異動族群(已排序)+族群近況併成二欄次要區
+  2. 異動族群加排序(burst優先,同kind比abs(pct))
+  3. 視覺：超強tier熱區格加玻璃光暈(color-mix跟著--accent走,雙主題自動適配)，
+     個股明細面板邊框改accent色
+  4. 個股明細面板改錨定#heatgrid容器之後，不再插進tile網格中間打斷排列
+  5. 面板內走勢/籌碼動向/歷史進榜三區改並排三欄(detail-three-col)
+  6. 補齊4項已算好但沒接進面板的資料：自營商(dealer_net_today)、
+     每週報酬%(weekly_returns)、大戶佔比+週變化(個股表格11→13欄)、
+     外資/投信本週累計買賣超(近5交易日加總)
+
+### 資料來源相關（如有異動）
+- 上市資料（TWSE）：無異動，institutional/margin/shareholder表既有資料，未新增爬蟲
+- 上櫃資料（TPEx）：同上，calc_meta_chips_signals()的per-stock/per-meta fallback邏輯未變動
+
+### 驗證紀錄（Developer 自行執行）
+- `python -m pytest -q`：**501 passed, 1 warning**（0 failure）。baseline 482 + 本計畫
+  12個task新增測試 + `dip_buy`/`stealth_buy` 這個不相關功能自己的新測試，合計 +19。
+  唯一的 warning 是 `test_calc_market_breadth_ignores_nan_change_pct` 既有的
+  pandas `FutureWarning`（concat all-NA columns），跟本次改動無關，非新增。
+- 手動 smoke test（`generate()` 端到端跑一次，比單一 unit test 更豐富的 fixture）：
+  成功寫出 60980 bytes 的 HTML，無 traceback。
+
+### 請 Debugger 驗證
+- [ ] 主要功能邏輯正確（尤其：dealer_net的SELECT修改是否影響production的institutional表查詢；
+      shareholder_df在main.py是否正確接線，實際跑一次main.py確認docs/index.html有大戶佔比/週變化欄）
+- [ ] 上市/上櫃資料來源沒有混用
+- [ ] 沒有影響其他模組（chips.html/momentum.html/patterns.html的nav互連、既有功能）
+- [ ] 瀏覽器實測（這台debug worktree可能沒有瀏覽器工具，若無工具請如實回報跳過）：
+  - 熱區格41格排列完整、點擊展開的個股明細面板出現在熱區格下方(不再插進tile中間)
+  - 三欄並排(走勢/籌碼動向/歷史進榜)版面正確、窄螢幕會改回垂直堆疊
+  - 異動族群卡片排序正確(爆量暴衝排前面)
+  - 深色/淺色主題切換，超強tier熱區格光暈兩個主題都合理(不是只深色能看)
+  - **順便補測 2026-07-23 遺留的兩項舊欠款**：Tab focus + Enter/Space 鍵盤展開熱區格tile；
+    手機版窄螢幕的secondary-row/三欄排版responsive行為
+
+### 特別注意
+- `docs/index.html` 是 generated artifact，不要手動編輯——下次 `python main.py` 跑過會被
+  `export/index_generator.py` 重新產生的版本覆蓋。這次的所有改動都在 `export/index_generator.py`。
+- `tests/test_processors.py::_seed_chips_db()` 的 institutional mock schema多加了 dealer_net
+  欄位(預設0)，是backward-compatible的改動，所有既有呼叫端不用改。
+- main.py 新增了第二次 `get_shareholder_top()` 呼叫(index.html用)，跟chips.html既有那次呼叫
+  各自獨立，這是刻意的取捨，不是遺漏。
+- 這批 commit 尚未 push 到 origin，等 Cody 指示（且等 Debugger 跑完驗證回報 ✅）。

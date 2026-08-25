@@ -1619,3 +1619,23 @@ def test_generate_renders_financing_and_short_columns_with_warning_badges(tmp_pa
     assert "function _maintTd" in html
     assert "maint-badge" in html
     assert "集保資料：" in html
+
+
+def test_generate_passes_shareholder_df_through_to_stock_detail(tmp_path):
+    """generate()要把shareholder_df透傳給build_stock_detail_data()，
+    確認大戶佔比/週變化真的接到STOCKS的個股資料裡（不只是Task4測過的底層函式本身）。"""
+    meta_perf = [{"meta_name": "半導體", "avg_change_pct": 3.2, "up_count": 1, "down_count": 0, "flat_count": 0}]
+    universe_df = pd.DataFrame([{"stock_id": "2330", "stock_name": "台積電", "meta_sector": "半導體"}])
+    prices_df = pd.DataFrame([{"stock_id": "2330", "close": 1080.0, "change_pct": 3.2}])
+    shareholder_df = pd.DataFrame([{"stock_id": "2330", "lv12_15_pct": 68.4, "week_chg": 0.6}])
+
+    output_path = tmp_path / "index.html"
+    generate(
+        date(2026, 8, 25), meta_perf, universe_df, {}, {}, prices_df, {},
+        shareholder_df=shareholder_df, output_path=str(output_path),
+    )
+
+    html = output_path.read_text(encoding="utf-8")
+    compact = html.replace(" ", "")
+    assert '"holder_pct":68.4' in compact
+    assert '"holder_week_chg":0.6' in compact

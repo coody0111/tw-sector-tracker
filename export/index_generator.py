@@ -1186,6 +1186,7 @@ def generate(
     rank_history: Optional[Dict[str, Dict[str, Any]]] = None,
     total_shares_df: Optional[pd.DataFrame] = None,
     avg20_map: Optional[Dict[str, float]] = None,
+    shareholder_df: Optional[pd.DataFrame] = None,
     output_path: str = "docs/index.html",
 ) -> None:
     """
@@ -1205,6 +1206,7 @@ def generate(
     - total_shares_df：get_latest_total_shares() 輸出，個股融資/融券佔比的分母
       (已發行股數)+集保資料實際日期。
     - avg20_map：calc_avg20_close() 輸出，個股融資/融券維持率(估)的成本基準。
+    - shareholder_df：get_shareholder_top() 輸出，個股表格「大戶佔比」「大戶週變化」兩欄。
     """
     if not meta_perf:
         return
@@ -1217,7 +1219,7 @@ def generate(
     recap = build_sector_recap(cards, heatgrid_windows, rank_history)
     stock_detail = build_stock_detail_data(
         universe_df, prices_df, stock_sparklines, rolling_returns, chips_df,
-        total_shares_df, avg20_map,
+        total_shares_df, avg20_map, shareholder_df,
     )
 
     stock_detail_js = json.dumps(stock_detail, ensure_ascii=False).replace("</", "<\\/")

@@ -765,6 +765,13 @@ def run(trade_date: date = None, realtime: bool = False) -> None:
             avg20_map = {}
 
         try:
+            from screener.database import get_shareholder_top
+            index_shareholder_df = get_shareholder_top()
+        except Exception as exc:
+            logger.warning("大戶持倉資料計算失敗，index.html個股表格本次不顯示大戶佔比/週變化: %s", exc)
+            index_shareholder_df = pd.DataFrame()
+
+        try:
             vol_turnover_signals = scan_volume_turnover(trade_date.isoformat()) if universe_df is not None else []
         except Exception as exc:
             logger.warning("巨量換手訊號計算失敗，index.html本次不顯示: %s", exc)
@@ -784,7 +791,8 @@ def run(trade_date: date = None, realtime: bool = False) -> None:
                                  vol_turnover_signals=vol_turnover_signals,
                                  rank_history=rank_history,
                                  total_shares_df=total_shares_df,
-                                 avg20_map=avg20_map)
+                                 avg20_map=avg20_map,
+                                 shareholder_df=index_shareholder_df)
             logger.info("HTML generated → docs/index.html")
         else:
             logger.warning("universe_df 未載入（data/stock_universe.csv 不存在），本次不產生 docs/index.html")

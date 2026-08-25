@@ -828,6 +828,7 @@ table.vt-table{width:100%;border-collapse:collapse}
 .cs-row .cs-streak-up{color:var(--up);font-size:.68rem}
 .cs-row .cs-streak-dn{color:var(--down);font-size:.68rem}
 .cs-row .cs-alert{color:var(--accent);font-size:.68rem;font-weight:700}
+.cs-row.cs-week{width:100%;border-top:1px solid var(--border);padding-top:8px;margin-top:2px;gap:14px}
 .overflow-wrap{overflow-x:auto}
 table.stock-list-table{width:100%;border-collapse:collapse}
 .stock-list-table thead th{text-align:left;padding:0 12px 10px;border-bottom:1px solid var(--border-2)}
@@ -1443,12 +1444,29 @@ function buildChipsSummary(meta) {{
     }}
     rows.push(`<div class="cs-row"><span class="cs-label">投信</span><span style="color:${{color}};font-weight:700">${{sign}}${{k.toLocaleString()}}張</span>${{streak}}</div>`);
   }}
+  if (meta.dealer_net_today) {{
+    const dn = meta.dealer_net_today, k = Math.trunc(dn / 1000);
+    const color = dn > 0 ? 'var(--up)' : 'var(--down)';
+    const sign = dn > 0 ? '+' : '';
+    rows.push(`<div class="cs-row"><span class="cs-label">自營商</span><span style="color:${{color}};font-weight:700">${{sign}}${{k.toLocaleString()}}張</span></div>`);
+  }}
   if (meta.margin_change_today && meta.margin_balance_today > 0) {{
     const pct = meta.margin_change_today / meta.margin_balance_today * 100;
     const arrow = meta.margin_change_today > 0 ? '↑' : '↓';
     const color = meta.margin_change_today > 0 ? 'var(--accent)' : 'var(--ink-3)';
     const alert = meta.margin_alert ? '<span class="cs-alert">融資擴張</span>' : '';
     rows.push(`<div class="cs-row"><span class="cs-label">融資</span><span style="color:${{color}};font-weight:700">${{arrow}}${{Math.abs(pct).toFixed(1)}}%</span>${{alert}}</div>`);
+  }}
+  if (meta.foreign_net_week || meta.trust_net_week) {{
+    const fw = meta.foreign_net_week || 0, tw = meta.trust_net_week || 0;
+    const fwK = Math.trunc(fw / 1000), twK = Math.trunc(tw / 1000);
+    const fColor = fw >= 0 ? 'var(--up)' : 'var(--down)';
+    const tColor = tw >= 0 ? 'var(--up)' : 'var(--down)';
+    rows.push(
+      `<div class="cs-row cs-week"><span class="cs-label">本週累計</span>`
+      + `<span>外資 <span style="color:${{fColor}};font-weight:700">${{fw>=0?'+':''}}${{fwK.toLocaleString()}}張</span></span>`
+      + `<span>投信 <span style="color:${{tColor}};font-weight:700">${{tw>=0?'+':''}}${{twK.toLocaleString()}}張</span></span></div>`
+    );
   }}
   return rows.length ? `<div class="chips-summary">${{rows.join('')}}</div>` : '';
 }}

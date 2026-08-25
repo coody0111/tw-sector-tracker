@@ -1666,3 +1666,23 @@ def test_generate_renders_holder_pct_and_week_chg_columns(tmp_path):
     assert "function _holderChgTd" in html
     assert "colspan=\"13\"" in html  # 無行情佔位列的colspan要跟著新欄位數更新(原本11)
     assert "colspan=\"11\"" not in html
+
+
+def test_generate_includes_dealer_and_weekly_rows_in_chips_summary_function(tmp_path):
+    """buildChipsSummary()的JS原始碼要包含自營商那一行的邏輯+本週累計那一行的邏輯
+    (這是JS函式定義本身的原始碼檢查，不是渲染後的HTML——buildChipsSummary()只在使用者
+    點開族群時才在瀏覽器裡執行，見測試策略「無法自動化測試JS」的既有限制)。"""
+    output_path = tmp_path / "index.html"
+    generate(date(2026, 8, 25), _sample_meta_perf(), _sample_universe_df(), {}, {}, _sample_prices_df(), {},
+             output_path=str(output_path))
+
+    html = output_path.read_text(encoding="utf-8")
+    build_chips_start = html.index("function buildChipsSummary(meta)")
+    build_chips_end = html.index("function buildHistoryRecord(meta)")
+    build_chips_body = html[build_chips_start:build_chips_end]
+
+    assert "自營商" in build_chips_body
+    assert "meta.dealer_net_today" in build_chips_body
+    assert "本週累計" in build_chips_body
+    assert "meta.foreign_net_week" in build_chips_body
+    assert "meta.trust_net_week" in build_chips_body

@@ -1487,6 +1487,62 @@ def test_generate_embeds_rank_history_into_card_meta_for_history_record(tmp_path
     assert "buildHistoryRecord(meta)" in html  # selectGroup()有呼叫這支函式
 
 
+def test_generate_embeds_dealer_net_and_weekly_totals_into_card_meta(tmp_path):
+    """自營商今日買賣超+外資/投信本週累計買賣超要塞進CARD_META，
+    供buildChipsSummary()渲染籌碼摘要用。"""
+    meta_perf = [
+        {"meta_name": "測試族群", "avg_change_pct": 1.0, "up_count": 1, "down_count": 0, "flat_count": 0},
+    ]
+    universe_df = pd.DataFrame([{"stock_id": "1", "stock_name": "股票一", "meta_sector": "測試族群"}])
+    prices_df = pd.DataFrame([{"stock_id": "1", "change_pct": 1.0, "close": 100.0}])
+    meta_chips = {
+        "測試族群": {
+            "dealer_net_today": -300000, "foreign_net_week": 9100000, "trust_net_week": 2050000,
+        },
+    }
+
+    output_path = tmp_path / "index.html"
+    generate(
+        date(2026, 8, 25), meta_perf, universe_df,
+        meta_signals={}, meta_chips=meta_chips, prices_df=prices_df,
+        heatgrid_windows={}, output_path=str(output_path),
+    )
+
+    html = output_path.read_text(encoding="utf-8")
+    compact = html.replace(" ", "")
+    assert '"dealer_net_today":-300000' in compact
+    assert '"foreign_net_week":9100000' in compact
+    assert '"trust_net_week":2050000' in compact
+
+
+def test_generate_embeds_weekly_returns_into_card_meta(tmp_path):
+    """weekly_returns(跟weekly_ranks平行對齊的每週複利報酬%)要塞進CARD_META，
+    供buildHistoryRecord()渲染每週小字報酬%用。"""
+    meta_perf = [
+        {"meta_name": "工業電腦", "avg_change_pct": 1.0, "up_count": 1, "down_count": 0, "flat_count": 0},
+    ]
+    universe_df = pd.DataFrame([{"stock_id": "1", "stock_name": "股票一", "meta_sector": "工業電腦"}])
+    prices_df = pd.DataFrame([{"stock_id": "1", "change_pct": 1.0, "close": 100.0}])
+    rank_history = {
+        "工業電腦": {
+            "weekly_ranks": [18, 9, 7, 4, 1], "weekly_returns": [-2.0, 1.2, 2.8, 3.5, 5.7],
+            "in_top10_this_week": True, "consecutive_weeks_in_top10": 3,
+            "last_top10_week_index": None, "last_top10_rank": None,
+        },
+    }
+
+    output_path = tmp_path / "index.html"
+    generate(
+        date(2026, 8, 25), meta_perf, universe_df,
+        meta_signals={}, meta_chips={}, prices_df=prices_df,
+        heatgrid_windows={}, rank_history=rank_history, output_path=str(output_path),
+    )
+
+    html = output_path.read_text(encoding="utf-8")
+    compact = html.replace(" ", "")
+    assert '"weekly_returns":[-2.0,1.2,2.8,3.5,5.7]' in compact
+
+
 def test_generate_renders_financing_and_short_columns_with_warning_badges(tmp_path):
     """個股列表新增融資佔比/融資維持率(估)/融券餘額佔比/融券維持率(估)四欄，
     低於130%時要有警示徽章，欄位都可點排序，且集保資料日期有顯示提示。"""

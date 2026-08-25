@@ -1686,3 +1686,19 @@ def test_generate_includes_dealer_and_weekly_rows_in_chips_summary_function(tmp_
     assert "本週累計" in build_chips_body
     assert "meta.foreign_net_week" in build_chips_body
     assert "meta.trust_net_week" in build_chips_body
+
+
+def test_generate_includes_weekly_return_pct_in_history_record_function(tmp_path):
+    """buildHistoryRecord()的JS原始碼要讀取meta.weekly_returns、每個週格子多渲染一行
+    小字報酬%(hw-pct)。原始碼層級檢查，理由同上個Task的JS檢查慣例。"""
+    output_path = tmp_path / "index.html"
+    generate(date(2026, 8, 25), _sample_meta_perf(), _sample_universe_df(), {}, {}, _sample_prices_df(), {},
+             output_path=str(output_path))
+
+    html = output_path.read_text(encoding="utf-8")
+    history_start = html.index("function buildHistoryRecord(meta)")
+    history_end = html.index("// 收盤價格式")
+    history_body = html[history_start:history_end]
+
+    assert "meta.weekly_returns" in history_body
+    assert "hw-pct" in history_body

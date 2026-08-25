@@ -955,6 +955,7 @@ table.stock-list-table{width:100%;border-collapse:collapse}
   font-family:var(--mono);font-size:.64rem;color:var(--ink-2);text-align:center}
 .history-week .hw-label{display:block;color:var(--ink-3)}
 .history-week .hw-rank{display:block;margin-top:3px;font-size:.86rem;font-weight:700;color:var(--ink)}
+.history-week .hw-pct{display:block;margin-top:2px;font-size:.62rem;font-weight:600}
 .history-week.in-top10{border-color:color-mix(in srgb, var(--accent) 45%, var(--border))}
 .history-week.in-top10 .hw-rank{color:var(--accent)}
 """
@@ -1477,6 +1478,7 @@ function buildChipsSummary(meta) {{
 function buildHistoryRecord(meta) {{
   const ranks = meta.weekly_ranks || [];
   if (!ranks.length) return '';
+  const returns = meta.weekly_returns || [];
 
   let summary;
   if (meta.in_top10_this_week) {{
@@ -1493,7 +1495,11 @@ function buildHistoryRecord(meta) {{
     const label = isCurrent ? '本週' : `W-${{ranks.length - 1 - i}}`;
     const inTop10 = rank <= 10;
     const cls = 'history-week' + (inTop10 ? ' in-top10' : '');
-    return `<div class="${{cls}}"><span class="hw-label">${{label}}</span><span class="hw-rank tabular">#${{rank}}</span></div>`;
+    const ret = returns[i];
+    const retHtml = (ret !== null && ret !== undefined)
+      ? `<span class="hw-pct tabular" style="color:${{ret >= 0 ? 'var(--up)' : 'var(--down)'}}">${{ret>=0?'+':''}}${{ret.toFixed(1)}}%</span>`
+      : '';
+    return `<div class="${{cls}}"><span class="hw-label">${{label}}</span><span class="hw-rank tabular">#${{rank}}</span>${{retHtml}}</div>`;
   }}).join('');
 
   return `<div class="history-wrap">

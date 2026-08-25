@@ -1189,6 +1189,40 @@ def test_generate_renders_populated_tier_temp_badges_and_recap_data(tmp_path):
     assert "轉強訊號" in html  # 轉折點：5天前弱(streak=-2,accel=-2.5)→今天超強
 
 
+def test_build_heatgrid_cards_super_tier_tile_gets_tier_super_css_class(tmp_path):
+    """超強(super)tier的熱區格tile要多帶一個tier-super class，供CSS加玻璃質感+光暈；
+    其餘tier(strong/mid/weak/superweak/None)不受影響，維持原本只有heat-tile一個class。"""
+    output_path = tmp_path / "index.html"
+    meta_perf = [
+        {"meta_name": "超強族群", "avg_change_pct": 6.0, "up_count": 1, "down_count": 0, "flat_count": 0},
+        {"meta_name": "整理族群", "avg_change_pct": 0.1, "up_count": 1, "down_count": 0, "flat_count": 0},
+    ]
+    # streak=3且accel=(this_week 6.0 - last_week 1.0)=5.0 > 3 → super
+    meta_signals = {}
+    heatgrid_windows = {
+        "超強族群": {"streak_today": 3, "last_week_pct_today": 1.0, "this_week_pct_today": 6.0,
+                    "streak_5d_ago": None, "last_week_pct_5d_ago": None},
+        "整理族群": {"streak_today": 0, "last_week_pct_today": 1.0, "this_week_pct_today": 1.5,
+                    "streak_5d_ago": None, "last_week_pct_5d_ago": None},
+    }
+
+    universe_df = pd.DataFrame([
+        {"stock_id": "1", "stock_name": "股票一", "meta_sector": "超強族群"},
+        {"stock_id": "2", "stock_name": "股票二", "meta_sector": "整理族群"},
+    ])
+    prices_df = pd.DataFrame([
+        {"stock_id": "1", "close": 100.0, "change_pct": 6.0},
+        {"stock_id": "2", "close": 50.0, "change_pct": 0.1},
+    ])
+
+    generate(date(2026, 8, 25), meta_perf, universe_df, meta_signals, {}, prices_df, heatgrid_windows,
+             output_path=str(output_path))
+
+    html = output_path.read_text(encoding="utf-8")
+    assert 'class="heat-tile tier-super"' in html
+    assert 'class="heat-tile"' in html  # 整理族群仍是純heat-tile，沒被誤加class
+
+
 def test_generate_embeds_stock_sparklines_and_renders_card_js(tmp_path):
     """Cody回報「個股卡片怎麼不見」，確認stock_sparklines參數會流進STOCKS JSON、
     sparkline有render在個股卡片(彈窗)裡。個股列表(不是卡片)是可排序的<table>，

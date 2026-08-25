@@ -807,9 +807,19 @@ table.vt-table{width:100%;border-collapse:collapse}
 }
 .heat-tile:hover{transform:translateY(-2px);box-shadow:var(--shadow-2);z-index:2}
 .heat-tile.active{outline:2px solid var(--accent);outline-offset:-2px}
+/* 超強tier玻璃質感+光暈：故意不覆寫background(每個tile已有inline style來自heat_bg()，
+   CSS class的background會被inline覆蓋蓋掉，寫了也不會顯示)，只加border-color+box-shadow。
+   用color-mix(in srgb, var(--accent) N%, transparent)而非寫死rgba(240,187,85,...)，
+   因為--accent深色(#F0BB55)/淺色(#93701E)主題色相不同，color-mix自動跟著--accent變色，
+   兩個主題都合理，不用另外在:root[data-theme="light"]開一組rgba數值。*/
+.heat-tile.tier-super{
+  border-color:color-mix(in srgb, var(--accent) 50%, transparent);
+  box-shadow:0 0 22px color-mix(in srgb, var(--accent) 18%, transparent), var(--shadow-2);
+}
+.heat-tile.tier-super:hover{box-shadow:0 0 26px color-mix(in srgb, var(--accent) 24%, transparent), var(--shadow-2)}
 
 .detail-panel{
-  grid-column:1/-1;background:var(--panel);border:1px solid var(--border-2);border-radius:5px;
+  margin:20px 26px 0;background:var(--panel);border:1px solid var(--accent);border-radius:5px;
   padding:22px 26px;box-shadow:var(--shadow-2);scroll-margin-top:20px;
   animation:expandIn .22s ease-out;
 }
@@ -1074,8 +1084,9 @@ def _heatgrid_html(cards: List[Dict[str, Any]]) -> str:
 
         pct_color = "var(--up)" if c["pct"] >= 0 else "var(--down)"
         meta_name_safe = _esc(c["meta_name"])
+        tile_class = "heat-tile tier-super" if tier is not None and tier["key"] == "super" else "heat-tile"
         tiles.append(
-            f'<div class="heat-tile" data-meta-name="{meta_name_safe}" '
+            f'<div class="{tile_class}" data-meta-name="{meta_name_safe}" '
             f'role="button" tabindex="0" onclick="selectGroup(this.dataset.metaName,true)" '
             f'onkeydown="if(event.key===\'Enter\'||event.key===\' \'){{event.preventDefault();selectGroup(this.dataset.metaName,true)}}" '
             f'style="background:{c["heat_bg"]};border-top-color:{_TIER_COLOR_VAR[tier["key"]] if tier else "transparent"}">'

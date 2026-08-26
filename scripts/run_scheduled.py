@@ -160,8 +160,11 @@ def compose_intraday_message(summary: dict) -> str:
     lines.append(f"融資警示（新增）：{len(alerts)} 檔" if alerts else "融資警示：無")
     for a in alerts[:10]:
         lines.append("")
-        lines.append(f"{a['stock_id']} {a['stock_name']}")
-        lines.append(f"融資{a.get('days', '?')}日{a['margin_pct']:+.1f}%、股價{a['price_pct']:+.1f}%（背離）")
+        lines.append(f"{a.get('stock_id', '?')} {a.get('stock_name', '?')}")
+        lines.append(
+            f"融資{a.get('days', '?')}日{a.get('margin_pct', 0.0):+.1f}%、"
+            f"股價{a.get('price_pct', 0.0):+.1f}%（背離）"
+        )
     lines.append("")
     warnings = summary.get("warnings", [])
     lines.append(f"資料異常：{'、'.join(warnings) if warnings else '無'}")
@@ -178,18 +181,23 @@ def compose_close_message(summary: dict, site_url: str) -> str:
     alerts = summary.get("margin_alerts", [])
     lines.append(f"融資警示：{len(alerts)} 檔" if alerts else "融資警示：無")
     for a in alerts[:10]:
-        lines.append(f"  {a['stock_id']} {a['stock_name']} 融資{a.get('days', '?')}日{a['margin_pct']:+.1f}%")
+        lines.append(
+            f"  {a.get('stock_id', '?')} {a.get('stock_name', '?')} "
+            f"融資{a.get('days', '?')}日{a.get('margin_pct', 0.0):+.1f}%"
+        )
 
     flow = summary.get("flow_watch", [])
     if flow:
         lines.append("")
         lines.append("── 今日籌碼動向（純觀察，非推薦）──")
         for f in flow[:10]:
-            ratio_str = f"是近20日均量的{f['vs_avg20_ratio']}倍" if f.get("vs_avg20_ratio") is not None else "近期均量資料不足"
-            turnover_str = f"成交值{f['turnover'] / 1e8:.1f}億" if f.get("turnover") else "成交值資料不足"
+            ratio = f.get("vs_avg20_ratio")
+            turnover = f.get("turnover")
+            ratio_str = f"是近20日均量的{ratio}倍" if ratio is not None else "近期均量資料不足"
+            turnover_str = f"成交值{turnover / 1e8:.1f}億" if turnover else "成交值資料不足"
             lines.append("")
-            lines.append(f"{f['stock_id']} {f['stock_name']}")
-            lines.append(f"買超 {_fmt_lots(f['net_buy_lots'])}｜{ratio_str}｜{turnover_str}")
+            lines.append(f"{f.get('stock_id', '?')} {f.get('stock_name', '?')}")
+            lines.append(f"買超 {_fmt_lots(f.get('net_buy_lots', 0))}｜{ratio_str}｜{turnover_str}")
         lines.append("")
         lines.append("（僅陳述今日買超事實，不代表預測後續漲跌）")
 
@@ -261,26 +269,40 @@ def main() -> int:
             logger.error("讀不到 summary JSON，跳過通知")
             return 1
 
-        if mode == "intraday":
-            prev_state = load_notification_state(str(_STATE_PATH))
-            if should_notify_intraday(summary, prev_state):
+        try:
+            if mode == "intraday":
+                prev_state = load_notification_state(str(_STATE_PATH))
+                if should_notify_intraday(summary, prev_state):
+                    try:
+                        send_telegram_message(compose_intraday_message(summary))
+                    except TelegramConfigError as exc:
+                        logger.error("Telegram 設定缺失，無法通知：%s", exc)
+                    save_notification_state(str(_STATE_PATH), {
+                        "last_signal_hash": compute_signal_hash(summary),
+                        "last_market_regime": summary.get("market_regime"),
+                        "last_notified_at": datetime.now().isoformat(),
+                    })
+                else:
+                    logger.info("盤中訊號與上次相同，不重複通知")
+            else:  # close
+                site_url = os.environ.get("SITE_URL", "https://coody0111.github.io/tw-sector-tracker/")
                 try:
-                    send_telegram_message(compose_intraday_message(summary))
+                    send_telegram_message(compose_close_message(summary, site_url))
                 except TelegramConfigError as exc:
                     logger.error("Telegram 設定缺失，無法通知：%s", exc)
-                save_notification_state(str(_STATE_PATH), {
-                    "last_signal_hash": compute_signal_hash(summary),
-                    "last_market_regime": summary.get("market_regime"),
-                    "last_notified_at": datetime.now().isoformat(),
-                })
-            else:
-                logger.info("盤中訊號與上次相同，不重複通知")
-        else:  # close
-            site_url = os.environ.get("SITE_URL", "https://coody0111.github.io/tw-sector-tracker/")
+        except Exception as exc:
+            # 訊息組裝或發送階段任何未預期錯誤（例如 summary 欄位形狀跟預期不符造成的
+            # KeyError）都不能讓例外原封不動炸出 main()——main.py 明明成功執行完了，
+            # 使用者卻收不到任何通知、也看不出排程其實有問題。比照 run_main_py 失敗時的
+            # 處理方式：記錄詳細錯誤、盡力送一則失敗通知（Telegram 設定缺失就只記 log，
+            # 不再往外拋），讓這個分支的失敗行為跟「main.py 執行失敗」分支一致。
+            duration = (datetime.now() - started).total_seconds()
+            logger.error("通知組裝或發送階段發生未預期錯誤：%s", exc)
             try:
-                send_telegram_message(compose_close_message(summary, site_url))
-            except TelegramConfigError as exc:
-                logger.error("Telegram 設定缺失，無法通知：%s", exc)
+                send_telegram_message(compose_failure_message(mode, str(exc), duration))
+            except TelegramConfigError:
+                logger.error("通知組裝/發送失敗，且 Telegram 設定缺失，無法送出失敗通知：%s", exc)
+            return 1
 
         return 0
     finally:

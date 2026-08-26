@@ -198,6 +198,35 @@ def test_compose_close_message_includes_flow_watch_with_disclosure():
     assert "https://example.com/chips.html" in msg
 
 
+def test_compose_close_message_tolerates_flow_watch_entry_missing_fields():
+    """summary 形狀跟預期不符（欄位改名/缺漏）時，訊息組裝不該用 [] 直接炸 KeyError——
+    應該用 .get() 帶合理預設值，讓通知仍能送出（內容降級但不中斷）。"""
+    summary = {
+        "market_regime_label": "小漲",
+        "margin_alerts": [],
+        "flow_watch": [
+            {"stock_id": "2317"},  # 缺 stock_name/net_buy_lots/vs_avg20_ratio/turnover
+        ],
+        "html_updated": True, "git_pushed": True,
+    }
+    msg = compose_close_message(summary, site_url="https://example.com/chips.html")
+    assert "2317" in msg
+    assert "0張" in msg  # net_buy_lots 缺漏時的合理預設值
+    assert "近期均量資料不足" in msg
+    assert "成交值資料不足" in msg
+
+
+def test_compose_intraday_message_tolerates_margin_alert_missing_fields():
+    summary = {
+        "market_regime_label": "小漲",
+        "margin_alerts": [{"stock_id": "2330"}],  # 缺 stock_name/margin_pct/price_pct
+        "warnings": [],
+    }
+    msg = compose_intraday_message(summary)
+    assert "2330" in msg
+    assert "背離" in msg
+
+
 def test_compose_failure_message_includes_error_and_duration():
     msg = compose_failure_message("close", "TPEx API timeout", 130)
     assert "台股排程執行失敗" in msg

@@ -18,15 +18,29 @@ from datetime import date, datetime, time as dt_time
 from pathlib import Path
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
+# 直接執行 `python scripts/run_scheduled.py`（而非用 pytest）時，Python 只會把
+# scripts/ 加進 sys.path，專案根目錄不會自動在路徑上，底下 `from notifications.telegram
+# import ...` 會找不到 notifications 套件（ModuleNotFoundError）。比照
+# scripts/build_universe.py、scripts/update_exchange.py 既有慣例，在任何專案內 import
+# 之前手動把根目錄插進 sys.path。
+sys.path.insert(0, str(_PROJECT_ROOT))
+
 _LOCK_PATH = _PROJECT_ROOT / "logs" / "scheduler.lock"
 _SUMMARY_PATH = _PROJECT_ROOT / "logs" / "latest_summary.json"
 _LOG_PATH = _PROJECT_ROOT / "logs" / "scheduler.log"
+
+# logs/ 被 gitignore，全新 clone 下不存在——logging.basicConfig 用 filename= 直接開檔會
+# FileNotFoundError，必須先確保目錄存在。
+_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 logging.basicConfig(
     filename=str(_LOG_PATH), level=logging.INFO,
     format="%(asctime)s %(levelname)s %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+# 模組層級 import：sys.path 已在上面修好，不需要延到 main() 內才 import。
+from notifications.telegram import send_telegram_message, TelegramConfigError  # noqa: E402
 
 _MARKET_OPEN = dt_time(9, 0)
 _MARKET_CLOSE = dt_time(13, 30)
@@ -96,7 +110,9 @@ def run_main_py(mode: str, summary_path: str, timeout: int = 900) -> dict:
         cmd += ["--realtime", "--no-push"]
     cmd += ["--summary-json", summary_path]
 
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    result = subprocess.run(
+        cmd, capture_output=True, text=True, timeout=timeout, cwd=str(_PROJECT_ROOT),
+    )
     return {"returncode": result.returncode, "stdout": result.stdout, "stderr": result.stderr}
 
 
@@ -220,13 +236,22 @@ def compose_failure_message(mode: str, error: str, duration_seconds: float) -> s
     ])
 
 
+def _notify_failure(mode: str, error: str, duration_seconds: float) -> None:
+    """統一送出「本次排程沒有正常完成」的失敗通知——main.py 非零退出、逾時、讀不到
+    summary、通知組裝/發送階段例外，都算這一類，都要送這則訊息。不能讓使用者看到
+    「完全沒收到訊息」，那個狀態跟「一切正常、沒東西要報告」從外部看不出差異
+    （見 finding 7）。Telegram 設定缺失時退化成只記 log，不再往外拋例外。"""
+    try:
+        send_telegram_message(compose_failure_message(mode, error, duration_seconds))
+    except TelegramConfigError:
+        logger.error("執行失敗，且 Telegram 設定缺失，無法通知：%s", error)
+
+
 def main() -> int:
     if len(sys.argv) < 2 or sys.argv[1] not in ("intraday", "close", "test-notify"):
         print("Usage: python scripts/run_scheduled.py {intraday|close|test-notify}")
         return 1
     mode = sys.argv[1]
-
-    from notifications.telegram import send_telegram_message, TelegramConfigError
 
     if mode == "test-notify":
         try:
@@ -253,35 +278,53 @@ def main() -> int:
 
     try:
         started = datetime.now()
-        result = run_main_py(mode, str(_SUMMARY_PATH))
+        # 執行前先清掉舊的 summary 檔：main.py 寫檔失敗時（Task 3 修復後這是 non-fatal，
+        # main.py 仍會 exit 0）舊檔若還在，底下 load_summary() 會讀到上一次（甚至前一天）
+        # 的內容，當成這次的新鮮結果去通知——刪掉後「寫檔失敗」才會正確表現成
+        # 「summary is None」，走進本來就有的失敗通知分支（見 finding 5）。
+        _SUMMARY_PATH.unlink(missing_ok=True)
+        try:
+            result = run_main_py(mode, str(_SUMMARY_PATH))
+        except subprocess.TimeoutExpired as exc:
+            duration = (datetime.now() - started).total_seconds()
+            logger.error("main.py 執行逾時（超過 %s 秒）：%s", exc.timeout, exc)
+            _notify_failure(mode, f"main.py 執行逾時（超過 {exc.timeout:.0f} 秒）", duration)
+            return 1
+
         if result["returncode"] != 0:
             duration = (datetime.now() - started).total_seconds()
             error_msg = (result["stderr"] or "未知錯誤").strip().splitlines()[-1] if result["stderr"] else "main.py 執行失敗"
-            try:
-                send_telegram_message(compose_failure_message(mode, error_msg, duration))
-            except TelegramConfigError:
-                logger.error("main.py 執行失敗，且 Telegram 設定缺失，無法通知：%s", error_msg)
+            _notify_failure(mode, error_msg, duration)
             logger.error("main.py 執行失敗（returncode=%d）：%s", result["returncode"], result["stderr"])
             return 1
 
         summary = load_summary(str(_SUMMARY_PATH))
         if summary is None:
+            duration = (datetime.now() - started).total_seconds()
             logger.error("讀不到 summary JSON，跳過通知")
+            _notify_failure(mode, "讀不到執行摘要（main.py可能執行失敗或摘要寫入失敗）", duration)
             return 1
 
         try:
             if mode == "intraday":
                 prev_state = load_notification_state(str(_STATE_PATH))
                 if should_notify_intraday(summary, prev_state):
+                    sent_ok = False
                     try:
-                        send_telegram_message(compose_intraday_message(summary))
+                        sent_ok = send_telegram_message(compose_intraday_message(summary))
                     except TelegramConfigError as exc:
                         logger.error("Telegram 設定缺失，無法通知：%s", exc)
-                    save_notification_state(str(_STATE_PATH), {
-                        "last_signal_hash": compute_signal_hash(summary),
-                        "last_market_regime": summary.get("market_regime"),
-                        "last_notified_at": datetime.now().isoformat(),
-                    })
+                    if sent_ok:
+                        save_notification_state(str(_STATE_PATH), {
+                            "last_signal_hash": compute_signal_hash(summary),
+                            "last_market_regime": summary.get("market_regime"),
+                            "last_notified_at": datetime.now().isoformat(),
+                        })
+                    else:
+                        # 發送失敗（設定缺失或 HTTP 錯誤/逾時）就不能更新 state——否則下次
+                        # 排程算出同一個 signal hash，should_notify_intraday 會誤判成
+                        # 「已經通知過」而永久吃掉這個警示，直到訊號本身改變為止（見 finding 4）。
+                        logger.warning("Telegram 通知未成功送出，不更新 notification_state，下次會重試")
                 else:
                     logger.info("盤中訊號與上次相同，不重複通知")
             else:  # close
@@ -293,15 +336,11 @@ def main() -> int:
         except Exception as exc:
             # 訊息組裝或發送階段任何未預期錯誤（例如 summary 欄位形狀跟預期不符造成的
             # KeyError）都不能讓例外原封不動炸出 main()——main.py 明明成功執行完了，
-            # 使用者卻收不到任何通知、也看不出排程其實有問題。比照 run_main_py 失敗時的
-            # 處理方式：記錄詳細錯誤、盡力送一則失敗通知（Telegram 設定缺失就只記 log，
-            # 不再往外拋），讓這個分支的失敗行為跟「main.py 執行失敗」分支一致。
+            # 使用者卻收不到任何通知、也看不出排程其實有問題。統一走 _notify_failure，
+            # 讓這個分支的失敗行為跟其他失敗分支一致。
             duration = (datetime.now() - started).total_seconds()
             logger.error("通知組裝或發送階段發生未預期錯誤：%s", exc)
-            try:
-                send_telegram_message(compose_failure_message(mode, str(exc), duration))
-            except TelegramConfigError:
-                logger.error("通知組裝/發送失敗，且 Telegram 設定缺失，無法送出失敗通知：%s", exc)
+            _notify_failure(mode, str(exc), duration)
             return 1
 
         return 0

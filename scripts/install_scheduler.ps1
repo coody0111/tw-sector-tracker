@@ -23,9 +23,17 @@ if (-not (Test-Path $RunnerPath)) {
 $IntradayAction = New-ScheduledTaskAction -Execute $PythonPath `
     -Argument "`"$RunnerPath`" intraday" -WorkingDirectory $ProjectRoot
 
-$IntradayTrigger = New-ScheduledTaskTrigger -Once -At "09:00" `
+# New-ScheduledTaskTrigger -Once + -Repetition* 只會在建立當天重複觸發，之後永遠不再
+# 觸發（-Once 本質上就是單次時間觸發，Repetition 只套用在那一次觸發的區間內）。
+# -Daily/-Weekly trigger 又直接拒絕 -RepetitionInterval/-RepetitionDuration 參數，
+# 所以先建一個會每天重複觸發的 -Weekly trigger，再把 -Once trigger 產生的 Repetition
+# 物件接到它身上，讓「每天 09:00 開始、每15分鐘重複4小時45分」變成每個交易日都會發生。
+$IntradayTrigger = New-ScheduledTaskTrigger -Weekly `
+    -DaysOfWeek Monday,Tuesday,Wednesday,Thursday,Friday -At "09:00"
+$rep = (New-ScheduledTaskTrigger -Once -At "09:00" `
     -RepetitionInterval (New-TimeSpan -Minutes 15) `
-    -RepetitionDuration (New-TimeSpan -Hours 4 -Minutes 45)
+    -RepetitionDuration (New-TimeSpan -Hours 4 -Minutes 45)).Repetition
+$IntradayTrigger.Repetition = $rep
 
 $IntradaySettings = New-ScheduledTaskSettingsSet `
     -MultipleInstances IgnoreNew -StartWhenAvailable

@@ -22,9 +22,8 @@ tw-sector-tracker/
 ├── logs/                # 執行 log
 ├── tests/               # 測試檔案
 ├── storage/             # 儲存層
-├── docs/                # 文件
+├── docs/                # 文件（含 DESIGN.md/CONTEXT.md/backtest.md/factor.md）
 ├── notes/               # 開發筆記
-├── DESIGN.md            # 設計文件
 ├── HANDOFF.md           # 交接文件
 └── log.md               # 開發日誌
 ```
@@ -102,7 +101,7 @@ tw-sector-tracker/
 
 ## 設計原則
 
-- **開發功能前先 brainstorming**：新增/調整功能邏輯之前，先用 `mattpocock-skills:grilling` ＋ `mattpocock-skills:domain-modeling` 兩個 skill 釐清需求跟設計（過程中也會順便維護 `CONTEXT.md`/ADR），不要直接動手寫 code。
+- **開發功能前先 brainstorming**：新增/調整功能邏輯之前，先用 `mattpocock-skills:grilling` ＋ `mattpocock-skills:domain-modeling` 兩個 skill 釐清需求跟設計（過程中也會順便維護 `docs/CONTEXT.md`/ADR），不要直接動手寫 code。
   - 內容等同 `/grill-with-docs`，但那個標了 `disable-model-invocation`、只能你手動打；**直接點名這兩個底層 skill，Claude 才能自動觸發**，不用等你下指令。
 - **UI 設計要用 UI Pro Max**：畫面/視覺相關的設計（配色、排版、元件風格）要用 `ui-ux-pro-max` skill，不要憑感覺套版。
 

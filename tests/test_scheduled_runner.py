@@ -53,6 +53,23 @@ def test_execution_lock_auto_releases_stale_lock_from_dead_process(tmp_path):
     assert lock.acquire() is True
 
 
+def test_execution_lock_refuses_when_held_by_live_process_with_permission_error(tmp_path, monkeypatch):
+    """PermissionError from os.kill means process exists but we can't signal it — should NOT steal lock."""
+    lock_path = tmp_path / "scheduler.lock"
+    held_pid = 12345  # arbitrary PID for the lock
+    lock_path.write_text(str(held_pid))
+
+    def fake_kill(pid, sig):
+        if pid == held_pid:
+            raise PermissionError("Operation not permitted")
+        raise ProcessLookupError("No such process")
+
+    monkeypatch.setattr("os.kill", fake_kill)
+    lock = ExecutionLock(str(lock_path))
+    # Should refuse to acquire because PermissionError means process IS alive
+    assert lock.acquire() is False
+
+
 def test_run_main_py_intraday_mode_includes_realtime_and_no_push_flags(monkeypatch, tmp_path):
     captured = {}
 

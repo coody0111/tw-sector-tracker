@@ -55,6 +55,10 @@ class ExecutionLock:
     def _pid_alive(self, pid: int) -> bool:
         try:
             os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True  # process exists, we just can't signal it — still alive
         except OSError:
             return False
         except ValueError:

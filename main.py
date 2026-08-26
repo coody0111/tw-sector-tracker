@@ -1053,10 +1053,13 @@ def run(trade_date: date = None, realtime: bool = False, push: bool = True, summ
             git_pushed=push,
             started_at=_started_at, finished_at=_finished_at, warnings=_run_warnings,
         )
-        Path(summary_path).parent.mkdir(parents=True, exist_ok=True)
-        with open(summary_path, "w", encoding="utf-8") as f:
-            json.dump(summary, f, ensure_ascii=False, indent=2)
-        logger.info("執行摘要已寫入 %s", summary_path)
+        try:
+            Path(summary_path).parent.mkdir(parents=True, exist_ok=True)
+            with open(summary_path, "w", encoding="utf-8") as f:
+                json.dump(summary, f, ensure_ascii=False, indent=2)
+            logger.info("執行摘要已寫入 %s", summary_path)
+        except Exception as exc:
+            logger.error("寫入執行摘要失敗：%s", exc)
 
     logger.info("=== Done ===")
 

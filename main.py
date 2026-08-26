@@ -1,4 +1,5 @@
 import argparse
+import json
 import logging
 import random
 import subprocess
@@ -240,6 +241,43 @@ def _update_chips_db(trade_date: date, stock_ids: list) -> None:
             logger.info("TPEx 外資持股%% 寫入 %d 筆（%s）", len(fh_tpex_df), resp_date)
     except Exception as exc:
         logger.warning("TPEx 外資持股%% 寫入失敗: %s", exc)
+
+
+def _build_run_summary(
+    trade_date: date,
+    realtime: bool,
+    market_regime: dict | None,
+    margin_div: dict,
+    flow_watch: list,
+    html_updated: bool,
+    git_pushed: bool,
+    started_at,
+    finished_at,
+    warnings: list,
+) -> dict:
+    """組出 --summary-json 要寫的執行摘要（見 docs/scheduler.md §6）。純函式、不寫檔，
+    方便單元測試。盤中模式（realtime=True）不帶 flow_watch 欄位——那是收盤摘要專屬的
+    純觀察內容，2026-08-26 跟 Cody 確認盤中不監控這類沒有過半勝率的內容（見 §7.1）。
+    market_regime 目前只有中文 tier 字串（如「小漲」），沒有另外的英文 enum，
+    market_regime/market_regime_label 兩個欄位暫時填相同值。"""
+    tier = (market_regime or {}).get("tier")
+    summary = {
+        "status": "success",
+        "mode": "intraday" if realtime else "close",
+        "started_at": started_at.isoformat(),
+        "finished_at": finished_at.isoformat(),
+        "trade_date": trade_date.isoformat(),
+        "market_regime": tier,
+        "market_regime_label": tier,
+        "margin_alerts": margin_div.get("bearish", []),
+        "warnings": warnings,
+        "html_updated": html_updated,
+        "git_pushed": git_pushed,
+        "duration_seconds": round((finished_at - started_at).total_seconds()),
+    }
+    if not realtime:
+        summary["flow_watch"] = flow_watch
+    return summary
 
 
 def _push_html(trade_date: date) -> None:
@@ -515,8 +553,19 @@ def update_sectors(limit: int = None) -> None:
     logger.info("=== Done ===")
 
 
-def run(trade_date: date = None, realtime: bool = False) -> None:
+def run(trade_date: date = None, realtime: bool = False, push: bool = True, summary_path: str = None) -> None:
     """每日執行：讀取已存族群 → 抓 TWSE+TPEx 行情 → 計算績效 → 更新網站（約 10 秒）"""
+    from datetime import datetime as _datetime
+    _started_at = _datetime.now()
+    _run_warnings: list = []
+    # 以下 4 個變數只有在「if perf or meta_perf:」區塊（函式中段）真的跑到時才會被賦值，
+    # 資料源全部失敗、perf/meta_perf 都是空的那天，區塊完全不會執行——先在這裡給預設值，
+    # 讓 _build_run_summary() 不管有沒有跑到那個區塊都能安全讀到值，不用在使用處用
+    # locals()/dir() 這種內省技巧去猜變數存不存在。
+    market_regime = None
+    margin_div = {}
+    flow_watch = []
+    chips_html_written = False
     if trade_date is None:
         trade_date = date.today()
         if trade_date.weekday() >= 5:  # 週六=5, 週日=6 → 退回上週五
@@ -704,6 +753,9 @@ def run(trade_date: date = None, realtime: bool = False) -> None:
         meta_chips = calc_meta_chips_signals(universe_df) if universe_df is not None else {}
         stock_chips = get_stock_chips_ranking(universe_df) if universe_df is not None else {}
         margin_div = get_margin_divergence(universe_df) if universe_df is not None else {}
+        if not realtime and universe_df is not None:
+            from processors.flow_watch import get_flow_watch
+            flow_watch = get_flow_watch(universe_df, trade_date=trade_date.isoformat())
 
         try:
             # universe_df 必須含 exchange 欄位，否則 calc_meta_observation_scores() 內部
@@ -987,7 +1039,24 @@ def run(trade_date: date = None, realtime: bool = False) -> None:
         elif observation_scores:
             logger.warning("docs/momentum.html 沒有更新（decision_table 為空，可能是當天無掃描命中或資料源失敗）")
 
-        _push_html(trade_date)
+        if push:
+            _push_html(trade_date)
+        elif summary_path:
+            _run_warnings.append("--no-push：本次未執行git commit/push")
+
+    if summary_path:
+        _finished_at = _datetime.now()
+        summary = _build_run_summary(
+            trade_date=trade_date, realtime=realtime,
+            market_regime=market_regime, margin_div=margin_div, flow_watch=flow_watch,
+            html_updated=bool(chips_html_written),
+            git_pushed=push,
+            started_at=_started_at, finished_at=_finished_at, warnings=_run_warnings,
+        )
+        Path(summary_path).parent.mkdir(parents=True, exist_ok=True)
+        with open(summary_path, "w", encoding="utf-8") as f:
+            json.dump(summary, f, ensure_ascii=False, indent=2)
+        logger.info("執行摘要已寫入 %s", summary_path)
 
     logger.info("=== Done ===")
 
@@ -996,6 +1065,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="TW Sector Tracker")
     parser.add_argument("--update-sectors", action="store_true",
                         help="Re-scrape MoneyDJ sectors (~15 min). Run weekly.")
+    parser.add_argument("--no-push", action="store_true",
+                        help="產生結果但不執行 Git commit/push（排程盤中模式用）")
+    parser.add_argument("--summary-json", type=str, default=None, metavar="PATH",
+                        help="將本次執行摘要輸出為 JSON（排程系統讀取用）")
     parser.add_argument("--limit", type=int, default=None,
                         help="Limit sectors for testing (use with --update-sectors)")
     parser.add_argument("--backfill-twse", type=int, default=0, metavar="MONTHS",
@@ -1092,4 +1165,4 @@ if __name__ == "__main__":
     elif args.full_rebuild:
         _full_rebuild(months=args.months, workers=args.workers)
     else:
-        run(realtime=args.realtime)
+        run(realtime=args.realtime, push=not args.no_push, summary_path=args.summary_json)

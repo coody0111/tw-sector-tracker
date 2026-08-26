@@ -72,3 +72,48 @@ def test_retry_fetch_passes_args_and_kwargs_through():
 # 缺週回補的「只補缺的那幾週」邏輯已改用 scrapers/shareholder.py::plan_backfill_dates
 # （見 tests/test_shareholder.py），main.py 本地曾經獨立實作過一份同用途的
 # _missing_shareholder_dates，merge 時確認功能重複、已移除，測試隨之移除。
+
+
+from datetime import date, datetime
+from main import _build_run_summary
+
+
+def test_build_run_summary_close_mode_includes_flow_watch():
+    started = datetime(2026, 8, 26, 15, 0, 0)
+    finished = datetime(2026, 8, 26, 15, 1, 32)
+    summary = _build_run_summary(
+        trade_date=date(2026, 8, 26),
+        realtime=False,
+        market_regime={"tier": "小漲"},
+        margin_div={"bearish": [{"stock_id": "2330", "stock_name": "台積電", "margin_pct": 5.2, "price_pct": -3.1, "days": 10}]},
+        flow_watch=[{"stock_id": "2317", "stock_name": "鴻海", "net_buy_lots": 3200, "vs_avg20_ratio": 3.2, "turnover": 890000000}],
+        html_updated=True, git_pushed=True,
+        started_at=started, finished_at=finished, warnings=[],
+    )
+    assert summary["status"] == "success"
+    assert summary["mode"] == "close"
+    assert summary["trade_date"] == "2026-08-26"
+    assert summary["market_regime"] == "小漲"
+    assert summary["market_regime_label"] == "小漲"
+    assert summary["margin_alerts"] == [{"stock_id": "2330", "stock_name": "台積電", "margin_pct": 5.2, "price_pct": -3.1, "days": 10}]
+    assert summary["flow_watch"] == [{"stock_id": "2317", "stock_name": "鴻海", "net_buy_lots": 3200, "vs_avg20_ratio": 3.2, "turnover": 890000000}]
+    assert summary["html_updated"] is True
+    assert summary["git_pushed"] is True
+    assert summary["duration_seconds"] == 92
+
+
+def test_build_run_summary_intraday_mode_excludes_flow_watch():
+    """盤中模式不帶flow_watch欄位——避免run_scheduled.py誤把觀察用內容當盤中通知素材。"""
+    started = datetime(2026, 8, 26, 10, 30, 0)
+    finished = datetime(2026, 8, 26, 10, 31, 25)
+    summary = _build_run_summary(
+        trade_date=date(2026, 8, 26), realtime=True,
+        market_regime=None, margin_div={}, flow_watch=[],
+        html_updated=False, git_pushed=False,
+        started_at=started, finished_at=finished, warnings=["TPEx逾時"],
+    )
+    assert summary["mode"] == "intraday"
+    assert "flow_watch" not in summary
+    assert summary["margin_alerts"] == []
+    assert summary["market_regime"] is None
+    assert summary["warnings"] == ["TPEx逾時"]

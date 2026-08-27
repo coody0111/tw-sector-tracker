@@ -4,6 +4,7 @@
          calc_meta_chips_signals()/calc_cumulative_meta()/calc_meta_heatgrid_windows()
 視覺/互動設計：docs/superpowers/specs/2026-07-15-sector-overview-heatmap-redesign.md
 技術落地設計：docs/superpowers/specs/2026-07-22-sector-overview-heatmap-implementation-design.md
+第二波（信心分層+今日/本週異動合併）：CONTEXT.md、docs/adr/0005-confidence-tiering-across-index-page.md、docs/adr/0006-index-reuses-cross-page-signal-functions.md
 
 刻意的設計決定：這個模組取代 export/html_generator.py 在 main.py::run() 裡的角色，但不刪除
 舊檔案（沒有其他模組依賴它，保留當 rollback 用）。這個檔案完全不呼叫 duckdb.connect()——跟

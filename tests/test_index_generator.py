@@ -1789,3 +1789,22 @@ def test_generate_wraps_spark_chips_history_in_three_column_grid(tmp_path):
     assert "metaSpark" in select_group_body
     assert "chipsSum" in select_group_body
     assert "historyRecord" in select_group_body
+
+
+def test_generate_accepts_margin_divergence_and_limit_up_results_params(tmp_path):
+    """generate()要能吃margin_divergence/limit_up_results兩個新參數，不crash——
+    這一步只確認簽章接受，實際渲染邏輯是後面Task 8才做。"""
+    output_path = tmp_path / "index.html"
+    margin_divergence = {"bearish": [{"stock_id": "1101", "stock_name": "台泥", "meta_sector": "水泥",
+                                       "margin_pct": 5.2, "price_pct": -3.1, "days": 10, "close": 30.5}],
+                          "bullish": [], "days_used": 10}
+    limit_up_results = [{"stock_id": "2330", "stock_name": "台積電", "meta_sector": "半導體",
+                          "close": 1080.0, "change_pct": 9.9, "volume": 50000,
+                          "limit_up_streak": 2, "volume_declining_streak": True,
+                          "breakout_volume_confirmed": True}]
+
+    generate(date(2026, 8, 27), _sample_meta_perf(), _sample_universe_df(), {}, {}, _sample_prices_df(), {},
+             margin_divergence=margin_divergence, limit_up_results=limit_up_results,
+             output_path=str(output_path))
+
+    assert output_path.exists()

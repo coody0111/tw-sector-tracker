@@ -818,6 +818,14 @@ table.vt-table{width:100%;border-collapse:collapse}
 }
 .heat-tile.tier-super:hover{box-shadow:0 0 26px color-mix(in srgb, var(--accent) 24%, transparent), var(--shadow-2)}
 
+/* 信心分層(docs/adr/0005)：真數字(排名/%/連漲跌天數/週對比等)維持實色強調；未回測的
+   草案分類(五級動能/溫度/族群近況5組門檻/轉折點/排名進出榜)一律用這個降噪樣式──
+   虛線框+透明底+比真數字小一號字級，標籤文字統一加「（草案）」字樣誠實揭露信心等級。
+   是chips.html既有.evid-weak的精簡延伸(空間小的場景不放完整證據卡/banner)。*/
+.badge-weak{display:inline-flex;align-items:center;gap:4px;padding:2px 7px;border-radius:9px;
+  font-size:.6rem;font-weight:600;background:transparent;border:1px dashed var(--border-2);
+  color:var(--ink-3)}
+
 .detail-panel{
   margin:20px 26px 0;background:var(--panel);border:1px solid var(--accent);border-radius:5px;
   padding:22px 26px;box-shadow:var(--shadow-2);scroll-margin-top:20px;
@@ -1019,18 +1027,14 @@ def _heatgrid_html(cards: List[Dict[str, Any]]) -> str:
         temp = c["temp"]
         tier_html = ""
         if tier is not None:
-            color = _TIER_COLOR_VAR[tier["key"]]
-            tier_html = (
-                f'<div class="ht-tier" style="background:{color}22;color:{color}">'
-                f'<span class="dot" style="background:{color}"></span>{tier["label"]}</div>'
-            )
+            tier_html = f'<div class="ht-tier badge-weak">{tier["label"]}（草案）</div>'
         else:
-            tier_html = '<div class="ht-tier" style="color:var(--ink-3)">資料不足</div>'
+            tier_html = '<div class="ht-tier badge-weak">資料不足</div>'
 
         if temp is not None:
-            temp_html = f'<div class="ht-temp {temp["key"]}">{temp["label"]}</div>'
+            temp_html = f'<div class="ht-temp badge-weak">{temp["label"]}（草案）</div>'
         elif c["accel"] is not None:
-            temp_html = f'<div class="ht-temp flat tabular">→ {c["accel"]:+.1f}pt</div>'
+            temp_html = f'<div class="ht-temp badge-weak tabular">→ {c["accel"]:+.1f}pt（草案）</div>'
         else:
             temp_html = ""
 

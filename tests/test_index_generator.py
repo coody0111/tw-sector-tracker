@@ -1180,8 +1180,13 @@ def test_generate_renders_populated_tier_temp_badges_and_recap_data(tmp_path):
     generate(date(2026, 7, 22), meta_perf, universe_df, meta_signals, meta_chips, prices_df, heatgrid_windows, output_path=str(output_path))
 
     html = output_path.read_text(encoding="utf-8")
-    assert "超強" in html  # tier badge：streak=3>0, accel=6.0-1.0=5.0>3 → super
-    assert "增溫" in html  # temp badge：accel=5.0達hot門檻
+    # tier badge應用badge-weak + 「（草案）」信心分層標示（見docs/adr/0005）
+    assert 'class="ht-tier badge-weak"' in html
+    assert "超強（草案）" in html
+    # temp badge應用badge-weak + 「（草案）」信心分層標示
+    assert 'class="ht-temp badge-weak"' in html
+    assert "增溫" in html and "（草案）" in html
+    # 其他真數字badge保持原狀
     assert "外資連買3日" in html  # 法人badge
     assert "投信連買2日" in html
     assert "近5日→前5日" in html  # 週對比區塊
@@ -1808,3 +1813,28 @@ def test_generate_accepts_margin_divergence_and_limit_up_results_params(tmp_path
              output_path=str(output_path))
 
     assert output_path.exists()
+
+
+def test_heatgrid_tier_and_temp_badges_use_confidence_tiering(tmp_path):
+    """五級動能(tier)/溫度(temp)標籤是未回測草案分類(見docs/adr/0005)，要用badge-weak
+    降噪樣式(虛線框+透明底)呈現，且標籤文字要帶「（草案）」字樣誠實揭露，不能再用
+    實色圓角膠囊(舊版ht-tier inline style帶background/color)。"""
+    output_path = tmp_path / "index.html"
+    meta_perf = [{"meta_name": "超強族群", "avg_change_pct": 6.0, "up_count": 1, "down_count": 0, "flat_count": 0}]
+    universe_df = pd.DataFrame([{"stock_id": "1", "stock_name": "股票一", "meta_sector": "超強族群"}])
+    prices_df = pd.DataFrame([{"stock_id": "1", "close": 100.0, "change_pct": 6.0}])
+    heatgrid_windows = {
+        "超強族群": {"streak_today": 3, "last_week_pct_today": 1.0, "this_week_pct_today": 6.0,
+                    "streak_5d_ago": None, "last_week_pct_5d_ago": None},
+    }
+
+    generate(date(2026, 8, 27), meta_perf, universe_df, {}, {}, prices_df, heatgrid_windows,
+             output_path=str(output_path))
+
+    html = output_path.read_text(encoding="utf-8")
+    assert 'class="ht-tier badge-weak"' in html
+    assert "超強（草案）" in html
+    assert 'class="ht-temp badge-weak"' in html
+    assert "加速" in html and "（草案）" in html
+    # 舊版寫死顏色的inline style不該再出現在tier_html裡
+    assert 'style="background:var(--tier-super)22' not in html

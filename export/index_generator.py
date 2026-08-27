@@ -875,10 +875,9 @@ a{color:inherit}
 .section-rule{height:1px;background:linear-gradient(to right,var(--ink) 0%,var(--border) 45%,transparent 100%);margin:0 26px 4px}
 .section-sub{padding:0 26px 14px;font-size:.76rem;color:var(--ink-2);max-width:720px}
 
-.anomaly-wrap{position:relative;margin:0 26px}
-.anomaly-strip{display:flex;gap:14px;overflow-x:auto;padding:2px 2px 6px}
-.anomaly-wrap::after{content:"";position:absolute;top:0;right:0;bottom:6px;width:44px;pointer-events:none;background:linear-gradient(to right, transparent, var(--bg) 88%)}
-.anomaly-card{flex:0 0 240px;background:var(--panel);border:1px solid var(--border);border-radius:4px;padding:15px 17px;position:relative;cursor:pointer;transition:box-shadow .2s,transform .2s,border-color .2s}
+.anomaly-wrap{position:relative}
+.anomaly-strip{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px;padding:2px 2px 6px}
+.anomaly-card{background:var(--panel);border:1px solid var(--border);border-radius:4px;padding:15px 17px;position:relative;cursor:pointer;transition:box-shadow .2s,transform .2s,border-color .2s}
 .anomaly-card:hover{border-color:var(--border-2);transform:translateY(-2px)}
 .anomaly-card::before{content:"";position:absolute;left:0;top:15px;bottom:15px;width:2px;border-radius:2px}
 .anomaly-card.burst::before{background:var(--burst)} .anomaly-card.trend::before{background:var(--trend)}

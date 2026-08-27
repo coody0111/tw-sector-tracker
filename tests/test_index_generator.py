@@ -1923,3 +1923,19 @@ def test_today_breakout_html_renders_real_number_rows():
 def test_today_breakout_html_returns_empty_string_when_no_items():
     from export.index_generator import _today_breakout_html
     assert _today_breakout_html([]) == ""
+
+
+def test_anomaly_strip_css_uses_grid_not_horizontal_scroll(tmp_path):
+    """異動族群卡片現在放進滿版寬的「今日/本週異動」今日層(Task 8)，不再需要橫向
+    捲動——改成grid全部展開，有幾張顯幾張。"""
+    output_path = tmp_path / "index.html"
+    generate(date(2026, 8, 27), _sample_meta_perf(), _sample_universe_df(), {}, {}, _sample_prices_df(), {},
+             output_path=str(output_path))
+
+    html = output_path.read_text(encoding="utf-8")
+    # Remove whitespace for easier matching
+    html_normalized = html.replace(" ", "").replace("\n", "")
+    assert ".anomaly-strip{display:grid" in html_normalized
+    # Verify overflow-x:auto is not in the .anomaly-strip section
+    anomaly_strip_section = html[html.index(".anomaly-strip"):html.index(".anomaly-strip") + 200]
+    assert "overflow-x:auto" not in anomaly_strip_section

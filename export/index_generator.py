@@ -421,6 +421,48 @@ def _margin_divergence_html(margin_divergence: Optional[Dict[str, Any]]) -> str:
     )
 
 
+def _limit_up_html(limit_up_results: Optional[List[Dict[str, Any]]]) -> str:
+    """
+    連續漲停鎖死（scan_consecutive_limit_up() 輸出）：連續鎖漲停天數是既成事實，真實
+    成交數字，套實色強調，不套badge-weak（見docs/adr/0005）。量能遞減/起漲爆量兩個
+    旗標是bool|None（None=資料不足無法判定，不是False），要分三態顯示，不能把None
+    當False處理。最多顯示前10檔（函式本身已依limit_up_streak降冪排序）。
+    """
+    if not limit_up_results:
+        return ""
+    rows = []
+    for r in limit_up_results[:10]:
+        vd = r.get("volume_declining_streak")
+        vd_html = (
+            '<span style="color:var(--up)">量縮鎖死</span>' if vd is True
+            else '<span style="color:var(--ink-3)">量未縮</span>' if vd is False
+            else '<span style="color:var(--ink-3)">─</span>'
+        )
+        bc = r.get("breakout_volume_confirmed")
+        bc_html = (
+            '<span class="badge foreign">起漲爆量</span>' if bc is True
+            else '' if bc is False
+            else '<span style="color:var(--ink-3)">─</span>'
+        )
+        rows.append(
+            '<tr>'
+            f'<td><span class="tabular" style="color:var(--ink-3)">{_esc(r["stock_id"])}</span> '
+            f'<span>{_esc(r.get("stock_name", ""))}</span></td>'
+            f'<td class="vt-sector">{_esc(r.get("meta_sector", ""))}</td>'
+            f'<td class="tabular" style="color:var(--up);font-weight:700">{r["limit_up_streak"]}天</td>'
+            f'<td>{vd_html}</td>'
+            f'<td>{bc_html}</td>'
+            '</tr>'
+        )
+    return (
+        '<div class="mdiv-wrap">'
+        f'<div class="mdiv-head">連續漲停鎖死 · 共 {len(limit_up_results)} 檔</div>'
+        '<div class="overflow-wrap"><table class="vt-table">'
+        '<thead><tr><th>代號 / 名稱</th><th>族群</th><th>連續天數</th><th>量能</th><th>起漲確認</th></tr></thead>'
+        f'<tbody>{"".join(rows)}</tbody></table></div></div>'
+    )
+
+
 def build_heatgrid_cards(
     meta_perf: List[Dict[str, Any]],
     meta_signals: Dict[str, Dict[str, Any]],

@@ -997,6 +997,31 @@ def test_build_stock_detail_data_defaults_holder_fields_to_none_without_data():
     assert stock2["holder_week_chg"] is None
 
 
+def test_limit_up_html_renders_table_with_streak_and_volume_flags():
+    """連續漲停鎖死是真數字(連續鎖漲停天數是既成事實)，不套badge-weak。
+    量能遞減/起漲爆量兩個bool|None旗標要各自有清楚的視覺標示。"""
+    from export.index_generator import _limit_up_html
+    limit_up_results = [
+        {"stock_id": "2330", "stock_name": "台積電", "meta_sector": "半導體",
+         "close": 1080.0, "change_pct": 9.9, "volume": 50000,
+         "limit_up_streak": 3, "volume_declining_streak": True, "breakout_volume_confirmed": True},
+        {"stock_id": "1101", "stock_name": "台泥", "meta_sector": "水泥",
+         "close": 30.5, "change_pct": 9.8, "volume": 12000,
+         "limit_up_streak": 1, "volume_declining_streak": None, "breakout_volume_confirmed": None},
+    ]
+    html = _limit_up_html(limit_up_results)
+    assert "2330" in html and "台積電" in html
+    assert "連續漲停" in html
+    assert "3" in html  # limit_up_streak
+    assert "badge-weak" not in html
+
+
+def test_limit_up_html_returns_empty_string_when_no_results():
+    from export.index_generator import _limit_up_html
+    assert _limit_up_html([]) == ""
+    assert _limit_up_html(None) == ""
+
+
 from datetime import date
 from export.index_generator import generate
 

@@ -38,7 +38,7 @@ _CONTINUATION_RULE_SPECS = {
 CHIPS_RULES = (
     "joint_buy",
     *_CONTINUATION_RULE_SPECS.keys(),
-    "dip_buy", "stealth_buy",
+    "dip_buy", "stealth_buy", "dip_buy_deleverage",
     "margin_bearish", "tdcc_accumulation",
 )
 
@@ -53,6 +53,7 @@ CHIPS_RULE_CONFIG = {
        for name in _CONTINUATION_RULE_SPECS},
     "dip_buy": {"success_direction": "positive", "skip_no_fill": True, "cost_pct": 0.6},
     "stealth_buy": {"success_direction": "positive", "skip_no_fill": True, "cost_pct": 0.6},
+    "dip_buy_deleverage": {"success_direction": "positive", "skip_no_fill": True, "cost_pct": 0.6},
     "margin_bearish": {"success_direction": "negative", "skip_no_fill": False, "cost_pct": 0.0},
     "tdcc_accumulation": {"success_direction": "positive", "skip_no_fill": True, "cost_pct": 0.6},
 }
@@ -171,6 +172,41 @@ def scan_chips_rule(date_str: str, db_path: str, rule: str) -> List[Dict[str, An
             picks.sort(key=lambda r: (r.get("foreign_streak", 0), r.get("foreign_net", 0)), reverse=True)
         return picks[:30]
 
+    if rule == "dip_buy_deleverage":
+        first_date, _ = _table_date_range(db_path, "institutional")
+        if first_date and date_str < first_date:
+            return []
+        available_dates = _table_dates(db_path, "institutional")
+        if available_dates and date_str not in available_dates:
+            return []
+        margin_first_date, _ = _table_date_range(db_path, "margin")
+        if margin_first_date and date_str < margin_first_date:
+            return []
+        # 「越跌越買」原版(dip_buy)只看法人還在買，這個變體多加一個條件：同時期融資餘額
+        # 在下降（散戶去槓桿/停損），對照「聰明錢承接、散戶恐慌賣」的假設——跟 dip_buy
+        # 用同一組法人/價格門檻，只是多疊一層融資背離的過濾器（2026-08-26 跟 Cody 討論，
+        # 為了避免湊組合找 edge 的過度配適風險，這個組合是先有邏輯才測，不是先測數字
+        # 再回頭找理由）。
+        rows = scan_institutional(date_str, db_path=db_path, lookback=40, price_window=5)
+        if not any(r.get("date") == date_str for r in rows):
+            return []
+        base_candidates = [
+            r for r in rows
+            if r.get("meta_sector") and r.get("price_cum_pct") is not None
+            and (r.get("foreign_streak", 0) > 0 or r.get("trust_streak", 0) > 0)
+            and r["price_cum_pct"] <= -1.0
+        ]
+        if not base_candidates:
+            return []
+        margin_trend = _margin_trend_pct_map(db_path, date_str, lookback=10)
+        picks = []
+        for r in base_candidates:
+            trend = margin_trend.get(str(r["stock_id"]))
+            if trend is not None and trend <= -3.0:
+                picks.append(r)
+        picks.sort(key=lambda r: r["price_cum_pct"])  # 跌最多排前面
+        return picks[:30]
+
     if rule == "margin_bearish":
         first_date, _ = _table_date_range(db_path, "margin")
         if first_date and date_str < first_date:
@@ -236,6 +272,35 @@ def run_chips_rule_backtests(
             cost_pct=config["cost_pct"],
         )
     return results
+
+
+def _margin_trend_pct_map(db_path: str, date_str: str, lookback: int = 10) -> dict:
+    """
+    每支股票「as of date_str」融資餘額趨勢：抓每支股票最近 lookback 筆（≤ date_str）的
+    margin_balance，回傳 {stock_id: pct_change}（(最新一筆-最舊一筆)/最舊一筆×100）。
+    只用 date_str 之前的資料，跟 scan_institutional() 的 price_window 查詢是同一種手法
+    （QUALIFY ROW_NUMBER 抓每股最近 N 筆），無前瞻偏誤。
+    """
+    con = duckdb.connect(db_path, read_only=True)
+    df = con.execute(f"""
+        SELECT stock_id, date, margin_balance
+        FROM margin
+        WHERE date <= '{date_str}' AND margin_balance > 0
+        QUALIFY ROW_NUMBER() OVER (PARTITION BY stock_id ORDER BY date DESC) <= {lookback}
+    """).df()
+    con.close()
+    if df.empty:
+        return {}
+    result = {}
+    for sid, grp in df.groupby("stock_id"):
+        grp = grp.sort_values("date")
+        if len(grp) < 2:
+            continue
+        start, end = float(grp["margin_balance"].iloc[0]), float(grp["margin_balance"].iloc[-1])
+        if start <= 0:
+            continue
+        result[str(sid)] = round((end - start) / start * 100, 2)
+    return result
 
 
 def _build_price_index(db_path: str):

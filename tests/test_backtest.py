@@ -131,6 +131,35 @@ def test_stealth_buy_rule_requires_foreign_streak_and_flat_price(monkeypatch):
     assert [p["stock_id"] for p in picks] == ["A"]
 
 
+def _make_margin_db(tmp_path, name, margin_rows):
+    """margin_rows: list of (stock_id, 'YYYY-MM-DD', margin_balance)"""
+    db = str(tmp_path / name)
+    con = duckdb.connect(db)
+    con.execute("CREATE TABLE margin (stock_id VARCHAR, date DATE, margin_balance BIGINT)")
+    con.executemany(
+        "INSERT INTO margin VALUES (?, ?, ?)",
+        [(s, pd.to_datetime(d).date(), b) for (s, d, b) in margin_rows],
+    )
+    con.close()
+    return db
+
+
+def test_dip_buy_deleverage_requires_margin_declining_alongside_dip_buy_conditions(monkeypatch, tmp_path):
+    rows = [
+        {"stock_id": "A", "date": "2026-07-01", "meta_sector": "測試",
+         "foreign_streak": 2, "trust_streak": 0, "price_cum_pct": -3.0},   # 符合dip_buy底層條件
+        {"stock_id": "B", "date": "2026-07-01", "meta_sector": "測試",
+         "foreign_streak": 3, "trust_streak": 0, "price_cum_pct": -2.0},   # 符合dip_buy底層條件，但融資沒降
+    ]
+    monkeypatch.setattr(backtest_module, "scan_institutional", lambda *args, **kwargs: rows)
+    db = _make_margin_db(tmp_path, "margin.db", [
+        ("A", "2026-06-20", 100000), ("A", "2026-07-01", 90000),   # A融資 -10%，符合去槓桿
+        ("B", "2026-06-20", 100000), ("B", "2026-07-01", 99000),   # B融資 -1%，沒到-3%門檻
+    ])
+    picks = make_chips_rule_scanner("dip_buy_deleverage")("2026-07-01", db)
+    assert [p["stock_id"] for p in picks] == ["A"]
+
+
 def test_backtest_chips_config_covers_all_continuation_ablation_rules():
     """每個 CHIPS_RULES 都要有對應的 CHIPS_RULE_CONFIG，否則 run_chips_rule_backtests()
     會在跑到該規則時 KeyError——這是純粹的設定完整性檢查，不用真的跑回測。"""

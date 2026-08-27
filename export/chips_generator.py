@@ -8,8 +8,6 @@ from pathlib import Path
 from urllib.parse import quote
 import json
 
-from export.chips_headline import build_candidate_cards, render_headline_zone
-
 _CUM_THRESHOLD = 15
 
 
@@ -134,6 +132,28 @@ def _section(title: str, body: str, icon: str = "") -> str:
   <div class="cs-title">{title}</div>
   {body}
 </div>"""
+
+
+def _evidence_card(tier: str, badge_label: str, stats: str, note: str) -> str:
+    """回測證據卡：固定顯示在有回測結果的 tab 面板頂部。tier 是 CSS class
+    （evid-verified/evid-observe/evid-unproven），數字/文字全部是靜態字串，直接抄自
+    docs/superpowers/specs/2026-08-25-chips-page-signal-audit-design.md 總表——回測結果是
+    離線跑 `python main.py --backtest-chips` 才會更新，不隨每日資料變動，故不接即時查詢。
+    注意：`stats` 不會被 `_esc()` 處理，允許帶 `<b>` 之類的行內標記強調數字——僅限這裡
+    硬編碼的回測文案使用，絕對不能傳入外部/使用者資料，信任邊界跟本檔其他呼叫端一致。"""
+    return (f'<div class="evid-card"><span class="evid {tier}">{badge_label}</span>'
+            f'<span>{stats}</span><span class="src">{note}</span></div>')
+
+
+_BANNER_CLASSES = {"caution": "caution-banner", "weak": "weak-banner"}
+
+
+def _evidence_banner(kind: str, title: str, body: str) -> str:
+    """證據不足/證據偏弱的說明 banner。kind='caution'(樣本不足待驗證) 或
+    'weak'(已驗證但沒展現edge)，對應 Task 1 新增的 .caution-banner/.weak-banner CSS。
+    kind 不在 _BANNER_CLASSES 裡會直接 KeyError，避免打錯字時悄悄套錯等級的樣式。"""
+    cls = _BANNER_CLASSES[kind]
+    return f'<div class="{cls}"><b>{_esc(title)}</b> — {_esc(body)}</div>'
 
 
 def _meta_streak_table(meta_chips: dict, streak_key: str, sort_desc: bool = True) -> str:
@@ -696,10 +716,22 @@ _CSS = """
   .tab-group{display:flex;flex-direction:column;gap:4px}
   .tab-group-label{font-size:.62rem;letter-spacing:.08em;text-transform:uppercase;color:var(--subtle);padding-left:2px}
   .tab-bar{display:flex;flex-direction:column;gap:3px}
-  .tab-btn{width:100%;min-height:44px;padding:9px 11px;border:0;border-left:3px solid transparent;border-radius:6px;background:transparent;color:var(--muted);text-align:left;cursor:pointer;font-size:.8125rem;font-weight:680;transition:background .16s,color .16s,border-color .16s}
+  .tab-btn{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;min-height:44px;padding:9px 11px;border:0;border-left:3px solid transparent;border-radius:6px;background:transparent;color:var(--muted);text-align:left;cursor:pointer;font-size:.8125rem;font-weight:680;transition:background .16s,color .16s,border-color .16s}
   .tab-btn:hover{color:var(--text);background:var(--surface)}
   .tab-btn:active{background:var(--surface-3)}
   .tab-btn.active{color:var(--text);border-left-color:var(--accent);background:var(--accent-soft)}
+  .evid{display:inline-flex;align-items:center;padding:1px 7px;border-radius:9px;font-size:.6rem;font-weight:750;letter-spacing:.02em;white-space:nowrap;flex-shrink:0}
+  .evid-verified{background:var(--accent-soft);color:var(--accent);border:1px solid rgba(240,187,85,.35)}
+  .evid-observe{background:var(--surface-3);color:var(--muted);border:1px solid var(--border-strong)}
+  .evid-unproven{background:var(--caution-soft);color:var(--caution);border:1px solid rgba(110,140,176,.35)}
+  .evid-weak{background:transparent;color:var(--subtle);border:1px dashed var(--border)}
+  .evid-card{display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px;margin-bottom:14px;padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:6px;font-size:.75rem;color:var(--muted)}
+  .evid-card b{color:var(--text);font-variant-numeric:tabular-nums}
+  .evid-card .src{margin-left:auto;color:var(--subtle);font-size:.6875rem}
+  .caution-banner{margin-bottom:14px;padding:11px 14px;background:var(--caution-soft);border:1px solid rgba(110,140,176,.4);border-radius:6px;color:var(--text);font-size:.75rem}
+  .caution-banner b{color:var(--caution)}
+  .weak-banner{margin-bottom:14px;padding:11px 14px;background:transparent;border:1px dashed var(--border-strong);border-radius:6px;color:var(--muted);font-size:.75rem}
+  .weak-banner b{color:var(--subtle)}
   .section-nav-note{margin:18px 10px 0;padding-top:14px;border-top:1px solid var(--border);color:var(--subtle);font-size:.6875rem;line-height:1.65}
   .main-content{min-width:0;padding:20px 24px 32px}
   .chips-toolbar{position:sticky;top:76px;z-index:10;display:flex;align-items:end;gap:12px;margin:0 0 16px;padding:10px 12px;background:rgba(15,20,32,.97);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 8px 24px rgba(3,4,7,.24)}
@@ -792,6 +824,7 @@ _CSS = """
   .hc-trend.down .trend-end{fill:var(--down)}
   .hc-trend .trend-grid{stroke:var(--border);stroke-width:1;stroke-dasharray:2,2}
   .hc-trend-empty{font-size:.68rem;color:var(--subtle);padding:6px 0;font-style:italic}
+  /* 以下 hero/pick-row/holder-mini 樣式屬於 export/chips_headline.py，2026-08-25 起未接入 generate()，保留備用，勿刪 */
   .hero{display:grid;grid-template-columns:1.2fr 1fr;gap:14px;padding:16px 20px;margin-bottom:8px}
   @media(max-width:980px){.hero{grid-template-columns:1fr}}
   .hero-panel{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px 18px}
@@ -837,7 +870,7 @@ function switchTab(id, focusTab=false){
   history.replaceState(null,'','#'+id);
   if(typeof applyFilters==='function')applyFilters();
 }
-const _tabs=['tab-signal','tab-dipbuy','tab-stealth','tab-inst','tab-foreign','tab-trust','tab-margin','tab-holder','tab-insider'];
+const _tabs=['tab-margin','tab-stealth','tab-dipbuy','tab-foreign','tab-trust','tab-signal','tab-inst','tab-holder','tab-insider'];
 document.querySelector('.tab-groups').addEventListener('keydown',e=>{
   if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;
   e.preventDefault();
@@ -847,7 +880,7 @@ document.querySelector('.tab-groups').addEventListener('keydown',e=>{
   switchTab(_tabs[next],true);
 });
 const _h=location.hash.slice(1);
-switchTab(_tabs.includes(_h)?_h:'tab-signal');
+switchTab(_tabs.includes(_h)?_h:'tab-margin');
 </script>
 """
 
@@ -1293,14 +1326,36 @@ def generate(
     s4_html = _build_section4(stock_chips)
     s5_html = _build_section5(meta_chips)
     s6a_html, s6_foreign_html, s6_trust_html = _build_section6(inst_scan)
-    candidate_cards = build_candidate_cards(inst_scan, limit=3)
-    holder_focus_sorted = sorted(
-        (r for r in shareholder_data if (r.get("streak") or 0) != 0),
-        key=lambda r: -abs(r.get("week_chg") or 0),
-    )[:5]
-    headline_html = render_headline_zone(candidate_cards, holder_focus_sorted)
     s7_html = _build_section7(margin_divergence)
     s8_html, s8_note, s_insider_html = _build_section8(shareholder_data, insider_data)
+
+    evid_signal = _evidence_card("evid-observe", "觀察用",
+        "訊號日 <b>61</b>．筆數 <b>377</b>　勝率 <b>43-44%</b>　平均超額 <b>+1.55%</b>",
+        "中位數-2.58%(均值被少數大贏家拉正)，非穩定訊號，僅供觀察")
+    evid_dipbuy = _evidence_banner("weak", "回測顯示這個假設目前沒有得到支持",
+        "1722筆訊號中D+14平均落後大盤0.53%，是11條規則裡樣本最大、表現也最差的，"
+        "保留供觀察但不建議當作進場依據")
+    evid_stealth = _evidence_card("evid-observe", "觀察用",
+        "訊號日 <b>63</b>．筆數 <b>1615</b>　勝率 <b>42-43%</b>　平均超額 <b>+0.57%</b>",
+        "11條規則裡表現相對最好，但仍不到50%勝率，僅供觀察")
+    evid_inst = _evidence_card("evid-observe", "觀察用",
+        "與「外資籌碼」共用同一組回測證據(族群層級彙總版)",
+        "外資連買本身在回測中沒有展現預測力，僅供觀察")
+    evid_foreign = _evidence_card("evid-observe", "觀察用",
+        "訊號日 <b>61</b>．筆數 <b>732-754</b>　勝率 <b>34-39%</b>　平均超額 <b>-0.42%~-1.11%</b>",
+        "盤整/空頭更差，連買本身沒有展現預測力")
+    evid_trust = _evidence_card("evid-observe", "觀察用",
+        "訊號日 <b>57</b>．筆數 <b>437-439</b>　勝率 <b>37-40%</b>　平均超額 <b>約0~+0.26%</b>",
+        "略優於外資版但仍不到50%")
+    evid_margin = _evidence_card("evid-verified", "已驗證",
+        "訊號日 <b>63</b>．筆數 <b>1154</b>　D+5避險命中 <b>54%</b>　D+10 <b>51%</b>　D+14 <b>47%</b>",
+        "短期(5日內)參考價值較高，拉長會退化——這是示警用途不是選股訊號")
+    evid_holder = _evidence_card("evid-observe", "觀察用",
+        "訊號日 <b>29</b>(樣本最小)．筆數 <b>834</b>　勝率 <b>37-40%</b>　平均超額 <b>+0.10%</b>",
+        "多頭市場平均超額反而-0.51%")
+    evid_insider = _evidence_banner("caution", "樣本不足，尚未驗證",
+        "集保揭露資料目前只有3個月頻快照(5月/6月/7月)，不足以做任何統計結論，"
+        "這裡顯示的是最新一期原始數字，僅供參考，等資料再累積幾個月後會補回測")
 
     html = f"""<!DOCTYPE html>
 <html lang="zh-TW">
@@ -1339,27 +1394,27 @@ def generate(
         <div class="section-nav-label">分析視角</div>
         <div class="tab-groups" role="tablist" aria-label="籌碼分析分類">
           <div class="tab-group">
-            <span class="tab-group-label">法人動向</span>
+            <span class="tab-group-label">特殊型態</span>
             <div class="tab-bar">
-              <button id="tab-btn-signal" type="button" role="tab" aria-controls="tab-signal" aria-selected="false" class="tab-btn" data-tab="tab-signal" onclick="switchTab('tab-signal')">法人同步觀察</button>
-              <button id="tab-btn-foreign" type="button" role="tab" aria-controls="tab-foreign" aria-selected="false" class="tab-btn" data-tab="tab-foreign" onclick="switchTab('tab-foreign')">外資籌碼</button>
-              <button id="tab-btn-trust" type="button" role="tab" aria-controls="tab-trust" aria-selected="false" class="tab-btn" data-tab="tab-trust" onclick="switchTab('tab-trust')">投信籌碼</button>
+              <button id="tab-btn-margin" type="button" role="tab" aria-controls="tab-margin" aria-selected="false" class="tab-btn" data-tab="tab-margin" onclick="switchTab('tab-margin')"><span>融資警示</span><span class="evid evid-verified">已驗證</span></button>
+              <button id="tab-btn-stealth" type="button" role="tab" aria-controls="tab-stealth" aria-selected="false" class="tab-btn" data-tab="tab-stealth" onclick="switchTab('tab-stealth')"><span>外資偷偷買</span><span class="evid evid-observe">觀察用</span></button>
+              <button id="tab-btn-dipbuy" type="button" role="tab" aria-controls="tab-dipbuy" aria-selected="false" class="tab-btn" data-tab="tab-dipbuy" onclick="switchTab('tab-dipbuy')"><span>越跌越買</span><span class="evid evid-weak">證據偏弱</span></button>
             </div>
           </div>
           <div class="tab-group">
-            <span class="tab-group-label">特殊型態</span>
+            <span class="tab-group-label">法人動向</span>
             <div class="tab-bar">
-              <button id="tab-btn-dipbuy" type="button" role="tab" aria-controls="tab-dipbuy" aria-selected="false" class="tab-btn" data-tab="tab-dipbuy" onclick="switchTab('tab-dipbuy')">越跌越買</button>
-              <button id="tab-btn-stealth" type="button" role="tab" aria-controls="tab-stealth" aria-selected="false" class="tab-btn" data-tab="tab-stealth" onclick="switchTab('tab-stealth')">外資偷偷買</button>
-              <button id="tab-btn-margin" type="button" role="tab" aria-controls="tab-margin" aria-selected="false" class="tab-btn" data-tab="tab-margin" onclick="switchTab('tab-margin')">融資警示</button>
+              <button id="tab-btn-foreign" type="button" role="tab" aria-controls="tab-foreign" aria-selected="false" class="tab-btn" data-tab="tab-foreign" onclick="switchTab('tab-foreign')"><span>外資籌碼</span><span class="evid evid-observe">觀察用</span></button>
+              <button id="tab-btn-trust" type="button" role="tab" aria-controls="tab-trust" aria-selected="false" class="tab-btn" data-tab="tab-trust" onclick="switchTab('tab-trust')"><span>投信籌碼</span><span class="evid evid-observe">觀察用</span></button>
+              <button id="tab-btn-signal" type="button" role="tab" aria-controls="tab-signal" aria-selected="false" class="tab-btn" data-tab="tab-signal" onclick="switchTab('tab-signal')"><span>法人同步觀察</span><span class="evid evid-observe">觀察用</span></button>
             </div>
           </div>
           <div class="tab-group">
             <span class="tab-group-label">持股結構</span>
             <div class="tab-bar">
-              <button id="tab-btn-inst" type="button" role="tab" aria-controls="tab-inst" aria-selected="false" class="tab-btn" data-tab="tab-inst" onclick="switchTab('tab-inst')">法人買賣</button>
-              <button id="tab-btn-holder" type="button" role="tab" aria-controls="tab-holder" aria-selected="false" class="tab-btn" data-tab="tab-holder" onclick="switchTab('tab-holder')">大戶籌碼</button>
-              <button id="tab-btn-insider" type="button" role="tab" aria-controls="tab-insider" aria-selected="false" class="tab-btn" data-tab="tab-insider" onclick="switchTab('tab-insider')">董監持股</button>
+              <button id="tab-btn-inst" type="button" role="tab" aria-controls="tab-inst" aria-selected="false" class="tab-btn" data-tab="tab-inst" onclick="switchTab('tab-inst')"><span>法人買賣</span><span class="evid evid-observe">觀察用</span></button>
+              <button id="tab-btn-holder" type="button" role="tab" aria-controls="tab-holder" aria-selected="false" class="tab-btn" data-tab="tab-holder" onclick="switchTab('tab-holder')"><span>大戶籌碼</span><span class="evid evid-observe">觀察用</span></button>
+              <button id="tab-btn-insider" type="button" role="tab" aria-controls="tab-insider" aria-selected="false" class="tab-btn" data-tab="tab-insider" onclick="switchTab('tab-insider')"><span>董監持股</span><span class="evid evid-unproven">待驗證</span></button>
             </div>
           </div>
         </div>
@@ -1367,47 +1422,55 @@ def generate(
       </div>
     </aside>
     <main id="main-content" class="main-content" tabindex="-1">
-      {headline_html}
       {exch_filter_btns}
 
       <div class="tab-panel" id="tab-signal" role="tabpanel" aria-labelledby="tab-btn-signal">
+        {evid_signal}
         {s6a_html}
       </div>
 
       <div class="tab-panel" id="tab-dipbuy" role="tabpanel" aria-labelledby="tab-btn-dipbuy">
+        {evid_dipbuy}
         {s35_html}
       </div>
 
       <div class="tab-panel" id="tab-stealth" role="tabpanel" aria-labelledby="tab-btn-stealth">
+        {evid_stealth}
         {s_stealth_html}
       </div>
 
       <div class="tab-panel" id="tab-inst" role="tabpanel" aria-labelledby="tab-btn-inst">
+        {evid_inst}
         {s1_html}
       </div>
 
       <div class="tab-panel" id="tab-foreign" role="tabpanel" aria-labelledby="tab-btn-foreign">
+        {evid_foreign}
         {s6_foreign_html}
         {s2_html}
         {s5_html}
       </div>
 
       <div class="tab-panel" id="tab-trust" role="tabpanel" aria-labelledby="tab-btn-trust">
+        {evid_trust}
         {s6_trust_html}
         {s3_html}
       </div>
 
       <div class="tab-panel" id="tab-margin" role="tabpanel" aria-labelledby="tab-btn-margin">
+        {evid_margin}
         {s7_html}
         {s4_html}
       </div>
 
       <div class="tab-panel" id="tab-holder" role="tabpanel" aria-labelledby="tab-btn-holder">
+        {evid_holder}
         {s8_note}
         {s8_html}
       </div>
 
       <div class="tab-panel" id="tab-insider" role="tabpanel" aria-labelledby="tab-btn-insider">
+        {evid_insider}
         {s_insider_html}
       </div>
 

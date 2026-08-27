@@ -1,5 +1,15 @@
 # 排程通知系統實作規格
 
+> **2026-08-26 更新**：這份規格最早寫成時，籌碼頁的訊號還沒做過回測驗證。同一個 session
+> 稍早完成「籌碼頁證據分級」（`docs/superpowers/specs/2026-08-25-chips-page-signal-audit-design.md`）
+> 之後才發現：原本規格 §6/§7 的範例直接把 `joint_buy`（法人同步觀察，回測驗證 43-44% 勝率、
+> 沒有 edge）跟「score」（進貨分，回測驗證勝率同樣沒過半、最高分組空頭市場零驗證樣本，見
+> `bug-reports.md` 2026-07-15 條目 + 2026-08-26 補跑的 `--backtest-accumulation`）當成「重要結果」
+> 推播。如果照原範例實作，等於把整個籌碼頁重構一直在修正的「未經證實訊號被當成建議」問題，
+> 原封不動搬到一個沒有證據卡/警語防護的新管道（手機推播的打斷成本比網頁徽章更高）。
+> 跟 Cody 用 `grilling` 重新過一輪後，§2.1/§6/§7 依證據等級調整如下，其餘章節（排程時間、
+> 執行鎖、通知去重、檔案結構、`.env`、測試需求）維持原規格不變。
+
 ## 1. 目標
 
 在指定時間自動執行台股程式，並將重要結果傳送到手機。
@@ -12,6 +22,8 @@
 - 盤中每 15 分鐘監控
 - 收盤後執行完整 `main.py`
 - 防止重複執行、重複通知與 Git 衝突
+- **推播內容依證據等級分流**（2026-08-26 新增原則）：已驗證的訊號當「警示」、僅觀察用的
+  內容不評分不排名、尚未驗證有效的訊號（進貨分）第一版不放進推播
 
 LINE 暫不納入第一版。LINE Notify 已於 2025 年 3 月 31 日停止服務，目前需改用設定成本較高的 LINE Messaging API。
 
@@ -52,7 +64,9 @@ python main.py --realtime --no-push --summary-json logs/latest_summary.json
 - 計算市場狀態與籌碼訊號
 - 不建立 Git commit
 - 不推送 GitHub
-- 只有重要結果改變才通知
+- **只監控融資警示（🟢已驗證，見 §7.1）跟系統健康（資料源失敗/程式錯誤），不監控任何
+  🟡觀察用內容**——2026-08-26 跟 Cody 確認：沒有過半勝率的東西每 15 分鐘跳一次手機通知，
+  比網頁上的證據卡更容易被誤讀成「這很重要、要馬上看」，觀察用內容留到收盤摘要一次講
 - 沒有變化時不傳送訊息
 
 ### 2.2 收盤更新 `close`
@@ -80,7 +94,8 @@ python main.py --summary-json logs/latest_summary.json
 - 執行完整每日更新
 - 更新 HTML
 - 建立 commit、同步遠端並推送 GitHub
-- 無論訊號是否改變，皆傳送每日摘要
+- 無論訊號是否改變，皆傳送每日摘要（內容見 §7.3，含融資警示 + 純觀察的「今日籌碼動向」，
+  不含任何評分/排名邏輯的訊號）
 - 資料不完整時在通知中明確標示
 
 ### 2.3 通知測試 `test-notify`
@@ -228,30 +243,57 @@ if push:
 logs/latest_summary.json
 ```
 
-成功範例：
+成功範例（`intraday`，只帶融資警示，不含任何評分/排名訊號——見 §7.1）：
 
 ```json
 {
   "status": "success",
   "mode": "intraday",
-  "started_at": "2026-07-16T10:30:00+08:00",
-  "finished_at": "2026-07-16T10:31:25+08:00",
-  "trade_date": "2026-07-16",
+  "started_at": "2026-08-26T10:30:00+08:00",
+  "finished_at": "2026-08-26T10:31:25+08:00",
+  "trade_date": "2026-08-26",
   "market_regime": "bull",
   "market_regime_label": "多頭",
-  "signals": [
+  "margin_alerts": [
     {
       "stock_id": "2330",
       "stock_name": "台積電",
-      "signal_type": "joint_buy",
-      "signal_label": "外資投信同步買超",
-      "score": 82
+      "margin_pct": 5.2,
+      "price_pct": -3.1,
+      "days": 10
     }
   ],
   "warnings": [],
   "html_updated": false,
   "git_pushed": false,
   "duration_seconds": 85
+}
+```
+
+成功範例（`close`，額外帶 `flow_watch`——純觀察的「今日籌碼動向」，見 §7.3/§7.6，
+**沒有 `score`/`signal_type` 這類暗示評分排名的欄位**）：
+
+```json
+{
+  "status": "success",
+  "mode": "close",
+  "trade_date": "2026-08-26",
+  "market_regime": "bull",
+  "market_regime_label": "多頭",
+  "margin_alerts": [],
+  "flow_watch": [
+    {
+      "stock_id": "2317",
+      "stock_name": "鴻海",
+      "net_buy_lots": 3200,
+      "vs_avg20_ratio": 3.2,
+      "turnover": 890000000
+    }
+  ],
+  "warnings": [],
+  "html_updated": true,
+  "git_pushed": true,
+  "duration_seconds": 92
 }
 ```
 
@@ -268,43 +310,51 @@ logs/latest_summary.json
 
 ## 7. 通知規則
 
+> **證據等級對應說明**（2026-08-26 新增）：`margin_alerts`（融資背離警示，
+> `processors/performance.py::get_margin_divergence()` 的 `bearish` 清單）是這個排程系統裡
+> **唯一**回測驗證過的內容（`screener/backtest.py` 的 `margin_bearish` 規則，D+5 避險命中 54%，
+> 見 `docs/superpowers/specs/2026-08-25-chips-page-signal-audit-design.md` 總表），文案上一律
+> 稱它「警示」不稱「訊號」或「推薦」。`flow_watch`（今日籌碼動向）是**純觀察**，只陳述已發生
+> 的事實（買超金額/相對均量異常倍數/成交值），不做任何評分或排名邏輯，跟網頁 🟡 觀察用分頁
+> 的定位一致。進貨分（`accumulation_score`）**第一版不進入這個系統**——回測顯示它勝率沒有
+> 任何分數區間過半、最高分組在空頭市場完全沒有驗證樣本（2026-08-26 補跑
+> `python main.py --backtest-accumulation` 的結果），等之後有更完整驗證再評估要不要收錄。
+
 ### 7.1 盤中發送條件
 
-- 新增重要訊號
-- 原有訊號消失
-- 訊號分數跨過門檻
-- 市場狀態改變
-- 資料來源失敗
-- 程式執行失敗
+- **只監控融資警示（`margin_alerts`）跟系統健康**，不監控 `flow_watch`（見 §2.1）：
+  - 新增融資警示個股
+  - 原有融資警示解除
+  - 市場狀態改變
+  - 資料來源失敗
+  - 程式執行失敗
 
 ### 7.2 盤中不發送條件
 
-- 訊號與上次完全相同
+- 融資警示清單與上次完全相同
 - 只有執行時間改變
 - 只有 HTML 排版或非投資訊息改變
 
 ### 7.3 收盤固定發送內容
 
 - 市場狀態
-- 訊號數量
-- 前 5 名訊號
+- 融資警示（`margin_alerts`，若有）
+- 今日籌碼動向（`flow_watch`）：買超金額排序 Top10，每檔附「與近20日均量相比的異常倍數」
+  跟「今日成交值」兩個脈絡數字（見 §7.6 格式）
 - 資料完整性
 - GitHub push 是否成功
 - 網站連結
 
-### 7.4 盤中通知範例
+### 7.4 盤中通知範例（只有融資警示 + 系統健康，沒有觀察用內容）
 
 ```text
 台股盤中更新｜10:30
 
 市場狀態：多頭
-新增訊號：2 檔
+融資警示（新增）：1 檔
 
 2330 台積電
-外資投信同步買超｜分數 82
-
-2382 廣達
-外資連買 3 日｜分數 76
+融資10日+5.2%、股價-3.1%（背離）
 
 資料異常：無
 ```
@@ -320,6 +370,27 @@ logs/latest_summary.json
 
 已保留 logs/scheduler.log
 網站未推送
+```
+
+### 7.6 收盤摘要範例（含「今日籌碼動向」純觀察區塊）
+
+```text
+台股收盤摘要｜2026-08-26
+
+市場狀態：多頭
+融資警示：無
+
+── 今日籌碼動向（純觀察，非推薦）──
+2317 鴻海
+買超 3,200張｜是近20日均量的3.2倍｜成交值8.9億
+
+2454 聯發科
+買超 2,100張｜是近20日均量的1.4倍｜成交值15.2億
+
+（僅陳述今日買超事實，不代表預測後續漲跌）
+
+資料完整性：正常
+網站已更新：https://coody0111.github.io/tw-sector-tracker/chips.html
 ```
 
 ## 8. 防重複機制

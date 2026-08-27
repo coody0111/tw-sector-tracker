@@ -1,6 +1,6 @@
 from datetime import date
 
-from export.chips_generator import _build_section2, _build_section4, _build_section6, _build_section8, _calc_trend_svg, _composite_sort, _coverage_flag, _esc, _holder_card_html, _holder_column_html, _insider_holdings_table, _inst_streak_table, _margin_alert_table, _meta_link, _percentile_ranks, _shareholder_table, _stock_rank_table, generate
+from export.chips_generator import _build_section2, _build_section4, _build_section6, _build_section8, _calc_trend_svg, _composite_sort, _coverage_flag, _esc, _evidence_card, _evidence_banner, _holder_card_html, _holder_column_html, _insider_holdings_table, _inst_streak_table, _margin_alert_table, _meta_link, _percentile_ranks, _shareholder_table, _stock_rank_table, generate
 
 
 def test_esc_escapes_html_special_characters():
@@ -104,6 +104,54 @@ def test_generate_uses_actual_chips_date_weekday(tmp_path):
     )
     html = output_path.read_text(encoding="utf-8")
     assert "2026-07-03（週五）" in html
+
+
+def test_generate_includes_evidence_tier_css_classes(tmp_path):
+    """證據分級的 CSS class 要出現在 <style> 裡，四級徽章+證據卡+兩種banner。"""
+    output_path = tmp_path / "chips.html"
+    generate(date(2026, 7, 5), {"測試族群": {"foreign_net_today": 100}}, {}, output_path=str(output_path))
+    html = output_path.read_text(encoding="utf-8")
+    for cls in (".evid", ".evid-verified", ".evid-observe", ".evid-unproven", ".evid-weak",
+                ".evid-card", ".caution-banner", ".weak-banner"):
+        assert cls in html, f"{cls} 應該出現在 <style> 裡"
+
+
+def test_generate_tab_nav_orders_by_evidence_strength_with_badges(tmp_path):
+    """特殊型態組內第一個該是融資警示(已驗證)，法人同步觀察不再是第一個 tab-group 的第一個
+    按鈕；每個按鈕都要帶對應的證據徽章。"""
+    output_path = tmp_path / "chips.html"
+    generate(date(2026, 7, 5), {"測試族群": {"foreign_net_today": 100}}, {}, output_path=str(output_path))
+    html = output_path.read_text(encoding="utf-8")
+
+    # 特殊型態組：融資警示排最前面（已驗證優先）
+    margin_idx = html.index('data-tab="tab-margin"')
+    stealth_idx = html.index('data-tab="tab-stealth"')
+    dipbuy_idx = html.index('data-tab="tab-dipbuy"')
+    assert margin_idx < stealth_idx < dipbuy_idx
+
+    # 每個 tab 按鈕都帶對應徽章（用 button id 附近的文字片段確認，不是全域計數，
+    # 避免不同 tab 剛好同一種徽章互相混淆）。切片區間要照「新排列順序」抓下一個按鈕的
+    # id 當結尾，順序是 margin→stealth→dipbuy→foreign→trust→signal→inst→holder→insider——
+    # 抓錯順序會讓 start > stop，Python 切出空字串，斷言會誤判過（第一版寫錯過，這裡已修正）。
+    margin_btn = html[html.index('id="tab-btn-margin"'):html.index('id="tab-btn-stealth"')]
+    assert 'evid-verified' in margin_btn and '已驗證' in margin_btn
+
+    dipbuy_btn = html[html.index('id="tab-btn-dipbuy"'):html.index('id="tab-btn-foreign"')]
+    assert 'evid-weak' in dipbuy_btn and '證據偏弱' in dipbuy_btn
+
+    signal_btn = html[html.index('id="tab-btn-signal"'):html.index('id="tab-btn-inst"')]
+    assert 'evid-observe' in signal_btn and '觀察用' in signal_btn
+
+    insider_btn = html[html.index('id="tab-btn-insider"'):]
+    assert 'evid-unproven' in insider_btn and '待驗證' in insider_btn
+
+
+def test_generate_default_tab_is_margin_not_signal(tmp_path):
+    """預設分頁改成證據最強的融資警示，不再預設開在法人同步觀察。"""
+    output_path = tmp_path / "chips.html"
+    generate(date(2026, 7, 5), {"測試族群": {"foreign_net_today": 100}}, {}, output_path=str(output_path))
+    html = output_path.read_text(encoding="utf-8")
+    assert "switchTab(_tabs.includes(_h)?_h:'tab-margin')" in html
 
 
 def test_coverage_flag_empty_when_not_partial():
@@ -683,98 +731,126 @@ def test_generate_groups_sidebar_tabs_into_three_clusters(tmp_path):
         assert f'data-tab="tab-{tab_id}"' in html
         assert f'aria-controls="tab-{tab_id}"' in html
 
-    label_signal_group = html.index("法人動向")
     label_pattern_group = html.index("特殊型態")
+    label_signal_group = html.index("法人動向")
     label_structure_group = html.index("持股結構")
-    assert label_signal_group < label_pattern_group < label_structure_group
+    assert label_pattern_group < label_signal_group < label_structure_group
 
-    pos_signal = html.index('id="tab-btn-signal"')
+    pos_margin = html.index('id="tab-btn-margin"')
+    pos_stealth = html.index('id="tab-btn-stealth"')
+    pos_dipbuy = html.index('id="tab-btn-dipbuy"')
     pos_foreign = html.index('id="tab-btn-foreign"')
     pos_trust = html.index('id="tab-btn-trust"')
-    pos_dipbuy = html.index('id="tab-btn-dipbuy"')
-    pos_stealth = html.index('id="tab-btn-stealth"')
-    pos_margin = html.index('id="tab-btn-margin"')
+    pos_signal = html.index('id="tab-btn-signal"')
     pos_inst = html.index('id="tab-btn-inst"')
     pos_holder = html.index('id="tab-btn-holder"')
     pos_insider = html.index('id="tab-btn-insider"')
 
+    # 特殊型態 group（已驗證優先）的按鈕都要落在自己的標籤跟下一組標籤之間
+    assert label_pattern_group < pos_margin < pos_stealth < pos_dipbuy < label_signal_group
     # 法人動向 group的按鈕都要落在自己的標籤跟下一組標籤之間
-    assert label_signal_group < pos_signal < pos_foreign < pos_trust < label_pattern_group
-    # 特殊型態 group的按鈕都要落在自己的標籤跟下一組標籤之間
-    assert label_pattern_group < pos_dipbuy < pos_stealth < pos_margin < label_structure_group
-    # 持股結構 group的按鈕都要落在自己的標籤之後
+    assert label_signal_group < pos_foreign < pos_trust < pos_signal < label_structure_group
+    # 持股結構 group的按鈕都要落在自己的標籤之後（組內順序不變）
     assert label_structure_group < pos_inst < pos_holder < pos_insider
 
 
-def test_generate_includes_headline_zone(tmp_path):
+def test_generate_no_longer_shows_candidate_observation_hero(tmp_path):
+    """候選觀察/大戶持倉本週焦點的開頁hero已移除——joint_buy跟tdcc_accumulation
+    回測都沒有展現edge，不該再佔全頁最顯眼的hero版位（見2026-08-25 spec）。
+    法人同步觀察的完整榜單仍在tab-signal面板，不受影響。"""
     output_path = tmp_path / "chips.html"
-    inst_scan = [{
-        "stock_id": "2317", "stock_name": "鴻海", "meta_sector": "AI伺服器",
-        "close": 257.0, "change_pct": 2.4, "foreign_streak": 5, "trust_streak": 3,
-        "both_streak": 3, "foreign_net": 24000000, "trust_net": 559000,
-        "total_net": 25000000, "institutional_flow_ratio_pct": 39.3,
-        "price_cum_pct": 8.5, "volume": 50000,
-    }]
-    generate(
-        trade_date=date(2026, 7, 29),
-        meta_chips={"外資連買": {}}, stock_chips={"chips_date": "2026-07-29"},
-        inst_scan=inst_scan, output_path=str(output_path),
-    )
+    generate(date(2026, 7, 5), {"測試族群": {"foreign_net_today": 100}}, {}, output_path=str(output_path))
+    html = output_path.read_text(encoding="utf-8")
+    assert 'class="hero"' not in html
+    assert "候選觀察" not in html
+    assert "大戶持倉本週焦點" not in html
+
+
+def test_evidence_card_renders_badge_and_stats():
+    html = _evidence_card("evid-verified", "已驗證", "訊號日 63．筆數 1154", "短期參考價值較高")
+    assert 'class="evid evid-verified"' in html
+    assert "已驗證" in html
+    assert "訊號日 63" in html
+    assert "短期參考價值較高" in html
+
+
+def test_evidence_banner_caution_and_weak_variants():
+    caution = _evidence_banner("caution", "樣本不足，尚未驗證", "資料只有3個月頻快照")
+    assert 'class="caution-banner"' in caution
+    assert "樣本不足，尚未驗證" in caution
+
+    weak = _evidence_banner("weak", "回測顯示這個假設目前沒有得到支持", "D+14平均落後大盤0.53%")
+    assert 'class="weak-banner"' in weak
+    assert "回測顯示這個假設目前沒有得到支持" in weak
+
+
+def test_generate_shows_evidence_card_in_every_backtested_tab(tmp_path):
+    output_path = tmp_path / "chips.html"
+    generate(date(2026, 7, 5), {"測試族群": {"foreign_net_today": 100}}, {}, output_path=str(output_path))
     html = output_path.read_text(encoding="utf-8")
 
-    assert "候選觀察" in html
-    assert "大戶持倉本週焦點" in html
-    assert "鴻海" in html
-    assert "不是投資建議" in html
+    tab_signal = html[html.index('id="tab-signal"'):html.index('id="tab-dipbuy"')]
+    assert 'evid-observe' in tab_signal and "<b>61</b>" in tab_signal
+
+    tab_dipbuy = html[html.index('id="tab-dipbuy"'):html.index('id="tab-stealth"')]
+    assert 'weak-banner' in tab_dipbuy and "回測顯示這個假設目前沒有得到支持" in tab_dipbuy
+
+    tab_stealth = html[html.index('id="tab-stealth"'):html.index('id="tab-inst"')]
+    assert 'evid-observe' in tab_stealth and "<b>63</b>" in tab_stealth
+
+    tab_inst = html[html.index('id="tab-inst"'):html.index('id="tab-foreign"')]
+    assert 'evid-observe' in tab_inst
+
+    tab_foreign = html[html.index('id="tab-foreign"'):html.index('id="tab-trust"')]
+    assert 'evid-observe' in tab_foreign and "<b>61</b>" in tab_foreign
+
+    tab_trust = html[html.index('id="tab-trust"'):html.index('id="tab-margin"')]
+    assert 'evid-observe' in tab_trust and "<b>57</b>" in tab_trust
+
+    tab_margin = html[html.index('id="tab-margin"'):html.index('id="tab-holder"')]
+    assert 'evid-verified' in tab_margin and "<b>63</b>" in tab_margin
+
+    tab_holder = html[html.index('id="tab-holder"'):html.index('id="tab-insider"')]
+    assert 'evid-observe' in tab_holder and "<b>29</b>" in tab_holder
+
+    tab_insider = html[html.index('id="tab-insider"'):]
+    assert 'caution-banner' in tab_insider and "樣本不足，尚未驗證" in tab_insider
 
 
-def test_generate_headline_zone_uses_shareholder_data_for_holder_focus(tmp_path):
+def test_nav_badges_match_panel_cards_and_tabs_array_order(tmp_path):
+    """單一測試同時鎖住三件事：(1) 每個 tab 按鈕的證據徽章跟同一個 tab 面板的證據卡/banner
+    等級一致，不會出現按鈕說「已驗證」但面板卡片說「觀察用」這種漂移；(2) `_tabs` JS 陣列順序
+    跟畫面上按鈕的實際順序一致，否則方向鍵/Tab循環會跟視覺順序對不上。"""
+    import re
     output_path = tmp_path / "chips.html"
-    shareholder_data = [{
-        "stock_id": "5347", "stock_name": "世界先進", "meta_sector": "晶圓代工",
-        "close": 128.5, "change_pct": 1.2, "lv12_15_pct": 68.4, "week_chg": 2.1,
-        "streak": 6, "share_chg": 412000, "lv15_pct": 22.6, "date": "2026-07-29",
-        "trend": [],
-    }]
-    generate(
-        trade_date=date(2026, 7, 29),
-        meta_chips={"外資連買": {}}, stock_chips={"chips_date": "2026-07-29"},
-        shareholder_data=shareholder_data, output_path=str(output_path),
-    )
+    generate(date(2026, 7, 5), {"測試族群": {"foreign_net_today": 100}}, {}, output_path=str(output_path))
     html = output_path.read_text(encoding="utf-8")
 
-    hero_idx = html.index("大戶持倉本週焦點")
-    tab_holder_idx = html.index('id="tab-holder"')
-    stock_positions = [m for m in range(len(html)) if html.startswith("世界先進", m)]
-    assert any(hero_idx < p < tab_holder_idx for p in stock_positions), \
-        "大戶持倉本週焦點應該顯示shareholder_data裡的股票，且要出現在hero zone(tab-holder之前)"
-
-
-def test_generate_headline_zone_holder_focus_excludes_zero_streak_stocks(tmp_path):
-    """Cody反饋「本週焦點」跟下面完整清單(依streak排序)標準不一致，導致焦點股在完整清單
-    裡找不到——修法是本週焦點只從streak!=0(有連續增/減倉紀錄)的股票裡挑，這樣焦點股一定
-    也符合完整清單Top30/20的篩選前提(streak!=0)，體感落差變小。"""
-    output_path = tmp_path / "chips.html"
-    shareholder_data = [
-        {"stock_id": "9999", "stock_name": "剛開始異動股", "meta_sector": "測試",
-         "close": 50.0, "change_pct": 5.0, "lv12_15_pct": 40.0, "week_chg": 20.0,
-         "streak": 0, "share_chg": 0, "lv15_pct": 0.0, "date": "2026-07-29", "trend": []},
-        {"stock_id": "5347", "stock_name": "世界先進", "meta_sector": "晶圓代工",
-         "close": 128.5, "change_pct": 1.2, "lv12_15_pct": 68.4, "week_chg": 2.1,
-         "streak": 6, "share_chg": 412000, "lv15_pct": 22.6, "date": "2026-07-29",
-         "trend": [],
-        },
+    tiers = [
+        ("margin", "evid-verified", "已驗證"),
+        ("stealth", "evid-observe", "觀察用"),
+        ("dipbuy", "evid-weak", "證據偏弱"),
+        ("foreign", "evid-observe", "觀察用"),
+        ("trust", "evid-observe", "觀察用"),
+        ("signal", "evid-observe", "觀察用"),
+        ("inst", "evid-observe", "觀察用"),
+        ("holder", "evid-observe", "觀察用"),
+        ("insider", "evid-unproven", "待驗證"),
     ]
-    generate(
-        trade_date=date(2026, 7, 29),
-        meta_chips={"外資連買": {}}, stock_chips={"chips_date": "2026-07-29"},
-        shareholder_data=shareholder_data, output_path=str(output_path),
-    )
-    html = output_path.read_text(encoding="utf-8")
 
-    hero_idx = html.index("大戶持倉本週焦點")
-    tab_holder_idx = html.index('id="tab-holder"')
-    hero_zone = html[hero_idx:tab_holder_idx]
-    assert "世界先進" in hero_zone
-    assert "剛開始異動股" not in hero_zone, \
-        "streak=0(當週剛開始異動、還沒形成連續紀錄)的股票不該出現在本週焦點，即使週變化幅度最大"
+    for tab, cls, label in tiers:
+        btn_match = re.search(rf'id="tab-btn-{tab}".*?</button>', html, re.S)
+        assert btn_match, f"找不到 tab-btn-{tab} 按鈕"
+        btn_html = btn_match.group(0)
+        assert cls in btn_html and label in btn_html, f"{tab} 按鈕徽章應為 {cls}/{label}"
+
+    # 按鈕的實際 DOM 順序要跟 tiers 表格一致
+    nav_order = re.findall(r'id="tab-btn-([a-z]+)"', html)
+    assert nav_order == [t for t, _, _ in tiers], "按鈕實際順序跟預期的證據強度排序不一致"
+
+    # _tabs JS 陣列順序要跟按鈕實際順序一致
+    tabs_array_match = re.search(r"const _tabs=\[(.*?)\];", html)
+    assert tabs_array_match, "找不到 _tabs 陣列"
+    expected_tabs_str = ",".join(f"'tab-{t}'" for t, _, _ in tiers)
+    assert tabs_array_match.group(1) == expected_tabs_str, \
+        f"_tabs 陣列順序跟按鈕順序不一致：{tabs_array_match.group(1)} != {expected_tabs_str}"

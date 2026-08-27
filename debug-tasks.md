@@ -3940,3 +3940,110 @@ Cody 想討論籌碼頁重構，範圍/程度都還沒定案。討論中發現 `
 - main.py 新增了第二次 `get_shareholder_top()` 呼叫(index.html用)，跟chips.html既有那次呼叫
   各自獨立，這是刻意的取捨，不是遺漏。
 - 這批 commit 尚未 push 到 origin，等 Cody 指示（且等 Debugger 跑完驗證回報 ✅）。
+
+---
+
+## [2026-08-25] 籌碼頁證據分級改版實作（4個Task，Subagent-Driven Development執行完成）
+
+### 背景
+接續同日稍早的「dip_buy/stealth_buy籌碼回測規則」跟「證據分級spec/mockup」，這次是實際動
+`chips_generator.py`把9個tab依回測證據強度重新設計。全程用`superpowers:subagent-driven-development`
+skill執行：4個Task各自獨立implementer+task reviewer（1個Task修復1輪、其餘3個Task零修復一次過），
+最後跑了最高階模型的全分支review，抓到2個Important+多個Minor（見下），已修復並過scoped re-review，
+全部確認clean。
+
+### 改了什麼
+- 異動檔案：`export/chips_generator.py`（CSS/tab nav/hero移除/證據卡+banner）、
+  `tests/test_chips_generator.py`（新增/更新測試）、`export/chips_headline.py`（僅加1行狀態註解，
+  邏輯不變）
+- 邏輯說明：
+  1. CSS新增4級證據徽章(`.evid-verified`/`.evid-observe`/`.evid-unproven`/`.evid-weak`)+證據卡
+     (`.evid-card`)+2種banner(`.caution-banner`/`.weak-banner`)，全部沿用既有CSS變數，沒有新增色相
+  2. 9個tab按鈕加證據徽章、組內依證據強度重排（分組結構不變：法人動向/特殊型態/持股結構，只是
+     特殊型態組移到最前面，因為它含唯一的🟢已驗證項目），`_tabs` JS陣列跟預設分頁(從法人同步觀察
+     改成融資警示)同步更新
+  3. 拿掉「候選觀察」開頁hero（joint_buy/tdcc_accumulation回測皆無edge，不該再佔全頁最顯眼位置）
+     ——`chips_headline.py`模組本身沒刪，只是`generate()`不再呼叫，保留可能的重用
+  4. 9個tab面板頂部各加一張證據卡/banner，數字/文案抄自
+     `docs/superpowers/specs/2026-08-25-chips-page-signal-audit-design.md`回測總表（靜態文案，
+     不是即時計算）
+
+### 資料來源相關（如有異動）
+- 無資料來源異動，純樣板/資訊架構調整，不動`screener/`/`processors/`/`scrapers/`任何計算邏輯
+
+### 請 Debugger 驗證
+- [ ] 全部測試通過（本機Subagent已跑過pytest -q：507 passed，含2個新增/更新測試檔）
+- [ ] 實際產生一次`docs/chips.html`（或直接看瀏覽器），確認：
+  - 9個tab按鈕徽章顯示正確、組內順序符合證據強度（特殊型態組：融資警示→外資偷偷買→越跌越買）
+  - 預設進頁看到的是「融資警示」tab，不是「法人同步觀察」
+  - 開頁不再有「候選觀察」大卡片區塊
+  - 每個tab面板頂部證據卡/banner數字讀起來合理、跟該tab的nav徽章等級一致
+- [ ] Global-branch review有2個Minor留著沒修（刻意決定，不是遺漏）：badge文字「融資警示已驗證」
+  這種label+等級文字中間沒有分隔符號（中文語境下影響小，已裁定不修）；tab按鈕文字沒有超長截斷
+  防護（目前沒有任何label會超長，已裁定不修）——如果之後真的改了某個tab名稱變超長，記得補上
+  `min-width:0;overflow:hidden;text-overflow:ellipsis`
+
+### 特別注意
+- **這批 commit 尚未 push 到 origin**，等 Cody 指示（且等 Debugger 跑完驗證回報 ✅）
+- **debug worktree 同步這次卡住了**：`git merge master`在`export/chips_generator.py`跟
+  `tests/test_chips_generator.py`撞到**真的**衝突（不是平常append型檔那種），我已經
+  `git merge --abort`安全退出、沒有硬解，debug worktree目前狀態沒變（乾淨可回溯，只是
+  master的這批commit還沒同步過去）。懷疑是debug worktree這邊也有session在跑
+  `python main.py`（看到一筆`7ba5168 update: sector performance 2026-08-25`是Cody帳號在今天
+  22:17產生的，同時`bug-reports.md`目前也有未commit的異動）——建議先確認debug端沒有其他
+  session在動，再手動處理這次的merge conflict，我這邊沒有硬蓋過去。
+
+---
+
+## [2026-08-27] 排程通知系統(Telegram)實作完成（6個Task，Subagent-Driven Development執行）
+
+### 背景
+接續 2026-08-26 的 `docs/scheduler.md` 更新(依證據等級調整規格)，這次實際實作完成。全程用
+`superpowers:subagent-driven-development` skill 執行：6個Task各自獨立implementer+task reviewer
+（3個Task零修復、3個Task各1輪修復），最後跑了2輪全分支review（第1輪opus因自身額度用完中途失敗，
+重跑後完成，抓到1個Critical+7個Important，全部派一次性修復處理），scoped re-review確認7.5/8個
+finding完全解決，2個殘留項目已裁定記錄（見下方特別注意，都不是regression，是新發現/範圍界定問題）。
+
+### 改了什麼
+- 新增檔案：`processors/flow_watch.py`（今日籌碼動向純觀察查詢）、`notifications/telegram.py`
+  （Telegram Bot發送）、`scripts/run_scheduled.py`（排程總控制器：交易日/時間窗判斷、執行鎖、
+  通知去重、訊息組裝）、`scripts/install_scheduler.ps1`（Windows排程安裝腳本）
+- 異動檔案：`main.py`（新增`--no-push`/`--summary-json`、`_build_run_summary()`、`_push_html()`
+  改回傳bool）、`.env.example`（補Telegram欄位）
+- 邏輯說明：
+  1. 盤中(15分鐘)只監控融資警示(🟢已驗證，唯一實測有edge的訊號)+系統健康，不碰任何🟡觀察用內容
+  2. 收盤摘要額外帶「今日籌碼動向」(flow_watch)，純觀察不評分排名，緊鄰誠實揭露文字
+  3. 進貨分(accumulation_score)第一版完全不進這個系統
+  4. 執行鎖(PID存活判斷)、通知去重(訊號hash比對)、失敗通知(main.py失敗/逾時/摘要讀取失敗都會
+     觸發，且失敗的Telegram發送不會誤標記為已通知)
+
+### 資料來源相關（如有異動）
+- 無新資料源，`get_flow_watch()`沿用既有`institutional`/`daily_prices`表；`main.py`既有的
+  TWSE/TPEx/TAIEX抓取邏輯本身沒動，只新增`--no-push`參數讓git commit/push變成可選
+
+### 請 Debugger 驗證
+- [ ] 全部測試通過（本機最終跑過：554 passed, 1個既有無關warning）
+- [ ] **`.env` 填入真實 Telegram token 後**：`python scripts/run_scheduled.py test-notify` 手機
+      應收到測試訊息
+- [ ] `python scripts/run_scheduled.py intraday` 確認不產生 git commit
+- [ ] 確認 `scripts/run_scheduled.py` 用 `python scripts/run_scheduled.py <mode>` 直接執行（不是
+      透過已經在sys.path加過專案根目錄的pytest環境）能正常import，不會`ModuleNotFoundError`
+      （這是這次全分支review抓到的Critical，已修但值得實機再確認一次）
+
+### 特別注意（2個裁定保留的殘留問題，不是regression，記錄給Cody/Debugger知道）
+1. **`_update_chips_db()`（三大法人/融資融券抓取失敗）目前不會寫進通知的`warnings`欄位**——
+   只有價格/TAIEX抓取失敗有接。代表如果哪天TWSE/TPEx擋掉三大法人資料，收盤摘要會顯示
+   「資料完整性：正常」+「融資警示：無」，但其實是「沒收到資料」不是「真的沒警示」。裁定：
+   有影響但不是這批任務的阻塞項，之後要修是把`_update_chips_db()`裡6個except區塊接進
+   `_run_warnings`（`main.py` 97-243行附近）。
+2. **`scripts/install_scheduler.ps1` 目前缺 UTF-8 BOM，PowerShell 5.1（這台機器唯一的PS版本）
+   會用系統內碼(big5)解碼、把檔案解析弄壞，整個腳本現在跑不起來**——這是 Task 6 就存在的
+   舊問題（不是這次修復引入的），這次全分支review才被發現。已驗證修法：把檔案內容原封不動
+   重新用「帶UTF-8 BOM」存一次就會修好（zero content change，純編碼問題）。裁定：先記錄，
+   等 Cody 決定要不要現在補這個一行修復。
+- 這批 commit 尚未 push 到 origin，等 Cody 指示（且等 Debugger 跑完驗證回報 ✅）
+- **debug worktree 同步這次又卡住了**：這次撞到的是 `docs/chips.html`/`docs/index.html`/
+  `docs/patterns.html`/`export/chips_generator.py`/`tests/test_chips_generator.py` 的真衝突
+  （上次已經同步過的籌碼頁那批東西，看起來 debug 端後來又有 session 動過這些檔案——`git log`
+  看到 `88fc09c docs(bug-reports): 驗證首頁(index.html)版面/視覺重設13個Task` 這筆，像是
+  Debugger 正在驗證另一個功能(首頁第二波改版)。已經 `git merge --abort` 安全退出，沒有硬解。

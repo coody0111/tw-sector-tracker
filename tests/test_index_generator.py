@@ -1751,23 +1751,6 @@ def test_generate_includes_weekly_return_pct_in_history_record_function(tmp_path
     assert "hw-pct" in history_body
 
 
-def test_generate_renders_heatgrid_before_secondary_row_with_anomaly_and_recap_side_by_side(tmp_path):
-    """熱區格(族群排行)要在HTML裡出現在異動族群前面(滿版置頂當主角)；異動族群跟族群近況
-    要被包在同一個.secondary-row容器裡並排兩欄，不是各自獨立佔滿版寬的區塊。"""
-    output_path = tmp_path / "index.html"
-    generate(date(2026, 8, 25), _sample_meta_perf(), _sample_universe_df(), {}, {}, _sample_prices_df(), {},
-             output_path=str(output_path))
-
-    html = output_path.read_text(encoding="utf-8")
-    heatgrid_pos = html.index('id="heatgrid"')
-    anomaly_pos = html.index('<h2>異動族群</h2>')
-    recap_pos = html.index('<h2>族群近況</h2>')
-    secondary_row_pos = html.index('class="secondary-row"')
-
-    assert heatgrid_pos < anomaly_pos, "熱區格要在異動族群前面(滿版置頂當主角)"
-    assert secondary_row_pos < anomaly_pos < recap_pos, "異動族群跟族群近況要包在secondary-row容器裡，異動族群在前(左欄)"
-
-
 def test_generate_wraps_spark_chips_history_in_three_column_grid(tmp_path):
     """走勢/籌碼動向/歷史進榜三個摘要區塊要包在.detail-three-col容器裡並排三欄，
     不是原本的垂直堆疊(各自獨立一整行)。"""
@@ -1981,3 +1964,40 @@ def test_today_week_movements_html_includes_one_time_disclosure_for_week_layer()
     from export.index_generator import _today_week_movements_html
     html = _today_week_movements_html([], [], {}, [], [], {"just_in": [], "just_out": []})
     assert "未回測" in html or "草案" in html
+
+
+def test_generate_renders_heatgrid_then_full_width_today_week_movements_then_sector_recap(tmp_path):
+    """新頁面順序：①熱區格(滿版)→②今日/本週異動(滿版,新)→③族群近況(滿版,瘦身)。
+    不再有secondary-row二欄並排(Wave1 Task9的產物，這次拆掉，因為②③都改滿版寬)。"""
+    output_path = tmp_path / "index.html"
+    generate(date(2026, 8, 27), _sample_meta_perf(), _sample_universe_df(), {}, {}, _sample_prices_df(), {},
+             output_path=str(output_path))
+
+    html = output_path.read_text(encoding="utf-8")
+    heatgrid_pos = html.index('id="heatgrid"')
+    movements_pos = html.index('<h2>今日/本週異動</h2>')
+    recap_pos = html.index('<h2>族群近況</h2>')
+
+    assert heatgrid_pos < movements_pos < recap_pos, "順序要是熱區格→今日本週異動→族群近況"
+    assert 'class="secondary-row"' not in html, "二欄並排容器這次拆掉了，②③都改滿版"
+
+
+def test_generate_passes_margin_divergence_and_limit_up_into_today_week_movements(tmp_path):
+    """generate()要把margin_divergence/limit_up_results透傳給_today_week_movements_html()，
+    確認資料真的接到頁面輸出裡（不只是Task2測過參數簽章本身）。"""
+    output_path = tmp_path / "index.html"
+    margin_divergence = {"bearish": [{"stock_id": "9999", "stock_name": "測試背離股", "meta_sector": "測試族群",
+                                       "margin_pct": 5.2, "price_pct": -3.1, "days": 10, "close": 30.5}],
+                          "bullish": [], "days_used": 10}
+    limit_up_results = [{"stock_id": "8888", "stock_name": "測試漲停股", "meta_sector": "測試族群",
+                          "close": 100.0, "change_pct": 9.9, "volume": 5000,
+                          "limit_up_streak": 4, "volume_declining_streak": None,
+                          "breakout_volume_confirmed": None}]
+
+    generate(date(2026, 8, 27), _sample_meta_perf(), _sample_universe_df(), {}, {}, _sample_prices_df(), {},
+             margin_divergence=margin_divergence, limit_up_results=limit_up_results,
+             output_path=str(output_path))
+
+    html = output_path.read_text(encoding="utf-8")
+    assert "測試背離股" in html
+    assert "測試漲停股" in html

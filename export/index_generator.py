@@ -916,8 +916,8 @@ table.vt-table{width:100%;border-collapse:collapse}
 .mdiv-col-head.bearish{color:var(--down)}
 .mdiv-col-head.bullish{color:var(--up)}
 .tw-today-label,.tw-week-label{font-family:var(--mono);font-size:.62rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);margin:16px 0 8px}
-.tw-today-grid{display:flex;flex-direction:column;gap:16px}
-.tw-week-cols{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.tw-today-grid{display:flex;flex-direction:column;gap:16px;padding:0 26px}
+.tw-week-cols{display:grid;grid-template-columns:1fr 1fr;gap:20px;padding:0 26px}
 @media (max-width:760px){.tw-week-cols{grid-template-columns:1fr}}
 .tw-week-col{background:var(--panel);border:1px solid var(--border-2);border-radius:5px;padding:16px 18px}
 .tw-week-sub{font-size:.72rem;color:var(--ink-3);margin:4px 0 12px}
@@ -1089,16 +1089,6 @@ table.stock-list-table{width:100%;border-collapse:collapse}
 .rankmove-col.out h4{color:var(--down)}
 .rankmove-item{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);font-size:.85rem}
 .rankmove-item:last-child{border-bottom:none}
-.secondary-row{display:grid;grid-template-columns:1fr 1fr;gap:24px;padding:0 26px;align-items:start}
-@media (max-width:900px){.secondary-row{grid-template-columns:1fr}}
-.secondary-row .section-head{padding:20px 0 8px}
-.secondary-row .section-rule{margin:0 0 4px}
-.secondary-row .section-sub{padding:0 0 14px}
-.secondary-row .anomaly-wrap{margin:0}
-.secondary-row .role-note{margin:0 0 20px}
-.secondary-row .status-cols{padding:0}
-.secondary-row .turning-wrap{margin:20px 0 0}
-.secondary-row .rankmove-wrap{margin:20px 0 0}
 .rankmove-item .rm-name{font-family:var(--serif);font-weight:600;color:var(--ink)}
 .rankmove-item .rm-shift{font-family:var(--mono);font-size:.74rem;color:var(--ink-2)}
 .rankmove-empty{color:var(--ink-3);font-size:.78rem;font-family:var(--serif)}
@@ -1418,6 +1408,10 @@ def generate(
     cards = build_heatgrid_cards(meta_perf, meta_signals, meta_chips, heatgrid_windows, cum_data)
     anomaly_cards = find_anomaly_cards(meta_perf, meta_signals, heatgrid_windows)
     recap = build_sector_recap(cards, heatgrid_windows, rank_history)
+    today_week_movements_html = _today_week_movements_html(
+        anomaly_cards, recap["today_breakout"], margin_divergence, limit_up_results,
+        recap["turning_points"], recap.get("rank_crossings", {"just_in": [], "just_out": []}),
+    )
     stock_detail = build_stock_detail_data(
         universe_df, prices_df, stock_sparklines, rolling_returns, chips_df,
         total_shares_df, avg20_map, shareholder_df,
@@ -1504,16 +1498,9 @@ def generate(
 <div class="heatgrid" id="heatgrid">{_heatgrid_html(cards)}</div>
 <div class="legend-note">動能狀態標籤（超強/強/整理/弱/超弱）是族群層級獨立算的草案規則（連漲天數+本週比上週加速度），跟個股層級或觀察分頁面的五級分類不共用計算依據，門檻未經回測驗證。「近5日→前5日」是滾動5個交易日的複利累積漲跌幅，不是自然日曆週。</div>
 
-<div class="secondary-row">
-  <div class="secondary-col">
-    <div class="section-head"><h2>異動族群</h2><span class="count">{len(anomaly_cards)} 檔符合</span></div>
-    <div class="section-sub">「現在正在發生」的瞬間訊號——爆量排名跳動、或連續多週噴出。跟旁邊「族群近況」不同：這裡是單日事件，族群近況是週度趨勢。</div>
-    <div class="anomaly-wrap"><div class="anomaly-strip">{_anomaly_cards_html(anomaly_cards)}</div></div>
-  </div>
-  <div class="secondary-col">
-    {_sector_recap_html(recap)}
-  </div>
-</div>
+{today_week_movements_html}
+
+{_sector_recap_html(recap)}
 </main>
 <script>
 const STOCKS = {stock_detail_js};

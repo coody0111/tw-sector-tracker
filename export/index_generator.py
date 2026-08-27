@@ -373,6 +373,54 @@ def _vol_turnover_html(vol_turnover_signals: Optional[List[Dict[str, Any]]]) -> 
     )
 
 
+def _margin_divergence_html(margin_divergence: Optional[Dict[str, Any]]) -> str:
+    """
+    融資背離警示（get_margin_divergence() 輸出）：個股融資餘額趨勢 vs 股價趨勢背離，
+    真實成交數字（不是門檻草案分類），套實色強調，不套badge-weak（見docs/adr/0005）。
+    bearish/bullish各自最多顯示5檔（該函式本身回傳最多20檔，這裡只取UI要顯示的前5）。
+    兩邊都沒資料時回空字串，不顯示這個子區塊。
+    """
+    if not margin_divergence:
+        return ""
+    bearish = (margin_divergence.get("bearish") or [])[:5]
+    bullish = (margin_divergence.get("bullish") or [])[:5]
+    if not bearish and not bullish:
+        return ""
+
+    def _rows(items: List[Dict[str, Any]]) -> str:
+        return "".join(
+            '<tr>'
+            f'<td><span class="tabular" style="color:var(--ink-3)">{_esc(r["stock_id"])}</span> '
+            f'<span>{_esc(r.get("stock_name", ""))}</span></td>'
+            f'<td class="vt-sector">{_esc(r.get("meta_sector", ""))}</td>'
+            f'<td class="tabular" style="color:var(--accent);font-weight:700">{r["margin_pct"]:+.1f}%</td>'
+            f'<td class="tabular" style="color:{"var(--up)" if r["price_pct"] >= 0 else "var(--down)"};font-weight:700">{r["price_pct"]:+.1f}%</td>'
+            f'<td class="tabular" style="color:var(--ink-3)">{r["days"]}日</td>'
+            '</tr>'
+            for r in items
+        )
+
+    bearish_html = (
+        f'<div class="mdiv-col"><div class="mdiv-col-head bearish">警訊：融資增、股價跌</div>'
+        '<div class="overflow-wrap"><table class="vt-table">'
+        '<thead><tr><th>代號 / 名稱</th><th>族群</th><th>融資變化</th><th>股價變化</th><th>天數</th></tr></thead>'
+        f'<tbody>{_rows(bearish)}</tbody></table></div></div>'
+    ) if bearish else ""
+    bullish_html = (
+        f'<div class="mdiv-col"><div class="mdiv-col-head bullish">健康：融資減、股價漲</div>'
+        '<div class="overflow-wrap"><table class="vt-table">'
+        '<thead><tr><th>代號 / 名稱</th><th>族群</th><th>融資變化</th><th>股價變化</th><th>天數</th></tr></thead>'
+        f'<tbody>{_rows(bullish)}</tbody></table></div></div>'
+    ) if bullish else ""
+
+    return (
+        '<div class="mdiv-wrap">'
+        f'<div class="mdiv-head">融資背離 · 近{margin_divergence.get("days_used", 0)}個交易日</div>'
+        f'<div class="mdiv-cols">{bearish_html}{bullish_html}</div>'
+        '</div>'
+    )
+
+
 def build_heatgrid_cards(
     meta_perf: List[Dict[str, Any]],
     meta_signals: Dict[str, Dict[str, Any]],
@@ -794,6 +842,14 @@ table.vt-table{width:100%;border-collapse:collapse}
 .vt-table th{text-align:left;padding:4px 8px;font-size:.65rem;color:var(--ink-3);border-bottom:1px solid var(--border)}
 .vt-table td{padding:6px 8px;font-size:.8rem;border-bottom:1px solid var(--border)}
 .vt-sector{color:var(--ink-3);font-size:.72rem;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+.mdiv-wrap{margin-top:10px}
+.mdiv-head{font-family:var(--mono);font-size:.68rem;font-weight:700;color:var(--ink-3);margin-bottom:8px}
+.mdiv-cols{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media (max-width:700px){.mdiv-cols{grid-template-columns:1fr}}
+.mdiv-col-head{font-size:.74rem;font-weight:700;margin-bottom:6px}
+.mdiv-col-head.bearish{color:var(--down)}
+.mdiv-col-head.bullish{color:var(--up)}
 
 .tier-legend{display:flex;gap:16px;padding:0 26px 16px;font-size:.68rem;color:var(--ink-2);flex-wrap:wrap;font-family:var(--mono)}
 .tier-legend span{display:inline-flex;align-items:center;gap:5px}

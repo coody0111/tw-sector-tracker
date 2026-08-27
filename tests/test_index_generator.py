@@ -1838,3 +1838,32 @@ def test_heatgrid_tier_and_temp_badges_use_confidence_tiering(tmp_path):
     assert "加速" in html and "（草案）" in html
     # 舊版寫死顏色的inline style不該再出現在tier_html裡
     assert 'style="background:var(--tier-super)22' not in html
+
+
+def test_margin_divergence_html_renders_bearish_and_bullish_tables():
+    """融資背離警示是真數字(融資餘額趨勢vs股價趨勢，個股層級)，不套badge-weak，
+    用跟_vol_turnover_html()一致的table樣式。bearish/bullish各自最多顯示5檔。"""
+    from export.index_generator import _margin_divergence_html
+    margin_divergence = {
+        "bearish": [
+            {"stock_id": "1101", "stock_name": "台泥", "meta_sector": "水泥",
+             "margin_pct": 5.2, "price_pct": -3.1, "days": 10, "close": 30.5},
+        ],
+        "bullish": [
+            {"stock_id": "2330", "stock_name": "台積電", "meta_sector": "半導體",
+             "margin_pct": -4.0, "price_pct": 6.5, "days": 10, "close": 1080.0},
+        ],
+        "days_used": 10,
+    }
+    html = _margin_divergence_html(margin_divergence)
+    assert "1101" in html and "台泥" in html
+    assert "2330" in html and "台積電" in html
+    assert "融資背離" in html
+    assert "badge-weak" not in html  # 真數字不套草案樣式
+
+
+def test_margin_divergence_html_returns_empty_string_when_no_signals():
+    from export.index_generator import _margin_divergence_html
+    assert _margin_divergence_html({"bearish": [], "bullish": [], "days_used": 10}) == ""
+    assert _margin_divergence_html(None) == ""
+    assert _margin_divergence_html({}) == ""

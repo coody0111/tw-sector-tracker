@@ -843,6 +843,12 @@ def run(trade_date: date = None, realtime: bool = False, push: bool = True, summ
             logger.warning("巨量換手訊號計算失敗，index.html本次不顯示: %s", exc)
             vol_turnover_signals = []
 
+        try:
+            index_limit_up_results = scan_consecutive_limit_up(trade_date.isoformat()) if universe_df is not None else []
+        except Exception as exc:
+            logger.warning("連續漲停鎖死掃描失敗，index.html「今日/本週異動」本次不顯示這項: %s", exc)
+            index_limit_up_results = []
+
         if universe_df is not None:
             generate_index_html(trade_date, meta_perf, universe_df,
                                  meta_signals=meta_signals,
@@ -858,7 +864,9 @@ def run(trade_date: date = None, realtime: bool = False, push: bool = True, summ
                                  rank_history=rank_history,
                                  total_shares_df=total_shares_df,
                                  avg20_map=avg20_map,
-                                 shareholder_df=index_shareholder_df)
+                                 shareholder_df=index_shareholder_df,
+                                 margin_divergence=margin_div,
+                                 limit_up_results=index_limit_up_results)
             logger.info("HTML generated → docs/index.html")
         else:
             logger.warning("universe_df 未載入（data/stock_universe.csv 不存在），本次不產生 docs/index.html")

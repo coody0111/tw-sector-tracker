@@ -1939,3 +1939,47 @@ def test_anomaly_strip_css_uses_grid_not_horizontal_scroll(tmp_path):
     # Verify overflow-x:auto is not in the .anomaly-strip section
     anomaly_strip_section = html[html.index(".anomaly-strip"):html.index(".anomaly-strip") + 200]
     assert "overflow-x:auto" not in anomaly_strip_section
+
+
+def test_today_week_movements_html_assembles_today_and_week_layers():
+    """新的_today_week_movements_html()把今日層(異動族群卡片grid+今日爆發+融資背離+
+    連續漲停鎖死)跟本週層(轉折點+排名進出榜並排二欄，套badge-weak)組裝成一個區塊，
+    今日層在前、本週層在後，開頭有一次性揭露文案。"""
+    from export.index_generator import _today_week_movements_html
+    anomaly_cards = [{"kind": "burst", "meta_name": "爆量族群", "pct": 5.0, "reason": "測試理由"}]
+    today_breakout = [{"meta_name": "衝刺族群", "pct": 3.0, "rank_delta": 12}]
+    margin_divergence = {"bearish": [{"stock_id": "1101", "stock_name": "台泥", "meta_sector": "水泥",
+                                       "margin_pct": 5.2, "price_pct": -3.1, "days": 10, "close": 30.5}],
+                          "bullish": [], "days_used": 10}
+    limit_up_results = [{"stock_id": "2330", "stock_name": "台積電", "meta_sector": "半導體",
+                          "close": 1080.0, "change_pct": 9.9, "volume": 50000,
+                          "limit_up_streak": 2, "volume_declining_streak": True,
+                          "breakout_volume_confirmed": True}]
+    turning_points = [{"meta_name": "轉折族群", "prev_key": "weak", "prev_label": "弱",
+                        "cur_key": "strong", "cur_label": "強", "direction": "轉強"}]
+    rank_crossings = {"just_in": [{"meta_name": "進榜族群", "prev_rank": 15, "cur_rank": 8}], "just_out": []}
+
+    html = _today_week_movements_html(
+        anomaly_cards, today_breakout, margin_divergence, limit_up_results,
+        turning_points, rank_crossings,
+    )
+
+    today_pos = html.index("今日")
+    week_pos = html.index("本週")
+    assert today_pos < week_pos, "今日層要在本週層前面"
+    assert "爆量族群" in html
+    assert "衝刺族群" in html
+    assert "台泥" in html
+    assert "台積電" in html
+    assert "轉折族群" in html
+    assert "進榜族群" in html
+    # 本週層的轉折點/排名進出榜要套badge-weak，今日層的東西不要
+    week_section = html[week_pos:]
+    assert "badge-weak" in week_section
+
+
+def test_today_week_movements_html_includes_one_time_disclosure_for_week_layer():
+    """揭露文案只針對本週層(草案門檻)出現一次，不是每張卡片重複。"""
+    from export.index_generator import _today_week_movements_html
+    html = _today_week_movements_html([], [], {}, [], [], {"just_in": [], "just_out": []})
+    assert "未回測" in html or "草案" in html

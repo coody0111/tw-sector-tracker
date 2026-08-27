@@ -915,6 +915,12 @@ table.vt-table{width:100%;border-collapse:collapse}
 .mdiv-col-head{font-size:.74rem;font-weight:700;margin-bottom:6px}
 .mdiv-col-head.bearish{color:var(--down)}
 .mdiv-col-head.bullish{color:var(--up)}
+.tw-today-label,.tw-week-label{font-family:var(--mono);font-size:.62rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);margin:16px 0 8px}
+.tw-today-grid{display:flex;flex-direction:column;gap:16px}
+.tw-week-cols{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+@media (max-width:760px){.tw-week-cols{grid-template-columns:1fr}}
+.tw-week-col{background:var(--panel);border:1px solid var(--border-2);border-radius:5px;padding:16px 18px}
+.tw-week-sub{font-size:.72rem;color:var(--ink-3);margin:4px 0 12px}
 
 .tier-legend{display:flex;gap:16px;padding:0 26px 16px;font-size:.68rem;color:var(--ink-2);flex-wrap:wrap;font-family:var(--mono)}
 .tier-legend span{display:inline-flex;align-items:center;gap:5px}
@@ -1314,6 +1320,92 @@ def _sector_recap_html(recap: Dict[str, Any]) -> str:
   <div>{turning_html}</div>
 </div>
 {rankmove_html}"""
+
+
+def _today_week_movements_html(
+    anomaly_cards: List[Dict[str, Any]],
+    today_breakout: List[Dict[str, Any]],
+    margin_divergence: Optional[Dict[str, Any]],
+    limit_up_results: Optional[List[Dict[str, Any]]],
+    turning_points: List[Dict[str, Any]],
+    rank_crossings: Dict[str, List[Dict[str, Any]]],
+) -> str:
+    """
+    「今日/本週異動」區塊（見CONTEXT.md詞條、docs/adr/0006）：合併原本分散在「異動族群」
+    「族群近況」兩處、但本質都是「族群層級發生了變化，值得注意」的訊號。依時間尺度分兩層：
+
+    今日層（4項，都是今日單日事件，真數字實色強調，不套badge-weak）：
+      異動族群（族群層級：爆量暴衝/連續噴出）、今日爆發（族群層級：排名跳動+上漲）、
+      融資背離警示（個股層級，NEW）、連續漲停鎖死（個股層級，NEW）。
+
+    本週層（2項並排二欄，門檻未回測，套badge-weak）：
+      轉折點（左）、排名進出榜（右）——兩者依docs/adr/0003維持獨立訊號，只是搬到
+      同一個新區塊裡相鄰呈現，不合併成一個指標。
+    """
+    anomaly_html = _anomaly_cards_html(anomaly_cards)
+    breakout_html = _today_breakout_html(today_breakout)
+    mdiv_html = _margin_divergence_html(margin_divergence)
+    limitup_html = _limit_up_html(limit_up_results)
+
+    today_parts = [p for p in (anomaly_html, breakout_html, mdiv_html, limitup_html) if p]
+    today_section = (
+        '<div class="tw-today-grid">'
+        f'{anomaly_html}'
+        f'{"".join(f"<div>{p}</div>" for p in (breakout_html, mdiv_html, limitup_html) if p)}'
+        '</div>'
+    ) if today_parts else '<div class="detail-empty">今天沒有族群或個股符合異動條件</div>'
+
+    if turning_points:
+        turning_html = "".join(
+            f'<div class="turning-row"><span class="turning-name">{_esc(tp["meta_name"])}</span>'
+            f'<span class="turning-transition">'
+            f'<span class="turning-pill badge-weak">{tp["prev_label"]}</span>'
+            f'<span class="turning-arrow">→</span>'
+            f'<span class="turning-pill badge-weak">{tp["cur_label"]}</span>'
+            f'</span><span class="turning-desc">{tp["direction"]}</span></div>'
+            for tp in turning_points
+        )
+    else:
+        turning_html = '<div class="detail-empty">本週沒有族群發生等級翻轉</div>'
+
+    def _rankmove_col(items: List[Dict[str, Any]], direction: str) -> str:
+        if not items:
+            return '<div class="rankmove-empty">目前沒有族群{}</div>'.format(
+                "剛進榜" if direction == "in" else "剛掉出榜"
+            )
+        return "".join(
+            f'<div class="rankmove-item"><span class="rm-name">{_esc(r["meta_name"])}</span>'
+            f'<span class="rm-shift tabular">#{r["prev_rank"]}→#{r["cur_rank"]}</span></div>'
+            for r in items
+        )
+
+    week_section = f"""
+<div class="tw-week-cols">
+  <div class="tw-week-col">
+    <div class="mdiv-head badge-weak">轉折點（草案）</div>
+    <div class="tw-week-sub">上週的等級跟這週的等級是否真的換了一級（不是看誰漲最多）。</div>
+    <div>{turning_html}</div>
+  </div>
+  <div class="tw-week-col">
+    <div class="mdiv-head badge-weak">排名進出榜（草案）</div>
+    <div class="tw-week-sub">這週剛擠進/掉出前10名、且自身報酬方向一致的族群。</div>
+    <div class="rankmove-cols">
+      <div class="rankmove-col in"><h4>剛進榜</h4>{_rankmove_col(rank_crossings.get("just_in", []), "in")}</div>
+      <div class="rankmove-col out"><h4>剛掉出榜</h4>{_rankmove_col(rank_crossings.get("just_out", []), "out")}</div>
+    </div>
+  </div>
+</div>"""
+
+    return f"""
+<div class="section-head"><h2>今日/本週異動</h2><span class="count">今日事件 + 本週趨勢</span></div>
+<div class="section-rule"></div>
+<div class="section-sub">今日層：爆量暴衝/連續噴出、排名跳動上漲、融資背離、連續鎖漲停——都是今日已發生的真實數字。
+本週層：等級翻轉、排名進出榜——門檻是經驗法則草案，尚未回測驗證，僅供參考，不是投資建議。</div>
+<div class="tw-today-label">今日</div>
+{today_section}
+<div class="tw-week-label">本週（草案，未回測）</div>
+{week_section}
+"""
 
 
 def generate(

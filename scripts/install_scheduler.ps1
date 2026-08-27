@@ -1,4 +1,4 @@
-<#
+﻿<#
 建立 Windows 工作排程器的兩個排程工作：TW-Sector-Intraday（盤中每15分鐘）、
 TW-Sector-DailyClose（收盤 15:00）。見 docs/scheduler.md §10。
 

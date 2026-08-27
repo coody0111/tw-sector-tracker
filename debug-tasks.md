@@ -4036,11 +4036,12 @@ finding完全解決，2個殘留項目已裁定記錄（見下方特別注意，
    「資料完整性：正常」+「融資警示：無」，但其實是「沒收到資料」不是「真的沒警示」。裁定：
    有影響但不是這批任務的阻塞項，之後要修是把`_update_chips_db()`裡6個except區塊接進
    `_run_warnings`（`main.py` 97-243行附近）。
-2. **`scripts/install_scheduler.ps1` 目前缺 UTF-8 BOM，PowerShell 5.1（這台機器唯一的PS版本）
-   會用系統內碼(big5)解碼、把檔案解析弄壞，整個腳本現在跑不起來**——這是 Task 6 就存在的
-   舊問題（不是這次修復引入的），這次全分支review才被發現。已驗證修法：把檔案內容原封不動
-   重新用「帶UTF-8 BOM」存一次就會修好（zero content change，純編碼問題）。裁定：先記錄，
-   等 Cody 決定要不要現在補這個一行修復。
+2. ~~`scripts/install_scheduler.ps1` 缺 UTF-8 BOM 導致 PowerShell 5.1 解析失敗~~
+   **已修復（commit `25b4912`）**：內容完全不變，重新用 UTF-8 BOM 編碼存檔。用
+   `[System.Management.Automation.Language.Parser]::ParseFile()` 驗證：修復前 1 個錯誤
+   （L14 缺少右大括號，big5 誤解碼中文字元弄斷語法），修復後 0 個錯誤。麻煩 Debugger 還是
+   實際 `.\scripts\install_scheduler.ps1` 跑一次確認（不需要真的 Register，跑到能解析、
+   到 admin 權限檢查那一步前發現的錯誤都算過關）。
 - 這批 commit 尚未 push 到 origin，等 Cody 指示（且等 Debugger 跑完驗證回報 ✅）
 - **debug worktree 同步這次又卡住了**：這次撞到的是 `docs/chips.html`/`docs/index.html`/
   `docs/patterns.html`/`export/chips_generator.py`/`tests/test_chips_generator.py` 的真衝突

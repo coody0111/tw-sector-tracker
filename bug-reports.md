@@ -2707,3 +2707,91 @@ reimport 完成：共 372163 筆
 
 ### 結論
 - [ ] 需要修改後再確認 — 主體邏輯（dealer_net/holder_pct 接線、排序、面板錨定、colspan、nav 不受影響）程式碼 review + 對正式 DB 實跑驗證皆正確，可視為邏輯面已過關；但 **checklist 明確要求的「實際跑 main.py 確認 docs/index.html」這步尚未完成**，建議在有完整 `data/` 的機器上補跑一次、真正打開瀏覽器看過之後再 push。`weekly_ranks` 的 None 邊界情況為既有低優先度改善項，不阻擋。
+
+---
+
+## [2026-08-27] 驗證 - 排程通知系統(Telegram) 6個Task + BOM修復
+
+### 驗證方式
+- `python -m pytest -q`：**556 passed**（Cody 回報 554，環境/時間點差異，非負面訊號）
+- 直接 `python scripts/run_scheduled.py test-notify`／`intraday`（不透過 pytest）實跑驗證 Critical 修復
+- 靜態 review：`notifications/telegram.py`、`scripts/run_scheduled.py`（執行鎖/去重/訊息組裝）、
+  `processors/flow_watch.py`、`main.py` 新增的 `_build_run_summary()`/`_push_html()`
+- 用 PowerShell `[System.Management.Automation.Language.Parser]::ParseFile()` 實測
+  `install_scheduler.ps1` 的 BOM 問題，並在 scratchpad 驗證修法後才動正式檔案
+- 檢查 `Get-ScheduledTask` 確認排程尚未實際安裝到這台機器
+
+### ✅ 驗證通過（對照 debug-tasks.md 的「請 Debugger 驗證」清單）
+- **Critical 修復（sys.path）已驗證有效**：直接執行 `python scripts/run_scheduled.py test-notify`
+  （不透過已經加過路徑的 pytest 環境）沒有 `ModuleNotFoundError`，乾淨印出
+  「設定錯誤：TELEGRAM_BOT_TOKEN 或 TELEGRAM_CHAT_ID 未設定」、exit code 1——修復確實生效。
+- **`intraday` 模式確認不產生 git commit**：這台機器目前是非盤中時間（20:52），實跑後
+  `git log` 前後 HEAD 不變，log 正確記錄「非盤中時間，intraday 模式跳過」。**限制**：這只驗證了
+  「非盤中時段安全跳過」這條路徑，沒有真的跑到 main.py 那段（那段需要盤中時間才會觸發），
+  如實記錄這個限制。
+- **`notifications/telegram.py` 安全性**：確認 Token／API 回應內文都沒有進 log（只記
+  HTTP status code／exception 類型），符合 docs/scheduler.md §9。
+- **通知去重設計正確**：`compute_signal_hash()` 只 hash 融資警示股票清單+市場狀態，排除
+  `duration_seconds`/`started_at` 這類每次都不同的雜訊欄位；`save_notification_state()`
+  只在 Telegram 真的送成功時才更新，發送失敗時刻意不更新 state（避免誤判成已通知、永久吃掉
+  警示），這個 finding 4 的修復邏輯正確。
+- **執行鎖 PID 存活判斷在 Windows 上實測正確**：`os.kill(pid, 0)` 在 Windows 對「已死 PID」
+  丟的是 `OSError: [WinError 87]`（不是 `ProcessLookupError`），但 `_pid_alive()` 的
+  `except OSError: return False` 這個 catch-all 剛好接住，結果依然正確（過期鎖能正常被接管）。
+  用真實 PID（存活）+ 假造死 PID 各測一次確認。
+- **`_push_html()` 的 git_pushed 回傳值語意正確**：沒有變動／`git commit`／`git pull --rebase`
+  衝突／推送失敗都正確回傳 `False`，避免收盤 Telegram 訊息誤報「網站已更新」（finding 6）。
+
+### 🔵 已直接修復（BOM問題，Cody 明確請我或他決定）
+- **`scripts/install_scheduler.ps1` 缺 UTF-8 BOM 導致 PowerShell 5.1 解析失敗——診斷完全正確，
+  已修復**。實測重現：用 `[Parser]::ParseFile()` 直接解析原檔，丟出
+  `Missing closing '}' in statement block`（PowerShell 5.1 在沒有 BOM 時退回系統內碼(big5)
+  解讀中文字元，導致大括號位置被誤判）。修法驗證：先在 scratchpad 複製一份用
+  `UTF8Encoding($true)`（帶 BOM）重新存檔，`ParseFile()` 變成乾淨通過，`git diff` 確認
+  **除了 BOM 那 1 byte，內容完全沒變**（zero content change）。確認安全後才對正式檔案套用
+  同樣的重新編碼。此後 `Get-ScheduledTask -TaskName "TW-Sector-*"` 確認排程尚未實際裝上這台
+  機器（不影響任何正在跑的東西）。
+
+### 🟡 建議改善（裁定合理，但補充理由與一個小發現）
+- **`_update_chips_db()` 失敗不進 `_run_warnings`**：裁定合理。實測確認這個函式（main.py
+  97-243行）的 6 個 `except` 區塊全部只有 `logger.error`，完全沒碰 `_run_warnings`。同意
+  「不阻擋這批任務」的判斷，但想強調一下嚴重度：這個缺口影響的剛好是全系統**唯一**驗證有
+  edge 的訊號（融資警示/`margin_bearish`），一旦 TWSE/TPEx 哪天真的擋掉三大法人/融資融券
+  端點，收盤摘要會顯示「資料完整性：正常」+「融資警示：無」——這正是 CLAUDE.md 最怕的
+  「不報錯但給錯結果」，建議排進近期待辦而不是無限期擱置。
+- **`notifications/telegram.py::_split_message()` 單一過長段落會靜默截斷、不會多切一段**：
+  `para[:max_length] if len(para) > max_length else para` 這行，如果單一段落（`\n\n`
+  分隔後）本身就超過 4000 字，超出的部分直接被丟棄、不會出現在任何一則訊息裡。目前所有訊息
+  組裝函式（`compose_intraday_message`/`compose_close_message`）都是短行組成，單一段落實際上
+  不太可能踩到這個門檻，屬於低機率的靜默資料遺失邊角案例，非阻擋，記錄供之後參考。
+  位置：`notifications/telegram.py:36`。
+
+### 未能在本機完成的驗證項
+- **真實 Telegram 發送測試（checklist 明確要求的那項）**：這台機器的 `.env`（debug worktree
+  沒有 `.env`；查了 Developer worktree 的 `.env` 也只有 `FINMIND_TOKEN`，沒有
+  `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID`）目前**沒有填入真實 Telegram 憑證**，如實回報跳過，
+  沒有假造測試。程式邏輯面（訊息組裝、發送、錯誤處理）已用 review+直接執行驗證過，但「手機
+  真的收得到」這個最終環節必須等 Cody 填入真實憑證後才能測。
+
+### debug worktree 同步狀況
+- **這次撞到的衝突已解決**（同一批籌碼頁檔案，跟上次驗證首頁改版時是同一組舊 debug-only
+  commit 造成，root cause 見 2026-08-25 那則報告）。這次額外發現：git 3-way merge在
+  `main.py`/`export/index_generator.py`/`tests/test_index_generator.py`/`docs/CONTEXT.md`
+  這幾處**沒有標記衝突，但靜默漏掉了 master 的合法內容**（`scan_consecutive_limit_up`/
+  `margin_divergence`/`limit_up_results` 的簽章+wiring、`docs/CONTEXT.md` 的完整術語表被
+  換成只剩新增的 5 則、遺失原本 12 則）。已逐一比對 master 手動補回，pytest 556 全過。
+  另外發現 **master 自己也有 `CONTEXT.md` 重複的 bug**（搬進 `docs/` 後，後續一次
+  domain-modeling 執行沒發現已經搬過，又在根目錄重新「建立」一份，兩份互不重疊），這個要在
+  同步回 master 時一併清掉。
+- **同步回 master 的動作被中斷**：在 master worktree 解決另一批新衝突時，工作目錄被外部
+  `git reset`（reflog 顯示非我操作），研判有其他 process/session 正在動同一個 master
+  worktree（可能是既有的 `main.py` 自動 git push 機制，或另一個 session）。master worktree
+  本身沒有損壞（乾淨回到 reset 前的狀態），但同步動作尚未完成，先暫停不再碰 master worktree，
+  待確認安全後再繼續。debug 分支這邊的修正已安全 commit（`4c80d16`＋`fb7c94b`）。
+
+### 結論
+- [ ] 需要 Cody 協助後再確認 — 程式邏輯面（6個Task的功能、Critical sys.path修復、去重/執行鎖/
+  git_pushed語意）review+直接執行驗證皆正確；BOM問題已確認診斷正確並直接修復；
+  `_update_chips_db()`警告缺口裁定合理但建議提升優先度；真實 Telegram 發送測試待 Cody
+  提供憑證；debug↔master 同步已解掉這次的衝突，但同步回 master 的動作被疑似的並發 session
+  中斷，需要確認安全後才能完成。

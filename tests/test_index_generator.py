@@ -1892,3 +1892,34 @@ def test_margin_divergence_html_returns_empty_string_when_no_signals():
     assert _margin_divergence_html({"bearish": [], "bullish": [], "days_used": 10}) == ""
     assert _margin_divergence_html(None) == ""
     assert _margin_divergence_html({}) == ""
+
+
+def test_sector_recap_html_no_longer_renders_today_breakout():
+    """今日爆發移到「今日/本週異動」區塊(今日層)，族群近況不再顯示它，
+    也不再顯示轉折點/排名進出榜(Task 9才會確認這兩個也搬走)——這裡先鎖今日爆發。"""
+    from export.index_generator import _sector_recap_html
+    recap = {
+        "hot_top5": [], "cold_top5": [],
+        "today_breakout": [{"meta_name": "衝刺族群", "pct": 3.0, "rank_delta": 12}],
+        "foreign_stealth": [], "trust_stealth": [], "volume_anomaly": [],
+        "turning_points": [], "rank_crossings": {"just_in": [], "just_out": []},
+    }
+    html = _sector_recap_html(recap)
+    assert "今日爆發" not in html
+    assert "衝刺族群" not in html
+
+
+def test_today_breakout_html_renders_real_number_rows():
+    """新的_today_breakout_html()渲染函式：今日爆發是真數字(排名跳動+今日漲跌%)，
+    不套badge-weak。"""
+    from export.index_generator import _today_breakout_html
+    today_breakout = [{"meta_name": "衝刺族群", "pct": 3.2, "rank_delta": 15}]
+    html = _today_breakout_html(today_breakout)
+    assert "衝刺族群" in html
+    assert "今日爆發" in html
+    assert "badge-weak" not in html
+
+
+def test_today_breakout_html_returns_empty_string_when_no_items():
+    from export.index_generator import _today_breakout_html
+    assert _today_breakout_html([]) == ""

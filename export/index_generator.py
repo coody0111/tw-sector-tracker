@@ -463,6 +463,30 @@ def _limit_up_html(limit_up_results: Optional[List[Dict[str, Any]]]) -> str:
     )
 
 
+def _today_breakout_html(today_breakout: List[Dict[str, Any]]) -> str:
+    """
+    今日爆發（族群層級，今日排名跳動≥門檻且上漲，不要求同時爆量）：真數字，不套
+    badge-weak。從舊版_sector_recap_html()的status-cols其中一欄抽出來，現在是
+    「今日/本週異動」區塊今日層的一部分（見docs/adr/0005/CONTEXT.md「今日/本週異動」
+    詞條——這是唯一族群層級的今日層項目，其餘三個(異動族群/融資背離/連續漲停)都是
+    個股層級）。
+    """
+    if not today_breakout:
+        return ""
+    rows = "".join(
+        f'<div class="status-row"><span class="sr-name">{_esc(r["meta_name"])}</span>'
+        f'<span class="sr-today tabular" style="color:{"var(--up)" if r["pct"] >= 0 else "var(--down)"}">{_pct_str(r["pct"])}</span>'
+        f'<span class="sr-pt tabular" style="color:var(--up)">↑{r["rank_delta"]}</span></div>'
+        for r in today_breakout
+    )
+    return (
+        '<div class="mdiv-wrap">'
+        f'<div class="mdiv-head">今日爆發 · {len(today_breakout)} 個族群</div>'
+        f'<div>{rows}</div>'
+        '</div>'
+    )
+
+
 def build_heatgrid_cards(
     meta_perf: List[Dict[str, Any]],
     meta_signals: Dict[str, Dict[str, Any]],
@@ -1224,8 +1248,6 @@ def _sector_recap_html(recap: Dict[str, Any]) -> str:
         r["meta_name"], r["pct"], f'{r["accel"]:+.1f}pt', "var(--heat-hot)"))
     cold_html = _col(recap["cold_top5"], lambda r: _status_row(
         r["meta_name"], r["pct"], f'{r["accel"]:+.1f}pt', "var(--heat-cold)"))
-    breakout_html = _col(recap["today_breakout"], lambda r: _status_row(
-        r["meta_name"], r["pct"], f'↑{r["rank_delta"]}', "var(--up)"))
     foreign_html = _col(recap["foreign_stealth"], lambda r: _status_row(
         r["meta_name"], r["pct"], f'連買{r["foreign_streak"]}日', "var(--accent)"))
     trust_html = _col(recap["trust_stealth"], lambda r: _status_row(
@@ -1270,18 +1292,16 @@ def _sector_recap_html(recap: Dict[str, Any]) -> str:
 </div>"""
 
     return f"""
-<div class="section-head"><h2>族群近況</h2><span class="count">6大類排行・轉折點</span></div>
+<div class="section-head"><h2>族群近況</h2><span class="count">5大類排行・持續觀察</span></div>
 <div class="section-rule"></div>
 <div class="role-note">
-  <span><b>族群近況</b>＝週度趨勢+單日事件+籌碼訊號的綜合面板</span>
-  <span><b>異動族群</b>（頁面最上方）只看爆量+排名跳動同時成立，門檻比這裡的「今日爆發」嚴格</span>
+  <span><b>族群近況</b>＝週度趨勢+持續觀察+籌碼訊號的綜合面板</span>
+  <span><b>異動族群</b>（頁面最上方）是嚴格的單日爆發指標（爆量+排名跳動同時成立），「族群近況」主要看週度趨勢變化</span>
   <span>兩者角色不同，故意分開兩個區塊，不是重複資訊</span>
 </div>
 <div class="status-cols">
   <div><div class="status-col-head hot">近期增溫 Top 5</div><div>{hot_html}</div></div>
   <div><div class="status-col-head cold">近期退燒 Top 5</div><div>{cold_html}</div></div>
-  <div><div class="status-col-head breakout">今日爆發 Top 5</div><div>{breakout_html}</div>
-    <div class="status-col-note">今日排名跳動≥{_BREAKOUT_RANK_JUMP_MIN}名且上漲，不要求同時爆量——單日單一事件，跟下面「退燒」互斥</div></div>
   <div><div class="status-col-head foreign">外資悄悄佈局 Top 5</div><div>{foreign_html}</div>
     <div class="status-col-note">股價還沒明顯反應（±{_STEALTH_PRICE_FLAT_MAX}%內）但外資連買≥{_STEALTH_STREAK_MIN}天</div></div>
   <div><div class="status-col-head trust">投信悄悄佈局 Top 5</div><div>{trust_html}</div>

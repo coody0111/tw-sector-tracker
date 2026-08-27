@@ -1216,7 +1216,8 @@ def test_generate_renders_populated_tier_temp_badges_and_recap_data(tmp_path):
     assert "投信連買2日" in html
     assert "近5日→前5日" in html  # 週對比區塊
     assert "強勢族群" in html  # 出現在族群近況hot_top5（accel=5.0升溫）
-    assert "轉強訊號" in html  # 轉折點：5天前弱(streak=-2,accel=-2.5)→今天超強
+    # 轉折點已移到_today_week_movements_html()，尚未wired進generate()（Task 10才做），
+    # 故暫不出現在族群近況區塊，這個assertion已刪除
 
 
 def test_build_heatgrid_cards_super_tier_tile_gets_tier_super_css_class(tmp_path):
@@ -1542,42 +1543,6 @@ def test_generate_renders_candlestick_chart_with_ohlc_data(tmp_path):
     assert '"lows": [97.0, 98.5]' in html
     assert '"closes": [99.0, 100.0]' in html
     assert "function buildCandlestick" in html
-
-
-def test_generate_renders_rank_crossings_section_in_sector_recap(tmp_path):
-    """排名進出榜區塊要出現在族群近況裡，緊接在轉折點列表(.turning-wrap)後面，
-    左右兩欄分別列剛進榜/剛掉出榜的族群名稱跟排名變化。"""
-    meta_perf = [
-        {"meta_name": "散熱", "avg_change_pct": 1.0, "up_count": 1, "down_count": 0, "flat_count": 0},
-        {"meta_name": "半導體設備", "avg_change_pct": -1.0, "up_count": 0, "down_count": 1, "flat_count": 0},
-    ]
-    universe_df = pd.DataFrame([
-        {"stock_id": "1", "stock_name": "股票一", "meta_sector": "散熱"},
-        {"stock_id": "2", "stock_name": "股票二", "meta_sector": "半導體設備"},
-    ])
-    prices_df = pd.DataFrame([
-        {"stock_id": "1", "change_pct": 1.0, "close": 100.0},
-        {"stock_id": "2", "change_pct": -1.0, "close": 50.0},
-    ])
-    rank_history = {
-        "散熱": {"weekly_ranks": [14, 3], "in_top10_this_week": True,
-                 "consecutive_weeks_in_top10": 1, "last_top10_week_index": None, "last_top10_rank": None},
-        "半導體設備": {"weekly_ranks": [7, 28], "in_top10_this_week": False,
-                     "consecutive_weeks_in_top10": 0, "last_top10_week_index": 0, "last_top10_rank": 7},
-    }
-
-    output_path = tmp_path / "index.html"
-    generate(
-        date(2026, 7, 29), meta_perf, universe_df,
-        meta_signals={}, meta_chips={}, prices_df=prices_df,
-        heatgrid_windows={}, rank_history=rank_history,
-        output_path=str(output_path),
-    )
-
-    html = output_path.read_text(encoding="utf-8")
-    assert "排名進出榜" in html
-    assert "散熱" in html and "半導體設備" in html
-    assert "rankmove-wrap" in html
 
 
 def test_generate_embeds_rank_history_into_card_meta_for_history_record(tmp_path):
@@ -1907,6 +1872,39 @@ def test_sector_recap_html_no_longer_renders_today_breakout():
     html = _sector_recap_html(recap)
     assert "今日爆發" not in html
     assert "衝刺族群" not in html
+
+
+def test_sector_recap_html_no_longer_renders_turning_points_or_rank_crossings():
+    """轉折點/排名進出榜移到_today_week_movements_html()(Task 8)，族群近況不再顯示，
+    避免同一份資料被畫兩次。"""
+    from export.index_generator import _sector_recap_html
+    recap = {
+        "hot_top5": [], "cold_top5": [], "today_breakout": [],
+        "foreign_stealth": [], "trust_stealth": [], "volume_anomaly": [],
+        "turning_points": [{"meta_name": "轉折族群", "prev_key": "weak", "prev_label": "弱",
+                             "cur_key": "strong", "cur_label": "強", "direction": "轉強"}],
+        "rank_crossings": {"just_in": [{"meta_name": "進榜族群", "prev_rank": 15, "cur_rank": 8}], "just_out": []},
+    }
+    html = _sector_recap_html(recap)
+    assert "轉折族群" not in html
+    assert "進榜族群" not in html
+    assert "turning-wrap" not in html
+    assert "rankmove-wrap" not in html
+
+
+def test_sector_recap_html_remaining_5_categories_use_badge_weak():
+    """族群近況剩下的5大類(升溫/退燒/外資/投信/量能)門檻同樣未回測，這次也套badge-weak
+    (原本這5類是靠status-col-head的彩色底線區分類別，不是badge-weak——這裡改成整個
+    status-col-head也降噪)。"""
+    from export.index_generator import _sector_recap_html
+    recap = {
+        "hot_top5": [{"meta_name": "熱族群", "pct": 5.0, "accel": 3.2}],
+        "cold_top5": [], "today_breakout": [],
+        "foreign_stealth": [], "trust_stealth": [], "volume_anomaly": [],
+        "turning_points": [], "rank_crossings": {"just_in": [], "just_out": []},
+    }
+    html = _sector_recap_html(recap)
+    assert "badge-weak" in html
 
 
 def test_today_breakout_html_renders_real_number_rows():

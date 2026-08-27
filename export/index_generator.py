@@ -1260,66 +1260,22 @@ def _sector_recap_html(recap: Dict[str, Any]) -> str:
     volume_html = _col(recap["volume_anomaly"], lambda r: _status_row(
         r["meta_name"], r["pct"], f'{r["vol_ratio"]}x', "var(--accent)"))
 
-    turning = recap["turning_points"]
-    if turning:
-        turning_html = "".join(
-            f'<div class="turning-row"><span class="turning-name">{_esc(tp["meta_name"])}</span>'
-            f'<span class="turning-transition">'
-            f'<span class="turning-pill" style="background:{_TIER_COLOR_VAR[tp["prev_key"]]}22;color:{_TIER_COLOR_VAR[tp["prev_key"]]}">{tp["prev_label"]}</span>'
-            f'<span class="turning-arrow">→</span>'
-            f'<span class="turning-pill" style="background:{_TIER_COLOR_VAR[tp["cur_key"]]}22;color:{_TIER_COLOR_VAR[tp["cur_key"]]}">{tp["cur_label"]}</span>'
-            f'</span><span class="turning-desc">{tp["direction"]}</span></div>'
-            for tp in turning
-        )
-    else:
-        turning_html = '<div class="detail-empty">本週沒有族群發生等級翻轉</div>'
-
-    def _rankmove_col(items: List[Dict[str, Any]], direction: str) -> str:
-        if not items:
-            return '<div class="rankmove-empty">目前沒有族群{}</div>'.format(
-                "剛進榜" if direction == "in" else "剛掉出榜"
-            )
-        return "".join(
-            f'<div class="rankmove-item"><span class="rm-name">{_esc(r["meta_name"])}</span>'
-            f'<span class="rm-shift tabular">#{r["prev_rank"]}→#{r["cur_rank"]}</span></div>'
-            for r in items
-        )
-
-    rank_crossings = recap.get("rank_crossings", {"just_in": [], "just_out": []})
-    rankmove_html = f"""
-<div class="rankmove-wrap">
-  <div class="rankmove-head">排名進出榜</div>
-  <div class="rankmove-sub">這週剛擠進/掉出前10名、且自身報酬方向一致的族群（單純排名進步但自身仍是負報酬、或退步但自身仍是正報酬不算——跟上面「轉折點」是不同角度的訊號）</div>
-  <div class="rankmove-cols">
-    <div class="rankmove-col in"><h4>剛進榜</h4>{_rankmove_col(rank_crossings["just_in"], "in")}</div>
-    <div class="rankmove-col out"><h4>剛掉出榜</h4>{_rankmove_col(rank_crossings["just_out"], "out")}</div>
-  </div>
-</div>"""
-
     return f"""
-<div class="section-head"><h2>族群近況</h2><span class="count">5大類排行・持續觀察</span></div>
+<div class="section-head"><h2>族群近況</h2><span class="count">5大類排行・持續觀察（草案，未回測）</span></div>
 <div class="section-rule"></div>
 <div class="role-note">
-  <span><b>族群近況</b>＝週度趨勢+持續觀察+籌碼訊號的綜合面板</span>
-  <span><b>異動族群</b>（頁面最上方）是嚴格的單日爆發指標（爆量+排名跳動同時成立），「族群近況」主要看週度趨勢變化</span>
-  <span>兩者角色不同，故意分開兩個區塊，不是重複資訊</span>
+  <span><b>族群近況</b>＝週度趨勢+籌碼訊號的持續觀察面板，門檻是經驗法則草案，尚未回測驗證</span>
 </div>
 <div class="status-cols">
-  <div><div class="status-col-head hot">近期增溫 Top 5</div><div>{hot_html}</div></div>
-  <div><div class="status-col-head cold">近期退燒 Top 5</div><div>{cold_html}</div></div>
-  <div><div class="status-col-head foreign">外資悄悄佈局 Top 5</div><div>{foreign_html}</div>
+  <div><div class="status-col-head badge-weak hot">近期增溫 Top 5</div><div>{hot_html}</div></div>
+  <div><div class="status-col-head badge-weak cold">近期退燒 Top 5</div><div>{cold_html}</div></div>
+  <div><div class="status-col-head badge-weak foreign">外資悄悄佈局 Top 5</div><div>{foreign_html}</div>
     <div class="status-col-note">股價還沒明顯反應（±{_STEALTH_PRICE_FLAT_MAX}%內）但外資連買≥{_STEALTH_STREAK_MIN}天</div></div>
-  <div><div class="status-col-head trust">投信悄悄佈局 Top 5</div><div>{trust_html}</div>
+  <div><div class="status-col-head badge-weak trust">投信悄悄佈局 Top 5</div><div>{trust_html}</div>
     <div class="status-col-note">股價還沒明顯反應（±{_STEALTH_PRICE_FLAT_MAX}%內）但投信連買≥{_STEALTH_STREAK_MIN}天</div></div>
-  <div><div class="status-col-head volume">量能異常 Top 5</div><div>{volume_html}</div>
+  <div><div class="status-col-head badge-weak volume">量能異常 Top 5</div><div>{volume_html}</div>
     <div class="status-col-note">今日量能≥{_VOL_ANOMALY_RATIO_MIN}x5日均量，但股價還沒明顯反應（±{_VOL_ANOMALY_PRICE_FLAT_MAX}%內）</div></div>
-</div>
-<div class="turning-wrap">
-  <div class="turning-head">轉折點：等級真的翻轉的族群</div>
-  <div class="turning-sub">不是看誰漲最多，是看「上週的等級」跟「這週的等級」是否真的換了一級。</div>
-  <div>{turning_html}</div>
-</div>
-{rankmove_html}"""
+</div>"""
 
 
 def _today_week_movements_html(

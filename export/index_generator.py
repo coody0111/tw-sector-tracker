@@ -1213,6 +1213,8 @@ def generate(
     total_shares_df: Optional[pd.DataFrame] = None,
     avg20_map: Optional[Dict[str, float]] = None,
     shareholder_df: Optional[pd.DataFrame] = None,
+    margin_divergence: Optional[Dict[str, Any]] = None,
+    limit_up_results: Optional[List[Dict[str, Any]]] = None,
     output_path: str = "docs/index.html",
 ) -> None:
     """
@@ -1233,6 +1235,10 @@ def generate(
       (已發行股數)+集保資料實際日期。
     - avg20_map：calc_avg20_close() 輸出，個股融資/融券維持率(估)的成本基準。
     - shareholder_df：get_shareholder_top() 輸出，個股表格「大戶佔比」「大戶週變化」兩欄。
+    - margin_divergence：get_margin_divergence() 輸出（{bearish, bullish, days_used}），
+      個股融資餘額趨勢 vs 股價趨勢背離警示，「今日/本週異動」區塊今日層用。
+    - limit_up_results：scan_consecutive_limit_up() 輸出(list)，連續鎖漲停個股，
+      「今日/本週異動」區塊今日層用。
     """
     if not meta_perf:
         return

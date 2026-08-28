@@ -793,7 +793,7 @@ CLAUDE.md 例外條款：Cody 明確授權時可以直接修改／執行並 comm
 不是 code 改動，不涉及 commit，但一樣留下發現＋做法＋驗證結果。
 
 ### 環境確認（重要）
-- 執行機器：桌電，對象是 **master worktree**（`C:\Users\Cody\Desktop\tw-sector-tracker\data\screener.db`，
+- 執行機器：桌電，對象是 **master worktree**（`<專案根目錄>\data\screener.db`，
   137MB，唯一有完整多日資料的正式 DB；debug worktree 沒有這份 DB，只有 `stock_universe.csv`）。
 - **意外發現 debug 分支落後 master 2 個 commit**：master 這時已經是 `5d7e9cd`（`25406db` 之後多了
   `1d9a5e4`／`5d7e9cd`，是大戶持倉 Task 5/6 顯示層——`main.py` 組 `sh_rows`、
@@ -986,7 +986,7 @@ TWSE 停在 7/08）。後端實跑 `get_stock_chips_ranking()` 並**對照 DB �
 
 ### 驗證方式（重要：筆電也做得了端到端驗證）
 之前以為「debug 機只有單日資料、端到端要等桌電」——**這是誤解**。同一台筆電的 master worktree
-`C:\Users\codyliu\Desktop\tw-sector-tracker\data\screener.db` **有完整多日資料**（shareholder
+`<專案根目錄>\data\screener.db` **有完整多日資料**（shareholder
 7128 列 / 1040 檔 / 2026-05-08～07-03），以下全部是對這個真實 DB（read-only）+ 實跑
 `screener.database.get_shareholder_top()` 得到的結果，不是推論。
 （debug 資料夾自己的 `data/screener.db` schema 較舊，連 `lv12_15_shares` 欄都還沒有。）
@@ -2519,7 +2519,7 @@ reimport 完成：共 372163 筆
 - 靜態 review：`scrapers/chips.py`（TPEx 兩支新函式 + TWSE 對照）、`main.py::_update_chips_db`／`_backfill_shareholder`、`processors/performance.py::calc_meta_chips_signals`、`scrapers/realtime.py`、`screener/institutional.py`、`.github/workflows/pages.yml`
 - 實測 API：直接打 TWSE T86（1325 檔）與 TPEx `tpex_3insti_daily_trading`（930 檔），核對欄位語意與恆等式
 - 實跑：`_best_price` 假造 item 測試、`calc_meta_chips_signals` 對 Developer 正式 DB 實跑、DuckDB 全表離群掃描
-- 資料源：Developer 資料夾 `C:\Users\codyliu\Desktop\tw-sector-tracker\data\screener.db`（本機這份，`data/` 為 gitignored、不隨 git 同步）
+- 資料源：Developer 資料夾 `<專案根目錄>\data\screener.db`（本機這份，`data/` 為 gitignored、不隨 git 同步）
 
 ### 🔴 數據問題（需立刻修）
 - 問題：**任務⑤「修正 3114 離群資料」在這台機器上根本沒有生效**。debug-tasks.md 記載「用 2118.96/100=21.19 校正…已執行 `python main.py --reimport` 重建 DuckDB」，但實測本機：

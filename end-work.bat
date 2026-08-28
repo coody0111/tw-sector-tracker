@@ -2,14 +2,9 @@
 echo === 下班收工 ===
 echo.
 
-:: 判斷是哪台電腦
-if exist "C:\Users\Cody\Desktop\tw-sector-tracker" (
-    set PROJECT=C:\Users\Cody\Desktop\tw-sector-tracker
-) else (
-    set PROJECT=C:\Users\codyliu\Desktop\tw-sector-tracker
-)
+:: 專案位置 = 這支 bat 所在目錄，不再依機器寫死絕對路徑
+cd /d "%~dp0"
 
-cd %PROJECT%
 echo [1/2] 目前未 commit 的變更：
 git status --short
 echo.

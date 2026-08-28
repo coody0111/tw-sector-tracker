@@ -3992,3 +3992,65 @@ skill執行：4個Task各自獨立implementer+task reviewer（1個Task修復1輪
   `python main.py`（看到一筆`7ba5168 update: sector performance 2026-08-25`是Cody帳號在今天
   22:17產生的，同時`bug-reports.md`目前也有未commit的異動）——建議先確認debug端沒有其他
   session在動，再手動處理這次的merge conflict，我這邊沒有硬蓋過去。
+
+---
+
+## [2026-08-28] 公開 repo 機敏資訊稽核：內部文件不再上 Pages + 移除寫死本機路徑
+
+### 改了什麼
+- 異動檔案：`.github/workflows/pages.yml`, `start-desktop.bat`, `start-laptop.bat`,
+  `end-work.bat`, `bug-reports.md`；刪除 `scheduler_setup.bat`
+- 邏輯說明：
+  1. **Pages 只發布 dashboard**：原本 `upload-pages-artifact` 的 `path: 'docs'` 把整個
+     `docs/` 上線，代表 `docs/superpowers/`（81 個 specs/plans/mockups）、`docs/adr/`、
+     `CONTEXT.md`/`DESIGN.md`/`backtest.md`/`factor.md`/`scheduler.md` 這些內部開發文件
+     都能從 `coody0111.github.io/tw-sector-tracker/...` 直接讀到、被搜尋引擎索引。
+     改成新增一個 `Prepare public site` step，只把 `docs/*.html`（4 個 dashboard）+
+     `docs/.nojekyll` 複製到 `_site`，`path` 改指 `_site`。
+     已確認 4 個 html 完全自包含（互相連結之外沒有引用任何本地資源、沒有 fetch 外部檔），
+     所以不會少檔。
+  2. **觸發條件加上 workflow 自身**：`paths` 補 `.github/workflows/pages.yml`，
+     這樣 push 後會立刻重新發布、把已上線的舊內容（含內部文件）換掉，
+     不用等下一次 `main.py` 更新 `docs/*.html`。
+  3. **.bat 去識別化**：三支 bat 原本寫死 `C:\Users\Cody\...` / `C:\Users\codyliu\...`，
+     public repo 等於公開兩台機器的 Windows 帳號名。改用 `%~dp0` 取 bat 自身所在目錄；
+     `start` 開出的視窗改為繼承工作目錄（不再在 `cmd /k "..."` 內巢狀引號），
+     Debugger 視窗用相對路徑 `cd /d ..\tw-sector-tracker-debug`。
+     兩支 start bat 現在內容一致（只差標題文字），桌電/筆電共用同一份邏輯。
+  4. 刪 `scheduler_setup.bat`（寫死桌電路徑的舊排程腳本，已被
+     `scripts/install_scheduler.ps1` 取代）。
+  5. `bug-reports.md` 3 處（L796 / L989 / L2522）本機絕對路徑 → `<專案根目錄>`。
+
+### 資料來源相關（如有異動）
+- **無資料來源異動**。完全沒動 `scrapers/`、`processors/`、`screener/`、`export/`、
+  `main.py`、`config.py`，上市（TWSE）／上櫃（TPEx）流程與回補流程都不受影響。
+
+### 金鑰稽核結果（本次順帶做，無異動）
+掃了三個範圍，**沒有發現任何外露的 API key / token**：
+- `origin/master` 全部 183 個檔（`git grep`）
+- **全部 git 歷史的所有 blob**（`git rev-list --all --objects` → `cat-file --batch`）
+- 檢查格式：Telegram bot token（`\d+:AA...`）、GitHub PAT（`ghp_`/`github_pat_`/`gho_`）、
+  `sk-ant-`/`sk-`、Google `AIza`、AWS `AKIA`、Slack `xox*`、JWT（`eyJ*.eyJ*`）、
+  `-----BEGIN * PRIVATE KEY`；另外掃賦值型硬編（`token = "..."` 等）
+- 唯一命中是 `tests/test_telegram_notifier.py:43` 的假值 `token="bot-token-abc"` ✅
+- `.env` **從未被 commit 過**（歷史上 `--diff-filter=A` 只有 `.env.example`），`.gitignore` 有擋
+- `notifications/telegram.py` 寫法正確：token 只從 `os.environ` 讀、缺少時拋
+  `TelegramConfigError` 安全失敗、log 只印 HTTP status 與 `type(exc).__name__`，
+  不印含 token 的 URL、也不印 API 回應內文
+
+### 請 Debugger 驗證
+- [ ] `pages.yml` 語法正確、`Prepare public site` step 的 `cp` 不會漏檔（4 個 html + `.nojekyll`）
+- [ ] push 後確認 Pages 部署成功，且 `<site>/superpowers/...`、`<site>/CONTEXT.md` 等
+      內部文件路徑回 404（dashboard 四頁與頁間連結仍正常）
+- [ ] 三支 `.bat` 實際跑一次（桌電/筆電各一）：`%~dp0` 有正確切到專案、
+      Developer/Debugger 兩個視窗都能開起來並 copy 對應角色檔
+- [ ] 沒有影響其他模組（本次未動任何 Python 邏輯，`pytest` 應與上一批結果相同）
+
+### 特別注意
+- **這筆 commit（`52b5666`）尚未 push**，等 Cody 指示。
+  ⚠️ 但這次改動要 **push 之後才會生效** —— 在 push 前，內部文件仍在 Pages 上公開可讀。
+- **上一批的 debug worktree merge 衝突還沒解**（見上一則交接）。這次的改動一樣還沒同步到
+  debug worktree，要等那邊的衝突處理完再一起 merge，我沒有硬蓋。
+- 使用者選定的處理範圍是「**只擋 Pages、repo 維持 public**」：內部文件仍留在 repo 內
+  （clone 或在 GitHub 上點進去仍看得到），只是不再從 Pages 網址直接對外曝光。
+  若之後要更徹底（從追蹤中移除或轉 private repo），是另一件事。

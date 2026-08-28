@@ -162,13 +162,16 @@ DuckDB (data/screener.db → daily_prices 表)
     由 reimport_db() 清空重建（自動過濾假資料）
 ```
 
-**假資料修復流程（二選一）**
+**假資料／缺交易日修復流程**
 
 方案 A（推薦，Yahoo Finance）：
 ```bash
-python main.py --backfill-yf 18      # 直接抓乾淨資料 upsert DuckDB，約 15 分鐘
-python main.py --reimport             # 清空重建（清除殘留假資料）
+python main.py --backfill-yf 20 --workers 3   # 約 7 分鐘（1036 支），跑完自動 reimport
 ```
+- ⚠️ **月數要蓋住全部有效歷史**：會先刪光 `data/daily_prices/` 的**所有** CSV 再重抓指定月數，
+  填太小＝舊歷史被刪又不重抓。有效歷史目前從 2025-01 起 → 填 20，之後隨時間往上加。
+- ⚠️ **不用再下 `--reimport`**：`backfill_yf()` 跑完自己會呼叫 `reimport_db()`。
+  （2026-08-28 前這裡寫的是分兩步 + 填 18，兩點都已過時。）
 
 方案 B（TWSE+TPEx 批次）：
 ```bash

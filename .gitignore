@@ -15,3 +15,6 @@ notes/
 # 避免 merge 時互相覆蓋。共用規則請改 CLAUDE-developer.md / CLAUDE-debugger.md
 # 新機器/新 clone 第一次設定：cp CLAUDE-developer.md CLAUDE.md（或 debug worktree 用 CLAUDE-debugger.md）
 CLAUDE.md
+
+# 因子研究的產出（可重跑產生，不進 git）
+research/output/

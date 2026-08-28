@@ -226,6 +226,18 @@ def _fetch_stock_months(sid: str, month_starts: list, stop_event: threading.Even
     return sid, rows
 
 
+def _ohlc_value(value):
+    """yfinance 的 Open/High/Low 轉成寫檔用的數值；NaN／None／非正值一律回 None。
+    停牌或冷門股偶爾回 0 或 NaN，寫成 0 會讓 K 棒畫出假的實體，寧可留空。"""
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return None
+    if v != v or v <= 0:      # NaN 或非正值
+        return None
+    return round(v, 2)
+
+
 def _fetch_yfinance_one_stock(
     sid: str,
     ticker: str,
@@ -280,6 +292,12 @@ def _fetch_yfinance_one_stock(
                     change_pct = round(change / prev * 100, 2) if prev else 0.0
                     rows.append({
                         "stock_id":   sid,
+                        # yfinance history() 本來就回 Open/High/Low，之前沒寫進 row，
+                        # 等於每次 backfill 都把抓到的 OHLC 丟掉、K 棒功能只剩 NULL
+                        # （比照 daily_prices scraper 2026-07 那次「K棒失效」的修法）
+                        "open":       _ohlc_value(row.get("Open")),
+                        "high":       _ohlc_value(row.get("High")),
+                        "low":        _ohlc_value(row.get("Low")),
                         "close":      round(close, 2),
                         "change":     change,
                         "change_pct": change_pct,

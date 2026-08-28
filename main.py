@@ -726,6 +726,28 @@ def run(trade_date: date = None, realtime: bool = False, push: bool = True, summ
     # 6. 籌碼資料寫入 DuckDB
     _update_chips_db(trade_date, unique_ids)
 
+    # 6.5 行情連續性體檢：daily_prices 缺交易日時，所有「近N日」指標都會跨過那些洞、
+    # 算出偏大的漲跌幅（2026-08-28 金居 8358 顯示「5日 +100%」實為近一個月）。
+    # get_rolling_returns() 等處已會擋下不可信的窗口回 None，這裡額外把狀況推到
+    # log 與 summary warnings（→ Telegram），讓人知道是資料要補、不是行情真的沒動。
+    try:
+        from screener.data_integrity import check_price_continuity
+        from screener.database import get_conn
+        _con = get_conn()
+        try:
+            _health = check_price_continuity(_con)
+        finally:
+            _con.close()
+        if _health["ok"]:
+            logger.info(_health["message"])
+        else:
+            logger.warning(_health["message"])
+            _run_warnings.append(
+                f"行情資料有 {len(_health['gaps'])} 處交易日缺漏，近N日指標會顯示為無資料，需回補"
+            )
+    except Exception as exc:
+        logger.warning("行情連續性體檢失敗（不影響本次產出）：%s", exc)
+
     # 7. 產生 HTML + 推上 GitHub Pages
     if perf or meta_perf:
         try:

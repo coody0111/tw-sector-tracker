@@ -419,3 +419,43 @@ def test_get_latest_total_shares_returns_empty_dataframe_when_no_data(tmp_path, 
 
     df = get_latest_total_shares("2026-07-16")
     assert df.empty
+
+
+def test_import_csv_prices_survives_when_every_csv_lacks_ohlc(tmp_path, monkeypatch):
+    """回歸測試（2026-08-28 實際把 daily_prices 打空的 bug）：
+
+    union_by_name 只能在「有些檔案有、有些沒有」時補 NULL；若**所有** CSV 都缺
+    open/high/low（backfill_yfinance 早期只寫 close/volume，又剛好 _clear_price_csvs()
+    把含 OHLC 的舊檔全刪了），那欄在來源表根本不存在，原本寫死的
+    `TRY_CAST(open AS DOUBLE) AS open` 會被 DuckDB 當成同名別名的自我參照，
+    拋 BinderException 讓整批匯入失敗。
+
+    而這一步發生在 reimport_db() 已經清空 daily_prices 之後——炸掉就等於資料全空，
+    所以這裡必須「匯得進去」而不是「乾脆地失敗」。OHLC 欄位允許是 NULL。
+    """
+    import screener.database as db_mod
+    db_path = str(tmp_path / "t.db")
+    monkeypatch.setattr(db_mod, "DB_PATH", db_path)
+    csv_dir = tmp_path / "daily_prices"
+    csv_dir.mkdir()
+    monkeypatch.setattr(db_mod, "CSV_GLOB", str(csv_dir / "*.csv"))
+
+    # 兩個檔案都沒有 open/high/low（yfinance backfill 寫出來的格式）
+    for day, close in (("2026-08-27", 494.0), ("2026-08-28", 543.0)):
+        (csv_dir / f"{day}.csv").write_text(
+            "stock_id,close,change,change_pct,volume,_date\n"
+            f"8358,{close},49.0,9.92,39692,{day}\n",
+            encoding="utf-8-sig",
+        )
+
+    db_mod.init_db()
+    n = db_mod.import_csv_prices()
+
+    assert n == 2, "所有 CSV 都缺 OHLC 時仍要成功匯入，不能拋 BinderException"
+    con = duckdb.connect(db_path)
+    rows = con.execute(
+        "SELECT date, open, close FROM daily_prices WHERE stock_id='8358' ORDER BY date"
+    ).fetchall()
+    con.close()
+    assert [r[2] for r in rows] == [494.0, 543.0]
+    assert all(r[1] is None for r in rows), "缺席的 OHLC 欄位應為 NULL，不是 0 或報錯"

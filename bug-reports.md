@@ -2795,3 +2795,204 @@ reimport 完成：共 372163 筆
   `_update_chips_db()`警告缺口裁定合理但建議提升優先度；真實 Telegram 發送測試待 Cody
   提供憑證；debug↔master 同步已解掉這次的衝突，但同步回 master 的動作被疑似的並發 session
   中斷，需要確認安全後才能完成。
+
+---
+
+## [2026-08-30] 驗證 - 首頁（index.html）第二波大改 12個Task（commit 4ce8f2f 交接）
+
+### 驗證方式
+- 靜態 review：`_today_week_movements_html()`、`_margin_divergence_html()`、`_limit_up_html()`、
+  `build_sector_recap()`/`_sector_recap_html()`
+- **實際組出真實資料呼叫 `generate()`**（用這台機器 `data/screener.db` 2026-08-25 那天的真實
+  42 族群資料，走 `calc_universe_performance`/`calc_meta_chips_signals`/`get_margin_divergence`/
+  `scan_consecutive_limit_up` 等全部正式函式，不是測試假資料），輸出到 scratchpad、用程式
+  比對字串位置＋正則抽取實際渲染結果（這台機器沒有瀏覽器工具，退而求其次用這個方式盡量貼近
+  「看真實輸出」）
+
+### ✅ 驗證通過（對照 debug-tasks.md 的「請 Debugger 驗證」清單）
+- **今日層/本週層資料對應正確**：`_today_week_movements_html()` 的 4 個今日層（異動族群/
+  今日爆發/融資背離/連續漲停）+ 2 個本週層（轉折點/排名進出榜）都從 `build_sector_recap()`
+  同一次呼叫的回傳值取值，沒有另外重算，不會有兩處資料源不一致的風險。
+- **三態旗標(True/False/None) 渲染正確，且用真實資料驗證過**：`_limit_up_html()` 對
+  `volume_declining_streak`/`breakout_volume_confirmed` 用 `is True`/`is False`/其餘(None)
+  三分支處理。用真實資料跑出 24 檔連續漲停鎖死候選，抽查前 3 檔剛好都是
+  `None, None`（資料不足無法判定），實際產出的 HTML 確認兩欄都正確顯示「─」（不是誤判成
+  False 顯示「量未縮」）。
+- **頁面順序、族群近況瘦身，都用真實輸出的 HTML 逐一程式化驗證過**（不是只看原始碼）：
+  - `id="heatgrid"` → `class="tw-today-grid"` → `<h2>族群近況</h2>` 三者在真實輸出裡的字串
+    位置確認嚴格遞增（順序正確）
+  - `class="secondary-row"` 在真實輸出裡出現次數 = 0（Wave1 的二欄並排完全拆除，沒有殘留）
+  - `<h2>族群近況</h2>` 底下的 `status-col-head` 剛好 5 個（hot/cold/foreign/trust/volume），
+    且該區塊內文完全沒有「今日爆發」字樣（沒有跟今日層重複顯示）
+  - 熱區格 tile 確認帶 `class="ht-tier badge-weak"`（虛線草案樣式，不是舊版實色徽章）
+- **上市/上櫃資料源沒有混用、沒有影響其他頁面**：`get_margin_divergence()`/
+  `scan_consecutive_limit_up()` 是既有唯讀函式（原本服務 momentum.html/patterns.html），
+  這次只是新增一個呼叫端，函式本身邏輯沒改；`git diff` 確認 `chips.html`/`momentum.html`/
+  `patterns.html` 的產生器都不在這次改動範圍內。
+- pytest 589 passed（含這批+之前所有任務的測試總和）。
+
+### 🟡 建議改善
+- `build_sector_recap()` 的 docstring（`export/index_generator.py:578`）仍寫「共6類」，但
+  `_sector_recap_html()` 只渲染 5 類（`today_breakout` 已經獨立配給「今日/本週異動」用，
+  不在族群近況重複顯示）——純文件跟現況不符，非功能問題，建議docstring改成「共5類（另外
+  today_breakout獨立算給今日/本週異動用）」。
+  位置：`export/index_generator.py:578`。
+
+### 未能完成的驗證項
+- **真正打開瀏覽器看 `docs/index.html`**：這台機器沒有瀏覽器工具，改用「真實資料組出
+  `generate()` 呼叫、程式化檢查渲染結果」這個退而求其次的方法（見上方驗證方式），涵蓋了
+  checklist 列出的所有結構性項目，但深色/淺色主題切換的視覺觀感（badge-weak 兩個主題下
+  是否都看得清楚）仍需要人眼確認。
+
+### 結論
+- [x] 可以繼續下一個任務 — 主要功能邏輯、資料來源、跨頁影響、頁面結構/順序全部用真實資料
+  驗證通過；只有主題視覺觀感這一項仍需人眼確認，非阻擋。
+
+---
+
+## [2026-08-30] 驗證 - Pages 內部文件遮蔽 + 本機路徑去識別化 + 金鑰稽核（commit 52b5666/4c81b17）
+
+### 驗證方式
+- 用 `python -c "import yaml; yaml.safe_load(...)"` 驗證 `pages.yml` 語法
+- 實際 `ls docs/*.html` 確認 `cp` 指令的 glob 會匹配到哪些檔案
+- 靜態 review 三支 `.bat`（**沒有實際執行**——這三支都有副作用：`git pull`/開兩個新的
+  互動式 `claude` 視窗／`git add+commit+push`，不是我可以安全自動觸發的操作，如實回報跳過）
+- 獨立複查（不重跑 Cody 已做過的全歷史 blob 掃描，抽樣驗證方法論可信）：
+  `git ls-files` 確認 `.env` 未被追蹤、`git log --all --diff-filter=A -- .env` 確認全歷史
+  從未新增過
+
+### ✅ 驗證通過（對照 debug-tasks.md 的「請 Debugger 驗證」清單）
+- **`pages.yml` 語法正確**：YAML parse 成功，`on.push.paths` 正確含 `docs/**` 與
+  `.github/workflows/pages.yml` 自身。
+- **`Prepare public site` 的 `cp` 不會漏檔**：`docs/*.html` 這個 glob（bash 的 `*` 不跨
+  `/`）精準匹配到 `docs/index.html`/`chips.html`/`momentum.html`/`patterns.html` 四個檔，
+  不會誤抓 `docs/superpowers/`／`docs/adr/` 底下的東西，也不會漏抓；`docs/.nojekyll` 確認
+  存在（0 bytes，跟 commit 說的一致）。
+- **三支 `.bat` 靜態邏輯正確**：`start-desktop.bat`/`start-laptop.bat` 用 `diff` 確認現在
+  除了標題文字（桌電/筆電）完全一致；三支都用 `%~dp0`／相對路徑（`..\tw-sector-tracker-debug`），
+  `grep` 全文確認沒有殘留任何 `C:\Users\Cody\...`／`C:\Users\codyliu\...` 這類寫死路徑；
+  `scheduler_setup.bat` 確認已刪除。
+- **`bug-reports.md` 路徑去識別化確認完成**：全文 `grep` 沒有任何 `C:\Users\Cody`/
+  `C:\Users\codyliu` 殘留（含這次驗證新增的內容也沒有引入新的）。
+- **金鑰稽核方法論可信、獨立複查一致**：`.env` 確認從未被 git 追蹤過（`git ls-files`
+  查無、全歷史 `--diff-filter=A` 也查無新增紀錄），跟 `.gitignore` 第9行有擋一致；
+  `notifications/telegram.py` 的安全寫法（token 只從環境變數讀、log 不印 token/回應內文）
+  在上一則排程通知驗證裡已經 review+實測過，一致。
+
+### 未能完成的驗證項
+- **push 後確認 Pages 部署成功、內部文件路徑回 404**：這批 commit 目前仍在本機（尚未
+  push），無法驗證線上實際部署行為，如實回報跳過，等 push 後需要人工或後續 session 補確認。
+- **三支 `.bat` 實際執行**：如上所述，這三支都有「開新視窗跑互動式 Claude session」／
+  「git commit+push」這類我不該自動觸發的副作用，只做了靜態邏輯驗證，沒有真的雙擊執行過。
+
+### 結論
+- [x] 可以繼續下一個任務 — 靜態邏輯（YAML/glob/路徑去識別化/金鑰稽核方法論）全部驗證正確；
+  兩項未閉環（線上部署行為、.bat 實際雙擊）性質上都需要 push 後或人工才能做，不是這次能在
+  本機閉環的項目，非阻擋。
+
+---
+
+## [2026-08-30] 驗證 - 因子健檢台 RankIC 評估檯（commit 0d7420d，無專門debug-tasks交接）
+
+### 驗證方式
+- 這則沒有對應的 debug-tasks.md 交接（`grep` 全文查無「RankIC」/「因子健檢台」相關條目），
+  改用 commit message 描述的內容 + 程式碼 review + 對正式 DB 實跑驗證
+- `python -m pytest tests/test_research_factors.py -v`：20 項全過
+- **實際執行**（不是只看程式碼）：`python -m research.run_factor_eval`／
+  `python -m research.run_combination_study`，對象是桌電那份正式 `data/screener.db`
+  （這台機器本地 DB 只有單日快照，不夠這個模組的最小資料需求，讀正式 DB 才能真的驗證邏輯）
+
+### 🔴 發現一個真的會 crash 的 bug（未回報，新發現）
+- **`research/run_factor_eval.py` 在這台機器（Windows 10 繁中，主控台編碼 cp950/Big5）
+  用文件說明的方式執行會直接 crash**：第 48 行跟第 56 行的 `print()` 內容含 `⚠️`
+  （U+26A0 warning sign），cp950 無法編碼這個字元，直接拋
+  `UnicodeEncodeError: 'cp950' codec can't encode character '\u26a0'`，整支工具在輸出到
+  一半時中斷（`research/output/*.csv` 甚至還沒寫出就已經死掉）。用
+  `PYTHONIOENCODING=utf-8 python -m research.run_factor_eval` 繞過後可以完整跑完，確認
+  這是純編碼問題、不是邏輯錯誤。**這是這次驗證新抓到的問題，是跟 8/28
+  `install_scheduler.ps1` 缺 BOM 同一類「Windows 主控台編碼」地雷，且是這台機器 100%
+  會踩到的（不是理論上的邊界情況）**。`research/run_combination_study.py` 沒有這個問題
+  （內文沒有 emoji，確認可以直接執行不用繞過）。
+  位置：`research/run_factor_eval.py:48,56`。裁定：這次沒有 Cody 授權我直接修 code，
+  回報記錄，修法方向是拿掉這兩個 emoji 或在程式開頭加
+  `sys.stdout.reconfigure(encoding='utf-8')`，等 Cody 決定。
+
+### ✅ 驗證通過
+- **Point-in-time 紀律正確**：`research/factors.py` 全部因子只用 `shift(+n)`／回看
+  rolling／`expanding`（且明確用 `expanding` 而非全期中位數算 vol regime，避免偷看未來），
+  唯一往未來看的地方集中在 `factor_data.forward_returns()`，跟模組自己宣稱的鐵律一致。
+  20 個測試裡含 8 個因子各自的前視偏誤測試，全過。
+  RankIC 用「排名後 Pearson」實作 Spearman，數學上等價，`_align_valid()` 正確把任一邊
+  NaN 的格子兩邊都設成 NaN 再算相關，`MIN_XS=5` 門檻正確擋掉稀疏橫截面日。
+- **對正式 DB 實跑，結果合理、可解讀**：`run_factor_eval` 對 370 個交易日/1036檔/42族群
+  跑出樣本內/樣本外 RankIC 總表，`momentum_60`(族群層)樣本內外都在 0.18~0.21（動能因子在
+  這段台股多頭有穩定正向 IC，符合直覺）；`run_combination_study` 的「高量過濾組合」
+  RankIC 全面優於「平均組合」，驗證了設計文件想確認的機制假說（過濾器比硬平均更有效）。
+  兩支工具都能對真實資料完整跑完（`run_factor_eval` 需搭配上面提到的編碼繞過）。
+- **`to_sector()` 聚合方式正確**：族群因子取成員中位數（對離群值穩健）、族群報酬取成員
+  等權平均（等於真的等權持有該族群的報酬），兩種聚合方式刻意不同，且都有對應測試鎖住。
+
+### 🟡 建議改善（跟任務④互相印證的發現）
+- **`research/factor_data.py` 的 `DEFAULT_END = "2026-08-06"` 現在可能已經過期**：這個
+  日期是因為當時（commit 說明）資料尾巴 2026-08-06 之後有 19 天缺口，所以預設截掉。但這次
+  順便驗證的任務④（commit `a769463`，同一天附近的修復）已經把 `daily_prices` 補到
+  2026-08-28 連續無洞（我在正式 DB 上實測 `get_rolling_returns()` 0 個窗口被擋，見下一則
+  報告）。也就是說**造成這個預設截止日的原因已經被後面的commit修好了**，`factor_data.py`
+  沒有跟著更新，導致因子健檢台現在會少用最新約 3 週的資料。建議之後跑因子健檢台時明確傳
+  `--end` 覆蓋，或乾脆更新 `DEFAULT_END`。非阻擋（不影響既有結果正確性，只是少用到新資料）。
+  位置：`research/factor_data.py:19`。
+
+### 結論
+- [ ] 需要 Cody 決定後再確認 — 核心邏輯（point-in-time紀律/RankIC計算/聚合方式）review+
+  對正式 DB 實跑皆正確；但抓到一個這台機器 100% 會踩到的 crash bug（`run_factor_eval.py`
+  的 emoji 編碼問題），且發現這個工具的預設資料範圍已經因為任務④的修復而過期，兩項都需要
+  Cody 決定要不要修。不影響其他任務，可平行繼續。
+
+---
+
+## [2026-08-30] 驗證 - 近N日窗口跨資料斷層 + backfill匯入修復（commit a769463，無專門debug-tasks交接）
+
+### 驗證方式
+- 這則沒有對應的 debug-tasks.md 交接，依照 commit message 本身描述的 3 個問題逐項 code
+  review + 對正式 DB read-only 驗證 + 針對問題②用合成 CSV 實際重現「修復前會 crash、
+  修復後不會」兩種狀態
+- `screener/data_integrity.py`：核對 `max_span_days()` 公式跟 docstring 範例（5→16、
+  10→23、20→37）逐一手算比對
+- 對桌電正式 `data/screener.db`（386 個交易日，2025-02-04~2026-08-28）跑
+  `get_rolling_returns()`；對比這台機器本地只有單日快照的 DB 跑同一函式
+
+### ✅ 驗證通過（逐項對照 commit message 描述的 3 個問題）
+- **問題①（近N日窗口跨斷層失真）修復正確、雙向驗證**：
+  - 對「有洞」的資料（這台機器本地 DB，只有 2026-08-25 單日快照，daily_prices 幾乎全是洞）
+    跑 `get_rolling_returns()`，正確擋下大量不可信窗口（實測 4136 個窗口回 None），
+    log 正確印出「因交易日缺漏被擋下」的警告。
+  - 對「連續無洞」的正式 DB（1036檔×386交易日）跑同一函式，**0 個窗口被擋**（4144 個
+    窗口全部正常回傳數字）——證明這個防護不會誤傷正常連續資料，也間接證實正式 DB 確實已
+    修復成連續無洞。
+  - `max_span_days()` 公式手算覆核：5→16、10→23、20→37，跟 docstring 註解逐一相符。
+  - **獨立重現 commit 提到的金居 8358 案例**：正式 DB 查 8358 最近幾個交易日收盤價
+    （08-21收436.0 → 08-28收543.0，中間無缺日），算出 5 交易日報酬 =
+    (543.0-436.0)/436.0×100% = **24.5%**，跟 commit message 聲稱的「金居真實5日=+24.5%」
+    完全吻合。
+- **問題②（import_csv_prices 全部CSV缺OHLC會炸）修復正確、重現新舊兩種行為**：
+  - 用合成的、完全不含 open/high/low 欄位的 CSV，直接執行舊版邏輯
+    `TRY_CAST(src.open AS DOUBLE)` → 成功重現
+    `BinderException: Table "src" does not have a column named "open"`，證實這是真的會
+    crash 的舊 bug，不是理論假設。
+  - 用同一份合成 CSV 跑新版 `_col()` 邏輯（先 `DESCRIBE` 取實際欄位、缺的用
+    `CAST(NULL AS DOUBLE)` 補）→ 正確回傳 `open/high/low` 全 NULL、`close` 保留真實值，
+    沒有 crash。
+  - 正式 DB 全表查詢：`daily_prices` 396,884 筆，`open`/`high` 為 NULL 的筆數 = **0**，
+    確認匯入修復後現存資料完全沒有殘留的 NULL OHLC。
+- **問題③（backfill_yfinance丟棄OHLC）修復正確**：`_ohlc_value()` 正確把 NaN/None/非正值
+  一律轉成 `None`（避免停牌股 0 值畫出假 K 棒實體），`_fetch_yfinance_one_stock()` 的
+  row dict 確認已把 `Open`/`High`/`Low` 三欄接上；往下追到 `_merge_into_csv()`
+  用 `pd.DataFrame(rows).to_csv()`，欄位是從 dict key 自動展開，確認 OHLC 會正確寫進
+  CSV、銜接到問題②修好的匯入邏輯，端到端沒有斷點。
+
+### 未能完成的驗證項
+- 無。這則的三個問題都在正式 DB／合成資料上完成了雙向（修復前會壞、修復後正常）驗證。
+
+### 結論
+- [x] 可以繼續下一個任務 — 三個問題各自的修復都經過 code review + 正式 DB 驗證 + 對修復前
+  行為的重現確認，metric 上也獨立複算出跟 commit 聲稱一致的金居 24.5% 數字，沒有發現新問題。

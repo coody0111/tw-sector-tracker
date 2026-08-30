@@ -7,6 +7,8 @@ import duckdb
 import pandas as pd
 from pathlib import Path
 
+from screener.data_integrity import window_is_reliable
+
 logger = logging.getLogger(__name__)
 
 DB_PATH = "data/screener.db"
@@ -184,19 +186,48 @@ def import_csv_prices(filter_stale: bool = False) -> int:
     # open/high/low，例如scrapers/realtime.py)混在同一批glob讀取時，缺欄位的
     # 檔案自動補NULL，而不是像原本那樣不管CSV裡有沒有這3欄一律寫死NULL、
     # 把scraper真的抓到的OHLC資料在匯入這關直接丟掉。
+    source = (
+        f"read_csv_auto('{CSV_GLOB}', filename=true, union_by_name=true, "
+        f"types={{'stock_id': 'VARCHAR'}})"
+    )
+
+    # union_by_name 只能在「有些檔案有、有些沒有」時補 NULL；若**所有** CSV 都缺某欄
+    # （例如 backfill_yfinance 早期只寫 close/volume，又剛好 _clear_price_csvs() 把含
+    # OHLC 的舊檔全刪了），那欄在來源表根本不存在，直接寫 `TRY_CAST(open ...)` 會讓
+    # DuckDB 把它解讀成同名別名的自我參照而拋 Binder Error，整批匯入失敗——而這一步
+    # 是在 reimport_db() 已經清空 daily_prices 之後才執行的，炸掉就等於資料全空。
+    # 所以先問來源表實際有哪些欄位，缺的用 NULL 補，讓匯入永遠不會因為欄位缺席而死。
+    available = {
+        str(r[0]).lower()
+        for r in con.execute(f"DESCRIBE SELECT * FROM {source}").fetchall()
+    }
+
+    def _col(name: str, sql_type: str, cast: str = "TRY_CAST") -> str:
+        if name in available:
+            return f"{cast}(src.{name} AS {sql_type}) AS {name}"
+        return f"CAST(NULL AS {sql_type}) AS {name}"
+
+    missing = [c for c in ("open", "high", "low") if c not in available]
+    if missing:
+        logger.warning(
+            "CSV 缺少 %s 欄位，這些欄位匯入後為 NULL（K 棒等需要 OHLC 的功能會失效）。"
+            "來源是 backfill 寫檔時沒帶上 OHLC，補資料時請確認 scrapers/backfill.py 有寫出這些欄位。",
+            "/".join(missing),
+        )
+
     raw = con.execute(f"""
         SELECT
-            CAST(stock_id AS VARCHAR)   AS stock_id,
-            CAST(regexp_extract(filename, '(\\d{{4}}-\\d{{2}}-\\d{{2}})', 1) AS DATE) AS date,
-            TRY_CAST(open AS DOUBLE)    AS open,
-            TRY_CAST(high AS DOUBLE)    AS high,
-            TRY_CAST(low AS DOUBLE)     AS low,
-            CAST(close AS DOUBLE)        AS close,
-            CAST(volume AS BIGINT)       AS volume,
-            CAST(change AS DOUBLE)       AS change,
-            CAST(change_pct AS DOUBLE)   AS change_pct
-        FROM read_csv_auto('{CSV_GLOB}', filename=true, union_by_name=true, types={{'stock_id': 'VARCHAR'}})
-        WHERE close IS NOT NULL
+            {_col('stock_id', 'VARCHAR', 'CAST')},
+            CAST(regexp_extract(src.filename, '(\\d{{4}}-\\d{{2}}-\\d{{2}})', 1) AS DATE) AS date,
+            {_col('open', 'DOUBLE')},
+            {_col('high', 'DOUBLE')},
+            {_col('low', 'DOUBLE')},
+            {_col('close', 'DOUBLE')},
+            {_col('volume', 'BIGINT')},
+            {_col('change', 'DOUBLE')},
+            {_col('change_pct', 'DOUBLE')}
+        FROM {source} AS src
+        WHERE src.close IS NOT NULL
     """).df()
 
     if raw.empty:
@@ -400,13 +431,16 @@ def get_rolling_returns(periods=(5, 7, 10, 14)) -> dict:
     說法，若之後 index.html 想恢復近N日欄位，記得回頭接這支函式維持跟 chips.html 一致。
 
     ⚠️ rn 數的是 daily_prices 裡「實際存在的日期」：若某交易日缺資料（gap），「N 交易日前」會
-    實際跨到更早一天，近N日會多算。前提是 daily_prices 沒有交易日缺漏。"""
+    實際跨到更早一天，近N日會多算。**這個前提不再靠假設**——每個窗口都會用
+    `data_integrity.window_is_reliable()` 檢查實際跨了幾個日曆天，跨太多就回 None，
+    寧可顯示「—」也不要給出跨了一個月卻標成「近5日」的假漲幅
+    （2026-08-28 金居 8358 顯示 +100.37% 事件，見 data_integrity.py 模組說明）。"""
     periods = tuple(periods)
     max_rn = max({1} | {p + 1 for p in periods})
     con = get_conn()
     df = con.execute(f"""
-        SELECT stock_id, close, rn FROM (
-            SELECT stock_id, close,
+        SELECT stock_id, close, date, rn FROM (
+            SELECT stock_id, close, date,
                    ROW_NUMBER() OVER (PARTITION BY stock_id ORDER BY date DESC) AS rn
             FROM daily_prices
         ) WHERE rn <= {max_rn}
@@ -418,11 +452,36 @@ def get_rolling_returns(periods=(5, 7, 10, 14)) -> dict:
             return None
         return round((c0 - cn) / cn * 100, 2)
 
+    def _as_date(value):
+        """DuckDB 經 pandas 取回可能是 Timestamp／date／NaT，統一成 date 或 None。"""
+        if value is None or pd.isna(value):
+            return None
+        return value.date() if hasattr(value, "date") else value
+
     out = {}
+    blocked = 0
     for sid, g in df.groupby("stock_id"):
-        rn_close = dict(zip(g["rn"].astype(int), g["close"]))
+        rn = g["rn"].astype(int)
+        rn_close = dict(zip(rn, g["close"]))
+        rn_date = dict(zip(rn, g["date"]))
         c0 = rn_close.get(1)
-        out[str(sid)] = {p: _ret(c0, rn_close.get(p + 1)) for p in periods}
+        d0 = _as_date(rn_date.get(1))
+        result = {}
+        for p in periods:
+            if window_is_reliable(d0, _as_date(rn_date.get(p + 1)), p):
+                result[p] = _ret(c0, rn_close.get(p + 1))
+            else:
+                # 窗口跨度異常（中間有交易日缺漏）或資料不足——不給數字
+                result[p] = None
+                blocked += 1
+        out[str(sid)] = result
+
+    if blocked:
+        logger.warning(
+            "get_rolling_returns：%d 個「近N日」窗口因交易日缺漏被擋下（顯示為無資料）。"
+            "請補齊 daily_prices 後重跑，詳見 data_integrity.check_price_continuity()",
+            blocked,
+        )
     return out
 
 

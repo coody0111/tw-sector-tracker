@@ -570,7 +570,7 @@ def test_holder_card_html_renders_divergent_bar_matching_direction():
     assert "5347" in html
     assert 'class="hc-divbar"' in html
     assert '<span class="up"' in html
-    assert "連增6週" in html
+    assert "大戶連增6週" in html  # 標籤要清楚標明是「大戶」在增，不是股價/成交量等其他指標
     assert "68.4" in html  # 絕對水位
 
 
@@ -588,7 +588,7 @@ def test_holder_card_html_negative_week_chg_uses_down_direction():
     html = _holder_card_html(row, rank=1, max_abs_week_chg=2.1)
 
     assert '<span class="down"' in html
-    assert "連減2週" in html
+    assert "大戶連減2週" in html
 
 
 def test_holder_card_html_shows_insufficient_data_when_trend_missing():
@@ -673,6 +673,22 @@ def test_build_section8_uses_card_rendering_not_old_table():
     assert "holder-grid" in s8_html
     assert "holder-card" in s8_html
     assert "大戶連增倉" in s8_html
+
+
+def test_build_section8_titles_have_methodology_description():
+    """Cody反饋「連增/連減」標籤不清楚指的是什麼——標題下面要有說明文字講清楚是
+    ≥400張大戶合計持股比例連續上升/下降，且要誠實標注資料源不含散戶/中小戶級距。"""
+    shareholder_data = [
+        {"stock_id": "5347", "stock_name": "世界先進", "meta_sector": "晶圓代工",
+         "close": 128.5, "change_pct": 1.2, "lv12_15_pct": 68.4, "week_chg": 2.1,
+         "streak": 6, "share_chg": 412000, "lv15_pct": 22.6, "date": "2026-07-17",
+         "trend": []},
+    ]
+    s8_html, _, _ = _build_section8(shareholder_data, [])
+
+    assert "cs-description" in s8_html
+    assert "400張" in s8_html
+    assert "散戶" in s8_html
 
 
 def test_build_section8_splits_increasing_and_decreasing_columns():

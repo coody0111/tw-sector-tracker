@@ -1,3 +1,51 @@
+## [2026-07-22] 驗證 - 全面稽核補回熱區格改版遺漏功能 + 族群近況分類重構（commit adcd801/bb0f80f）✅
+
+### 驗證方式
+接續上一則報告；Cody 桌電跑完 `python main.py` 看到真實頁面後回報一系列「以前有的東西不見了」，
+Developer 做了 `export/html_generator.py`（舊版）vs `export/index_generator.py`（新版）全面稽核，
+抓出 13 項功能落差補回（`adcd801`）+ 修一個真實資料抓到的分類錯誤（`bb0f80f`）。這次交接特別要求
+多花時間實測、不只看 code review，所以這次用桌電真實跑出來的 `docs/index.html` 逐項核對，不是
+只看程式碼。
+
+### ✅ 驗證通過
+- `python -m pytest -q` 全套件：**400 passed, 1 failed**（差的是既有環境限制
+  `test_scan_patterns_returns_list`，跟報告寫的「401 passed」對得起來，400+1＝401，這次數字
+  跟報告一致，沒有上次那個 62→36 的落差問題）
+- 真實 `docs/index.html`（23:24 重新產生）逐項核對 13 項補回功能的代表性樣本：
+  - 搜尋框（`#stock-search`）+ `STOCK_INDEX`/`META_INDEX` 搜尋索引都存在
+  - 無行情個股改灰階佔位卡（`no_data`），不再從清單消失
+  - 族群層級 sparkline（`buildSparkline`）、大盤分級儀表板都有渲染
+  - 巨量換手訊號區塊今天沒有任何訊號（0檔），一開始以為是遺漏，追進
+    `export/index_generator.py:290` 確認是 `if not vol_turnover_signals: return ""` 的
+    fail-soft 設計，今天單純沒有「前日漲停→今日爆量收跌」這個特定樣態的族群，不是 bug
+  - `chips.html` 的 `#meta=族群名` 深連結格式（`index.html#meta=AI%E4%BC%BA...`）跟
+    `docs/index.html` 底部新補的 hash routing IIFE（`decodeURIComponent(location.hash)` →
+    `selectGroup(h.slice(6))`）**格式完全對得上**，這是這次稽核抓到的「真正bug」（不是13項
+    裡的錦上添花項），確認修好了
+- **族群近況分類重構的核心迴歸案例，用真實資料驗證通過**：Cody 回報的「功率半導體今日
+  #40→#1、+5.66%，卻被歸類成退燒」這個具體案例，我在真實頁面裡查證：
+  - 「🚀 今日爆發 Top 5」清單裡確實看得到「功率半導體 +5.66% ↑39」（排名跳39名，數字跟
+    Cody 回報的案例一致）
+  - 「❄️ 近期退燒 Top 5」清單裡**沒有**功率半導體（改成機器人/自動化、光學/相機、網通設備等），
+    確認「cold_top5排除今日爆發族群」這個修法邏輯真的生效，不是只有測試過、實際資料沒對到
+  - 族群近況6個分類（近期增溫/近期退燒/今日爆發/外資悄悄佈局/投信悄悄佈局/量能異常）
+    在真實頁面裡全部有渲染，版面確實從2欄擴成6欄
+- 4 個頁面（index/chips/patterns/momentum）nav 互連逐一 grep 確認，這次改動沒有動到 nav，
+  沒有受影響
+
+### ⚠️ 承接上一則報告，仍未驗證：鍵盤操作 + 手機版 auto-fit grid
+- 這次交接清單新增要求「手機版(auto-fit grid)不跑版」，跟上一則沒測到的鍵盤操作
+  （Tab+Enter/Space）一樣，這個 session 沒有瀏覽器工具，兩項都只能停在「程式碼存在對應
+  屬性/CSS」層級，沒辦法實際用瀏覽器（尤其手機版面需要真的縮小視窗看有沒有跑版，這種純
+  視覺回歸完全沒辦法用 grep 驗證）。這兩項持續掛著，需要有瀏覽器工具的環境或 Cody 桌電
+  肉眼補測。
+
+### 結論
+- [x] 可以繼續下一個任務——這次補回的13項功能+分類重構的核心迴歸案例，我用真實資料逐一
+      核對過，包含原本以為是遺漏、追查後確認是正常fail-soft設計的巨量換手區塊，都沒問題。
+- [ ] 鍵盤操作、手機版 auto-fit grid 兩項視覺/互動測試持續待補（連續兩次交接都提到，需要
+      瀏覽器環境才能真正驗證，不是我這邊能決定要不要做的事）。
+
 ## [2026-07-29] 修 🟡→改善 - 族群頁再按同一族群可收合(toggle)（Cody 授權 Debugger 直接改）
 
 ### 背景
@@ -2615,3 +2663,135 @@ reimport 完成：共 372163 筆
 
 ### 結論
 - [x] 已修並加測試 — 回答 Cody「以後同一個資料來源 OK 嗎」：歷史（backfill 順序）+ 以後（每週更新重跑）兩條路現在都正確。建議之後例行更新可安心設每日 cron，不會再洗壞 streak。
+
+---
+
+## [2026-08-25] 驗證 - 首頁（index.html）版面/視覺重設 13個Task
+
+### 驗證方式
+- 靜態 review：`export/index_generator.py`（`git diff c82903a..3633fea`，376 行）、`processors/performance.py`、`main.py` 的完整改動
+- `python -m pytest -q`：**502 passed, 1 failed**（唯一失敗是 `test_scan_patterns_returns_list`，這個 debug worktree 本來就沒有 `data/screener.db`，CLAUDE.md 已記載的既有環境限制，與本次改動無關）
+- 實跑對照桌電 Developer 那份正式 DB（`C:\Users\Cody\Desktop\tw-sector-tracker\data\screener.db`，read-only）：
+  - `calc_meta_chips_signals()` 對 42 個 meta_sector 全部跑成功，`dealer_net_today`/`foreign_net_week`/`trust_net_week` 三個新欄位都正確出現，無缺漏
+  - `get_shareholder_top()` 對正式 DB 跑出 1040 檔完整資料（不是只有前 N 檔）
+  - `build_stock_detail_data(..., shareholder_df=sh)` 對正式 universe+shareholder 資料跑通，抽查 `5543` 的 `holder_pct`/`holder_week_chg` 正確帶出（72.9949 / 0.0407）
+- 檢查 `docs/momentum.html`／`docs/patterns.html`／`docs/chips.html`／nav 連結是否受影響
+- 檢查 `docs/index.html` 目前內容是否反映這批改動
+
+### ✅ 驗證通過（對照 debug-tasks.md 的「請 Debugger 驗證」清單）
+- **`dealer_net` 的 SELECT 修改不影響 production**：正式 `institutional` 表本來就有 `dealer_net` 欄位（`scrapers/chips.py`／`screener/institutional.py` 早就在寫入），這次只是新增讀取，schema 上零風險；實跑驗證 42 個 meta_sector 全部正常回傳。
+- **`shareholder_df` 在 `main.py` 正確接線**：`main.py:768-769` 呼叫 `get_shareholder_top()` → 傳進 `generate_index_html(..., shareholder_df=index_shareholder_df)` → `build_stock_detail_data()` 用 `stock_id` 對齊塞進 `holder_pct`/`holder_week_chg`。對正式資料實跑驗證正確（見上）。跟 `main.py:824-826` 既有那次 `get_shareholder_top()` 呼叫各自獨立，功能上沒問題，只是重複查一次 DB（效能小備註，見下方 🟡）。
+- **上市/上櫃資料來源沒有混用**：這次沒有新增任何 scraper 呼叫，全部改動都是讀取既有的 `institutional`／`shareholder` 表（早就是 TWSE+TPEx 統一寫入），沒有引入新的資料源混用風險。
+- **沒有影響其他模組**：`git log c82903a..3633fea -- docs/momentum.html docs/patterns.html docs/chips.html` 查出來這三個檔案在這批 12 個 commit 範圍內完全沒被動到（改動的那幾筆是各自獨立的「update: sector performance」自動重產生 commit，時間點在這批之前）；`nav-link` 的 HTML（`export/index_generator.py:1309-1313`）也不在 diff 範圍內，四頁互連不受影響。
+- **異動族群排序邏輯正確**：`results.sort(key=lambda r: (r["kind"] != "burst", -abs(r["pct"])))`，burst 優先、同 kind 內 abs(pct) 降冪，跟 `test_find_anomaly_cards_sorts_burst_before_trend`／`..._sorts_by_abs_pct_within_same_kind` 兩個新測試邏輯一致。
+- **面板錨定邏輯正確**：`selectGroup()` 改用 `document.getElementById('heatgrid').insertAdjacentElement('afterend', panel)`，不再用被點 tile 所在列的 `rowTiles` 算插入點，熱區格 41 格排列不會被打斷；`test_generate_selectgroup_inserts_panel_after_heatgrid_container_not_inside_a_row` 直接檢查原始碼字串確認 `rowTiles` 已不存在於 `selectGroup()` 內。
+- **表格欄數與 colspan 一致**：個股表格新增「大戶佔比」「大戶週變化」兩欄後，`<th>` 總數是 14（含「股票」欄），無資料列的 `colspan="13"` = 14 − 1（股票欄自己是獨立 `<td>`，不算進 colspan），數字對得上，不是舊的 11。
+- **玻璃光暈雙主題都合理**：`.heat-tile.tier-super` 用 `color-mix(in srgb, var(--accent) N%, transparent)`，深色主題 `--accent:#F0BB55`、淺色主題 `--accent:#93701E`（`export/index_generator.py:704,719`），色相跟著主題走，不是寫死同一組 rgba，程式碼邏輯上兩個主題都會有合理的光暈色（實際視覺效果仍需瀏覽器肉眼確認，見下方跳過項）。
+- **`detail-three-col`／`secondary-row` 有 responsive media query**：分別在 768px／900px 收合成單欄，CSS 規則存在且邏輯正確（實際窄螢幕渲染仍需瀏覽器確認，見下方跳過項）。
+- **鍵盤操作（Tab focus + Enter/Space）程式碼面已具備**：熱區格 tile 有 `role="button" tabindex="0"`、`onkeydown` 處理 Enter/Space、`.heat-tile:focus-visible{outline:3px solid var(--accent)}`——這是 2026-07-23 遺留的補測項，程式碼確認存在且邏輯正確，但沒有瀏覽器無法實際按鍵確認焦點視覺與觸發效果。
+- pytest **502 passed**（Developer 回報 501，多出的 1 個是本機環境差異或後續小改動，非負面訊號）。14 個新測試名稱與涵蓋範圍跟本次 6 大項改動逐一對應，無明顯遺漏。
+
+### 🟡 建議改善
+- **`docs/index.html` 目前在 repo 裡是舊的，尚未反映這批改動**。查 `git log -- docs/index.html`，最後一次重新產生是 `a19e780`（2026-08-25 10:20），但這批 12 個功能 commit 的時間是 19:54~21:46，全部晚於那次產生時間。也就是說 debug-tasks.md checklist 明確要求的「實際跑一次 main.py 確認 docs/index.html 有大戶佔比/週變化欄」這件事**目前為止還沒有真的做過**——Developer 的「手動 smoke test」是直接呼叫 `generate()` 搭配測試 fixture，不是完整 `python main.py` 流程。我在這台 debug worktree 沒有 `data/screener.db`，只能對 Developer 那份正式 DB 用個別函式（`calc_meta_chips_signals`／`get_shareholder_top`／`build_stock_detail_data`）分別 read-only 實跑驗證邏輯正確，但沒有跑過完整 `python main.py` 產生真正的 `docs/index.html` 並用瀏覽器打開看過。建議 push 前（或 push 後）在有完整 `data/` 的機器上跑一次 `python main.py`，重新產生 `docs/index.html` 並實際打開看一眼，這是目前唯一還沒閉環的一步。
+  位置：`docs/index.html`（generated artifact，git 歷史顯示落後於程式碼）。
+- **`weekly_ranks` 理論上可能含 `None`，前端沒 guard**：`calc_meta_rank_history()`（`processors/performance.py:1146`）在某個 meta_sector 當週價格資料不完整時，該週的 rank 會是 `None`（`week_ranks_by_week[i].get(meta_name)` 找不到值），`weekly_ranks_raw` 直接回傳給前端、不過濾。前端 `buildHistoryRecord()` 的 `inTop10 = rank <= 10` 在 JS 裡 `null <= 10` 會是 `true`（null 數值轉型為 0），加上 `#${rank}` 沒判斷 null，會顯示成「#null」且被誤標成 in-top10（加 `.in-top10` 樣式）。**這是既有邏輯（不在今天的 diff 範圍內，`weekly_ranks` 的處理方式維持原樣）**，但今天新增的 `weekly_returns`/`returns[i]` 是有正確 guard 的（`ret !== null && ret !== undefined`），對照之下這個舊缺口比較明顯。目前 41-42 個既有 meta_sector 每天都有完整價格覆蓋，實務上大機率不會觸發，屬於低優先度、非阻擋的既有邊界情況，附帶記錄供之後參考。
+  位置：`export/index_generator.py` 的 `buildHistoryRecord()` JS 函式（`rank <= 10` 那行）。
+- 小備註：`main.py` 對 `get_shareholder_top()` 呼叫了兩次（`768-769` 供 index.html、`824-826` 供既有籌碼排行用途），各自獨立不會互相干擾，Developer 也已註明是刻意取捨，只是會多一次 DB 查詢，非正確性問題。
+
+### 未能在本機完成的驗證項（需瀏覽器工具或 Cody 協助）
+- 熱區格 41 格實際排列、面板實際插入位置的視覺確認
+- 三欄並排在窄螢幕（<768px）／`secondary-row` 在 <900px 的實際 responsive 渲染
+- 深色/淺色主題切換時，超強 tier 光暈的實際視覺觀感是否兩個主題都好看
+- Tab 鍵盤 focus 順序、Enter/Space 實際觸發熱區格展開的手感
+- 完整 `python main.py` 產生真正的 `docs/index.html` 後打開瀏覽器確認（見上方 🟡 第一項）
+
+### 結論
+- [ ] 需要修改後再確認 — 主體邏輯（dealer_net/holder_pct 接線、排序、面板錨定、colspan、nav 不受影響）程式碼 review + 對正式 DB 實跑驗證皆正確，可視為邏輯面已過關；但 **checklist 明確要求的「實際跑 main.py 確認 docs/index.html」這步尚未完成**，建議在有完整 `data/` 的機器上補跑一次、真正打開瀏覽器看過之後再 push。`weekly_ranks` 的 None 邊界情況為既有低優先度改善項，不阻擋。
+
+---
+
+## [2026-08-27] 驗證 - 排程通知系統(Telegram) 6個Task + BOM修復
+
+### 驗證方式
+- `python -m pytest -q`：**556 passed**（Cody 回報 554，環境/時間點差異，非負面訊號）
+- 直接 `python scripts/run_scheduled.py test-notify`／`intraday`（不透過 pytest）實跑驗證 Critical 修復
+- 靜態 review：`notifications/telegram.py`、`scripts/run_scheduled.py`（執行鎖/去重/訊息組裝）、
+  `processors/flow_watch.py`、`main.py` 新增的 `_build_run_summary()`/`_push_html()`
+- 用 PowerShell `[System.Management.Automation.Language.Parser]::ParseFile()` 實測
+  `install_scheduler.ps1` 的 BOM 問題，並在 scratchpad 驗證修法後才動正式檔案
+- 檢查 `Get-ScheduledTask` 確認排程尚未實際安裝到這台機器
+
+### ✅ 驗證通過（對照 debug-tasks.md 的「請 Debugger 驗證」清單）
+- **Critical 修復（sys.path）已驗證有效**：直接執行 `python scripts/run_scheduled.py test-notify`
+  （不透過已經加過路徑的 pytest 環境）沒有 `ModuleNotFoundError`，乾淨印出
+  「設定錯誤：TELEGRAM_BOT_TOKEN 或 TELEGRAM_CHAT_ID 未設定」、exit code 1——修復確實生效。
+- **`intraday` 模式確認不產生 git commit**：這台機器目前是非盤中時間（20:52），實跑後
+  `git log` 前後 HEAD 不變，log 正確記錄「非盤中時間，intraday 模式跳過」。**限制**：這只驗證了
+  「非盤中時段安全跳過」這條路徑，沒有真的跑到 main.py 那段（那段需要盤中時間才會觸發），
+  如實記錄這個限制。
+- **`notifications/telegram.py` 安全性**：確認 Token／API 回應內文都沒有進 log（只記
+  HTTP status code／exception 類型），符合 docs/scheduler.md §9。
+- **通知去重設計正確**：`compute_signal_hash()` 只 hash 融資警示股票清單+市場狀態，排除
+  `duration_seconds`/`started_at` 這類每次都不同的雜訊欄位；`save_notification_state()`
+  只在 Telegram 真的送成功時才更新，發送失敗時刻意不更新 state（避免誤判成已通知、永久吃掉
+  警示），這個 finding 4 的修復邏輯正確。
+- **執行鎖 PID 存活判斷在 Windows 上實測正確**：`os.kill(pid, 0)` 在 Windows 對「已死 PID」
+  丟的是 `OSError: [WinError 87]`（不是 `ProcessLookupError`），但 `_pid_alive()` 的
+  `except OSError: return False` 這個 catch-all 剛好接住，結果依然正確（過期鎖能正常被接管）。
+  用真實 PID（存活）+ 假造死 PID 各測一次確認。
+- **`_push_html()` 的 git_pushed 回傳值語意正確**：沒有變動／`git commit`／`git pull --rebase`
+  衝突／推送失敗都正確回傳 `False`，避免收盤 Telegram 訊息誤報「網站已更新」（finding 6）。
+
+### 🔵 已直接修復（BOM問題，Cody 明確請我或他決定）
+- **`scripts/install_scheduler.ps1` 缺 UTF-8 BOM 導致 PowerShell 5.1 解析失敗——診斷完全正確，
+  已修復**。實測重現：用 `[Parser]::ParseFile()` 直接解析原檔，丟出
+  `Missing closing '}' in statement block`（PowerShell 5.1 在沒有 BOM 時退回系統內碼(big5)
+  解讀中文字元，導致大括號位置被誤判）。修法驗證：先在 scratchpad 複製一份用
+  `UTF8Encoding($true)`（帶 BOM）重新存檔，`ParseFile()` 變成乾淨通過，`git diff` 確認
+  **除了 BOM 那 1 byte，內容完全沒變**（zero content change）。確認安全後才對正式檔案套用
+  同樣的重新編碼。此後 `Get-ScheduledTask -TaskName "TW-Sector-*"` 確認排程尚未實際裝上這台
+  機器（不影響任何正在跑的東西）。
+
+### 🟡 建議改善（裁定合理，但補充理由與一個小發現）
+- **`_update_chips_db()` 失敗不進 `_run_warnings`**：裁定合理。實測確認這個函式（main.py
+  97-243行）的 6 個 `except` 區塊全部只有 `logger.error`，完全沒碰 `_run_warnings`。同意
+  「不阻擋這批任務」的判斷，但想強調一下嚴重度：這個缺口影響的剛好是全系統**唯一**驗證有
+  edge 的訊號（融資警示/`margin_bearish`），一旦 TWSE/TPEx 哪天真的擋掉三大法人/融資融券
+  端點，收盤摘要會顯示「資料完整性：正常」+「融資警示：無」——這正是 CLAUDE.md 最怕的
+  「不報錯但給錯結果」，建議排進近期待辦而不是無限期擱置。
+- **`notifications/telegram.py::_split_message()` 單一過長段落會靜默截斷、不會多切一段**：
+  `para[:max_length] if len(para) > max_length else para` 這行，如果單一段落（`\n\n`
+  分隔後）本身就超過 4000 字，超出的部分直接被丟棄、不會出現在任何一則訊息裡。目前所有訊息
+  組裝函式（`compose_intraday_message`/`compose_close_message`）都是短行組成，單一段落實際上
+  不太可能踩到這個門檻，屬於低機率的靜默資料遺失邊角案例，非阻擋，記錄供之後參考。
+  位置：`notifications/telegram.py:36`。
+
+### 未能在本機完成的驗證項
+- **真實 Telegram 發送測試（checklist 明確要求的那項）**：這台機器的 `.env`（debug worktree
+  沒有 `.env`；查了 Developer worktree 的 `.env` 也只有 `FINMIND_TOKEN`，沒有
+  `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID`）目前**沒有填入真實 Telegram 憑證**，如實回報跳過，
+  沒有假造測試。程式邏輯面（訊息組裝、發送、錯誤處理）已用 review+直接執行驗證過，但「手機
+  真的收得到」這個最終環節必須等 Cody 填入真實憑證後才能測。
+
+### debug worktree 同步狀況
+- **這次撞到的衝突已解決**（同一批籌碼頁檔案，跟上次驗證首頁改版時是同一組舊 debug-only
+  commit 造成，root cause 見 2026-08-25 那則報告）。這次額外發現：git 3-way merge在
+  `main.py`/`export/index_generator.py`/`tests/test_index_generator.py`/`docs/CONTEXT.md`
+  這幾處**沒有標記衝突，但靜默漏掉了 master 的合法內容**（`scan_consecutive_limit_up`/
+  `margin_divergence`/`limit_up_results` 的簽章+wiring、`docs/CONTEXT.md` 的完整術語表被
+  換成只剩新增的 5 則、遺失原本 12 則）。已逐一比對 master 手動補回，pytest 556 全過。
+  另外發現 **master 自己也有 `CONTEXT.md` 重複的 bug**（搬進 `docs/` 後，後續一次
+  domain-modeling 執行沒發現已經搬過，又在根目錄重新「建立」一份，兩份互不重疊），這個要在
+  同步回 master 時一併清掉。
+- **同步回 master 的動作被中斷**：在 master worktree 解決另一批新衝突時，工作目錄被外部
+  `git reset`（reflog 顯示非我操作），研判有其他 process/session 正在動同一個 master
+  worktree（可能是既有的 `main.py` 自動 git push 機制，或另一個 session）。master worktree
+  本身沒有損壞（乾淨回到 reset 前的狀態），但同步動作尚未完成，先暫停不再碰 master worktree，
+  待確認安全後再繼續。debug 分支這邊的修正已安全 commit（`4c80d16`＋`fb7c94b`）。
+
+### 結論
+- [ ] 需要 Cody 協助後再確認 — 程式邏輯面（6個Task的功能、Critical sys.path修復、去重/執行鎖/
+  git_pushed語意）review+直接執行驗證皆正確；BOM問題已確認診斷正確並直接修復；
+  `_update_chips_db()`警告缺口裁定合理但建議提升優先度；真實 Telegram 發送測試待 Cody
+  提供憑證；debug↔master 同步已解掉這次的衝突，但同步回 master 的動作被疑似的並發 session
+  中斷，需要確認安全後才能完成。

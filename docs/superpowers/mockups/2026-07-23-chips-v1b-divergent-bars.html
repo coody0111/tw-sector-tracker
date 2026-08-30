@@ -1,0 +1,529 @@
+<title>籌碼分析 — 今日焦點＋大戶持倉重新設計 Mockup v1</title>
+<style>
+:root{
+  --bg:#080B12;--surface:#0F1420;--surface-2:#161D2C;--surface-3:#1E2738;
+  --border:#293346;--border-strong:#37435C;
+  --text:#DADFE8;--muted:#98A0B4;--subtle:#636B80;
+  --accent:#F0BB55;--accent-soft:rgba(240,187,85,.14);--accent-dim:#B98A3A;
+  --up:#E6432F;--down:#37B25C;
+  --up-pill-text:#FF9585;--up-pill-bg:rgba(230,67,47,.32);--up-pill-border:rgba(230,67,47,.55);
+  --down-pill-text:#7FE8A8;--down-pill-bg:rgba(55,178,92,.32);--down-pill-border:rgba(55,178,92,.55);
+  --caution:#6E8CB0;--caution-soft:rgba(110,140,176,.16);
+  --serif:Georgia,"Iowan Old Style","Source Serif 4","Noto Serif TC",serif;
+  --sans:"Public Sans",-apple-system,"PingFang TC","Microsoft JhengHei","Segoe UI",sans-serif;
+  --mono:ui-monospace,"IBM Plex Mono","Cascadia Code","Roboto Mono",monospace;
+  --shadow-1:0 1px 2px rgba(0,0,0,.35);
+  --shadow-2:0 10px 28px rgba(0,0,0,.5),0 2px 6px rgba(0,0,0,.35);
+}
+:root[data-theme="light"]{
+  --bg:#EFE8D8;--surface:#F8F3E6;--surface-2:#EAE1CB;--surface-3:#E0D5B8;
+  --border:#D6C9A3;--border-strong:#C3B387;
+  --text:#241C10;--muted:#6B5B3D;--subtle:#93825E;
+  --accent:#93701E;--accent-soft:rgba(147,112,30,.12);--accent-dim:#C4A24E;
+  --up:#A8432C;--down:#3D7048;
+  --up-pill-text:#7A2F1E;--up-pill-bg:rgba(168,67,44,.16);--up-pill-border:rgba(168,67,44,.4);
+  --down-pill-text:#2A4F32;--down-pill-bg:rgba(61,112,72,.16);--down-pill-border:rgba(61,112,72,.4);
+  --caution:#4C6483;--caution-soft:rgba(76,100,131,.14);
+  --shadow-1:0 1px 2px rgba(60,45,10,.1);
+  --shadow-2:0 10px 28px rgba(60,45,10,.16),0 2px 6px rgba(60,45,10,.1);
+}
+*{box-sizing:border-box}
+html{color-scheme:dark}
+:root[data-theme="light"]{color-scheme:light}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:14px;line-height:1.55;min-width:320px}
+.tabular{font-variant-numeric:tabular-nums;font-family:var(--mono)}
+a{color:inherit}
+::selection{background:var(--accent-soft)}
+/* 現行production頁(chips_generator.py)的tab-btn已經有role=tab/aria-selected+focus-visible
+   outline，這裡補齊避免mockup示範出一個可及性倒退的版本 */
+a:focus-visible,button:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+
+/* ── Shell ── */
+.shell{max-width:1400px;margin:0 auto;padding:0 0 72px}
+.topbar{display:flex;align-items:baseline;gap:14px;padding:20px 26px;border-bottom:1px solid var(--border);background:linear-gradient(to bottom,var(--surface),var(--bg))}
+.topbar h1{font-family:var(--serif);font-size:1.28rem;font-weight:700;margin:0;letter-spacing:.01em}
+.topbar .kicker{font-size:.62rem;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--accent);display:flex;align-items:center;gap:6px;margin-bottom:4px}
+.topbar .kicker::before{content:"";width:13px;height:1px;background:var(--accent-dim)}
+.topbar .stamp{font-size:.72rem;color:var(--subtle);margin-left:auto;font-family:var(--mono)}
+.mock-banner{background:var(--caution-soft);border-bottom:1px solid var(--border);color:var(--caution);font-size:.72rem;padding:7px 26px;font-family:var(--mono)}
+
+/* ── 今日焦點 hero zone ── */
+.hero{display:grid;grid-template-columns:1.3fr 1fr;gap:14px;padding:22px 26px;align-items:stretch}
+@media(max-width:980px){.hero{grid-template-columns:1fr}}
+
+.hero-panel{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:20px 22px;display:flex;flex-direction:column}
+.hero-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:4px}
+.hero-head h2{font-family:var(--serif);font-size:1.02rem;font-weight:700;margin:0}
+.hero-head .count{font-size:.68rem;color:var(--subtle);font-family:var(--mono)}
+
+/* 誠實揭露 chip — 用caution色，跟accent(金)、up/down(紅綠)三組語意刻意分開 */
+.disclosure{display:flex;align-items:flex-start;gap:8px;background:var(--caution-soft);border:1px solid var(--border);border-radius:6px;padding:9px 12px;margin:10px 0 16px;font-size:.72rem;color:var(--text)}
+.disclosure b{color:var(--caution);font-weight:700}
+.disclosure .dot{width:6px;height:6px;border-radius:50%;background:var(--caution);flex-shrink:0;margin-top:5px}
+
+/* 候選卡：#1 用accent強調，#2/#3降階成精簡列，避免三張卡互搶注意力 */
+.pick-primary{background:var(--surface-2);border:1px solid var(--border-strong);border-left:3px solid var(--accent);border-radius:8px;padding:16px 18px;margin-bottom:12px}
+.pick-primary .pp-top{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
+.pick-primary .pp-name{font-family:var(--serif);font-weight:700;font-size:1.15rem}
+.pick-primary .pp-sid{font-family:var(--mono);color:var(--subtle);font-size:.76rem;margin-left:6px}
+.pick-primary .pp-pct{font-family:var(--mono);font-weight:800;font-size:1.1rem;color:var(--up)}
+.pick-primary .pp-meta{font-size:.72rem;color:var(--muted);margin-top:3px}
+.pick-primary .pp-evidence{display:flex;gap:14px;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid var(--border)}
+.pp-ev-item{font-size:.7rem;color:var(--muted)}
+.pp-ev-item b{color:var(--text);font-family:var(--mono);font-weight:700}
+
+.pick-secondary{display:flex;align-items:center;gap:10px;padding:9px 4px;border-bottom:1px solid var(--border)}
+.pick-secondary:last-child{border-bottom:none}
+.ps-rank{font-family:var(--mono);font-size:.68rem;color:var(--subtle);width:16px}
+.ps-name{font-family:var(--serif);font-weight:600;font-size:.86rem;flex:1}
+.ps-sid{font-family:var(--mono);color:var(--subtle);font-size:.68rem;margin-left:4px}
+.ps-evidence{font-size:.68rem;color:var(--subtle);font-family:var(--mono)}
+.ps-pct{font-family:var(--mono);font-weight:700;font-size:.84rem;color:var(--up);width:58px;text-align:right}
+
+/* 大戶持倉本週焦點 — 迷你版，指向完整tab。長條改成「週變化%」發散長條（置中0，
+   往左/右伸，紅漲綠跌），取代原本對著固定0~100%畫的絕對水位長條——後者在
+   30~70%這種常見區間視覺差異太小，看不出誰真的在變化。 */
+.holder-mini-row{display:flex;align-items:center;gap:10px;padding:7px 0}
+.hm-name{font-family:var(--serif);font-weight:600;font-size:.84rem;width:76px;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hm-divbar{flex:1;height:8px;background:var(--surface-3);border-radius:4px;position:relative;overflow:hidden}
+.hm-divbar::after{content:"";position:absolute;left:50%;top:0;bottom:0;width:1px;background:var(--border-strong)}
+.hm-divbar span{position:absolute;top:0;bottom:0;border-radius:3px}
+.hm-divbar span.up{left:50%;background:var(--up)}
+.hm-divbar span.down{right:50%;background:var(--down)}
+/* 週變化改標籤(pill)形式，不再是裸文字——跟.hc-streak-pill同一套視覺語言，
+   一眼認得出「這是一個帶方向語意的數值」，不是普通的價格數字 */
+.hm-delta{font-family:var(--mono);font-weight:800;font-size:.7rem;width:52px;text-align:center;
+  padding:3px 0;border-radius:9px;flex-shrink:0;border:1px solid}
+.hm-delta.up{color:var(--up-pill-text);background:var(--up-pill-bg);border-color:var(--up-pill-border)}
+.hm-delta.down{color:var(--down-pill-text);background:var(--down-pill-bg);border-color:var(--down-pill-border)}
+.hm-abs{font-family:var(--mono);font-size:.66rem;color:var(--subtle);width:44px;text-align:right}
+.hero-footnote{margin-top:auto;padding-top:14px;font-size:.68rem;color:var(--subtle)}
+.hero-footnote a{color:var(--accent);text-decoration:none;border-bottom:1px dotted var(--accent-dim)}
+
+/* ── Tab bar ── */
+.tab-groups{display:flex;gap:18px;padding:0 26px 14px;flex-wrap:wrap;border-bottom:1px solid var(--border)}
+.tab-group{display:flex;flex-direction:column;gap:4px}
+.tab-group-label{font-size:.6rem;letter-spacing:.1em;text-transform:uppercase;color:var(--subtle);padding-left:2px}
+.tab-row{display:flex;gap:4px}
+.tab-btn{font-family:var(--sans);font-size:.76rem;font-weight:600;padding:7px 13px;border-radius:6px;border:1px solid transparent;background:transparent;color:var(--muted);cursor:pointer;white-space:nowrap}
+.tab-btn:hover{color:var(--text);background:var(--surface)}
+.tab-btn.active{color:var(--text);background:var(--surface-2);border-color:var(--border-strong)}
+.tab-btn .n{font-family:var(--mono);color:var(--subtle);font-size:.66rem;margin-left:4px}
+.tab-btn.active .n{color:var(--accent-dim)}
+
+/* ── 大戶持倉：卡片+bar，取代13欄densetable ── */
+.section-head{display:flex;align-items:center;gap:12px;padding:26px 26px 4px}
+.section-head h2{font-family:var(--serif);font-size:1.08rem;font-weight:700;margin:0}
+.section-head .count{font-size:.68rem;color:var(--subtle);font-family:var(--mono)}
+.section-sub{padding:0 26px 16px;font-size:.78rem;color:var(--muted);max-width:760px;line-height:1.6}
+
+/* 卡片改窄（320px→240px），因為拿掉整條寬版絕對水位長條後，一張卡片矮很多，
+   同樣版面能塞下更多欄——這是省下來的空間的用法，不是留白 */
+.holder-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:8px;padding:0 26px}
+.holder-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:11px 13px}
+.hc-top{display:flex;align-items:baseline;gap:6px}
+.hc-rank{font-family:var(--mono);font-size:.62rem;color:var(--subtle);flex-shrink:0}
+.hc-name{font-family:var(--serif);font-weight:700;font-size:.88rem;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hc-sid{font-family:var(--mono);color:var(--subtle);font-size:.64rem}
+.hc-meta{font-size:.64rem;color:var(--subtle);margin-top:1px}
+.hc-price{font-family:var(--mono);font-weight:700;font-size:.8rem;flex-shrink:0}
+.hc-price.up{color:var(--up)}.hc-price.down{color:var(--down)}
+
+/* 主指標改成「週變化%」發散長條（置中0，紅增綠減），依本頁實際最大變化幅度動態縮放，
+   取代原本對著固定0~100%畫的絕對水位長條——後者在常見的30~70%區間視覺差異太小，
+   看不出誰在變化，改這樣之後卡片也矮了一截，省下來的空間讓一排能塞更多張。 */
+.hc-bar-row{display:flex;align-items:center;gap:8px;margin-top:9px}
+.hc-divbar{flex:1;height:7px;background:var(--surface-3);border-radius:3px;position:relative;overflow:hidden}
+.hc-divbar::after{content:"";position:absolute;left:50%;top:0;bottom:0;width:1px;background:var(--border-strong)}
+.hc-divbar span{position:absolute;top:0;bottom:0;border-radius:2px}
+.hc-divbar span.up{left:50%;background:var(--up)}
+.hc-divbar span.down{right:50%;background:var(--down)}
+/* 週變化改標籤(pill)形式，跟.hc-streak-pill同一套視覺語言——一眼認得出這是帶方向
+   語意的數值，跟旁邊「絕對水位%」的裸文字明確分出主次 */
+.hc-week{font-family:var(--mono);font-weight:800;font-size:.66rem;flex-shrink:0;width:46px;
+  text-align:center;padding:3px 0;border-radius:8px;border:1px solid}
+.hc-week.up{color:var(--up-pill-text);background:var(--up-pill-bg);border-color:var(--up-pill-border)}
+.hc-week.down{color:var(--down-pill-text);background:var(--down-pill-bg);border-color:var(--down-pill-border)}
+.hc-abs{font-family:var(--mono);font-size:.64rem;color:var(--subtle);flex-shrink:0;width:38px;text-align:right}
+
+/* 次要指標：streak/張數變化/1000張以上，收成一行小字 */
+.hc-badges{display:flex;gap:8px;margin-top:6px;flex-wrap:wrap;font-family:var(--mono);font-size:.64rem;color:var(--subtle)}
+.hc-badges b{color:var(--text);font-weight:700}
+.hc-streak-pill{padding:2px 7px;border-radius:8px;font-weight:800;font-size:.62rem;border:1px solid}
+.hc-streak-pill.up{color:var(--up-pill-text);background:var(--up-pill-bg);border-color:var(--up-pill-border)}
+.hc-streak-pill.down{color:var(--down-pill-text);background:var(--down-pill-bg);border-color:var(--down-pill-border)}
+
+/* 近5週趨勢迷你走勢圖——shareholder表每週一筆快照。每個資料點都對應一個實際週日期
+   (X軸5個刻度=5個真實週，不是只標頭尾)，趨勢形狀不是隨便編的，是根據各股現有的
+   streak/週變化數字反推的合理走勢。畫的是「400張以上大戶%」逐週的絕對水位，不是
+   週變化，因為這裡要回答的是「連續增加的這幾週是穩定爬升還是最近才加速」，用水位
+   的斜率看最直覺，跟上面發散長條（週變化%，回答「這週有沒有變化」）是互補、不是
+   重複的兩個問題。 */
+/* Y軸最高/最低%刻度＋X軸5個實際週日期＋淡色基準格線全部畫進同一個SVG座標系統
+   （不再用HTML flex row+padding-left去猜對齊，那樣兩個獨立排版的元素本來就對不準，
+   是必然不是偶發）——整張走勢圖現在是單一SVG，viewBox左側22單位留給Y軸文字，
+   折線本身画在x=22~92，跟x軸日期文字共用同一組x座標，保證像素級對齊，不會再有
+   「折線跟下面日期對不上」的問題。 */
+.hc-trend{margin-top:8px}
+.hc-trend-label{font-size:.6rem;color:var(--subtle);margin-bottom:3px}
+.hc-trend svg{display:block;width:100%;height:auto}
+.hc-trend text{font-family:var(--mono);font-size:4.2px;fill:var(--subtle)}
+.hc-trend .axis-label{text-anchor:end}
+.hc-trend .trend-line{fill:none;stroke:var(--muted);stroke-width:1.4}
+.hc-trend .trend-area{fill:var(--muted);opacity:.08}
+.hc-trend .trend-end{fill:var(--accent)}
+.hc-trend.down .trend-line{stroke:var(--down)}
+.hc-trend.down .trend-area{fill:var(--down)}
+.hc-trend.down .trend-end{fill:var(--down)}
+.hc-trend .trend-grid{stroke:var(--border);stroke-width:1;stroke-dasharray:2,2}
+
+.legend-note{padding:14px 26px 0;font-size:.7rem;color:var(--subtle);max-width:760px}
+</style>
+
+<div class="mock-banner">MOCKUP — 討論用，資料為真實股票/族群名稱但數字為示範值，不是真的今日盤後資料</div>
+
+<div class="shell">
+  <div class="topbar">
+    <div>
+      <div class="kicker">台股電子供應鏈籌碼追蹤</div>
+      <h1>籌碼分析</h1>
+    </div>
+    <div class="stamp">2026-07-23 盤後</div>
+  </div>
+
+  <!-- ═══ 今日焦點：headline zone，取代「9個分頁籤地位相等」的現況 ═══ -->
+  <div class="hero">
+    <div class="hero-panel">
+      <div class="hero-head">
+        <h2>候選觀察</h2>
+        <span class="count">法人同步觀察 · 3 檔符合</span>
+      </div>
+      <div class="disclosure">
+        <span class="dot"></span>
+        <span><b>這是條件篩選出的觀察名單，不是投資建議。</b>排序邏輯（連買天數＋股價動能綜合分）尚未完成配對組／統計顯著性驗證，命中率目前無法保證優於隨機選股。</span>
+      </div>
+
+      <div class="pick-primary">
+        <div class="pp-top">
+          <div><span class="pp-name">世界先進</span><span class="pp-sid">5347</span></div>
+          <div class="pp-pct">+3.8%<span style="font-size:.6rem;color:var(--subtle);font-weight:400"> 10日</span></div>
+        </div>
+        <div class="pp-meta">晶圓代工 · 外資連買 7 日</div>
+        <div class="pp-evidence">
+          <span class="pp-ev-item">連買天數 <b>7日</b></span>
+          <span class="pp-ev-item">外資淨買 <b>+4,120張</b></span>
+          <span class="pp-ev-item">10日量比 <b>1.6x</b></span>
+          <span class="pp-ev-item">綜合分排名 <b>#1 / 214</b></span>
+        </div>
+      </div>
+
+      <div class="pick-secondary">
+        <span class="ps-rank">2</span>
+        <span class="ps-name">健策<span class="ps-sid">3653</span></span>
+        <span class="ps-evidence">外資連買5日 · 量比1.4x</span>
+        <span class="ps-pct">+2.1%</span>
+      </div>
+      <div class="pick-secondary">
+        <span class="ps-rank">3</span>
+        <span class="ps-name">系統電<span class="ps-sid">5309</span></span>
+        <span class="ps-evidence">投信連買6日 · 量比1.3x</span>
+        <span class="ps-pct">+1.4%</span>
+      </div>
+
+      <div class="hero-footnote">篩選條件：連買 ≥2 日、成交量 ≥500 張、買超占量 ≥0.1%、10日價格不弱於 0%。完整榜單見 <a href="#">法人同步觀察</a> 分頁。</div>
+    </div>
+
+    <div class="hero-panel">
+      <div class="hero-head">
+        <h2>大戶持倉本週焦點</h2>
+        <span class="count">400張以上大戶% 週變化 Top 5</span>
+      </div>
+      <div style="margin-top:6px">
+        <!-- 長條=週變化%，發散式（置中0）；長條長度對著「這份Top5裡實際出現的最大變化
+             幅度」動態縮放（這裡是+2.1%），不是對著固定量尺，差異才拉得開。絕對水位%
+             退成右側小字，不再佔一條長條的版面。 -->
+        <div class="holder-mini-row">
+          <span class="hm-name">世界先進</span>
+          <div class="hm-divbar"><span class="up" style="width:50%"></span></div>
+          <span class="hm-delta up">+2.1%</span>
+          <span class="hm-abs">68.4%</span>
+        </div>
+        <div class="holder-mini-row">
+          <span class="hm-name">健策</span>
+          <div class="hm-divbar"><span class="up" style="width:40%"></span></div>
+          <span class="hm-delta up">+1.7%</span>
+          <span class="hm-abs">54.2%</span>
+        </div>
+        <div class="holder-mini-row">
+          <span class="hm-name">聯亞</span>
+          <div class="hm-divbar"><span class="up" style="width:36%"></span></div>
+          <span class="hm-delta up">+1.5%</span>
+          <span class="hm-abs">41.0%</span>
+        </div>
+        <div class="holder-mini-row">
+          <span class="hm-name">富鼎</span>
+          <div class="hm-divbar"><span class="down" style="width:19%"></span></div>
+          <span class="hm-delta down">−0.8%</span>
+          <span class="hm-abs">59.3%</span>
+        </div>
+        <div class="holder-mini-row">
+          <span class="hm-name">大立光</span>
+          <div class="hm-divbar"><span class="up" style="width:14%"></span></div>
+          <span class="hm-delta up">+0.6%</span>
+          <span class="hm-abs">77.1%</span>
+        </div>
+      </div>
+      <div class="hero-footnote">長條＝400張以上大戶%的週變化（發散長條，紅增綠減，依本頁最大變化幅度動態縮放）；右側小字為當前絕對水位。完整榜單見 <a href="#">大戶籌碼</a> 分頁（下方）。</div>
+    </div>
+  </div>
+
+  <!-- ═══ 分頁籤：9個現有分頁，按性質分成3組，降低「9個平排」的認知負擔 ═══ -->
+  <div class="tab-groups" role="tablist" aria-label="籌碼分析分類">
+    <div class="tab-group">
+      <span class="tab-group-label">法人動向</span>
+      <div class="tab-row">
+        <button class="tab-btn" role="tab" aria-selected="false">法人同步觀察</button>
+        <button class="tab-btn" role="tab" aria-selected="false">外資籌碼</button>
+        <button class="tab-btn" role="tab" aria-selected="false">投信籌碼</button>
+      </div>
+    </div>
+    <div class="tab-group">
+      <span class="tab-group-label">特殊型態</span>
+      <div class="tab-row">
+        <button class="tab-btn" role="tab" aria-selected="false">越跌越買</button>
+        <button class="tab-btn" role="tab" aria-selected="false">外資偷偷買</button>
+        <button class="tab-btn" role="tab" aria-selected="false">融資警示</button>
+      </div>
+    </div>
+    <div class="tab-group">
+      <span class="tab-group-label">持股結構</span>
+      <div class="tab-row">
+        <button class="tab-btn active" role="tab" aria-selected="true">大戶籌碼<span class="n">30</span></button>
+        <button class="tab-btn" role="tab" aria-selected="false">董監持股</button>
+        <button class="tab-btn" role="tab" aria-selected="false">法人買賣總表</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ 大戶籌碼：卡片+長條圖取代13欄密集表格（DESIGN.md：超過15行table一律改卡片） ═══ -->
+  <!-- 注意：這裡刻意混排增倉/減倉（用badge區分方向），不是只列增倉——現行production版本
+       是拆成「大戶連增倉Top30」「大戶連減倉Top20」兩張獨立表格。這個mockup先示範「單一可
+       排序清單、方向用badge標示」這個design方向給Cody看，如果要保留兩張獨立清單，這裡的
+       標題跟資料要跟著改，不能沿用這版的「Top30」字面卻混著減倉股，那樣會誤導。 -->
+  <div class="section-head"><h2>大戶籌碼排行</h2><span class="count">Top 30 · ≥400張，集保週統計，增減倉混排</span></div>
+  <div class="section-sub">主指標改成「400張以上大戶%的週變化」發散長條（置中0，紅增綠減，依本頁最大變化幅度動態縮放）——絕對集中水位比較像股票固有體質，變化才是有訊號意義的部分；固定量尺的絕對水位長條在常見區間視覺差異太小，很難benchmark。絕對水位退成長條右側的小字。<b style="color:var(--accent)">新增：</b>「連增/連減N週」旁邊補了一條近5週趨勢迷你走勢圖——`shareholder`表是每週一筆快照，X軸5個刻度對應5個實際週日期（06/19～07/17，每個資料點都能對到一個真實週，不是只標頭尾兩端）；「連增6週」只講結論，走勢圖能看出這幾週是穩定爬升還是最近才加速。<b style="color:var(--caution)">設計待確認：</b>現行版本是「連增倉」「連減倉」兩張獨立表格，這裡先示範混排＋方向badge的做法，兩種各有取捨，要跟你確認要選哪個再定案。</div>
+
+  <div class="holder-grid">
+    <div class="holder-card">
+      <div class="hc-top">
+        <span class="hc-rank">#1</span>
+        <span class="hc-name">世界先進</span><span class="hc-sid">5347</span>
+        <span class="hc-price up">128.5 <span style="font-size:.62rem">+1.2%</span></span>
+      </div>
+      <div class="hc-meta">晶圓代工</div>
+      <div class="hc-bar-row">
+        <div class="hc-divbar"><span class="up" style="width:50%"></span></div>
+        <span class="hc-week up">+2.1%</span>
+        <span class="hc-abs">68.4%</span>
+      </div>
+      <div class="hc-badges">
+        <span class="hc-streak-pill up">連增6週</span>
+        <span>張數變化 <b style="color:var(--up)">+412張</b></span>
+        <span>1000張以上 <b>22.6%</b></span>
+      </div>
+      <div class="hc-trend">
+        <div class="hc-trend-label">近5週</div>
+        <svg viewBox="0 0 92 32">
+          <line class="trend-grid" x1="22" y1="18" x2="92" y2="18"/>
+          <polyline class="trend-area" points="22.0,18.0 39.5,13.7 57.0,8.7 74.5,6.1 92.0,2.0 92.0,20 22.0,20"/>
+          <polyline class="trend-line" points="22.0,18.0 39.5,13.7 57.0,8.7 74.5,6.1 92.0,2.0"/>
+          <circle class="trend-end" cx="92" cy="2" r="2"/>
+          <text class="axis-label" x="20" y="6">68.4</text>
+          <text class="axis-label" x="20" y="19">63.0</text>
+          <text x="22" y="29" text-anchor="start">06/19</text>
+          <text x="39.5" y="29" text-anchor="middle">06/26</text>
+          <text x="57" y="29" text-anchor="middle">07/03</text>
+          <text x="74.5" y="29" text-anchor="middle">07/10</text>
+          <text x="92" y="29" text-anchor="end">07/17</text>
+        </svg>
+      </div>
+    </div>
+
+    <div class="holder-card">
+      <div class="hc-top">
+        <span class="hc-rank">#2</span>
+        <span class="hc-name">大立光</span><span class="hc-sid">3008</span>
+        <span class="hc-price up">2,415 <span style="font-size:.62rem">+0.4%</span></span>
+      </div>
+      <div class="hc-meta">光學/相機</div>
+      <div class="hc-bar-row">
+        <div class="hc-divbar"><span class="up" style="width:14%"></span></div>
+        <span class="hc-week up">+0.6%</span>
+        <span class="hc-abs">77.1%</span>
+      </div>
+      <div class="hc-badges">
+        <span class="hc-streak-pill up">連增3週</span>
+        <span>張數變化 <b style="color:var(--up)">+85張</b></span>
+        <span>1000張以上 <b>31.4%</b></span>
+      </div>
+      <div class="hc-trend">
+        <div class="hc-trend-label">近5週</div>
+        <svg viewBox="0 0 92 32">
+          <line class="trend-grid" x1="22" y1="18" x2="92" y2="18"/>
+          <polyline class="trend-area" points="22.0,15.8 39.5,18.0 57.0,14.6 74.5,2.3 92.0,2.0 92.0,20 22.0,20"/>
+          <polyline class="trend-line" points="22.0,15.8 39.5,18.0 57.0,14.6 74.5,2.3 92.0,2.0"/>
+          <circle class="trend-end" cx="92" cy="2.0" r="2"/>
+          <text class="axis-label" x="20" y="6">77.1</text>
+          <text class="axis-label" x="20" y="19">75.9</text>
+          <text x="22" y="29" text-anchor="start">06/19</text>
+          <text x="39.5" y="29" text-anchor="middle">06/26</text>
+          <text x="57" y="29" text-anchor="middle">07/03</text>
+          <text x="74.5" y="29" text-anchor="middle">07/10</text>
+          <text x="92" y="29" text-anchor="end">07/17</text>
+        </svg>
+      </div>
+    </div>
+
+    <div class="holder-card">
+      <div class="hc-top">
+        <span class="hc-rank">#3</span>
+        <span class="hc-name">健策</span><span class="hc-sid">3653</span>
+        <span class="hc-price up">598.0 <span style="font-size:.62rem">+2.1%</span></span>
+      </div>
+      <div class="hc-meta">散熱</div>
+      <div class="hc-bar-row">
+        <div class="hc-divbar"><span class="up" style="width:40%"></span></div>
+        <span class="hc-week up">+1.7%</span>
+        <span class="hc-abs">54.2%</span>
+      </div>
+      <div class="hc-badges">
+        <span class="hc-streak-pill up">連增8週</span>
+        <span>張數變化 <b style="color:var(--up)">+203張</b></span>
+        <span>1000張以上 <b>9.8%</b></span>
+      </div>
+      <div class="hc-trend">
+        <div class="hc-trend-label">近5週</div>
+        <svg viewBox="0 0 92 32">
+          <line class="trend-grid" x1="22" y1="18" x2="92" y2="18"/>
+          <polyline class="trend-area" points="22.0,18.0 39.5,13.7 57.0,9.0 74.5,6.8 92.0,2.0 92.0,20 22.0,20"/>
+          <polyline class="trend-line" points="22.0,18.0 39.5,13.7 57.0,9.0 74.5,6.8 92.0,2.0"/>
+          <circle class="trend-end" cx="92" cy="2.0" r="2"/>
+          <text class="axis-label" x="20" y="6">54.2</text>
+          <text class="axis-label" x="20" y="19">49.6</text>
+          <text x="22" y="29" text-anchor="start">06/19</text>
+          <text x="39.5" y="29" text-anchor="middle">06/26</text>
+          <text x="57" y="29" text-anchor="middle">07/03</text>
+          <text x="74.5" y="29" text-anchor="middle">07/10</text>
+          <text x="92" y="29" text-anchor="end">07/17</text>
+        </svg>
+      </div>
+    </div>
+
+    <div class="holder-card">
+      <div class="hc-top">
+        <span class="hc-rank">#4</span>
+        <span class="hc-name">富鼎</span><span class="hc-sid">8261</span>
+        <span class="hc-price down">312.5 <span style="font-size:.62rem">−0.5%</span></span>
+      </div>
+      <div class="hc-meta">功率半導體</div>
+      <div class="hc-bar-row">
+        <div class="hc-divbar"><span class="down" style="width:19%"></span></div>
+        <span class="hc-week down">−0.8%</span>
+        <span class="hc-abs">59.3%</span>
+      </div>
+      <div class="hc-badges">
+        <span class="hc-streak-pill down">連減2週</span>
+        <span>張數變化 <b style="color:var(--down)">−96張</b></span>
+        <span>1000張以上 <b>18.1%</b></span>
+      </div>
+      <div class="hc-trend down">
+        <div class="hc-trend-label">近5週</div>
+        <svg viewBox="0 0 92 32">
+          <line class="trend-grid" x1="22" y1="18" x2="92" y2="18"/>
+          <polyline class="trend-area" points="22.0,2.0 39.5,5.0 57.0,6.3 74.5,16.7 92.0,18.0 92.0,20 22.0,20"/>
+          <polyline class="trend-line" points="22.0,2.0 39.5,5.0 57.0,6.3 74.5,16.7 92.0,18.0"/>
+          <circle class="trend-end" cx="92" cy="18.0" r="2"/>
+          <text class="axis-label" x="20" y="6">60.7</text>
+          <text class="axis-label" x="20" y="19">59.3</text>
+          <text x="22" y="29" text-anchor="start">06/19</text>
+          <text x="39.5" y="29" text-anchor="middle">06/26</text>
+          <text x="57" y="29" text-anchor="middle">07/03</text>
+          <text x="74.5" y="29" text-anchor="middle">07/10</text>
+          <text x="92" y="29" text-anchor="end">07/17</text>
+        </svg>
+      </div>
+    </div>
+
+    <div class="holder-card">
+      <div class="hc-top">
+        <span class="hc-rank">#5</span>
+        <span class="hc-name">聯亞</span><span class="hc-sid">3081</span>
+        <span class="hc-price up">89.4 <span style="font-size:.62rem">+3.2%</span></span>
+      </div>
+      <div class="hc-meta">光通訊</div>
+      <div class="hc-bar-row">
+        <div class="hc-divbar"><span class="up" style="width:36%"></span></div>
+        <span class="hc-week up">+1.5%</span>
+        <span class="hc-abs">41.0%</span>
+      </div>
+      <div class="hc-badges">
+        <span class="hc-streak-pill up">連增4週</span>
+        <span>張數變化 <b style="color:var(--up)">+61張</b></span>
+        <span>1000張以上 <b>6.3%</b></span>
+      </div>
+      <div class="hc-trend">
+        <div class="hc-trend-label">近5週</div>
+        <svg viewBox="0 0 92 32">
+          <line class="trend-grid" x1="22" y1="18" x2="92" y2="18"/>
+          <polyline class="trend-area" points="22.0,18.0 39.5,10.4 57.0,10.7 74.5,4.4 92.0,2.0 92.0,20 22.0,20"/>
+          <polyline class="trend-line" points="22.0,18.0 39.5,10.4 57.0,10.7 74.5,4.4 92.0,2.0"/>
+          <circle class="trend-end" cx="92" cy="2.0" r="2"/>
+          <text class="axis-label" x="20" y="6">41.0</text>
+          <text class="axis-label" x="20" y="19">37.6</text>
+          <text x="22" y="29" text-anchor="start">06/19</text>
+          <text x="39.5" y="29" text-anchor="middle">06/26</text>
+          <text x="57" y="29" text-anchor="middle">07/03</text>
+          <text x="74.5" y="29" text-anchor="middle">07/10</text>
+          <text x="92" y="29" text-anchor="end">07/17</text>
+        </svg>
+      </div>
+    </div>
+
+    <div class="holder-card">
+      <div class="hc-top">
+        <span class="hc-rank">#6</span>
+        <span class="hc-name">環球晶</span><span class="hc-sid">6488</span>
+        <span class="hc-price up">601.0 <span style="font-size:.62rem">+0.8%</span></span>
+      </div>
+      <div class="hc-meta">半導體材料</div>
+      <div class="hc-bar-row">
+        <div class="hc-divbar"><span class="up" style="width:7%"></span></div>
+        <span class="hc-week up">+0.3%</span>
+        <span class="hc-abs">63.7%</span>
+      </div>
+      <div class="hc-badges">
+        <span class="hc-streak-pill up">連增1週</span>
+        <span>張數變化 <b style="color:var(--up)">+44張</b></span>
+        <span>1000張以上 <b>19.9%</b></span>
+      </div>
+      <div class="hc-trend">
+        <div class="hc-trend-label">近5週</div>
+        <svg viewBox="0 0 92 32">
+          <line class="trend-grid" x1="22" y1="18" x2="92" y2="18"/>
+          <polyline class="trend-area" points="22.0,18.0 39.5,11.4 57.0,10.4 74.5,5.5 92.0,2.0 92.0,20 22.0,20"/>
+          <polyline class="trend-line" points="22.0,18.0 39.5,11.4 57.0,10.4 74.5,5.5 92.0,2.0"/>
+          <circle class="trend-end" cx="92" cy="2.0" r="2"/>
+          <text class="axis-label" x="20" y="6">63.7</text>
+          <text class="axis-label" x="20" y="19">62.7</text>
+          <text x="22" y="29" text-anchor="start">06/19</text>
+          <text x="39.5" y="29" text-anchor="middle">06/26</text>
+          <text x="57" y="29" text-anchor="middle">07/03</text>
+          <text x="74.5" y="29" text-anchor="middle">07/10</text>
+          <text x="92" y="29" text-anchor="end">07/17</text>
+        </svg>
+      </div>
+    </div>
+  </div>
+
+  <div class="legend-note">長條＝400張以上大戶%的週變化，發散式（置中0），依這份榜單裡實際出現的最大變化幅度（目前是世界先進 +2.1%）動態縮放——不是對著固定量尺，差異才拉得開；也因為改成發散式小長條，卡片矮了一截，一排能塞下更多欄。完整 30 檔捲動可見，這裡示範前 6 檔配置。</div>
+</div>

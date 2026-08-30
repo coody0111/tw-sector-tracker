@@ -4,6 +4,7 @@
          calc_meta_chips_signals()/calc_cumulative_meta()/calc_meta_heatgrid_windows()
 視覺/互動設計：docs/superpowers/specs/2026-07-15-sector-overview-heatmap-redesign.md
 技術落地設計：docs/superpowers/specs/2026-07-22-sector-overview-heatmap-implementation-design.md
+第二波（信心分層+今日/本週異動合併）：CONTEXT.md、docs/adr/0005-confidence-tiering-across-index-page.md、docs/adr/0006-index-reuses-cross-page-signal-functions.md
 
 刻意的設計決定：這個模組取代 export/html_generator.py 在 main.py::run() 裡的角色，但不刪除
 舊檔案（沒有其他模組依賴它，保留當 rollback 用）。這個檔案完全不呼叫 duckdb.connect()——跟
@@ -370,6 +371,120 @@ def _vol_turnover_html(vol_turnover_signals: Optional[List[Dict[str, Any]]]) -> 
         '<thead><tr><th>代號 / 名稱</th><th>族群</th><th>今日漲跌</th><th>量倍數</th><th>外資</th><th>確認</th></tr></thead>'
         f'<tbody>{"".join(rows)}</tbody>'
         '</table></div></div>'
+    )
+
+
+def _margin_divergence_html(margin_divergence: Optional[Dict[str, Any]]) -> str:
+    """
+    融資背離警示（get_margin_divergence() 輸出）：個股融資餘額趨勢 vs 股價趨勢背離，
+    真實成交數字（不是門檻草案分類），套實色強調，不套badge-weak（見docs/adr/0005）。
+    bearish/bullish各自最多顯示5檔（該函式本身回傳最多20檔，這裡只取UI要顯示的前5）。
+    兩邊都沒資料時回空字串，不顯示這個子區塊。
+    """
+    if not margin_divergence:
+        return ""
+    bearish = (margin_divergence.get("bearish") or [])[:5]
+    bullish = (margin_divergence.get("bullish") or [])[:5]
+    if not bearish and not bullish:
+        return ""
+
+    def _rows(items: List[Dict[str, Any]]) -> str:
+        return "".join(
+            '<tr>'
+            f'<td><span class="tabular" style="color:var(--ink-3)">{_esc(r["stock_id"])}</span> '
+            f'<span>{_esc(r.get("stock_name", ""))}</span></td>'
+            f'<td class="vt-sector">{_esc(r.get("meta_sector", ""))}</td>'
+            f'<td class="tabular" style="color:var(--accent);font-weight:700">{r["margin_pct"]:+.1f}%</td>'
+            f'<td class="tabular" style="color:{"var(--up)" if r["price_pct"] >= 0 else "var(--down)"};font-weight:700">{r["price_pct"]:+.1f}%</td>'
+            f'<td class="tabular" style="color:var(--ink-3)">{r["days"]}日</td>'
+            '</tr>'
+            for r in items
+        )
+
+    bearish_html = (
+        f'<div class="mdiv-col"><div class="mdiv-col-head bearish">警訊：融資增、股價跌</div>'
+        '<div class="overflow-wrap"><table class="vt-table">'
+        '<thead><tr><th>代號 / 名稱</th><th>族群</th><th>融資變化</th><th>股價變化</th><th>天數</th></tr></thead>'
+        f'<tbody>{_rows(bearish)}</tbody></table></div></div>'
+    ) if bearish else ""
+    bullish_html = (
+        f'<div class="mdiv-col"><div class="mdiv-col-head bullish">健康：融資減、股價漲</div>'
+        '<div class="overflow-wrap"><table class="vt-table">'
+        '<thead><tr><th>代號 / 名稱</th><th>族群</th><th>融資變化</th><th>股價變化</th><th>天數</th></tr></thead>'
+        f'<tbody>{_rows(bullish)}</tbody></table></div></div>'
+    ) if bullish else ""
+
+    return (
+        '<div class="mdiv-wrap">'
+        f'<div class="mdiv-head">融資背離 · 近{margin_divergence.get("days_used", 0)}個交易日</div>'
+        f'<div class="mdiv-cols">{bearish_html}{bullish_html}</div>'
+        '</div>'
+    )
+
+
+def _limit_up_html(limit_up_results: Optional[List[Dict[str, Any]]]) -> str:
+    """
+    連續漲停鎖死（scan_consecutive_limit_up() 輸出）：連續鎖漲停天數是既成事實，真實
+    成交數字，套實色強調，不套badge-weak（見docs/adr/0005）。量能遞減/起漲爆量兩個
+    旗標是bool|None（None=資料不足無法判定，不是False），要分三態顯示，不能把None
+    當False處理。最多顯示前10檔（函式本身已依limit_up_streak降冪排序）。
+    """
+    if not limit_up_results:
+        return ""
+    rows = []
+    for r in limit_up_results[:10]:
+        vd = r.get("volume_declining_streak")
+        vd_html = (
+            '<span style="color:var(--up)">量縮鎖死</span>' if vd is True
+            else '<span style="color:var(--ink-3)">量未縮</span>' if vd is False
+            else '<span style="color:var(--ink-3)">─</span>'
+        )
+        bc = r.get("breakout_volume_confirmed")
+        bc_html = (
+            '<span class="badge foreign">起漲爆量</span>' if bc is True
+            else '' if bc is False
+            else '<span style="color:var(--ink-3)">─</span>'
+        )
+        rows.append(
+            '<tr>'
+            f'<td><span class="tabular" style="color:var(--ink-3)">{_esc(r["stock_id"])}</span> '
+            f'<span>{_esc(r.get("stock_name", ""))}</span></td>'
+            f'<td class="vt-sector">{_esc(r.get("meta_sector", ""))}</td>'
+            f'<td class="tabular" style="color:var(--up);font-weight:700">{r["limit_up_streak"]}天</td>'
+            f'<td>{vd_html}</td>'
+            f'<td>{bc_html}</td>'
+            '</tr>'
+        )
+    return (
+        '<div class="mdiv-wrap">'
+        f'<div class="mdiv-head">連續漲停鎖死 · 共 {len(limit_up_results)} 檔</div>'
+        '<div class="overflow-wrap"><table class="vt-table">'
+        '<thead><tr><th>代號 / 名稱</th><th>族群</th><th>連續天數</th><th>量能</th><th>起漲確認</th></tr></thead>'
+        f'<tbody>{"".join(rows)}</tbody></table></div></div>'
+    )
+
+
+def _today_breakout_html(today_breakout: List[Dict[str, Any]]) -> str:
+    """
+    今日爆發（族群層級，今日排名跳動≥門檻且上漲，不要求同時爆量）：真數字，不套
+    badge-weak。從舊版_sector_recap_html()的status-cols其中一欄抽出來，現在是
+    「今日/本週異動」區塊今日層的一部分（見docs/adr/0005/CONTEXT.md「今日/本週異動」
+    詞條——這是唯一族群層級的今日層項目，其餘三個(異動族群/融資背離/連續漲停)都是
+    個股層級）。
+    """
+    if not today_breakout:
+        return ""
+    rows = "".join(
+        f'<div class="status-row"><span class="sr-name">{_esc(r["meta_name"])}</span>'
+        f'<span class="sr-today tabular" style="color:{"var(--up)" if r["pct"] >= 0 else "var(--down)"}">{_pct_str(r["pct"])}</span>'
+        f'<span class="sr-pt tabular" style="color:var(--up)">↑{r["rank_delta"]}</span></div>'
+        for r in today_breakout
+    )
+    return (
+        '<div class="mdiv-wrap">'
+        f'<div class="mdiv-head">今日爆發 · {len(today_breakout)} 個族群</div>'
+        f'<div>{rows}</div>'
+        '</div>'
     )
 
 
@@ -761,10 +876,9 @@ a{color:inherit}
 .section-rule{height:1px;background:linear-gradient(to right,var(--ink) 0%,var(--border) 45%,transparent 100%);margin:0 26px 4px}
 .section-sub{padding:0 26px 14px;font-size:.76rem;color:var(--ink-2);max-width:720px}
 
-.anomaly-wrap{position:relative;margin:0 26px}
-.anomaly-strip{display:flex;gap:14px;overflow-x:auto;padding:2px 2px 6px}
-.anomaly-wrap::after{content:"";position:absolute;top:0;right:0;bottom:6px;width:44px;pointer-events:none;background:linear-gradient(to right, transparent, var(--bg) 88%)}
-.anomaly-card{flex:0 0 240px;background:var(--panel);border:1px solid var(--border);border-radius:4px;padding:15px 17px;position:relative;cursor:pointer;transition:box-shadow .2s,transform .2s,border-color .2s}
+.anomaly-wrap{position:relative}
+.anomaly-strip{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px;padding:2px 2px 6px}
+.anomaly-card{background:var(--panel);border:1px solid var(--border);border-radius:4px;padding:15px 17px;position:relative;cursor:pointer;transition:box-shadow .2s,transform .2s,border-color .2s}
 .anomaly-card:hover{border-color:var(--border-2);transform:translateY(-2px)}
 .anomaly-card::before{content:"";position:absolute;left:0;top:15px;bottom:15px;width:2px;border-radius:2px}
 .anomaly-card.burst::before{background:var(--burst)} .anomaly-card.trend::before{background:var(--trend)}
@@ -795,6 +909,20 @@ table.vt-table{width:100%;border-collapse:collapse}
 .vt-table td{padding:6px 8px;font-size:.8rem;border-bottom:1px solid var(--border)}
 .vt-sector{color:var(--ink-3);font-size:.72rem;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
+.mdiv-wrap{margin-top:10px}
+.mdiv-head{font-family:var(--mono);font-size:.68rem;font-weight:700;color:var(--ink-3);margin-bottom:8px}
+.mdiv-cols{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media (max-width:700px){.mdiv-cols{grid-template-columns:1fr}}
+.mdiv-col-head{font-size:.74rem;font-weight:700;margin-bottom:6px}
+.mdiv-col-head.bearish{color:var(--down)}
+.mdiv-col-head.bullish{color:var(--up)}
+.tw-today-label,.tw-week-label{font-family:var(--mono);font-size:.62rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);margin:16px 0 8px}
+.tw-today-grid{display:flex;flex-direction:column;gap:16px;padding:0 26px}
+.tw-week-cols{display:grid;grid-template-columns:1fr 1fr;gap:20px;padding:0 26px}
+@media (max-width:760px){.tw-week-cols{grid-template-columns:1fr}}
+.tw-week-col{background:var(--panel);border:1px solid var(--border-2);border-radius:5px;padding:16px 18px}
+.tw-week-sub{font-size:.72rem;color:var(--ink-3);margin:4px 0 12px}
+
 .tier-legend{display:flex;gap:16px;padding:0 26px 16px;font-size:.68rem;color:var(--ink-2);flex-wrap:wrap;font-family:var(--mono)}
 .tier-legend span{display:inline-flex;align-items:center;gap:5px}
 .tier-legend .dot{width:8px;height:8px;border-radius:2px}
@@ -817,6 +945,14 @@ table.vt-table{width:100%;border-collapse:collapse}
   box-shadow:0 0 22px color-mix(in srgb, var(--accent) 18%, transparent), var(--shadow-2);
 }
 .heat-tile.tier-super:hover{box-shadow:0 0 26px color-mix(in srgb, var(--accent) 24%, transparent), var(--shadow-2)}
+
+/* 信心分層(docs/adr/0005)：真數字(排名/%/連漲跌天數/週對比等)維持實色強調；未回測的
+   草案分類(五級動能/溫度/族群近況5組門檻/轉折點/排名進出榜)一律用這個降噪樣式──
+   虛線框+透明底+比真數字小一號字級，標籤文字統一加「（草案）」字樣誠實揭露信心等級。
+   是chips.html既有.evid-weak的精簡延伸(空間小的場景不放完整證據卡/banner)。*/
+.badge-weak{display:inline-flex;align-items:center;gap:4px;padding:2px 7px;border-radius:9px;
+  font-size:.6rem;font-weight:600;background:transparent;border:1px dashed var(--border-2);
+  color:var(--ink-3)}
 
 .detail-panel{
   margin:20px 26px 0;background:var(--panel);border:1px solid var(--accent);border-radius:5px;
@@ -954,16 +1090,6 @@ table.stock-list-table{width:100%;border-collapse:collapse}
 .rankmove-col.out h4{color:var(--down)}
 .rankmove-item{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);font-size:.85rem}
 .rankmove-item:last-child{border-bottom:none}
-.secondary-row{display:grid;grid-template-columns:1fr 1fr;gap:24px;padding:0 26px;align-items:start}
-@media (max-width:900px){.secondary-row{grid-template-columns:1fr}}
-.secondary-row .section-head{padding:20px 0 8px}
-.secondary-row .section-rule{margin:0 0 4px}
-.secondary-row .section-sub{padding:0 0 14px}
-.secondary-row .anomaly-wrap{margin:0}
-.secondary-row .role-note{margin:0 0 20px}
-.secondary-row .status-cols{padding:0}
-.secondary-row .turning-wrap{margin:20px 0 0}
-.secondary-row .rankmove-wrap{margin:20px 0 0}
 .rankmove-item .rm-name{font-family:var(--serif);font-weight:600;color:var(--ink)}
 .rankmove-item .rm-shift{font-family:var(--mono);font-size:.74rem;color:var(--ink-2)}
 .rankmove-empty{color:var(--ink-3);font-size:.78rem;font-family:var(--serif)}
@@ -1019,18 +1145,14 @@ def _heatgrid_html(cards: List[Dict[str, Any]]) -> str:
         temp = c["temp"]
         tier_html = ""
         if tier is not None:
-            color = _TIER_COLOR_VAR[tier["key"]]
-            tier_html = (
-                f'<div class="ht-tier" style="background:{color}22;color:{color}">'
-                f'<span class="dot" style="background:{color}"></span>{tier["label"]}</div>'
-            )
+            tier_html = f'<div class="ht-tier badge-weak">{tier["label"]}（草案）</div>'
         else:
-            tier_html = '<div class="ht-tier" style="color:var(--ink-3)">資料不足</div>'
+            tier_html = '<div class="ht-tier badge-weak">資料不足</div>'
 
         if temp is not None:
-            temp_html = f'<div class="ht-temp {temp["key"]}">{temp["label"]}</div>'
+            temp_html = f'<div class="ht-temp badge-weak">{temp["label"]}（草案）</div>'
         elif c["accel"] is not None:
-            temp_html = f'<div class="ht-temp flat tabular">→ {c["accel"]:+.1f}pt</div>'
+            temp_html = f'<div class="ht-temp badge-weak tabular">→ {c["accel"]:+.1f}pt（草案）</div>'
         else:
             temp_html = ""
 
@@ -1122,8 +1244,6 @@ def _sector_recap_html(recap: Dict[str, Any]) -> str:
         r["meta_name"], r["pct"], f'{r["accel"]:+.1f}pt', "var(--heat-hot)"))
     cold_html = _col(recap["cold_top5"], lambda r: _status_row(
         r["meta_name"], r["pct"], f'{r["accel"]:+.1f}pt', "var(--heat-cold)"))
-    breakout_html = _col(recap["today_breakout"], lambda r: _status_row(
-        r["meta_name"], r["pct"], f'↑{r["rank_delta"]}', "var(--up)"))
     foreign_html = _col(recap["foreign_stealth"], lambda r: _status_row(
         r["meta_name"], r["pct"], f'連買{r["foreign_streak"]}日', "var(--accent)"))
     trust_html = _col(recap["trust_stealth"], lambda r: _status_row(
@@ -1131,16 +1251,66 @@ def _sector_recap_html(recap: Dict[str, Any]) -> str:
     volume_html = _col(recap["volume_anomaly"], lambda r: _status_row(
         r["meta_name"], r["pct"], f'{r["vol_ratio"]}x', "var(--accent)"))
 
-    turning = recap["turning_points"]
-    if turning:
+    return f"""
+<div class="section-head"><h2>族群近況</h2><span class="count">5大類排行・持續觀察（草案，未回測）</span></div>
+<div class="section-rule"></div>
+<div class="role-note">
+  <span><b>族群近況</b>＝週度趨勢+籌碼訊號的持續觀察面板，門檻是經驗法則草案，尚未回測驗證</span>
+</div>
+<div class="status-cols">
+  <div><div class="status-col-head badge-weak hot">近期增溫 Top 5</div><div>{hot_html}</div></div>
+  <div><div class="status-col-head badge-weak cold">近期退燒 Top 5</div><div>{cold_html}</div></div>
+  <div><div class="status-col-head badge-weak foreign">外資悄悄佈局 Top 5</div><div>{foreign_html}</div>
+    <div class="status-col-note">股價還沒明顯反應（±{_STEALTH_PRICE_FLAT_MAX}%內）但外資連買≥{_STEALTH_STREAK_MIN}天</div></div>
+  <div><div class="status-col-head badge-weak trust">投信悄悄佈局 Top 5</div><div>{trust_html}</div>
+    <div class="status-col-note">股價還沒明顯反應（±{_STEALTH_PRICE_FLAT_MAX}%內）但投信連買≥{_STEALTH_STREAK_MIN}天</div></div>
+  <div><div class="status-col-head badge-weak volume">量能異常 Top 5</div><div>{volume_html}</div>
+    <div class="status-col-note">今日量能≥{_VOL_ANOMALY_RATIO_MIN}x5日均量，但股價還沒明顯反應（±{_VOL_ANOMALY_PRICE_FLAT_MAX}%內）</div></div>
+</div>"""
+
+
+def _today_week_movements_html(
+    anomaly_cards: List[Dict[str, Any]],
+    today_breakout: List[Dict[str, Any]],
+    margin_divergence: Optional[Dict[str, Any]],
+    limit_up_results: Optional[List[Dict[str, Any]]],
+    turning_points: List[Dict[str, Any]],
+    rank_crossings: Dict[str, List[Dict[str, Any]]],
+) -> str:
+    """
+    「今日/本週異動」區塊（見CONTEXT.md詞條、docs/adr/0006）：合併原本分散在「異動族群」
+    「族群近況」兩處、但本質都是「族群層級發生了變化，值得注意」的訊號。依時間尺度分兩層：
+
+    今日層（4項，都是今日單日事件，真數字實色強調，不套badge-weak）：
+      異動族群（族群層級：爆量暴衝/連續噴出）、今日爆發（族群層級：排名跳動+上漲）、
+      融資背離警示（個股層級，NEW）、連續漲停鎖死（個股層級，NEW）。
+
+    本週層（2項並排二欄，門檻未回測，套badge-weak）：
+      轉折點（左）、排名進出榜（右）——兩者依docs/adr/0003維持獨立訊號，只是搬到
+      同一個新區塊裡相鄰呈現，不合併成一個指標。
+    """
+    anomaly_html = _anomaly_cards_html(anomaly_cards)
+    breakout_html = _today_breakout_html(today_breakout)
+    mdiv_html = _margin_divergence_html(margin_divergence)
+    limitup_html = _limit_up_html(limit_up_results)
+
+    today_parts = [p for p in (anomaly_html, breakout_html, mdiv_html, limitup_html) if p]
+    today_section = (
+        '<div class="tw-today-grid">'
+        f'{anomaly_html}'
+        f'{"".join(f"<div>{p}</div>" for p in (breakout_html, mdiv_html, limitup_html) if p)}'
+        '</div>'
+    ) if today_parts else '<div class="detail-empty">今天沒有族群或個股符合異動條件</div>'
+
+    if turning_points:
         turning_html = "".join(
             f'<div class="turning-row"><span class="turning-name">{_esc(tp["meta_name"])}</span>'
             f'<span class="turning-transition">'
-            f'<span class="turning-pill" style="background:{_TIER_COLOR_VAR[tp["prev_key"]]}22;color:{_TIER_COLOR_VAR[tp["prev_key"]]}">{tp["prev_label"]}</span>'
+            f'<span class="turning-pill badge-weak">{tp["prev_label"]}</span>'
             f'<span class="turning-arrow">→</span>'
-            f'<span class="turning-pill" style="background:{_TIER_COLOR_VAR[tp["cur_key"]]}22;color:{_TIER_COLOR_VAR[tp["cur_key"]]}">{tp["cur_label"]}</span>'
+            f'<span class="turning-pill badge-weak">{tp["cur_label"]}</span>'
             f'</span><span class="turning-desc">{tp["direction"]}</span></div>'
-            for tp in turning
+            for tp in turning_points
         )
     else:
         turning_html = '<div class="detail-empty">本週沒有族群發生等級翻轉</div>'
@@ -1156,43 +1326,33 @@ def _sector_recap_html(recap: Dict[str, Any]) -> str:
             for r in items
         )
 
-    rank_crossings = recap.get("rank_crossings", {"just_in": [], "just_out": []})
-    rankmove_html = f"""
-<div class="rankmove-wrap">
-  <div class="rankmove-head">排名進出榜</div>
-  <div class="rankmove-sub">這週剛擠進/掉出前10名、且自身報酬方向一致的族群（單純排名進步但自身仍是負報酬、或退步但自身仍是正報酬不算——跟上面「轉折點」是不同角度的訊號）</div>
-  <div class="rankmove-cols">
-    <div class="rankmove-col in"><h4>剛進榜</h4>{_rankmove_col(rank_crossings["just_in"], "in")}</div>
-    <div class="rankmove-col out"><h4>剛掉出榜</h4>{_rankmove_col(rank_crossings["just_out"], "out")}</div>
+    week_section = f"""
+<div class="tw-week-cols">
+  <div class="tw-week-col">
+    <div class="mdiv-head badge-weak">轉折點（草案）</div>
+    <div class="tw-week-sub">上週的等級跟這週的等級是否真的換了一級（不是看誰漲最多）。</div>
+    <div>{turning_html}</div>
+  </div>
+  <div class="tw-week-col">
+    <div class="mdiv-head badge-weak">排名進出榜（草案）</div>
+    <div class="tw-week-sub">這週剛擠進/掉出前10名、且自身報酬方向一致的族群。</div>
+    <div class="rankmove-cols">
+      <div class="rankmove-col in"><h4>剛進榜</h4>{_rankmove_col(rank_crossings.get("just_in", []), "in")}</div>
+      <div class="rankmove-col out"><h4>剛掉出榜</h4>{_rankmove_col(rank_crossings.get("just_out", []), "out")}</div>
+    </div>
   </div>
 </div>"""
 
     return f"""
-<div class="section-head"><h2>族群近況</h2><span class="count">6大類排行・轉折點</span></div>
+<div class="section-head"><h2>今日/本週異動</h2><span class="count">今日事件 + 本週趨勢</span></div>
 <div class="section-rule"></div>
-<div class="role-note">
-  <span><b>族群近況</b>＝週度趨勢+單日事件+籌碼訊號的綜合面板</span>
-  <span><b>異動族群</b>（頁面最上方）只看爆量+排名跳動同時成立，門檻比這裡的「今日爆發」嚴格</span>
-  <span>兩者角色不同，故意分開兩個區塊，不是重複資訊</span>
-</div>
-<div class="status-cols">
-  <div><div class="status-col-head hot">近期增溫 Top 5</div><div>{hot_html}</div></div>
-  <div><div class="status-col-head cold">近期退燒 Top 5</div><div>{cold_html}</div></div>
-  <div><div class="status-col-head breakout">今日爆發 Top 5</div><div>{breakout_html}</div>
-    <div class="status-col-note">今日排名跳動≥{_BREAKOUT_RANK_JUMP_MIN}名且上漲，不要求同時爆量——單日單一事件，跟下面「退燒」互斥</div></div>
-  <div><div class="status-col-head foreign">外資悄悄佈局 Top 5</div><div>{foreign_html}</div>
-    <div class="status-col-note">股價還沒明顯反應（±{_STEALTH_PRICE_FLAT_MAX}%內）但外資連買≥{_STEALTH_STREAK_MIN}天</div></div>
-  <div><div class="status-col-head trust">投信悄悄佈局 Top 5</div><div>{trust_html}</div>
-    <div class="status-col-note">股價還沒明顯反應（±{_STEALTH_PRICE_FLAT_MAX}%內）但投信連買≥{_STEALTH_STREAK_MIN}天</div></div>
-  <div><div class="status-col-head volume">量能異常 Top 5</div><div>{volume_html}</div>
-    <div class="status-col-note">今日量能≥{_VOL_ANOMALY_RATIO_MIN}x5日均量，但股價還沒明顯反應（±{_VOL_ANOMALY_PRICE_FLAT_MAX}%內）</div></div>
-</div>
-<div class="turning-wrap">
-  <div class="turning-head">轉折點：等級真的翻轉的族群</div>
-  <div class="turning-sub">不是看誰漲最多，是看「上週的等級」跟「這週的等級」是否真的換了一級。</div>
-  <div>{turning_html}</div>
-</div>
-{rankmove_html}"""
+<div class="section-sub">今日層：爆量暴衝/連續噴出、排名跳動上漲、融資背離、連續鎖漲停——都是今日已發生的真實數字。
+本週層：等級翻轉、排名進出榜——門檻是經驗法則草案，尚未回測驗證，僅供參考，不是投資建議。</div>
+<div class="tw-today-label">今日</div>
+{today_section}
+<div class="tw-week-label">本週（草案，未回測）</div>
+{week_section}
+"""
 
 
 def generate(
@@ -1249,6 +1409,10 @@ def generate(
     cards = build_heatgrid_cards(meta_perf, meta_signals, meta_chips, heatgrid_windows, cum_data)
     anomaly_cards = find_anomaly_cards(meta_perf, meta_signals, heatgrid_windows)
     recap = build_sector_recap(cards, heatgrid_windows, rank_history)
+    today_week_movements_html = _today_week_movements_html(
+        anomaly_cards, recap["today_breakout"], margin_divergence, limit_up_results,
+        recap["turning_points"], recap.get("rank_crossings", {"just_in": [], "just_out": []}),
+    )
     stock_detail = build_stock_detail_data(
         universe_df, prices_df, stock_sparklines, rolling_returns, chips_df,
         total_shares_df, avg20_map, shareholder_df,
@@ -1335,16 +1499,9 @@ def generate(
 <div class="heatgrid" id="heatgrid">{_heatgrid_html(cards)}</div>
 <div class="legend-note">動能狀態標籤（超強/強/整理/弱/超弱）是族群層級獨立算的草案規則（連漲天數+本週比上週加速度），跟個股層級或觀察分頁面的五級分類不共用計算依據，門檻未經回測驗證。「近5日→前5日」是滾動5個交易日的複利累積漲跌幅，不是自然日曆週。</div>
 
-<div class="secondary-row">
-  <div class="secondary-col">
-    <div class="section-head"><h2>異動族群</h2><span class="count">{len(anomaly_cards)} 檔符合</span></div>
-    <div class="section-sub">「現在正在發生」的瞬間訊號——爆量排名跳動、或連續多週噴出。跟旁邊「族群近況」不同：這裡是單日事件，族群近況是週度趨勢。</div>
-    <div class="anomaly-wrap"><div class="anomaly-strip">{_anomaly_cards_html(anomaly_cards)}</div></div>
-  </div>
-  <div class="secondary-col">
-    {_sector_recap_html(recap)}
-  </div>
-</div>
+{today_week_movements_html}
+
+{_sector_recap_html(recap)}
 </main>
 <script>
 const STOCKS = {stock_detail_js};

@@ -1,3 +1,54 @@
+## [2026-08-27] 首頁（index.html）第二波大改 — 12個Task全部完成
+
+### 改了什麼
+- 異動檔案：export/index_generator.py, main.py, tests/test_index_generator.py,
+  CONTEXT.md（新建）, docs/adr/0005-confidence-tiering-across-index-page.md（新建）,
+  docs/adr/0006-index-reuses-cross-page-signal-functions.md（新建）
+- 邏輯說明：
+  1. 信心分層：熱區格五級動能/溫度標籤、族群近況剩下5類的標籤，全部改用badge-weak
+     樣式（虛線框+透明底+「（草案）」字樣），跟排名/%/連漲跌天數等真數字視覺區分開
+  2. 新合併區塊「今日/本週異動」取代原本並排的「異動族群」+「族群近況」局部內容：
+     - 今日層（4項，真數字）：異動族群、今日爆發（原本在族群近況）、融資背離警示
+       （NEW，來自get_margin_divergence()）、連續漲停鎖死（NEW，來自
+       scan_consecutive_limit_up()）
+     - 本週層（2項並排，草案樣式）：轉折點、排名進出榜（原本在族群近況，維持獨立
+       不合併，見docs/adr/0003/0006）
+  3. 族群近況瘦身成5大類（升溫/退燒/外資/投信/量能），拆掉跟今日/本週異動重疊的部分
+  4. 頁面改滿版三段式（熱區格→今日/本週異動→族群近況），拆掉Wave1的secondary-row
+     二欄並排佈局
+
+### 資料來源相關（如有異動）
+- 上市資料（TWSE）：無異動
+- 上櫃資料（TPEx）：無異動
+- `get_margin_divergence()`/`scan_consecutive_limit_up()` 都是既有函式（原本只服務
+  momentum.html/patterns.html），這次是第一次也接給index.html用，沒有新增資料源，
+  純粹是「同一份既有資料多一個頁面引用」（見docs/adr/0006）
+
+### 請 Debugger 驗證
+- [ ] 主要功能邏輯正確（尤其：`_today_week_movements_html()` 今日層/本週層的資料
+      對應是否正確、`_margin_divergence_html()`/`_limit_up_html()` 的bearish/bullish
+      跟三態旗標(True/False/None)是否正確渲染不搞混）
+- [ ] 上市/上櫃資料來源沒有混用
+- [ ] 沒有影響其他模組（chips.html/momentum.html/patterns.html 沒被這批改動觸碰，
+      `scan_consecutive_limit_up()`/`get_margin_divergence()` 是唯讀呼叫，兩邊呼叫端
+      互不影響）
+- [ ] **實際跑一次 `python main.py`，用瀏覽器打開重新產生的 `docs/index.html` 確認**
+      （這是上一波Debugger報告點出的唯一未閉環項目，這次也要做——不能只看程式邏輯）：
+  - 熱區格五級動能/溫度標籤是不是虛線草案樣式，不是實色徽章
+  - 「今日/本週異動」區塊順序：今日層(異動族群卡片grid+今日爆發+融資背離+連續漲停)
+    在上、本週層(轉折點+排名進出榜並排)在下，本週層是虛線草案樣式
+  - 族群近況只剩5大類，不再有「今日爆發」，也沒有轉折點/排名進出榜
+  - 整頁三段都滿版寬，沒有並排二欄的殘留
+  - 深色/淺色主題切換，badge-weak在兩個主題下都看得清楚（不是只深色能看）
+
+### 特別注意
+- `docs/index.html` 是 generated artifact，不要手動編輯——下次 `python main.py` 跑過會被
+  `export/index_generator.py` 重新產生的版本覆蓋。
+- 這波刻意不動配色/字型系統本身（見docs/adr/0005背景說明：曾比較過金色+紫色、精煉
+  終端機綠兩個新方向，最後決定維持現有系統）。
+- 異動族群/族群近況/今日爆發的門檻數值本身（vol_ratio/排名跳動門檻等）依然沒動，
+  回測驗證仍是獨立後續任務。
+
 ## [2026-07-29] 籌碼頁（chips.html）今日焦點 headline zone + 大戶持倉卡片化完成
 
 ### 背景
@@ -4036,11 +4087,12 @@ finding完全解決，2個殘留項目已裁定記錄（見下方特別注意，
    「資料完整性：正常」+「融資警示：無」，但其實是「沒收到資料」不是「真的沒警示」。裁定：
    有影響但不是這批任務的阻塞項，之後要修是把`_update_chips_db()`裡6個except區塊接進
    `_run_warnings`（`main.py` 97-243行附近）。
-2. **`scripts/install_scheduler.ps1` 目前缺 UTF-8 BOM，PowerShell 5.1（這台機器唯一的PS版本）
-   會用系統內碼(big5)解碼、把檔案解析弄壞，整個腳本現在跑不起來**——這是 Task 6 就存在的
-   舊問題（不是這次修復引入的），這次全分支review才被發現。已驗證修法：把檔案內容原封不動
-   重新用「帶UTF-8 BOM」存一次就會修好（zero content change，純編碼問題）。裁定：先記錄，
-   等 Cody 決定要不要現在補這個一行修復。
+2. ~~`scripts/install_scheduler.ps1` 缺 UTF-8 BOM 導致 PowerShell 5.1 解析失敗~~
+   **已修復（commit `25b4912`）**：內容完全不變，重新用 UTF-8 BOM 編碼存檔。用
+   `[System.Management.Automation.Language.Parser]::ParseFile()` 驗證：修復前 1 個錯誤
+   （L14 缺少右大括號，big5 誤解碼中文字元弄斷語法），修復後 0 個錯誤。麻煩 Debugger 還是
+   實際 `.\scripts\install_scheduler.ps1` 跑一次確認（不需要真的 Register，跑到能解析、
+   到 admin 權限檢查那一步前發現的錯誤都算過關）。
 - 這批 commit 尚未 push 到 origin，等 Cody 指示（且等 Debugger 跑完驗證回報 ✅）
 - **debug worktree 同步這次又卡住了**：這次撞到的是 `docs/chips.html`/`docs/index.html`/
   `docs/patterns.html`/`export/chips_generator.py`/`tests/test_chips_generator.py` 的真衝突

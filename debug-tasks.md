@@ -4099,3 +4099,22 @@ finding完全解決，2個殘留項目已裁定記錄（見下方特別注意，
   （上次已經同步過的籌碼頁那批東西，看起來 debug 端後來又有 session 動過這些檔案——`git log`
   看到 `88fc09c docs(bug-reports): 驗證首頁(index.html)版面/視覺重設13個Task` 這筆，像是
   Debugger 正在驗證另一個功能(首頁第二波改版)。已經 `git merge --abort` 安全退出，沒有硬解。
+
+---
+
+## [2026-08-30] master←debug 反向同步完成（Debugger 修復的3-way merge漏內容問題已合回master）
+
+看到 debug 分支上 `fb7c94b`(修3-way merge靜默漏master內容)跟 `cbf937d`(重新驗證排程通知系統
++BOM修復)兩筆真commit，照規矩「Debugger授權改了code要當場merge回master」，已經小心合併回來
+（commit `2e29f96`）：
+
+- 合併前逐項核對：`docs/CONTEXT.md`新舊術語都在、`main.py`/`export/index_generator.py`首頁
+  第二波wiring完整、我8/25做的籌碼頁證據分級標記(23處evid-*)沒被覆蓋、候選觀察hero確認沒被
+  打回來
+- 根目錄重複的 `CONTEXT.md` 正確刪除（就是你們發現的domain-modeling skill重複建立那個bug）
+- 合併後跑過全專案pytest：569 passed，1個既有無關warning
+- `git merge-base --is-ancestor debug HEAD` 確認 master 現在完全包含 debug 那批東西，不會
+  再有殘留
+
+debug worktree 本身沒有動（怕跟你們現在還在跑的 session 撞），下次你們方便時自己 `git merge
+master` 同步過去即可，這次應該會是乾淨 fast-forward。

@@ -4180,3 +4180,79 @@ master` 同步過去即可，這次應該會是乾淨 fast-forward。
 - 使用者選定的處理範圍是「**只擋 Pages、repo 維持 public**」：內部文件仍留在 repo 內
   （clone 或在 GitHub 上點進去仍看得到），只是不再從 Pages 網址直接對外曝光。
   若之後要更徹底（從追蹤中移除或轉 private repo），是另一件事。
+
+---
+
+## [2026-08-28] 修復「近N日漲跌幅失真」+ backfill 匯入炸掉/丟失OHLC
+
+### 起因
+Cody 肉眼發現金居 8358「5日漲 100 多%」不合理。核實後不是計算公式錯，是資料缺交易日，
+且牽出另外兩個相扣的問題（其中一個當場把 `daily_prices` 打成 0 筆）。
+
+### 改了什麼
+- 異動檔案：`screener/data_integrity.py`（新）、`screener/database.py`、
+  `scrapers/backfill.py`、`main.py`、`tests/test_data_integrity.py`（新）、
+  `tests/test_database.py`、`tests/test_backfill.py`
+- 邏輯說明：
+
+**① 近N日窗口跨越資料斷層（主 bug）**
+`get_rolling_returns()` 等處的 `ORDER BY date DESC LIMIT N` 數的是「daily_prices 裡實際
+存在的資料列」不是真實交易日。DB 缺 8/07~8/24 共 15 個交易日時，「5交易日前」跨到 7/30，
+8358 顯示 +100.37%（實為 7/30→8/28 近一個月）。當時全市場 **1040 檔有 1035 檔（99.5%）**
+窗口被拉長，中位數跨 29 個日曆天，「5日>30%」有 219 檔。
+→ 新增 `screener/data_integrity.py`：不需外部交易日曆，用「窗口實際跨了幾個日曆天」判斷
+（`max_span_days(N) = N + ceil(N/5)*2 + 9`）。`get_rolling_returns()` 接上後，跨度異常的
+窗口回 `None`（頁面顯示「—」）並記一筆 warning 統計；`main.py` 步驟 6.5 加行情連續性體檢，
+有斷層時寫 log 並塞進 `_run_warnings`（→ 進 summary → Telegram）。
+
+**② `import_csv_prices()` 在所有 CSV 都缺某欄時直接炸（破壞力最大）**
+`TRY_CAST(open AS DOUBLE) AS open` 在來源表沒有 `open` 欄位時，DuckDB 會把它解讀成同名
+別名的自我參照 → `BinderException`。`union_by_name` 只能在「有些檔案有」時補 NULL，全部
+都沒有就救不了。**而這步發生在 `reimport_db()` 已清空 `daily_prices` 之後**，炸掉 = 整表 0 筆。
+（實際踩到：`--backfill-yf 20` 刪光 402 個含 OHLC 的舊 CSV、重抓成無 OHLC 格式後重現。）
+→ 改成先 `DESCRIBE` 來源表取實際欄位，缺的用 `CAST(NULL AS ...)` 補，並對缺 OHLC 發警告。
+
+**③ `backfill_yfinance` 把抓到的 OHLC 丟掉**
+`yf.Ticker().history()` 本來就回 Open/High/Low，但 `_fetch_yfinance_one_stock()` 只把
+close/change/volume 寫進 row → 每次 backfill 都讓 K 棒失去 OHLC。這跟 2026-07 那次
+「K棒功能失效」是同一個病，當時只修了 daily_prices scraper，backfill 這條沒修到。
+→ 新增 `_ohlc_value()`（NaN／None／非正值一律 None，避免 K 棒畫出假實體），寫進 row。
+
+### 資料來源相關
+- **上市（TWSE）／上櫃（TPEx）每日流程完全沒動**，不涉及來源切換。
+- 動到的是**歷史回補**這條：`backfill_yfinance()`（yfinance，雙市場都支援、不需 token）
+  多寫 open/high/low 三欄；`import_csv_prices()` 對缺欄位的容錯。
+- ⚠️ 注意 yfinance 是**還原股價**（除權息調整過），跟每日流程存的成交價本來就有落差，
+  這是既有的已知取捨（memory：3114 髒值來源），本次沒有改變這個行為。
+
+### 驗證狀態（我這邊已跑過）
+- `pytest -q` → **590 passed**（原 507 + 本次新增，無回歸）
+- 新增 3 組回歸測試：`test_data_integrity.py`（13 個，含金居實況、連假不誤判、空表）、
+  `test_import_csv_prices_survives_when_every_csv_lacks_ohlc`、
+  `test_fetch_yfinance_one_stock_keeps_ohlc` + `test_ohlc_value_rejects_nan_and_non_positive`
+- Cody 已在**筆電**重跑 `--backfill-yf 20 --workers 3` → `daily_prices` 413,232 筆 /
+  402 個交易日 / 1036 檔 / 2025-01-02~2026-08-28 連續無洞、OHLC 各 413,225 筆有值
+- 金居 8358 五日：+100.37% → **+24.54%**；「5日>30%」219 檔 → 11 檔（抽驗 6103 為連續
+  6 根漲停、8/26 `O=H=L=C=38.9` 一價鎖死，屬真實資料非髒值）
+
+### 請 Debugger 驗證
+- [ ] `max_span_days()` 的緩衝 `_HOLIDAY_BUFFER_DAYS = 9` 是否合理——**這是我知道的弱點**：
+      緩衝取 9 天是為了不把農曆春節誤判成斷層，代價是「只缺 1~2 天」的小洞抓不到
+      （`find_gaps` 對真實 DB 只抓到 8/06→8/25 那個大洞，7/17、7/21~22 那種小缺漏漏掉了）。
+      要更嚴謹得引入真實交易日曆（TWSE 有開放 API），值得評估是否要做
+- [ ] `get_rolling_returns()` 擋下窗口後回 `None`，下游（chips.html Section 8 大戶持倉表）
+      顯示是否正常降級成「—」，不會變成 `NaN`／`undefined`／排序爆掉
+- [ ] `main.py` 步驟 6.5 的體檢不會拖慢每日流程、例外有被吞住不影響產出
+- [ ] `import_csv_prices()` 的 `DESCRIBE` 前置查詢對 402 個 CSV 的效能可接受
+- [ ] 上市/上櫃資料來源沒有混用（本次未動每日流程）
+
+### 特別注意
+- **還沒做完的部分**：其餘 **16 處**同樣「用資料筆數當交易日」的地方尚未接上防護——
+  `processors/performance.py`（96/202/296/974/1208）、`observation_scores.py:256`、
+  `flow_watch.py:56`、`screener/backtest.py:289`、`institutional.py:239/276`、
+  `patterns.py:863/1642`、`database.py:333/370`。目前只有 `get_rolling_returns()` 有。
+  資料補齊的狀態下它們不會出錯，但同一個陷阱還在。
+- **桌電的 DB 是獨立的**（`data/` gitignored），那台要 `git pull` 拿到本次修復後，
+  再跑一次 `python main.py --backfill-yf 20 --workers 3`，否則會重現同樣的斷層與炸掉。
+- 回補指令與兩個踩雷點已寫進 `CLAUDE-developer.md`「🚑 資料跑掉時」一節，
+  `log.md` 兩處過時說明（月數填 18、要另外下 `--reimport`）已修正。

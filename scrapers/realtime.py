@@ -85,6 +85,34 @@ def _best_price(item: dict) -> float | None:
     return _parse(item.get("o", "-") or "-")
 
 
+def _field(item: dict, key: str) -> float | None:
+    """取 msgArray 裡的數值欄位，"-"／空／無法解析一律 None。"""
+    v = item.get(key, "-")
+    try:
+        return float(v.replace(",", "")) if v and v != "-" else None
+    except (ValueError, AttributeError):
+        return None
+
+
+def _clamp_to_day_range(price: float, high: float | None, low: float | None) -> float:
+    """把收盤價夾回當日成交區間 [low, high]。
+
+    `_best_price()` 在 z="-"（無最近成交）時會退而取買賣五檔的**掛單價**。對「漲停
+    鎖死」那是正確的（買方掛單價就是漲停價），但對「當天幾乎沒成交」的冷門股就會
+    拿掛單價當收盤價，跟同一列的 OHLC 不同源、對不起來：
+
+        8101  2026-08-31  open=high=low=12.4  close=11.55  volume=1
+
+    那唯一 1 張成交在 12.4，close 卻取了買方掛單 11.55，change_pct 因此失真。
+    只要當天有成交（h/l 才會有值），依定義收盤價必落在 [low, high] 內，所以夾回去
+    是安全的修正；完全沒成交時 h/l 是 None，維持原本的掛單價 fallback 不動。
+    （2026-08-31 稽核：全庫 76 筆 close 落在區間外，皆為 volume ≤ 14 的冷門股。）
+    """
+    if high is None or low is None or high < low:
+        return price
+    return min(max(price, low), high)
+
+
 def fetch_realtime_prices(stock_ids: List[str]) -> pd.DataFrame:
     """
     批次查詢即時行情，回傳 DataFrame 欄位：
@@ -127,6 +155,10 @@ def fetch_realtime_prices(stock_ids: List[str]) -> pd.DataFrame:
             if price is None or price <= 0:
                 continue
 
+            # 先夾回當日成交區間，change/change_pct 才會跟 OHLC 一致
+            day_open, day_high, day_low = (_field(item, k) for k in ("o", "h", "l"))
+            price = _clamp_to_day_range(price, day_high, day_low)
+
             y_str = item.get("y", "-")
             prev = float(y_str.replace(",", "")) if y_str and y_str != "-" else None
             if prev is None or prev == 0:
@@ -137,13 +169,6 @@ def fetch_realtime_prices(stock_ids: List[str]) -> pd.DataFrame:
             vol_str = item.get("v", "0")
             vol = int(float(vol_str.replace(",", ""))) if vol_str and vol_str != "-" else 0
 
-            def _f(key):
-                v = item.get(key, "-")
-                try:
-                    return float(v.replace(",", "")) if v and v != "-" else None
-                except ValueError:
-                    return None
-
             rows.append({
                 "stock_id":   sid,
                 "stock_name": item.get("n", ""),
@@ -151,9 +176,9 @@ def fetch_realtime_prices(stock_ids: List[str]) -> pd.DataFrame:
                 "change":     change,
                 "change_pct": change_pct,
                 "volume":     vol,
-                "open":       _f("o"),
-                "high":       _f("h"),
-                "low":        _f("l"),
+                "open":       day_open,
+                "high":       day_high,
+                "low":        day_low,
                 "time":       item.get("t", ""),
             })
 

@@ -2,10 +2,13 @@
 DuckDB 資料庫 - 存放每日行情歷史與技術指標。
 直接從 data/daily_prices/*.csv 讀取，不需要手動 import。
 """
+import glob
 import logging
+import re
 import duckdb
 import pandas as pd
 from pathlib import Path
+from typing import List, Optional
 
 from screener.data_integrity import window_is_reliable
 
@@ -175,9 +178,57 @@ def _filter_stale(df: pd.DataFrame, min_streak: int = 5) -> pd.DataFrame:
     return df[~mask].drop(columns=["_cv", "_streak"])
 
 
-def import_csv_prices(filter_stale: bool = False) -> int:
-    """把 data/daily_prices/*.csv 的資料全部 upsert 進 daily_prices 表。
+def _incremental_csv_files(con) -> Optional[List[str]]:
+    """算出「這次真的需要匯入」的 CSV 檔清單，回 None 代表要走全量。
+
+    每日流程只寫當天的 CSV，卻每次重讀全部 400+ 個檔、41 萬筆 upsert 回去，
+    等於拿一模一樣的資料覆蓋自己（實測 6.69 秒，且隨歷史線性變慢：
+    2026-08-25 是 3 秒、08-31 已 10 秒）。但全量匯入有個不能弄丟的副作用——
+    它每天把所有歷史重新確保一次，某天匯入失敗（例如 TPEx 5xx、DuckDB 例外）
+    留下的洞，隔天會自動補上。缺交易日正是「近N日漲跌幅失真」的根因，
+    所以增量不能只匯今天，要匯：
+
+      1. CSV 有、但 daily_prices 沒有的日期（不限多久以前）→ 保留自我修復
+      2. 最新兩個日期 → 盤中 --realtime 寫的是即時價，收盤後要被收盤價覆蓋；
+         取兩天是因為 main.py「市場尚未更新」防呆會把 trade_date 切回前一交易日
+
+    比對成本約 40 毫秒（403 個檔名 vs 一次 DISTINCT date）。
+    """
+    files = sorted(Path(p) for p in glob.glob(CSV_GLOB))
+    if not files:
+        # 一個 CSV 都沒有＝沒東西可匯（回空清單），不是「退回全量」——退回全量會讓
+        # read_csv_auto 對空目錄拋 IOException，重演 2026-08-28 那種匯入炸掉的情況
+        return []
+
+    def _date_of(path: Path) -> Optional[str]:
+        m = re.search(r"(\d{4}-\d{2}-\d{2})", path.name)
+        return m.group(1) if m else None
+
+    by_date = {}
+    for f in files:
+        d = _date_of(f)
+        if d is None:      # 檔名沒有日期就無從比對，保守起見退回全量
+            return None
+        by_date[d] = f
+
+    db_dates = {
+        str(r[0]) for r in con.execute("SELECT DISTINCT date FROM daily_prices").fetchall()
+    }
+    all_dates = sorted(by_date)
+    todo = (set(all_dates) - db_dates) | set(all_dates[-2:])
+
+    filled = sorted(set(all_dates) - db_dates)
+    if filled:
+        logger.info("增量匯入：補上 daily_prices 缺的 %d 天（%s）", len(filled), ", ".join(filled[:5]))
+    return [str(by_date[d]) for d in sorted(todo)]
+
+
+def import_csv_prices(filter_stale: bool = False, incremental: bool = False) -> int:
+    """把 data/daily_prices/*.csv 的資料 upsert 進 daily_prices 表。
+
     filter_stale=True 時自動排除連續多天完全相同的假資料。
+    incremental=True（每日流程用）只匯入 _incremental_csv_files() 算出來的那幾天，
+    其餘（reimport_db()／backfill 收尾）維持全量，語意不變。
     """
     con = get_conn()
 
@@ -186,8 +237,13 @@ def import_csv_prices(filter_stale: bool = False) -> int:
     # open/high/low，例如scrapers/realtime.py)混在同一批glob讀取時，缺欄位的
     # 檔案自動補NULL，而不是像原本那樣不管CSV裡有沒有這3欄一律寫死NULL、
     # 把scraper真的抓到的OHLC資料在匯入這關直接丟掉。
+    target_files = _incremental_csv_files(con) if incremental else None
+    if target_files is not None and not target_files:
+        con.close()
+        return 0
+    csv_arg = repr(target_files) if target_files is not None else f"'{CSV_GLOB}'"
     source = (
-        f"read_csv_auto('{CSV_GLOB}', filename=true, union_by_name=true, "
+        f"read_csv_auto({csv_arg}, filename=true, union_by_name=true, "
         f"types={{'stock_id': 'VARCHAR'}})"
     )
 

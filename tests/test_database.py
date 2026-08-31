@@ -459,3 +459,87 @@ def test_import_csv_prices_survives_when_every_csv_lacks_ohlc(tmp_path, monkeypa
     con.close()
     assert [r[2] for r in rows] == [494.0, 543.0]
     assert all(r[1] is None for r in rows), "缺席的 OHLC 欄位應為 NULL，不是 0 或報錯"
+
+
+def _write_price_csv(csv_dir, day, stock_id="2330", close=900.0):
+    (csv_dir / f"{day}.csv").write_text(
+        "stock_id,close,change,change_pct,volume,_date" + '\n' +
+        f"{stock_id},{close},1.0,0.11,10000,{day}" + '\n',
+        encoding="utf-8-sig",
+    )
+
+
+def _setup_incremental_db(tmp_path, monkeypatch):
+    import screener.database as db_mod
+    db_path = str(tmp_path / "t.db")
+    monkeypatch.setattr(db_mod, "DB_PATH", db_path)
+    csv_dir = tmp_path / "daily_prices"
+    csv_dir.mkdir()
+    monkeypatch.setattr(db_mod, "CSV_GLOB", str(csv_dir / "*.csv"))
+    db_mod.init_db()
+    return db_mod, db_path, csv_dir
+
+
+def test_import_csv_prices_incremental_only_touches_needed_days(tmp_path, monkeypatch):
+    """每日流程不該每次重讀全部 CSV：DB 已是最新時，增量匯入只碰「最新兩天」，
+    而不是把 400+ 個檔、41 萬筆原樣覆蓋回去（實測全量 6.69 秒 / 增量 0.14 秒）。"""
+    db_mod, _db_path, csv_dir = _setup_incremental_db(tmp_path, monkeypatch)
+    for day in ("2026-08-25", "2026-08-26", "2026-08-27", "2026-08-28"):
+        _write_price_csv(csv_dir, day)
+
+    assert db_mod.import_csv_prices() == 4          # 先全量建立
+    n = db_mod.import_csv_prices(incremental=True)
+    assert n == 2, "DB 已最新時只該重匯最新兩天（realtime 價要被收盤價覆蓋）"
+
+
+def test_import_csv_prices_incremental_backfills_missing_middle_day(tmp_path, monkeypatch):
+    """關鍵：增量不能只匯今天。某天匯入失敗留下的洞（缺交易日正是「近N日漲跌幅
+    失真」的根因）要能自動補回來，不管缺的是哪一天。"""
+    db_mod, db_path, csv_dir = _setup_incremental_db(tmp_path, monkeypatch)
+    days = ("2026-08-25", "2026-08-26", "2026-08-27", "2026-08-28")
+    for day in days:
+        _write_price_csv(csv_dir, day)
+    db_mod.import_csv_prices()
+
+    # 模擬 8/26 那天匯入失敗留下的洞
+    con = duckdb.connect(db_path)
+    con.execute("DELETE FROM daily_prices WHERE date = DATE '2026-08-26'")
+    con.close()
+
+    db_mod.import_csv_prices(incremental=True)
+
+    con = duckdb.connect(db_path)
+    got = [str(r[0]) for r in con.execute(
+        "SELECT DISTINCT date FROM daily_prices ORDER BY date").fetchall()]
+    con.close()
+    assert got == list(days), f"缺的 2026-08-26 應被自動補回，實際 {got}"
+
+
+def test_import_csv_prices_incremental_matches_full_import(tmp_path, monkeypatch):
+    """增量與全量的結果必須一致——省時間不能改變資料內容。"""
+    db_mod, db_path, csv_dir = _setup_incremental_db(tmp_path, monkeypatch)
+    for i, day in enumerate(("2026-08-25", "2026-08-26", "2026-08-27")):
+        _write_price_csv(csv_dir, day, close=900.0 + i)
+    db_mod.import_csv_prices()
+
+    # 新的一天進來，走增量
+    _write_price_csv(csv_dir, "2026-08-28", close=910.0)
+    db_mod.import_csv_prices(incremental=True)
+    con = duckdb.connect(db_path)
+    incremental_rows = con.execute(
+        "SELECT stock_id, date, close FROM daily_prices ORDER BY date").fetchall()
+    con.close()
+
+    # 同一批 CSV 從零全量重建，結果應完全相同
+    db_mod.reimport_db()
+    con = duckdb.connect(db_path)
+    full_rows = con.execute(
+        "SELECT stock_id, date, close FROM daily_prices ORDER BY date").fetchall()
+    con.close()
+    assert incremental_rows == full_rows
+
+
+def test_import_csv_prices_incremental_falls_back_to_full_when_no_csv(tmp_path, monkeypatch):
+    """沒有任何 CSV 時不該爆炸，回 0 筆即可（reimport 炸掉後的空狀態）。"""
+    db_mod, _db_path, _csv_dir = _setup_incremental_db(tmp_path, monkeypatch)
+    assert db_mod.import_csv_prices(incremental=True) == 0

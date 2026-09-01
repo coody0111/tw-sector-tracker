@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from datetime import date
 from pathlib import Path
 
@@ -16,6 +17,14 @@ import pandas as pd
 from research import evaluate as ev
 from research import factor_data as fd
 from research import factors as fx
+
+# Windows 主控台預設用 cp950/Big5，print() 印到 ⚠️ 等 emoji 會直接
+# UnicodeEncodeError 中斷（同 2026-08-28 install_scheduler.ps1 缺 BOM 那次踩到的
+# 同一類「Windows 主控台編碼」地雷）。強制 stdout 用 utf-8，不管終端機本身編碼為何。
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+except (AttributeError, ValueError):
+    pass  # stdout 被重新導向成不支援 reconfigure 的物件時，維持原樣不擋執行
 
 HORIZONS = (1, 5, 10, 20)
 

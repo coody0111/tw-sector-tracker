@@ -3317,3 +3317,57 @@ reimport 完成：共 372163 筆
   最初驗證 MOPS/Index 交接抓到的 bug 鏈，現在全部確認真正修復生效**（每一項都用當初
   抓到問題時的同一份真實資料重新複驗過，不是只看 code diff 或信任回報）。這批
   commit（`37c7d52`→`8aeb976`）可以視為這輪 debug 驗證的收尾。
+
+---
+
+## [2026-09-02] 驗證 - 籌碼資料每日自動回補缺口 — commit 93f8b05
+
+### 驗證方式
+- `pytest tests/test_backfill.py tests/test_main.py -q`：32 項全過；全專案 `pytest -q`：
+  650 passed
+- 逐項對照 debug-tasks.md 的 4 個邏輯性 checklist 項目 code review
+- **評估後決定謹慎實測**：把桌電正式 `data/screener.db`（247MB）**複製一份**到
+  scratchpad（不動原檔案），對這份複本呼叫 `backfill_chips(days=14, db_path=<複本>)`，
+  真的打 TWSE 官方 API、真的寫進這份複本 DB——用真實資料驗證，但零風險，不碰正式 DB。
+  沒有跑 debug-tasks.md 建議的 `--backfill-chips 60`（那是「補齊現有60天歷史缺口」，
+  文件裡明講要留給 Cody 自己執行），只驗證預設值 `days=14` 這個範圍的機制本身正確。
+
+### ✅ 驗證通過（4 項 code review + 真實資料實跑雙重確認）
+- **同一天各來源獨立判斷、只補真的缺的**：這次複本 DB 剛好就有真實案例——backfill 前
+  `2026-08-19` 這天 `institutional` 已有資料、`margin`／`foreign_holdings` 都沒有。
+  實跑 log 精確顯示 `[1/11] margin 2026-08-19 寫入`／`[1/11] foreign_holdings 2026-08-19
+  寫入`，**完全沒有** `institutional` 那行（正確跳過，不是三個一起補或一起跳過）。
+  程式碼面：`existing`／`blocked` 都是用 `table`（來源名稱）當 key 的獨立資料結構，
+  `if table in blocked or d_str in existing[table]: continue` 是逐來源逐天判斷，架構上
+  就不可能連坐。
+  - 實跑完整結果：`{'institutional': 3, 'margin': 4, 'foreign_holdings': 4}`，跟 backfill
+    前三個來源各自缺的天數精確吻合；backfill 後三個表在 8/19~9/1 這段的日期集合完全一致
+    （原本三個表缺口程度不同，現在對齊了）。
+  - **第二次重跑驗證 idempotent**：對同一份已經補過的複本再跑一次，`existing` 正確辨識
+    出只剩「今天」（2026-09-02，TWSE 尚未發布）需要嘗試，其餘全部跳過，不會重複打 API
+    浪費請求，回傳 `{0, 0, 0}`。
+- **`TWSEBlockedError` 只中止該來源，不連坐**：`except TWSEBlockedError: blocked.add(table)`
+  只把「這個來源的名稱」加進 `blocked` 集合，後續迴圈的 `table in blocked` 判斷一樣是逐
+  來源獨立檢查——架構上跟上一點共用同一組資料結構，天生不會讓一個來源的封鎖拖累其他
+  來源。這次真實測試沒有真的觸發封鎖（不會刻意去戳 TWSE 官方 API 到被封鎖，那樣做本身
+  不負責任），這項純 code review 確認，邏輯跟已經實測驗證的「獨立判斷」是同一套機制，
+  信心度高但不是百分之百實測覆蓋。
+- **CLI 清乾淨、`%%` 跳脫正確**：`main.py --help` 確認 `--backfill-institutional`／
+  `--backfill-margin` 完全不見蹤影，只剩 `--backfill-chips DAYS`；`--help` 執行 exit
+  code 0、無 traceback，原始碼 `help="...外資持股%%(MI_QFIIS)..."` 的雙百分比正確對應
+  argparse 會轉成單一 `%` 顯示的標準轉義慣例。
+- **`_update_chips_db()` 沒有殘留變數**：全檔 `grep inst_date\|marg_date\|fh_date`
+  零命中，TPEx 三段都改用 `resp_date`（來源自己回應裡的日期）跟 `trade_date`（函式參數）
+  比對，沒有 NameError 風險。
+
+### 🟡 建議改善（非阻擋，記錄供之後參考）
+- 跟 debug-tasks.md「特別注意」提到的一致：`warnings` 訊息合併成單一「籌碼資料回補失敗」
+  後，Telegram 通知沒辦法分辨是三個來源中的哪一個失敗，之後若要細分需要另外設計——這次
+  複本實測三個來源全部成功，沒有機會驗證「部分失敗時 warning 文字」的實際樣子，附帶記錄。
+
+### 結論
+- [x] 可以繼續下一個任務 — 4 項邏輯性 checklist 全過，且用真實正式 DB 複本（零風險，
+  不影響正式資料）實跑驗證了核心的「同一天各來源獨立回補」機制，剛好命中一個真實存在的
+  部分缺口案例、結果精確吻合預期，也驗證了 idempotent 重跑行為。真正要對正式 `data/
+  screener.db` 執行 `--backfill-chips 60` 補齊完整60天歷史缺口，如 debug-tasks.md
+  所述留給 Cody 自己決定時機執行——這次的複本驗證已經確認機制本身正確可信賴。

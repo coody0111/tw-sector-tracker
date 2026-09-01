@@ -149,7 +149,13 @@ def parse_monthly_revenue_html(
         found_industry = _industry_name(joined)
         if found_industry:
             industry = found_industry
-        if len(texts) >= 11 and texts[0] == "公司代號" and texts[1] == "公司名稱":
+        # 表頭列不能綁死儲存格數／精確字串比對：實測真實 TWSE 2025-06 頁面表頭列只有
+        # 10 格（不是資料列的11格），且第一格文字是「公司 代號」（中間多一個空格），跟
+        # 原本要求的 len(texts)>=11 and texts[0]=="公司代號" 兩個條件都對不上，導致
+        # header_seen 永遠 False、990列合法資料全被判定失敗（2026-09-02 debug 複驗
+        # Big5 修復時才第一次真的跑到這一步、才暴露出來的獨立bug）。改成只看去空白後的
+        # 第一格文字，不再要求儲存格數——資料列已經有 _STOCK_ID_RE 獨立驗證，不會誤判。
+        if texts[0].replace(" ", "") == "公司代號":
             header_seen = True
             continue
         if len(texts) != 11 or _STOCK_ID_RE.fullmatch(texts[0]) is None:

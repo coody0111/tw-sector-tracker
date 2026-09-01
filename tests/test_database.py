@@ -12,6 +12,14 @@ from screener.database import (
 )
 
 
+def test_init_db_binds_xbrl_current_facts_view(tmp_path, monkeypatch):
+    """XBRL archive/version joins must not leave archive_sha256 ambiguous."""
+    import screener.database as db_mod
+
+    monkeypatch.setattr(db_mod, "DB_PATH", str(tmp_path / "xbrl-view.duckdb"))
+    db_mod.init_db()
+
+
 def _make_chips_tables(con):
     con.execute("""CREATE TABLE institutional (
         stock_id VARCHAR, date DATE, foreign_net BIGINT, trust_net BIGINT,

@@ -114,6 +114,340 @@ def init_db() -> None:
         )
     """)
     con.execute("""
+        CREATE TABLE IF NOT EXISTS monthly_revenue (
+            stock_id                 VARCHAR NOT NULL,
+            stock_name               VARCHAR,
+            exchange                 VARCHAR NOT NULL,
+            industry                 VARCHAR,
+            revenue_month            DATE NOT NULL,
+            revenue                  BIGINT,
+            previous_month_revenue   BIGINT,
+            previous_year_revenue    BIGINT,
+            reported_mom_pct         DOUBLE,
+            reported_yoy_pct         DOUBLE,
+            ytd_revenue              BIGINT,
+            previous_ytd_revenue     BIGINT,
+            reported_ytd_yoy_pct     DOUBLE,
+            note                     VARCHAR,
+            report_date              DATE,
+            first_seen_at            TIMESTAMP NOT NULL,
+            fetched_at               TIMESTAMP NOT NULL,
+            source                   VARCHAR NOT NULL,
+            PRIMARY KEY (stock_id, revenue_month)
+        )
+    """)
+    con.execute("DROP VIEW IF EXISTS monthly_revenue_growth")
+    monthly_report_date_is_not_null = any(
+        "report_date" in (columns or [])
+        for (columns,) in con.execute("""
+            SELECT constraint_column_names
+            FROM duckdb_constraints()
+            WHERE table_name = 'monthly_revenue' AND constraint_type = 'NOT NULL'
+        """).fetchall()
+    )
+    if monthly_report_date_is_not_null:
+        con.execute("ALTER TABLE monthly_revenue ALTER COLUMN report_date DROP NOT NULL")
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS monthly_revenue_pages (
+            page_sha256   VARCHAR PRIMARY KEY,
+            exchange      VARCHAR NOT NULL,
+            revenue_month DATE NOT NULL,
+            source_url    VARCHAR NOT NULL,
+            local_path    VARCHAR NOT NULL,
+            byte_size     BIGINT NOT NULL,
+            first_seen_at TIMESTAMP NOT NULL,
+            retrieved_at  TIMESTAMP NOT NULL
+        )
+    """)
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS monthly_revenue_versions (
+            page_sha256              VARCHAR NOT NULL,
+            stock_id                 VARCHAR NOT NULL,
+            stock_name               VARCHAR,
+            exchange                 VARCHAR NOT NULL,
+            industry                 VARCHAR,
+            revenue_month            DATE NOT NULL,
+            revenue                  BIGINT,
+            previous_month_revenue   BIGINT,
+            previous_year_revenue    BIGINT,
+            reported_mom_pct         DOUBLE,
+            reported_yoy_pct         DOUBLE,
+            ytd_revenue              BIGINT,
+            previous_ytd_revenue     BIGINT,
+            reported_ytd_yoy_pct     DOUBLE,
+            note                     VARCHAR,
+            report_date              DATE,
+            first_seen_at            TIMESTAMP NOT NULL,
+            source                   VARCHAR NOT NULL,
+            PRIMARY KEY (page_sha256, stock_id)
+        )
+    """)
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS financial_facts (
+            stock_id         VARCHAR NOT NULL,
+            stock_name       VARCHAR,
+            exchange         VARCHAR NOT NULL,
+            period_end       DATE NOT NULL,
+            fiscal_year      INTEGER NOT NULL,
+            quarter          INTEGER NOT NULL,
+            statement_type   VARCHAR NOT NULL,
+            industry_schema  VARCHAR NOT NULL,
+            metric_key       VARCHAR NOT NULL,
+            raw_name         VARCHAR NOT NULL,
+            value            DOUBLE,
+            unit             VARCHAR NOT NULL,
+            is_ytd           BOOLEAN NOT NULL,
+            report_date      DATE,
+            first_seen_at    TIMESTAMP NOT NULL,
+            fetched_at       TIMESTAMP NOT NULL,
+            source           VARCHAR NOT NULL,
+            PRIMARY KEY (stock_id, period_end, statement_type, metric_key, industry_schema)
+        )
+    """)
+    # DuckDB 不允許有 dependent view 時 ALTER table；先移除、下方會用新定義重建。
+    con.execute("DROP VIEW IF EXISTS financial_fact_growth")
+    con.execute("DROP VIEW IF EXISTS financial_ratios")
+    # Phase 1 已建立的本機 DB 曾把 report_date 設為 NOT NULL；MOPS 批次 ZIP 沒有官方保證的
+    # 申報日，不能拿抓取日冒充，因此 migration 明確允許 NULL。
+    report_date_is_not_null = any(
+        "report_date" in (columns or [])
+        for (columns,) in con.execute("""
+            SELECT constraint_column_names
+            FROM duckdb_constraints()
+            WHERE table_name = 'financial_facts' AND constraint_type = 'NOT NULL'
+        """).fetchall()
+    )
+    if report_date_is_not_null:
+        con.execute("ALTER TABLE financial_facts ALTER COLUMN report_date DROP NOT NULL")
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS xbrl_archives (
+            archive_sha256     VARCHAR PRIMARY KEY,
+            accounting_standard VARCHAR NOT NULL,
+            fiscal_year        INTEGER NOT NULL,
+            quarter            INTEGER NOT NULL,
+            period_end         DATE NOT NULL,
+            source_url         VARCHAR NOT NULL,
+            source_filename    VARCHAR NOT NULL,
+            local_path         VARCHAR NOT NULL,
+            byte_size          BIGINT NOT NULL,
+            etag               VARCHAR,
+            last_modified      VARCHAR,
+            first_seen_at      TIMESTAMP NOT NULL,
+            retrieved_at       TIMESTAMP NOT NULL
+        )
+    """)
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS xbrl_filings (
+            filing_sha256      VARCHAR PRIMARY KEY,
+            archive_sha256     VARCHAR NOT NULL,
+            entry_path         VARCHAR NOT NULL,
+            stock_id           VARCHAR NOT NULL,
+            stock_name         VARCHAR,
+            period_end         DATE NOT NULL,
+            fiscal_year        INTEGER NOT NULL,
+            quarter            INTEGER NOT NULL,
+            content_format     VARCHAR NOT NULL,
+            taxonomy_refs_json VARCHAR NOT NULL,
+            reported_at        TIMESTAMP,
+            first_seen_at      TIMESTAMP NOT NULL
+        )
+    """)
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS xbrl_archive_entries (
+            archive_sha256 VARCHAR NOT NULL,
+            entry_path     VARCHAR NOT NULL,
+            filing_sha256  VARCHAR NOT NULL,
+            PRIMARY KEY (archive_sha256, entry_path)
+        )
+    """)
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS xbrl_archive_entries (
+            archive_sha256 VARCHAR NOT NULL,
+            entry_path     VARCHAR NOT NULL,
+            filing_sha256  VARCHAR NOT NULL,
+            PRIMARY KEY (archive_sha256, entry_path)
+        )
+    """)
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS xbrl_facts (
+            filing_sha256 VARCHAR NOT NULL,
+            fact_index    INTEGER NOT NULL,
+            stock_id      VARCHAR NOT NULL,
+            qname         VARCHAR NOT NULL,
+            namespace_uri VARCHAR NOT NULL,
+            local_name    VARCHAR NOT NULL,
+            context_id    VARCHAR NOT NULL,
+            period_start  DATE,
+            period_end    DATE,
+            instant       DATE,
+            unit_id       VARCHAR,
+            unit          VARCHAR,
+            decimals      VARCHAR,
+            dimensions_json VARCHAR NOT NULL,
+            raw_value     VARCHAR,
+            numeric_value DOUBLE,
+            is_nil        BOOLEAN NOT NULL,
+            PRIMARY KEY (filing_sha256, fact_index)
+        )
+    """)
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS xbrl_canonical_facts (
+            filing_sha256 VARCHAR NOT NULL,
+            stock_id      VARCHAR NOT NULL,
+            period_end    DATE NOT NULL,
+            fiscal_year   INTEGER NOT NULL,
+            quarter       INTEGER NOT NULL,
+            statement_type VARCHAR NOT NULL,
+            industry_schema VARCHAR NOT NULL,
+            metric_key    VARCHAR NOT NULL,
+            qname         VARCHAR NOT NULL,
+            context_id    VARCHAR NOT NULL,
+            value         DOUBLE,
+            unit          VARCHAR NOT NULL,
+            is_ytd        BOOLEAN NOT NULL,
+            first_seen_at TIMESTAMP NOT NULL,
+            reported_at   TIMESTAMP,
+            PRIMARY KEY (filing_sha256, statement_type, metric_key)
+        )
+    """)
+    con.execute("""
+        CREATE OR REPLACE VIEW xbrl_current_facts AS
+        WITH ranked_archives AS (
+            SELECT archive_sha256, fiscal_year, quarter,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY accounting_standard, fiscal_year, quarter
+                       ORDER BY retrieved_at DESC, archive_sha256 DESC
+                   ) AS version_rank
+            FROM xbrl_archives
+            WHERE accounting_standard = 'IFRS'
+        ), latest_archive AS (
+            SELECT archive_sha256
+            FROM ranked_archives
+            WHERE version_rank = 1
+        ), ranked AS (
+            SELECT canonical.*, filing.stock_name,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY canonical.stock_id, canonical.period_end,
+                                    canonical.statement_type, canonical.metric_key
+                       ORDER BY filing.first_seen_at DESC, canonical.filing_sha256 DESC
+                   ) AS version_rank
+            FROM xbrl_canonical_facts canonical
+            JOIN xbrl_filings filing USING (filing_sha256)
+            JOIN xbrl_archive_entries entry USING (filing_sha256)
+            JOIN latest_archive
+              ON latest_archive.archive_sha256 = entry.archive_sha256
+        )
+        SELECT filing_sha256, stock_id, stock_name, period_end, fiscal_year, quarter,
+               statement_type, industry_schema, metric_key, qname, context_id,
+               value, unit, is_ytd, first_seen_at, reported_at
+        FROM ranked
+        WHERE version_rank = 1
+    """)
+    con.execute("""
+        CREATE OR REPLACE VIEW monthly_revenue_growth AS
+        SELECT
+            current.*,
+            CASE
+                WHEN previous.revenue IS NULL OR previous.revenue = 0 THEN NULL
+                ELSE (current.revenue / previous.revenue::DOUBLE - 1) * 100
+            END AS calculated_mom_pct,
+            CASE
+                WHEN previous_year.revenue IS NULL OR previous_year.revenue = 0 THEN NULL
+                ELSE (current.revenue / previous_year.revenue::DOUBLE - 1) * 100
+            END AS calculated_yoy_pct
+        FROM monthly_revenue current
+        LEFT JOIN monthly_revenue previous
+          ON previous.stock_id = current.stock_id
+         AND previous.revenue_month = CAST(current.revenue_month - INTERVAL '1 month' AS DATE)
+        LEFT JOIN monthly_revenue previous_year
+          ON previous_year.stock_id = current.stock_id
+         AND previous_year.revenue_month = CAST(current.revenue_month - INTERVAL '1 year' AS DATE)
+    """)
+    con.execute("""
+        CREATE OR REPLACE VIEW financial_fact_growth AS
+        WITH single_period AS (
+            SELECT
+                current.*,
+                CASE
+                    WHEN current.statement_type = 'balance' THEN current.value
+                    WHEN current.metric_key IN ('eps', 'diluted_eps') THEN NULL
+                    WHEN current.quarter = 1 THEN current.value
+                    WHEN previous_ytd.value IS NULL THEN NULL
+                    ELSE current.value - previous_ytd.value
+                END AS single_quarter_value
+            FROM financial_facts current
+            LEFT JOIN financial_facts previous_ytd
+              ON previous_ytd.stock_id = current.stock_id
+             AND previous_ytd.statement_type = current.statement_type
+             AND previous_ytd.industry_schema = current.industry_schema
+             AND previous_ytd.metric_key = current.metric_key
+             AND previous_ytd.fiscal_year = current.fiscal_year
+             AND previous_ytd.quarter = current.quarter - 1
+        ), compared AS (
+            SELECT
+                current.*,
+                previous_quarter.single_quarter_value AS previous_quarter_value,
+                previous_year.single_quarter_value AS previous_year_quarter_value,
+                previous_year.value AS previous_year_reported_value
+            FROM single_period current
+            LEFT JOIN single_period previous_quarter
+              ON previous_quarter.stock_id = current.stock_id
+             AND previous_quarter.statement_type = current.statement_type
+             AND previous_quarter.industry_schema = current.industry_schema
+             AND previous_quarter.metric_key = current.metric_key
+              AND previous_quarter.period_end = CAST(
+                    date_trunc('quarter', current.period_end) - INTERVAL '1 day' AS DATE
+                  )
+            LEFT JOIN single_period previous_year
+              ON previous_year.stock_id = current.stock_id
+             AND previous_year.statement_type = current.statement_type
+             AND previous_year.industry_schema = current.industry_schema
+             AND previous_year.metric_key = current.metric_key
+             AND previous_year.fiscal_year = current.fiscal_year - 1
+             AND previous_year.quarter = current.quarter
+        )
+        SELECT
+            compared.*,
+            CASE
+                WHEN metric_key IN ('eps', 'diluted_eps')
+                     OR previous_quarter_value IS NULL OR previous_quarter_value = 0 THEN NULL
+                ELSE (single_quarter_value / previous_quarter_value - 1) * 100
+            END AS calculated_qoq_pct,
+            CASE
+                WHEN metric_key IN ('eps', 'diluted_eps')
+                     OR previous_year_quarter_value IS NULL OR previous_year_quarter_value = 0 THEN NULL
+                ELSE (single_quarter_value / previous_year_quarter_value - 1) * 100
+            END AS calculated_quarter_yoy_pct,
+            CASE
+                WHEN NOT is_ytd OR previous_year_reported_value IS NULL
+                     OR previous_year_reported_value = 0 THEN NULL
+                ELSE (value / previous_year_reported_value - 1) * 100
+            END AS calculated_ytd_yoy_pct
+        FROM compared
+    """)
+    con.execute("""
+        CREATE OR REPLACE VIEW financial_ratios AS
+        WITH pivoted AS (
+            SELECT stock_id, period_end, fiscal_year, quarter,
+                   MAX(CASE WHEN metric_key = 'revenue' THEN value END) AS revenue,
+                   MAX(CASE WHEN metric_key = 'gross_profit' THEN value END) AS gross_profit,
+                   MAX(CASE WHEN metric_key = 'operating_income' THEN value END) AS operating_income,
+                   MAX(CASE WHEN metric_key = 'net_income_parent' THEN value END) AS net_income_parent,
+                   MAX(CASE WHEN metric_key = 'net_income' THEN value END) AS net_income
+            FROM financial_facts
+            WHERE is_ytd
+            GROUP BY stock_id, period_end, fiscal_year, quarter
+        )
+        SELECT *,
+               CASE WHEN revenue IS NULL OR revenue = 0 THEN NULL
+                    ELSE gross_profit / revenue * 100 END AS gross_margin_pct,
+               CASE WHEN revenue IS NULL OR revenue = 0 THEN NULL
+                    ELSE operating_income / revenue * 100 END AS operating_margin_pct,
+               CASE WHEN revenue IS NULL OR revenue = 0 THEN NULL
+                    ELSE COALESCE(net_income_parent, net_income) / revenue * 100 END AS net_margin_pct
+        FROM pivoted
+    """)
+    con.execute("""
         CREATE TABLE IF NOT EXISTS pattern_signals (
             stock_id     VARCHAR NOT NULL,
             pattern      VARCHAR NOT NULL,

@@ -16,7 +16,7 @@ export/momentum_generator.py::classify_sector_state() 都不共用計算依據�
 streak + 5日窗口加速度，不查法人資料，換取 41 個族群卡片能快速全部算完。
 """
 import json
-from datetime import date
+from datetime import date, datetime
 from html import escape as _html_escape
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -78,15 +78,21 @@ def classify_temp(accel: Optional[float]) -> Optional[Dict[str, str]]:
     return None
 
 
-def heat_bg(pct: float, max_abs_pct: float) -> str:
+def heat_bg(pct: float, max_abs_pct: Optional[float] = None) -> str:
+    """Top 10 卡片固定級距底色，不受當日最大漲跌幅影響。
+
+    級距依絕對漲跌幅分成 0–1%、1–2%、2–4%、4%以上；紅漲綠跌且強度對稱。
+    ``max_abs_pct`` 僅保留相容舊呼叫端，刻意不參與計算，確保同一漲跌幅跨日同色。
     """
-    熱區格卡片底色（紅漲綠跌，飽和度依當日漲跌幅相對全市場最大值算），直接對應視覺 spec 的
-    heatBg() JS 函式。max_abs_pct=0（全市場今日漲跌全部剛好0%的極端情況）時 t 視為 0，
-    不除以0。
-    """
-    t = min(abs(pct) / max_abs_pct, 1.0) if max_abs_pct > 0 else 0.0
-    alpha = 0.16 + t * 0.5
-    alpha_pct = round(alpha * 100)
+    magnitude = abs(pct)
+    if magnitude >= 4.0:
+        alpha_pct = 62
+    elif magnitude >= 2.0:
+        alpha_pct = 46
+    elif magnitude >= 1.0:
+        alpha_pct = 30
+    else:
+        alpha_pct = 18
     color_var = "var(--up)" if pct >= 0 else "var(--down)"
     return f"color-mix(in srgb, {color_var} {alpha_pct}%, var(--panel))"
 
@@ -197,9 +203,9 @@ def find_anomaly_cards(
     異動族群動態清單（視覺spec用語：頁面最上方快報，今日vs昨日的瞬間訊號）。不是固定5張卡，
     符合條件有幾檔就回傳幾檔。門檻是視覺 spec 定的經驗法則草案，待回測（見 Global Constraints）。
 
-    爆量暴衝(burst)：vol_ratio >= 1.5 且今日排名比昨日跳動 >= 10（今日排名依 avg_change_pct
+    爆量異常跳升(burst)：vol_ratio >= 1.5 且今日排名比昨日跳動 >= 10（今日排名依 avg_change_pct
     降冪計算，第1名跳動幅度最大）。
-    連續噴出(trend)：classify_temp(accel)=="hot" 且 streak_today >= 5（草案，要求持續而非
+    動能加速(trend)：classify_temp(accel)=="hot" 且 streak_today >= 5（草案，要求持續而非
     曇花一現）。
     同一族群兩者都成立時，burst 優先（量能異常是更即時的訊號）。
     回傳結果依嚴重程度排序：burst 排在 trend 前面，同 kind 內依 abs(pct) 降冪。
@@ -242,7 +248,7 @@ def find_anomaly_cards(
                 "reason": f"上週 {last_week_pct:+.1f}% → 本週 {this_week_pct:+.1f}%　加速 {accel:+.1f}pt",
             })
 
-    # 排序：burst(爆量暴衝)優先於trend(連續噴出)——量能異常是更即時的訊號；同kind內依
+    # 排序：burst(爆量異常跳升)優先於trend(動能加速)——量能異常是更即時的訊號；同kind內依
     # abs(pct)降冪(幅度大的優先)。用pct(卡片上本來就顯示給人看的數字)當排序依據，而不是
     # vol_ratio/accel，使用者比較看得懂「為什麼這張排前面」。卡片視覺大小不變，只調整順序。
     results.sort(key=lambda r: (r["kind"] != "burst", -abs(r["pct"])))
@@ -330,22 +336,26 @@ def _market_regime_html(market_regime: Optional[Dict[str, Any]]) -> str:
     )
 
 
-def _vol_turnover_html(vol_turnover_signals: Optional[List[Dict[str, Any]]]) -> str:
+def _vol_turnover_html(
+    vol_turnover_signals: Optional[List[Dict[str, Any]]],
+    *,
+    is_intraday: bool = False,
+) -> str:
     """
     巨量換手訊號（前日漲停→今日爆量收跌+三大法人確認），從
     export/html_generator.py::_vol_turnover_section() 搬過來並改用新配色 CSS 變數。
-    沒有訊號時回空字串，不顯示這個區塊。
+    沒有訊號時保留精簡空狀態；盤中模式改稱「疑似巨量換手」。
     """
-    if not vol_turnover_signals:
-        return ""
+    signal_label = "疑似巨量換手" if is_intraday else "巨量換手"
+    signals = vol_turnover_signals or []
 
     rows = []
-    for s in vol_turnover_signals:
+    for s in signals:
         chg = s.get("change_pct") or 0
         chg_color = "var(--up)" if chg >= 0 else "var(--down)"
         f_net = s.get("foreign_net")
         confirmed = s.get("inst_confirmed", False)
-        inst_badge = '<span class="badge foreign">外資+投信確認</span>' if confirmed else ""
+        inst_badge = '<span class="badge foreign">法人確認</span>' if confirmed else ""
         if f_net and f_net > 0:
             f_html = f'<span class="tabular" style="color:var(--up)">+{f_net // 1000:,}張</span>'
         elif f_net and f_net < 0:
@@ -363,13 +373,17 @@ def _vol_turnover_html(vol_turnover_signals: Optional[List[Dict[str, Any]]]) -> 
             f'<td>{inst_badge}</td>'
             '</tr>'
         )
+    rows_html = "".join(rows)
+    if not rows_html:
+        rows_html = f'<tr><td colspan="6" class="vt-empty">目前沒有{signal_label}訊號</td></tr>'
     return (
-        '<div class="vol-turnover">'
-        f'<div class="regime-label">巨量換手訊號（前日漲停 → 今日爆量收跌，共 {len(vol_turnover_signals)} 檔）</div>'
+        '<section class="vol-turnover" aria-labelledby="vol-turnover-title">'
+        f'<div class="event-head"><div><span class="eyebrow">VOLUME EVENT</span><h2 id="vol-turnover-title">{signal_label}</h2></div>'
+        f'<span class="event-count tabular">{len(signals)} 檔</span></div>'
         '<div class="overflow-wrap"><table class="vt-table">'
         '<thead><tr><th>代號 / 名稱</th><th>族群</th><th>今日漲跌</th><th>量倍數</th><th>外資</th><th>確認</th></tr></thead>'
-        f'<tbody>{"".join(rows)}</tbody>'
-        '</table></div></div>'
+        f'<tbody>{rows_html}</tbody>'
+        '</table></div></section>'
     )
 
 
@@ -392,7 +406,6 @@ def build_heatgrid_cards(
     yesterday_rank 缺值時不顯示排名箭頭。
     """
     ranked = sorted(meta_perf, key=lambda r: r["avg_change_pct"], reverse=True)
-    max_abs_pct = max((abs(r["avg_change_pct"]) for r in ranked), default=0.0)
     cum_map = {row["meta_name"]: row for row in (cum_data or [])}
 
     cards = []
@@ -427,7 +440,7 @@ def build_heatgrid_cards(
                 window_data.get("this_week_pct_today"),
             ),
             "temp": classify_temp(accel),
-            "heat_bg": heat_bg(pct, max_abs_pct),
+            "heat_bg": heat_bg(pct),
             "cum3": cum.get("cum3"),
             "cum5": cum.get("cum5"),
             "cum7": cum.get("cum7"),
@@ -452,6 +465,8 @@ _STEALTH_STREAK_MIN = 3
 _STEALTH_PRICE_FLAT_MAX = 1.0
 _VOL_ANOMALY_RATIO_MIN = 1.5
 _VOL_ANOMALY_PRICE_FLAT_MAX = 2.0
+
+_RESEARCH_BUCKET_LIMITS = {"research": 10, "watch": 5, "avoid": 5}
 
 
 def build_sector_recap(
@@ -520,6 +535,90 @@ def build_sector_recap(
         "volume_anomaly": volume_anomaly,
         "turning_points": find_turning_points(active_windows),
         "rank_crossings": find_rank_crossings(active_rank_history),
+    }
+
+
+def build_research_buckets(
+    cards: List[Dict[str, Any]],
+    anomaly_cards: List[Dict[str, Any]],
+    rank_history: Optional[Dict[str, Dict[str, Any]]] = None,
+) -> Dict[str, List[Dict[str, Any]]]:
+    """建立首頁互斥的研究分類，不改動底層既有 recap 計算。
+
+    優先序固定為「值得研究 → 先觀察 → 避開」，避免同一族群重複出現。短線與週度
+    訊號相反時仍保留主要分類，並以客觀衝突標記呈現。
+    """
+    anomaly_kind = {row["meta_name"]: row["kind"] for row in anomaly_cards}
+    just_out_names = {
+        row["meta_name"] for row in find_rank_crossings(rank_history or {})["just_out"]
+    }
+    buckets: Dict[str, List[Dict[str, Any]]] = {"research": [], "watch": [], "avoid": []}
+
+    for card in cards:
+        name = card["meta_name"]
+        rank_delta = card.get("rank_delta")
+        temp_key = (card.get("temp") or {}).get("key")
+        vol_ratio = card.get("vol_ratio")
+        is_rank_jump = rank_delta is not None and rank_delta >= _BREAKOUT_RANK_JUMP_MIN and card["pct"] > 0
+        is_live_anomaly = name in anomaly_kind
+        is_warming = temp_key == "hot"
+        is_volume_anomaly = (
+            vol_ratio is not None
+            and vol_ratio >= _VOL_ANOMALY_RATIO_MIN
+            and abs(card["pct"]) <= _VOL_ANOMALY_PRICE_FLAT_MAX
+        )
+        is_cooling = temp_key == "cold"
+        just_out = name in just_out_names
+
+        bucket = None
+        primary_tag = ""
+        conflicts: List[str] = []
+        if is_live_anomaly or is_rank_jump:
+            bucket = "research"
+            if anomaly_kind.get(name) == "burst" or (is_rank_jump and vol_ratio is not None and vol_ratio >= _ANOMALY_VOL_RATIO_MIN):
+                primary_tag = "爆量異常跳升"
+            elif anomaly_kind.get(name) == "trend":
+                primary_tag = "動能加速"
+            else:
+                primary_tag = "短線異常跳升"
+            if is_cooling:
+                conflicts.append("週度仍退燒")
+            if just_out:
+                conflicts.append("週排行剛掉出前10")
+        elif is_warming or is_volume_anomaly:
+            bucket = "watch"
+            primary_tag = "週度增溫" if is_warming else "量能異常"
+            if just_out:
+                conflicts.append("週排行剛掉出前10")
+        elif is_cooling or just_out:
+            bucket = "avoid"
+            primary_tag = "週度退燒" if is_cooling else "剛掉出前10"
+            if card["pct"] > 0 and rank_delta is not None and rank_delta > 0:
+                conflicts.append("今日仍走強")
+
+        if bucket is None:
+            continue
+        buckets[bucket].append({
+            **card,
+            "bucket": bucket,
+            "primary_tag": primary_tag,
+            "conflict_tags": conflicts,
+        })
+
+    buckets["research"].sort(
+        key=lambda row: row.get("rank_delta") if row.get("rank_delta") is not None else -10_000,
+        reverse=True,
+    )
+    buckets["watch"].sort(
+        key=lambda row: row.get("accel") if row.get("accel") is not None else -10_000,
+        reverse=True,
+    )
+    buckets["avoid"].sort(
+        key=lambda row: row.get("accel") if row.get("accel") is not None else 10_000,
+    )
+    return {
+        key: rows[:_RESEARCH_BUCKET_LIMITS[key]]
+        for key, rows in buckets.items()
     }
 
 
@@ -659,6 +758,7 @@ def build_stock_detail_data(
             "change_pct": float(prices_map.loc[sid]["change_pct"]) if has_price else None,
             "pcts": spark.get("pcts", []),
             "dates": spark.get("dates", []),
+            "iso_dates": spark.get("iso_dates", []),
             "volumes": spark.get("volumes", []),
             "volume": spark.get("volumes", [None])[-1] if spark.get("volumes") else None,
             "vol_ratio": spark.get("vol_ratio"),
@@ -733,7 +833,7 @@ a{color:inherit}
 .skip-link{position:absolute;left:-999px;top:0;background:var(--panel);color:var(--ink);padding:8px 14px;z-index:100}
 .skip-link:focus{left:8px;top:8px}
 
-.topbar{display:flex;align-items:baseline;gap:16px;padding:20px 26px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+.topbar{position:sticky;top:0;z-index:30;display:flex;align-items:baseline;gap:16px;padding:16px 26px;border-bottom:1px solid var(--border);flex-wrap:wrap;background:color-mix(in srgb,var(--bg) 94%,transparent);backdrop-filter:blur(12px)}
 .topbar h1{font-family:var(--serif);font-size:1.28rem;font-weight:600;color:var(--ink);letter-spacing:.01em;margin:0}
 .topbar .kicker{font-size:.62rem;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--accent)}
 .topbar .updated{font-size:.72rem;color:var(--ink-3);margin-left:auto;font-family:var(--mono)}
@@ -749,8 +849,8 @@ a{color:inherit}
 .search-item .si-name{font-family:var(--serif);font-weight:600;color:var(--ink);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .search-item .si-meta{color:var(--ink-3);font-size:.7rem;flex-shrink:0}
 .search-item .si-pct{font-family:var(--mono);font-weight:700;flex-shrink:0}
-.nav-links{display:flex;gap:8px}
-.nav-link{font-size:.78rem;padding:5px 14px;border-radius:6px;border:1px solid var(--border);color:var(--ink-2);text-decoration:none}
+.nav-links{display:flex;align-items:center;gap:8px;white-space:nowrap}
+.nav-link{display:inline-flex;align-items:center;min-height:32px;font-family:var(--sans);font-size:.78rem;font-weight:600;padding:5px 14px;border-radius:6px;border:1px solid var(--border);color:var(--ink-2);text-decoration:none;transition:color .15s,border-color .15s,background .15s}
 .nav-link:hover{border-color:var(--ink-2);color:var(--ink)}
 .nav-link.active{border-color:var(--accent);color:var(--ink);background:var(--panel-2)}
 .nav-link:focus-visible,button:focus-visible,.heat-tile:focus-visible,.anomaly-card:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
@@ -760,20 +860,6 @@ a{color:inherit}
 .section-head .count{font-family:var(--mono);font-size:.7rem;color:var(--ink-3)}
 .section-rule{height:1px;background:linear-gradient(to right,var(--ink) 0%,var(--border) 45%,transparent 100%);margin:0 26px 4px}
 .section-sub{padding:0 26px 14px;font-size:.76rem;color:var(--ink-2);max-width:720px}
-
-.anomaly-wrap{position:relative;margin:0 26px}
-.anomaly-strip{display:flex;gap:14px;overflow-x:auto;padding:2px 2px 6px}
-.anomaly-wrap::after{content:"";position:absolute;top:0;right:0;bottom:6px;width:44px;pointer-events:none;background:linear-gradient(to right, transparent, var(--bg) 88%)}
-.anomaly-card{flex:0 0 240px;background:var(--panel);border:1px solid var(--border);border-radius:4px;padding:15px 17px;position:relative;cursor:pointer;transition:box-shadow .2s,transform .2s,border-color .2s}
-.anomaly-card:hover{border-color:var(--border-2);transform:translateY(-2px)}
-.anomaly-card::before{content:"";position:absolute;left:0;top:15px;bottom:15px;width:2px;border-radius:2px}
-.anomaly-card.burst::before{background:var(--burst)} .anomaly-card.trend::before{background:var(--trend)}
-.anomaly-kind{font-size:.6rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px}
-.anomaly-kind.burst{color:var(--burst)} .anomaly-kind.trend{color:var(--trend)}
-.anomaly-name{font-family:var(--serif);font-weight:600;font-size:1.0rem;color:var(--ink)}
-.anomaly-pct{font-family:var(--mono);font-weight:600;font-size:1.02rem;color:var(--up);float:right}
-.anomaly-reason{margin-top:10px;font-size:.72rem;color:var(--ink-2);line-height:1.6;padding-top:9px;border-top:1px solid var(--border)}
-.anomaly-empty{color:var(--ink-3);font-size:.82rem;font-style:italic;padding:8px 2px}
 
 .market-regime{margin:0 26px 20px;padding:16px 18px;background:var(--panel);border:1px solid var(--border);border-left:3px solid var(--ink-3);border-radius:8px}
 .regime-label{font-family:var(--mono);font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3);margin-bottom:8px}
@@ -789,15 +875,11 @@ a{color:inherit}
 .regime-conc-vals{display:flex;gap:18px;margin-top:6px;color:var(--ink-2);flex-wrap:wrap}
 .regime-conc-vals b{color:var(--ink)}
 
-.vol-turnover{margin:0 26px 20px;padding:14px 16px;background:var(--panel);border:1px solid var(--border);border-radius:8px}
+.vol-turnover{margin:18px 0 0;padding:14px 16px;background:var(--panel);border:1px solid var(--border);border-radius:8px}
 table.vt-table{width:100%;border-collapse:collapse}
 .vt-table th{text-align:left;padding:4px 8px;font-size:.65rem;color:var(--ink-3);border-bottom:1px solid var(--border)}
 .vt-table td{padding:6px 8px;font-size:.8rem;border-bottom:1px solid var(--border)}
 .vt-sector{color:var(--ink-3);font-size:.72rem;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-
-.tier-legend{display:flex;gap:16px;padding:0 26px 16px;font-size:.68rem;color:var(--ink-2);flex-wrap:wrap;font-family:var(--mono)}
-.tier-legend span{display:inline-flex;align-items:center;gap:5px}
-.tier-legend .dot{width:8px;height:8px;border-radius:2px}
 
 .heatgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(224px,1fr));gap:8px;padding:0 26px}
 .heat-tile{
@@ -807,16 +889,6 @@ table.vt-table{width:100%;border-collapse:collapse}
 }
 .heat-tile:hover{transform:translateY(-2px);box-shadow:var(--shadow-2);z-index:2}
 .heat-tile.active{outline:2px solid var(--accent);outline-offset:-2px}
-/* 超強tier玻璃質感+光暈：故意不覆寫background(每個tile已有inline style來自heat_bg()，
-   CSS class的background會被inline覆蓋蓋掉，寫了也不會顯示)，只加border-color+box-shadow。
-   用color-mix(in srgb, var(--accent) N%, transparent)而非寫死rgba(240,187,85,...)，
-   因為--accent深色(#F0BB55)/淺色(#93701E)主題色相不同，color-mix自動跟著--accent變色，
-   兩個主題都合理，不用另外在:root[data-theme="light"]開一組rgba數值。*/
-.heat-tile.tier-super{
-  border-color:color-mix(in srgb, var(--accent) 50%, transparent);
-  box-shadow:0 0 22px color-mix(in srgb, var(--accent) 18%, transparent), var(--shadow-2);
-}
-.heat-tile.tier-super:hover{box-shadow:0 0 26px color-mix(in srgb, var(--accent) 24%, transparent), var(--shadow-2)}
 
 .detail-panel{
   margin:20px 26px 0;background:var(--panel);border:1px solid var(--accent);border-radius:5px;
@@ -825,7 +897,7 @@ table.vt-table{width:100%;border-collapse:collapse}
 }
 @keyframes expandIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
 .detail-head{display:flex;align-items:baseline;gap:12px;margin-bottom:2px}
-.detail-head h3{font-family:var(--serif);font-size:1.22rem;font-weight:600;margin:0;color:var(--ink)}
+.detail-head h3{font-family:var(--sans);font-size:1.22rem;font-weight:700;margin:0;color:var(--ink)}
 .detail-head .dpct{font-family:var(--mono);font-size:.98rem;font-weight:700}
 .detail-close{margin-left:auto;font-family:var(--mono);font-size:.68rem;background:none;border:1px solid var(--border);color:var(--ink-3);padding:4px 10px;border-radius:4px;cursor:pointer}
 .detail-sub{font-size:.75rem;color:var(--ink-3);margin-bottom:8px;font-family:var(--mono)}
@@ -859,16 +931,16 @@ table.stock-list-table{width:100%;border-collapse:collapse}
 .stock-item:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 .stock-item.no-data{opacity:.5;cursor:default}
 .stock-item .si-id{font-family:var(--mono);color:var(--ink-3);font-size:.8rem;margin-right:8px}
-.stock-item .si-name{font-family:var(--serif);font-weight:600;color:var(--ink);font-size:1rem}
+.stock-item .si-name{font-family:var(--sans);font-weight:650;color:var(--ink);font-size:.94rem}
 .stock-item td.num{font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:right}
 
 .stock-card-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:200;
   display:flex;align-items:center;justify-content:center;padding:20px}
 .stock-card-modal{background:var(--panel);border:1px solid var(--border-2);border-radius:8px;
-  padding:22px 24px;box-shadow:var(--shadow-2);max-width:400px;width:100%;max-height:82vh;overflow-y:auto}
+  padding:22px 24px;box-shadow:var(--shadow-2);max-width:920px;width:100%;max-height:88vh;overflow-y:auto}
 .stock-card-modal .sc-header{display:flex;align-items:baseline;gap:8px;margin-bottom:6px}
 .stock-card-modal .sc-id{font-family:var(--mono);color:var(--ink-3);font-size:.72rem}
-.stock-card-modal .sc-name{font-family:var(--serif);font-weight:700;color:var(--ink);font-size:1.05rem;flex:1;min-width:0}
+.stock-card-modal .sc-name{font-family:var(--sans);font-weight:700;color:var(--ink);font-size:1.05rem;flex:1;min-width:0}
 .stock-card-modal .sc-body{display:flex;align-items:baseline;gap:12px;font-family:var(--mono);font-variant-numeric:tabular-nums;margin-bottom:10px}
 .stock-card-modal .sc-price{font-size:1rem;color:var(--ink-2)}
 .stock-card-modal .sc-pct{font-size:1rem;font-weight:700}
@@ -883,6 +955,12 @@ table.stock-list-table{width:100%;border-collapse:collapse}
 .sc-spark-empty{display:block;margin-bottom:10px;font-size:.76rem;color:var(--ink-3);font-family:var(--serif)}
 .sc-sparkline{margin-bottom:10px;line-height:0}
 .sc-sparkline svg{width:100%;height:auto;display:block}
+.tv-chart-shell{position:relative;margin:14px 0 12px;padding:10px 10px 6px;border:1px solid var(--border);border-radius:6px;background:var(--panel-2)}
+.tv-chart{width:100%;height:360px}
+.tv-chart-status{position:absolute;z-index:2;inset:10px 10px 27px;display:grid;place-items:center;background:var(--panel-2);color:var(--ink-3);font-family:var(--sans);font-size:.78rem}
+.tv-chart-status[hidden]{display:none}
+.tv-attribution{display:inline-flex;margin-top:5px;color:var(--ink-3);font-size:.62rem;text-decoration:none}
+.tv-attribution:hover{color:var(--ink-2);text-decoration:underline}
 .sc-roll{display:flex;gap:10px;margin-bottom:10px;font-family:var(--mono);font-size:.72rem;flex-wrap:wrap}
 .sc-roll-item .lbl{color:var(--ink-3);margin-right:3px}
 .sc-chips{display:flex;gap:10px;font-family:var(--mono);font-size:.72rem;flex-wrap:wrap;color:var(--ink-3)}
@@ -893,80 +971,11 @@ table.stock-list-table{width:100%;border-collapse:collapse}
 .ht-name{font-family:var(--serif);font-weight:700;font-size:.96rem;color:var(--ink);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;letter-spacing:.01em}
 .ht-pct{font-family:var(--mono);font-weight:700;font-size:1.0rem;flex-shrink:0}
 .ht-status-row{display:flex;align-items:center;gap:6px;margin-top:8px;flex-wrap:wrap}
-.ht-tier{display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border-radius:20px;font-size:.62rem;font-weight:700;letter-spacing:.02em}
-.ht-tier .dot{width:6px;height:6px;border-radius:50%}
-.ht-temp{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:20px;font-family:var(--mono);font-size:.62rem;font-weight:700}
-.ht-temp.hot{background:color-mix(in srgb, var(--heat-hot) 20%, transparent);color:var(--heat-hot)}
-.ht-temp.cold{background:color-mix(in srgb, var(--heat-cold) 20%, transparent);color:var(--heat-cold)}
-.ht-temp.flat{background:rgba(255,255,255,.06);color:var(--ink-3)}
-.ht-streak{font-family:var(--mono);font-size:.68rem;color:var(--ink-2);margin-top:7px;font-weight:600}
-.ht-streak .n{font-weight:800}
-.ht-streak .cnt{color:var(--ink-3);font-weight:400}
-.ht-badges{display:flex;gap:5px;margin-top:7px;flex-wrap:wrap}
 .badge{font-family:var(--mono);font-size:.58rem;font-weight:700;padding:2px 6px;border-radius:3px;display:inline-flex;align-items:center;gap:3px}
 .badge.foreign{background:rgba(212,162,78,.16);color:var(--accent);border:1px solid rgba(212,162,78,.3)}
-.badge.trust{background:rgba(169,120,154,.16);color:var(--trend);border:1px solid rgba(169,120,154,.3)}
-.badge.vol{background:rgba(255,255,255,.06);color:var(--ink-2);border:1px solid var(--border)}
-.ht-week{display:flex;align-items:center;justify-content:space-between;margin-top:9px;padding-top:8px;border-top:1px solid rgba(255,255,255,.08);font-family:var(--mono);font-size:.62rem}
-.ht-week .lbl{color:var(--ink-3)}
-.ht-week .vals{font-weight:700}
 .ht-rank-delta{font-size:.6rem;font-weight:700}
 .ht-rank-delta.up{color:var(--up)}
 .ht-rank-delta.down{color:var(--down)}
-.ht-cum{display:flex;gap:8px;margin-top:6px;font-family:var(--mono);font-size:.62rem}
-.ht-cum-item{display:flex;align-items:center;gap:3px}
-.ht-cum-item .lbl{color:var(--ink-3)}
-.legend-note{padding:14px 26px 0;font-size:.7rem;color:var(--ink-3);max-width:760px}
-
-.role-note{margin:0 26px 20px;padding:11px 15px;background:var(--panel);border:1px solid var(--border);border-radius:4px;font-size:.74rem;color:var(--ink-2);display:flex;gap:18px;flex-wrap:wrap}
-.role-note b{color:var(--ink)}
-.status-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px;padding:0 26px}
-@media (max-width:760px){.status-cols{grid-template-columns:1fr}}
-.status-col-head{display:flex;align-items:center;gap:8px;font-family:var(--serif);font-weight:700;font-size:1rem;margin-bottom:12px;padding-bottom:10px;border-bottom:2px solid}
-.status-col-head.hot{color:var(--heat-hot);border-color:var(--heat-hot)}
-.status-col-head.cold{color:var(--heat-cold);border-color:var(--heat-cold)}
-.status-col-head.breakout{color:var(--up);border-color:var(--up)}
-.status-col-head.foreign{color:var(--accent);border-color:var(--accent)}
-.status-col-head.trust{color:var(--trend);border-color:var(--trend)}
-.status-col-head.volume{color:var(--ink-2);border-color:var(--border-2)}
-.status-col-note{font-size:.68rem;color:var(--ink-3);margin-top:8px;line-height:1.5}
-.status-row{display:flex;align-items:center;gap:10px;padding:9px 4px;border-bottom:1px solid var(--border)}
-.status-row .sr-name{font-family:var(--serif);font-weight:600;font-size:.88rem;color:var(--ink);flex:1}
-.status-row .sr-today{font-family:var(--mono);font-size:.74rem;width:56px;text-align:right}
-.status-row .sr-pt{font-family:var(--mono);font-weight:800;font-size:.86rem;width:66px;text-align:right}
-
-.turning-wrap{margin:26px 26px 0;background:var(--panel);border:1px solid var(--border-2);border-radius:5px;padding:18px 22px}
-.turning-head{font-family:var(--serif);font-weight:700;font-size:1rem;color:var(--ink);margin-bottom:4px}
-.turning-sub{font-size:.72rem;color:var(--ink-3);margin-bottom:14px}
-.turning-row{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)}
-.turning-row:last-child{border-bottom:none}
-.turning-name{font-family:var(--serif);font-weight:700;font-size:.9rem;color:var(--ink);width:110px;flex-shrink:0}
-.turning-transition{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:.72rem}
-.turning-pill{padding:3px 9px;border-radius:20px;font-weight:700}
-.turning-arrow{color:var(--ink-3)}
-.turning-desc{margin-left:auto;font-size:.72rem;color:var(--ink-2);font-style:italic;font-family:var(--serif)}
-.rankmove-wrap{margin:26px 26px 0;background:var(--panel);border:1px solid var(--border-2);border-radius:5px;padding:18px 22px}
-.rankmove-head{font-family:var(--serif);font-weight:700;font-size:1rem;color:var(--ink);margin-bottom:4px}
-.rankmove-sub{font-size:.72rem;color:var(--ink-3);margin-bottom:14px}
-.rankmove-cols{display:grid;grid-template-columns:1fr 1fr;gap:20px}
-.rankmove-col h4{margin:0 0 8px;font-family:var(--mono);font-size:.66rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
-.rankmove-col.in h4{color:var(--up)}
-.rankmove-col.out h4{color:var(--down)}
-.rankmove-item{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);font-size:.85rem}
-.rankmove-item:last-child{border-bottom:none}
-.secondary-row{display:grid;grid-template-columns:1fr 1fr;gap:24px;padding:0 26px;align-items:start}
-@media (max-width:900px){.secondary-row{grid-template-columns:1fr}}
-.secondary-row .section-head{padding:20px 0 8px}
-.secondary-row .section-rule{margin:0 0 4px}
-.secondary-row .section-sub{padding:0 0 14px}
-.secondary-row .anomaly-wrap{margin:0}
-.secondary-row .role-note{margin:0 0 20px}
-.secondary-row .status-cols{padding:0}
-.secondary-row .turning-wrap{margin:20px 0 0}
-.secondary-row .rankmove-wrap{margin:20px 0 0}
-.rankmove-item .rm-name{font-family:var(--serif);font-weight:600;color:var(--ink)}
-.rankmove-item .rm-shift{font-family:var(--mono);font-size:.74rem;color:var(--ink-2)}
-.rankmove-empty{color:var(--ink-3);font-size:.78rem;font-family:var(--serif)}
 .history-wrap{margin-top:16px}
 .history-summary{font-family:var(--serif);font-size:.92rem;color:var(--ink);margin-bottom:10px;
   padding:9px 13px;background:var(--panel-2);border-left:3px solid var(--accent);border-radius:0 4px 4px 0}
@@ -981,6 +990,81 @@ table.stock-list-table{width:100%;border-collapse:collapse}
 .history-week .hw-pct{display:block;margin-top:2px;font-size:.62rem;font-weight:600}
 .history-week.in-top10{border-color:color-mix(in srgb, var(--accent) 45%, var(--border))}
 .history-week.in-top10 .hw-rank{color:var(--accent)}
+
+/* 2026-09 desktop research workspace */
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+[hidden]{display:none!important}
+.topbar{align-items:center;gap:14px;padding:10px 26px;background:color-mix(in srgb,var(--bg) 96%,transparent)}
+.topbar .brand{display:flex;align-items:baseline;gap:10px;white-space:nowrap}
+.topbar .brand h1{font-size:1.08rem}
+.topbar .updated{display:flex;flex-direction:column;align-items:flex-end;gap:2px;line-height:1.2}
+.topbar .updated strong{font-size:.68rem;color:var(--accent);font-weight:700}
+.topbar .updated span{font-size:.64rem;color:var(--ink-3)}
+.page-shell{max-width:1560px;margin:0 auto;padding:20px 26px 48px}
+.market-section .market-regime{margin:0}
+.data-error{max-width:1560px;margin:14px auto 0;padding:12px 26px;background:color-mix(in srgb,var(--down) 12%,var(--panel));border-block:1px solid color-mix(in srgb,var(--down) 45%,var(--border));font-size:.76rem;color:var(--ink)}
+.data-error span{display:block;margin-top:3px;color:var(--ink-3)}
+.eyebrow{display:block;margin-bottom:4px;font-family:var(--mono);font-size:.58rem;font-weight:700;letter-spacing:.15em;color:var(--accent)}
+.vol-turnover{margin:14px 0 24px;padding:0;background:var(--panel);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:5px;overflow:hidden}
+.event-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px 10px}
+.event-head h2{margin:0;font-family:var(--serif);font-size:1rem;color:var(--ink)}
+.event-count{font-size:.7rem;color:var(--ink-3)}
+.vol-turnover .overflow-wrap{padding:0 16px 14px}
+.vt-empty{text-align:center!important;padding:18px!important;color:var(--ink-3)!important}
+.ranking-section,.research-section{background:color-mix(in srgb,var(--panel) 72%,transparent);border:1px solid var(--border);border-radius:6px}
+.ranking-section{padding:0 16px 18px}
+.section-head.ranking-head,.section-head.compact{padding:18px 0 12px;align-items:flex-end}
+.section-head.ranking-head h2,.section-head.compact h2{font-size:1.05rem}
+.ranking-toolbar{display:flex;align-items:flex-end;gap:8px;padding:10px 0 14px;border-top:1px solid var(--border);flex-wrap:wrap}
+.control-field{display:flex;flex-direction:column;gap:5px;min-width:140px;font-size:.62rem;color:var(--ink-3)}
+.control-field.compact{min-width:128px}.control-field.grow{flex:1;min-width:180px;max-width:320px}
+.control-field input,.control-field select{height:38px;min-width:0;padding:0 10px;border:1px solid var(--border);border-radius:4px;background:var(--panel-2);color:var(--ink);font:inherit;font-size:.76rem}
+.toolbar-button,.icon-button,.segment{min-height:38px;padding:0 12px;border:1px solid var(--border);border-radius:4px;background:var(--panel-2);color:var(--ink-2);font-family:var(--mono);font-size:.67rem;cursor:pointer;transition:background .18s,color .18s,border-color .18s}
+.toolbar-button:hover,.icon-button:hover,.segment:hover{background:var(--panel);color:var(--ink);border-color:var(--ink-3)}
+.toolbar-button.primary,.segment.active{background:color-mix(in srgb,var(--accent) 16%,var(--panel));color:var(--accent);border-color:color-mix(in srgb,var(--accent) 55%,var(--border))}
+.toolbar-button.quiet{background:transparent}.icon-button{width:38px;padding:0;font-size:.82rem;font-weight:700}
+.segmented{display:flex;align-items:center}.segmented .segment{border-radius:0}.segmented .segment:first-child{border-radius:4px 0 0 4px}.segmented .segment:last-child{border-radius:0 4px 4px 0;margin-left:-1px}
+.advanced-filters{display:flex;align-items:flex-end;gap:12px;padding:14px;margin:0 0 14px;background:var(--panel-2);border:1px solid var(--border);border-radius:5px;flex-wrap:wrap}
+.advanced-filters .control-field{min-width:120px}.advanced-filters .check-field{display:flex;align-items:center;min-height:38px;gap:7px;font-size:.72rem;color:var(--ink-2)}
+.advanced-filters input[type=checkbox]{width:17px;height:17px;accent-color:var(--accent)}
+.heatgrid{grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;padding:0}
+.heat-tile{display:flex;flex-direction:column;min-height:104px;padding:14px 13px;border-radius:4px;box-shadow:none;transition:transform .18s,box-shadow .18s,opacity .18s}
+.heat-tile:hover{transform:translateY(-1px)}
+.heat-tile.active{outline:2px solid var(--accent);outline-offset:2px}
+.ht-top{grid-template-columns:auto minmax(0,1fr) auto;gap:8px}.ht-name{font-size:.92rem}.ht-pct{font-size:.9rem}
+.ht-status-row{margin-top:auto;padding-top:20px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.signal-chip{display:inline-flex;align-items:center;min-height:22px;padding:2px 7px;border:1px solid var(--border);border-radius:999px;font-size:.62rem;font-weight:700;background:color-mix(in srgb,var(--panel) 72%,transparent)}
+.signal-chip.temp.hot{color:var(--heat-hot)}.signal-chip.temp.cold{color:var(--heat-cold)}.signal-chip.muted{color:var(--ink-3)}
+.filter-empty{padding:28px;text-align:center;color:var(--ink-3);font-family:var(--serif)}
+.research-section{margin-top:18px;padding:0 16px 16px}
+.research-grid{display:grid;grid-template-columns:2fr 1fr 1fr;gap:12px}
+.research-column{min-width:0;border:1px solid var(--border);border-radius:5px;background:var(--panel-2);overflow:hidden}
+.research-column-head{display:flex;align-items:baseline;justify-content:space-between;padding:12px;border-bottom:1px solid var(--border)}
+.research-column-head h3{margin:0;font-size:.84rem;color:var(--ink)}.research-column-head span{font-size:.6rem;color:var(--ink-3)}
+.research-column.research{border-top:2px solid var(--accent)}.research-column.watch{border-top:2px solid var(--heat-hot)}.research-column.avoid{border-top:2px solid var(--down)}
+.research-row{display:grid;grid-template-columns:minmax(96px,1fr) auto auto;gap:7px;width:100%;padding:10px 11px;border:0;border-bottom:1px solid var(--border);background:transparent;color:var(--ink);text-align:left;cursor:pointer}
+.research-row:last-child{border-bottom:0}.research-row:hover{background:var(--panel)}
+.research-name{font-size:.76rem;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.research-pct,.research-metric{font-size:.68rem}.research-metric{color:var(--ink-3)}
+.research-tags{grid-column:1/-1;display:flex;gap:5px;flex-wrap:wrap}.research-tag{padding:2px 6px;border-radius:999px;background:color-mix(in srgb,var(--accent) 12%,var(--panel));color:var(--accent);font-size:.58rem}.research-tag.conflict{background:var(--panel);color:var(--ink-3);border:1px solid var(--border)}
+.research-empty{padding:18px 12px;color:var(--ink-3);font-size:.7rem}
+.sector-drawer{position:fixed;z-index:80;inset:0 0 0 auto;width:min(1180px,80vw);padding:14px 20px 28px;background:var(--bg);border-left:1px solid var(--border);box-shadow:-18px 0 50px rgba(0,0,0,.38);overflow:auto;font-family:var(--sans);transform:translateX(102%);visibility:hidden;transition:transform .22s ease-out,visibility 0s linear .22s}
+.sector-drawer.open{transform:translateX(0);visibility:visible;transition:transform .22s ease-out}
+.drawer-top{position:sticky;top:-14px;z-index:3;display:flex;align-items:center;justify-content:space-between;padding:12px 0;background:color-mix(in srgb,var(--bg) 96%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--border)}
+.drawer-close{min-height:38px;padding:0 12px;border:1px solid var(--border);border-radius:4px;background:var(--panel-2);color:var(--ink-2);cursor:pointer}
+.sector-drawer .detail-panel{display:block;margin:0;padding:18px 0 0;border:0;border-radius:0;background:transparent}
+.drawer-summary{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin:12px 0}
+.drawer-summary span{display:flex;flex-direction:column;gap:3px;padding:9px 10px;background:var(--panel-2);border:1px solid var(--border);border-radius:4px}.drawer-summary b{font-size:.58rem;color:var(--ink-3);font-weight:500}.drawer-summary strong{font-size:.72rem;color:var(--ink);font-weight:700}
+.sector-drawer .detail-three-col{grid-template-columns:1fr 1fr;}.sector-drawer .detail-three-col .tc-box:last-child{grid-column:1/-1}
+.sector-drawer .stock-list-table{min-width:1120px}
+.stock-card-backdrop{z-index:120}
+.indicator-dialog{width:min(620px,calc(100vw - 32px));padding:0;border:1px solid var(--border);border-radius:6px;background:var(--panel);color:var(--ink);box-shadow:var(--shadow-2)}
+.indicator-dialog::backdrop{background:rgba(0,0,0,.58)}
+.dialog-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--border)}.dialog-head h2{margin:0;font-size:1rem}
+.indicator-dialog dl{margin:0;padding:8px 16px 18px}.indicator-dialog dt{margin-top:12px;font-size:.76rem;font-weight:700;color:var(--accent)}.indicator-dialog dd{margin:4px 0 0;font-size:.74rem;line-height:1.65;color:var(--ink-2)}
+@media (max-width:1180px){.heatgrid{grid-template-columns:repeat(4,minmax(0,1fr))}.research-grid{grid-template-columns:1fr 1fr}.research-column.research{grid-column:1/-1}.topbar{padding-inline:18px}.page-shell{padding-inline:18px}}
+@media (max-width:820px){body.drawer-open{overflow:hidden}.topbar{position:static}.topbar .updated{margin-left:0;align-items:flex-start}.nav-links{width:100%;overflow-x:auto}.nav-link{min-height:44px}.page-shell{padding:12px}.heatgrid{grid-template-columns:repeat(2,minmax(0,1fr))}.research-grid{grid-template-columns:1fr}.research-column.research{grid-column:auto}.sector-drawer{width:100vw;padding-inline:12px}.sector-drawer .detail-three-col{grid-template-columns:1fr}.sector-drawer .detail-three-col .tc-box:last-child{grid-column:auto}.drawer-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.ranking-toolbar>*{flex:1 1 140px}.ranking-toolbar .icon-button{flex:0 0 44px}.toolbar-button,.icon-button,.segment,.drawer-close,.control-field input,.control-field select{min-height:44px}.stock-card-backdrop{padding:10px}.stock-card-modal{padding:18px 14px;max-height:94vh}.tv-chart{height:300px}}
+@media (max-width:520px){.heatgrid{grid-template-columns:1fr}.research-row{grid-template-columns:minmax(90px,1fr) auto}.research-metric{grid-column:1}.topbar .search-wrap{order:4;width:100%;max-width:none}.market-regime{padding:14px}.regime-head{gap:6px}.advanced-filters>*{flex:1 1 100%}}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition-duration:.01ms!important;animation-duration:.01ms!important;animation-iteration-count:1!important}}
 """
 
 _TIER_COLOR_VAR = {
@@ -993,206 +1077,129 @@ def _pct_str(pct: float) -> str:
     return f"{pct:+.2f}%"
 
 
-def _anomaly_cards_html(anomaly_cards: List[Dict[str, Any]]) -> str:
-    if not anomaly_cards:
-        return '<div class="anomaly-empty">目前沒有族群符合爆量暴衝或連續噴出的條件</div>'
-    cards = []
-    for c in anomaly_cards:
-        kind_label = "爆量暴衝" if c["kind"] == "burst" else "連續噴出"
-        cards.append(
-            f'<div class="anomaly-card {c["kind"]}" data-meta-name="{_esc(c["meta_name"])}" '
-            f'role="button" tabindex="0" onclick="selectGroup(this.dataset.metaName,true)" '
-            f'onkeydown="if(event.key===\'Enter\'||event.key===\' \'){{event.preventDefault();selectGroup(this.dataset.metaName,true)}}">'
-            f'<div class="anomaly-kind {c["kind"]}">{kind_label}</div>'
-            f'<span class="anomaly-pct tabular">{_pct_str(c["pct"])}</span>'
-            f'<div class="anomaly-name">{_esc(c["meta_name"])}</div>'
-            f'<div class="anomaly-reason">{_esc(c["reason"])}</div>'
-            f'</div>'
-        )
-    return "".join(cards)
+_TIER_HELP = {
+    "super": "超強：連漲且近 5 日動能持續加速",
+    "strong": "強：連漲且動能維持穩定",
+    "mid": "整理：目前方向不明確",
+    "weak": "弱：下跌且動能仍在減弱",
+    "superweak": "超弱：連跌至少 5 日",
+}
+
+
+def _filter_attrs(card: Dict[str, Any], bucket: str = "") -> str:
+    """供瀏覽器端排序／篩選使用；所有值只來自已正規化數字或固定 enum。"""
+    tier_key = (card.get("tier") or {}).get("key", "")
+    previous_rank = ""
+    if card.get("rank_delta") is not None:
+        previous_rank = card["rank"] + card["rank_delta"]
+    values = {
+        "pct": card.get("pct"),
+        "cum5": card.get("cum5"),
+        "rank_delta": card.get("rank_delta"),
+        "vol_ratio": card.get("vol_ratio"),
+        "foreign_streak": card.get("foreign_streak"),
+        "trust_streak": card.get("trust_streak"),
+    }
+    numeric = " ".join(
+        f'data-{key.replace("_", "-")}="{value if value is not None else ""}"'
+        for key, value in values.items()
+    )
+    return (
+        f'{numeric} data-tier="{tier_key}" data-bucket="{bucket}" '
+        f'data-current-rank="{card.get("rank", "")}" data-prev-rank="{previous_rank}"'
+    )
 
 
 def _heatgrid_html(cards: List[Dict[str, Any]]) -> str:
     tiles = []
-    for c in cards:
-        tier = c["tier"]
-        temp = c["temp"]
-        tier_html = ""
-        if tier is not None:
-            color = _TIER_COLOR_VAR[tier["key"]]
+    for card in cards:
+        tier = card.get("tier")
+        temp = card.get("temp")
+        rank_delta = card.get("rank_delta")
+        rank_change = ""
+        if rank_delta is not None and rank_delta != 0:
+            direction = "up" if rank_delta > 0 else "down"
+            arrow = "↑" if rank_delta > 0 else "↓"
+            rank_change = f'<span class="ht-rank-delta {direction}">{arrow}{abs(rank_delta)}</span>'
+
+        if tier:
+            tier_color = _TIER_COLOR_VAR[tier["key"]]
             tier_html = (
-                f'<div class="ht-tier" style="background:{color}22;color:{color}">'
-                f'<span class="dot" style="background:{color}"></span>{tier["label"]}</div>'
+                f'<span class="signal-chip tier" title="{_esc(_TIER_HELP[tier["key"]])}" '
+                f'style="color:{tier_color};border-color:color-mix(in srgb,{tier_color} 50%,var(--border))">'
+                f'{tier["label"]}</span>'
             )
+            border_color = tier_color
         else:
-            tier_html = '<div class="ht-tier" style="color:var(--ink-3)">資料不足</div>'
+            tier_html = '<span class="signal-chip tier muted">資料不足</span>'
+            border_color = "transparent"
 
-        if temp is not None:
-            temp_html = f'<div class="ht-temp {temp["key"]}">{temp["label"]}</div>'
-        elif c["accel"] is not None:
-            temp_html = f'<div class="ht-temp flat tabular">→ {c["accel"]:+.1f}pt</div>'
-        else:
-            temp_html = ""
+        temp_html = ""
+        if temp:
+            temp_html = f'<span class="signal-chip temp {temp["key"]}">{_esc(temp["label"])}</span>'
 
-        streak = c["streak"]
-        if streak is None:
-            streak_html = "資料不足"
-        elif streak > 0:
-            streak_html = f'連漲 <span class="n" style="color:var(--up)">{streak}</span> 日'
-        elif streak < 0:
-            streak_html = f'連跌 <span class="n" style="color:var(--down)">{abs(streak)}</span> 日'
-        else:
-            streak_html = "持平"
-
-        badges = []
-        if c["foreign_streak"] is not None and c["foreign_streak"] >= 2:
-            badges.append(f'<span class="badge foreign">外資連買{c["foreign_streak"]}日</span>')
-        if c["trust_streak"] is not None and c["trust_streak"] >= 2:
-            badges.append(f'<span class="badge trust">投信連買{c["trust_streak"]}日</span>')
-        if c["vol_ratio"] is not None and c["vol_ratio"] >= 1.5:
-            badges.append(f'<span class="badge vol">量能{c["vol_ratio"]}x</span>')
-        badges_html = f'<div class="ht-badges">{"".join(badges)}</div>' if badges else ""
-
-        week_html = ""
-        if c["last_week_pct"] is not None and c["this_week_pct"] is not None:
-            lw, tw = c["last_week_pct"], c["this_week_pct"]
-            lw_color = "var(--up)" if lw >= 0 else "var(--down)"
-            tw_color = "var(--up)" if tw >= 0 else "var(--down)"
-            week_html = (
-                f'<div class="ht-week"><span class="lbl">近5日→前5日</span>'
-                f'<span class="vals tabular"><span style="color:{lw_color}">{_pct_str(lw)}</span>'
-                f'<span class="lbl">→</span><span style="color:{tw_color}">{_pct_str(tw)}</span></span></div>'
-            )
-
-        rank_delta = c.get("rank_delta")
-        if rank_delta is None:
-            rank_html = f'#{c["rank"]}'
-        elif rank_delta > 0:
-            rank_html = f'#{c["rank"]} <span class="ht-rank-delta up" title="昨日#{c["rank"]+rank_delta}">↑{rank_delta}</span>'
-        elif rank_delta < 0:
-            rank_html = f'#{c["rank"]} <span class="ht-rank-delta down" title="昨日#{c["rank"]+rank_delta}">↓{abs(rank_delta)}</span>'
-        else:
-            rank_html = f'#{c["rank"]}'
-
-        cum_parts = []
-        for period_label, val in (("3d", c.get("cum3")), ("5d", c.get("cum5")), ("7d", c.get("cum7"))):
-            if val is None:
-                continue
-            val_color = "var(--up)" if val >= 0 else "var(--down)"
-            cum_parts.append(
-                f'<span class="ht-cum-item"><span class="lbl">{period_label}</span>'
-                f'<span class="tabular" style="color:{val_color}">{_pct_str(val)}</span></span>'
-            )
-        cum_html = f'<div class="ht-cum">{"".join(cum_parts)}</div>' if cum_parts else ""
-
-        pct_color = "var(--up)" if c["pct"] >= 0 else "var(--down)"
-        meta_name_safe = _esc(c["meta_name"])
-        tile_class = "heat-tile tier-super" if tier is not None and tier["key"] == "super" else "heat-tile"
+        safe_name = _esc(card["meta_name"])
+        pct_color = "var(--up)" if card["pct"] >= 0 else "var(--down)"
+        attrs = _filter_attrs(card, card.get("research_bucket", ""))
         tiles.append(
-            f'<div class="{tile_class}" data-meta-name="{meta_name_safe}" '
-            f'role="button" tabindex="0" onclick="selectGroup(this.dataset.metaName,true)" '
+            f'<article class="heat-tile" data-meta-name="{safe_name}" {attrs} '
+            f'role="button" tabindex="0" aria-label="開啟 {safe_name} 個股詳情" '
+            f'onclick="selectGroup(this.dataset.metaName,true)" '
             f'onkeydown="if(event.key===\'Enter\'||event.key===\' \'){{event.preventDefault();selectGroup(this.dataset.metaName,true)}}" '
-            f'style="background:{c["heat_bg"]};border-top-color:{_TIER_COLOR_VAR[tier["key"]] if tier else "transparent"}">'
-            f'<div class="ht-top"><span class="ht-rank tabular">{rank_html}</span>'
-            f'<span class="ht-name" title="{meta_name_safe}">{meta_name_safe}</span>'
-            f'<span class="ht-pct tabular" style="color:{pct_color}">{_pct_str(c["pct"])}</span></div>'
+            f'style="background:{card["heat_bg"]};border-top-color:{border_color}">'
+            f'<div class="ht-top"><span class="ht-rank tabular"><span class="rank-value">#{card["rank"]}</span> {rank_change}</span>'
+            f'<span class="ht-name" title="{safe_name}">{safe_name}</span>'
+            f'<span class="ht-pct tabular" style="color:{pct_color}">{_pct_str(card["pct"])}</span></div>'
             f'<div class="ht-status-row">{tier_html}{temp_html}</div>'
-            f'<div class="ht-streak">{streak_html}<span class="cnt">　'
-            f'<span style="color:var(--up)">▲{c["up_count"]}檔</span> '
-            f'<span style="color:var(--down)">▼{c["down_count"]}檔</span></span></div>'
-            f'{cum_html}'
-            f'{badges_html}{week_html}</div>'
+            f'</article>'
         )
     return "".join(tiles)
 
 
-def _sector_recap_html(recap: Dict[str, Any]) -> str:
-    def _status_row(meta_name: str, pct: float, metric_text: str, metric_color: str) -> str:
-        pct_color = "var(--up)" if pct >= 0 else "var(--down)"
+def _research_buckets_html(buckets: Dict[str, List[Dict[str, Any]]]) -> str:
+    def _row(card: Dict[str, Any]) -> str:
+        safe_name = _esc(card["meta_name"])
+        pct_color = "var(--up)" if card["pct"] >= 0 else "var(--down)"
+        if card["bucket"] == "research" and card.get("rank_delta") is not None:
+            metric = f'排名 ↑{card["rank_delta"]}'
+        elif card.get("accel") is not None:
+            metric = f'{card["accel"]:+.1f}pt'
+        elif card.get("vol_ratio") is not None:
+            metric = f'{card["vol_ratio"]:.2f}x'
+        else:
+            metric = "—"
+        tags = [card["primary_tag"], *card.get("conflict_tags", [])]
+        tags_html = "".join(
+            f'<span class="research-tag{" conflict" if i else ""}">{_esc(tag)}</span>'
+            for i, tag in enumerate(tags) if tag
+        )
         return (
-            f'<div class="status-row"><span class="sr-name">{_esc(meta_name)}</span>'
-            f'<span class="sr-today tabular" style="color:{pct_color}">{_pct_str(pct)}</span>'
-            f'<span class="sr-pt tabular" style="color:{metric_color}">{metric_text}</span></div>'
+            f'<button type="button" class="research-row" data-meta-name="{safe_name}" '
+            f'{_filter_attrs(card, card["bucket"])} onclick="selectGroup(this.dataset.metaName)">'
+            f'<span class="research-name">{safe_name}</span>'
+            f'<span class="research-pct tabular" style="color:{pct_color}">{_pct_str(card["pct"])}</span>'
+            f'<span class="research-metric tabular">{metric}</span>'
+            f'<span class="research-tags">{tags_html}</span></button>'
         )
 
-    def _col(rows: List[Dict[str, Any]], row_fn) -> str:
-        return "".join(row_fn(r) for r in rows) or '<div class="detail-empty">目前沒有符合的族群</div>'
-
-    hot_html = _col(recap["hot_top5"], lambda r: _status_row(
-        r["meta_name"], r["pct"], f'{r["accel"]:+.1f}pt', "var(--heat-hot)"))
-    cold_html = _col(recap["cold_top5"], lambda r: _status_row(
-        r["meta_name"], r["pct"], f'{r["accel"]:+.1f}pt', "var(--heat-cold)"))
-    breakout_html = _col(recap["today_breakout"], lambda r: _status_row(
-        r["meta_name"], r["pct"], f'↑{r["rank_delta"]}', "var(--up)"))
-    foreign_html = _col(recap["foreign_stealth"], lambda r: _status_row(
-        r["meta_name"], r["pct"], f'連買{r["foreign_streak"]}日', "var(--accent)"))
-    trust_html = _col(recap["trust_stealth"], lambda r: _status_row(
-        r["meta_name"], r["pct"], f'連買{r["trust_streak"]}日', "var(--trend)"))
-    volume_html = _col(recap["volume_anomaly"], lambda r: _status_row(
-        r["meta_name"], r["pct"], f'{r["vol_ratio"]}x', "var(--accent)"))
-
-    turning = recap["turning_points"]
-    if turning:
-        turning_html = "".join(
-            f'<div class="turning-row"><span class="turning-name">{_esc(tp["meta_name"])}</span>'
-            f'<span class="turning-transition">'
-            f'<span class="turning-pill" style="background:{_TIER_COLOR_VAR[tp["prev_key"]]}22;color:{_TIER_COLOR_VAR[tp["prev_key"]]}">{tp["prev_label"]}</span>'
-            f'<span class="turning-arrow">→</span>'
-            f'<span class="turning-pill" style="background:{_TIER_COLOR_VAR[tp["cur_key"]]}22;color:{_TIER_COLOR_VAR[tp["cur_key"]]}">{tp["cur_label"]}</span>'
-            f'</span><span class="turning-desc">{tp["direction"]}</span></div>'
-            for tp in turning
+    def _column(key: str, title: str, hint: str) -> str:
+        rows = "".join(_row(card) for card in buckets[key])
+        if not rows:
+            rows = '<div class="research-empty">目前沒有符合條件的族群</div>'
+        return (
+            f'<section class="research-column {key}" data-bucket-group="{key}">'
+            f'<div class="research-column-head"><h3>{title}</h3><span>{hint}</span></div>{rows}</section>'
         )
-    else:
-        turning_html = '<div class="detail-empty">本週沒有族群發生等級翻轉</div>'
-
-    def _rankmove_col(items: List[Dict[str, Any]], direction: str) -> str:
-        if not items:
-            return '<div class="rankmove-empty">目前沒有族群{}</div>'.format(
-                "剛進榜" if direction == "in" else "剛掉出榜"
-            )
-        return "".join(
-            f'<div class="rankmove-item"><span class="rm-name">{_esc(r["meta_name"])}</span>'
-            f'<span class="rm-shift tabular">#{r["prev_rank"]}→#{r["cur_rank"]}</span></div>'
-            for r in items
-        )
-
-    rank_crossings = recap.get("rank_crossings", {"just_in": [], "just_out": []})
-    rankmove_html = f"""
-<div class="rankmove-wrap">
-  <div class="rankmove-head">排名進出榜</div>
-  <div class="rankmove-sub">這週剛擠進/掉出前10名、且自身報酬方向一致的族群（單純排名進步但自身仍是負報酬、或退步但自身仍是正報酬不算——跟上面「轉折點」是不同角度的訊號）</div>
-  <div class="rankmove-cols">
-    <div class="rankmove-col in"><h4>剛進榜</h4>{_rankmove_col(rank_crossings["just_in"], "in")}</div>
-    <div class="rankmove-col out"><h4>剛掉出榜</h4>{_rankmove_col(rank_crossings["just_out"], "out")}</div>
-  </div>
-</div>"""
 
     return f"""
-<div class="section-head"><h2>族群近況</h2><span class="count">6大類排行・轉折點</span></div>
-<div class="section-rule"></div>
-<div class="role-note">
-  <span><b>族群近況</b>＝週度趨勢+單日事件+籌碼訊號的綜合面板</span>
-  <span><b>異動族群</b>（頁面最上方）只看爆量+排名跳動同時成立，門檻比這裡的「今日爆發」嚴格</span>
-  <span>兩者角色不同，故意分開兩個區塊，不是重複資訊</span>
-</div>
-<div class="status-cols">
-  <div><div class="status-col-head hot">近期增溫 Top 5</div><div>{hot_html}</div></div>
-  <div><div class="status-col-head cold">近期退燒 Top 5</div><div>{cold_html}</div></div>
-  <div><div class="status-col-head breakout">今日爆發 Top 5</div><div>{breakout_html}</div>
-    <div class="status-col-note">今日排名跳動≥{_BREAKOUT_RANK_JUMP_MIN}名且上漲，不要求同時爆量——單日單一事件，跟下面「退燒」互斥</div></div>
-  <div><div class="status-col-head foreign">外資悄悄佈局 Top 5</div><div>{foreign_html}</div>
-    <div class="status-col-note">股價還沒明顯反應（±{_STEALTH_PRICE_FLAT_MAX}%內）但外資連買≥{_STEALTH_STREAK_MIN}天</div></div>
-  <div><div class="status-col-head trust">投信悄悄佈局 Top 5</div><div>{trust_html}</div>
-    <div class="status-col-note">股價還沒明顯反應（±{_STEALTH_PRICE_FLAT_MAX}%內）但投信連買≥{_STEALTH_STREAK_MIN}天</div></div>
-  <div><div class="status-col-head volume">量能異常 Top 5</div><div>{volume_html}</div>
-    <div class="status-col-note">今日量能≥{_VOL_ANOMALY_RATIO_MIN}x5日均量，但股價還沒明顯反應（±{_VOL_ANOMALY_PRICE_FLAT_MAX}%內）</div></div>
-</div>
-<div class="turning-wrap">
-  <div class="turning-head">轉折點：等級真的翻轉的族群</div>
-  <div class="turning-sub">不是看誰漲最多，是看「上週的等級」跟「這週的等級」是否真的換了一級。</div>
-  <div>{turning_html}</div>
-</div>
-{rankmove_html}"""
+<section class="research-section" aria-labelledby="sector-recap-title">
+  <div class="section-head compact"><div><span class="eyebrow">RESEARCH QUEUE</span><h2 id="sector-recap-title">今日研究順序</h2></div><span class="count">互斥分類</span></div>
+  <div class="research-grid">
+    {_column("research", "值得研究", "最多 10 個")}
+    {_column("watch", "先觀察", "最多 5 個")}
+    {_column("avoid", "避開", "最多 5 個")}
+  </div>
+</section>"""
 
 
 def generate(
@@ -1213,6 +1220,9 @@ def generate(
     total_shares_df: Optional[pd.DataFrame] = None,
     avg20_map: Optional[Dict[str, float]] = None,
     shareholder_df: Optional[pd.DataFrame] = None,
+    data_mode: str = "close",
+    generated_at: Optional[datetime] = None,
+    update_error: Optional[str] = None,
     output_path: str = "docs/index.html",
 ) -> None:
     """
@@ -1233,16 +1243,30 @@ def generate(
       (已發行股數)+集保資料實際日期。
     - avg20_map：calc_avg20_close() 輸出，個股融資/融券維持率(估)的成本基準。
     - shareholder_df：get_shareholder_top() 輸出，個股表格「大戶佔比」「大戶週變化」兩欄。
+    - data_mode：close／intraday，決定收盤快照或盤中暫定資料標示。
+    - generated_at：頁面實際產生時間；未傳時使用本機現在時間。
+    - update_error：上游保留最後成功資料時，可傳入錯誤摘要顯示 stale 狀態。
     """
     if not meta_perf:
         return
 
     date_str = trade_date.strftime("%Y-%m-%d")
     weekday = ["一", "二", "三", "四", "五", "六", "日"][trade_date.weekday()]
+    is_intraday = data_mode == "intraday"
+    generated_at = generated_at or datetime.now()
+    updated_time = generated_at.strftime("%H:%M")
+    mode_label = "盤中資料，尚未收盤確認" if is_intraday else "收盤快照"
 
     cards = build_heatgrid_cards(meta_perf, meta_signals, meta_chips, heatgrid_windows, cum_data)
     anomaly_cards = find_anomaly_cards(meta_perf, meta_signals, heatgrid_windows)
-    recap = build_sector_recap(cards, heatgrid_windows, rank_history)
+    research_buckets = build_research_buckets(cards, anomaly_cards, rank_history)
+    bucket_by_name = {
+        card["meta_name"]: bucket
+        for bucket, rows in research_buckets.items()
+        for card in rows
+    }
+    for card in cards:
+        card["research_bucket"] = bucket_by_name.get(card["meta_name"], "")
     stock_detail = build_stock_detail_data(
         universe_df, prices_df, stock_sparklines, rolling_returns, chips_df,
         total_shares_df, avg20_map, shareholder_df,
@@ -1257,6 +1281,12 @@ def generate(
         rank_row = (rank_history or {}).get(meta_name, {})
         card_meta[meta_name] = {
             "pct": c["pct"], "up_count": c["up_count"], "down_count": c["down_count"],
+            "rank": c["rank"], "rank_delta": c["rank_delta"],
+            "tier": c["tier"], "temp": c["temp"], "streak": c["streak"],
+            "vol_ratio": c["vol_ratio"], "cum3": c["cum3"], "cum5": c["cum5"],
+            "cum7": c["cum7"], "accel": c["accel"],
+            "last_week_pct": c["last_week_pct"], "this_week_pct": c["this_week_pct"],
+            "research_bucket": c["research_bucket"],
             "daily_pct": sig.get("daily_pct", []), "dates": sig.get("dates", []),
             "foreign_net_today": chips.get("foreign_net_today", 0),
             "trust_net_today": chips.get("trust_net_today", 0),
@@ -1287,6 +1317,21 @@ def generate(
     stock_index_js = json.dumps(stock_index, ensure_ascii=False).replace("</", "<\\/")
     meta_index_js = json.dumps(meta_index, ensure_ascii=False).replace("</", "<\\/")
 
+    ranking_mode_html = ""
+    if is_intraday:
+        ranking_mode_html = """
+        <div class="segmented" role="group" aria-label="排行資料模式">
+          <button type="button" class="segment active" data-rank-mode="live" onclick="setRankMode('live')">即時排行</button>
+          <button type="button" class="segment" data-rank-mode="close" onclick="setRankMode('close')">上次收盤排行</button>
+        </div>"""
+
+    update_error_html = ""
+    if update_error:
+        update_error_html = (
+            f'<div class="data-error" role="alert">更新失敗；目前保留 {date_str} {updated_time} 的最後成功資料。'
+            f'<span>{_esc(update_error)}</span></div>'
+        )
+
     html = f"""<!doctype html>
 <html lang="zh-Hant"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -1298,14 +1343,13 @@ def generate(
 <body>
 <a class="skip-link" href="#main-content">跳到主要內容</a>
 <header class="topbar">
-  <div><div class="kicker">台股電子半導體族群追蹤</div><h1>族群總覽</h1></div>
+  <div class="brand"><div class="kicker">TW SECTOR TRACKER</div><h1>族群總覽</h1></div>
   <div class="search-wrap">
     <input id="stock-search" class="stock-search" placeholder="搜尋股票代號 / 名稱 / 族群…"
-      oninput="searchStocks(this.value)" onblur="setTimeout(hideSearch,200)" autocomplete="off">
+      aria-label="搜尋股票代號、名稱或族群" oninput="searchStocks(this.value)" onblur="setTimeout(hideSearch,200)" autocomplete="off">
     <div id="search-dropdown" class="search-dropdown" hidden></div>
   </div>
-  <button onclick="toggleTheme()" id="themeToggle">切換亮色預覽</button>
-  <div class="updated">{date_str}（週{weekday}）更新</div>
+  <div class="updated"><strong>{mode_label}</strong><span>{date_str}（週{weekday}）{updated_time}</span></div>
   <nav class="nav-links" aria-label="主要功能">
     <a class="nav-link active" href="index.html" aria-current="page">族群績效</a>
     <a class="nav-link" href="chips.html">籌碼分析</a>
@@ -1314,37 +1358,220 @@ def generate(
   </nav>
 </header>
 <main id="main-content">
-{_market_regime_html(market_regime)}
-{_vol_turnover_html(vol_turnover_signals)}
-<div class="section-head"><h2>族群排行</h2><span class="count">今日漲跌% ・{len(cards)} 個族群</span></div>
-<div class="section-rule"></div>
-<div class="section-sub">動能狀態標籤是這版的重點：不是只看今日漲跌，而是綜合「連漲天數＋本週比上週是否加速」判斷這個族群現在的動能還在不在。</div>
-<div class="tier-legend">
-  <span><span class="dot" style="background:var(--tier-super)"></span>超強＝多頭排列+持續加速</span>
-  <span><span class="dot" style="background:var(--tier-strong)"></span>強＝多頭排列，動能穩定</span>
-  <span><span class="dot" style="background:var(--tier-mid)"></span>整理＝方向不明</span>
-  <span><span class="dot" style="background:var(--tier-weak)"></span>弱＝動能減弱中</span>
-  <span><span class="dot" style="background:var(--tier-superweak)"></span>超弱＝轉弱+連跌</span>
-</div>
-<div class="heatgrid" id="heatgrid">{_heatgrid_html(cards)}</div>
-<div class="legend-note">動能狀態標籤（超強/強/整理/弱/超弱）是族群層級獨立算的草案規則（連漲天數+本週比上週加速度），跟個股層級或觀察分頁面的五級分類不共用計算依據，門檻未經回測驗證。「近5日→前5日」是滾動5個交易日的複利累積漲跌幅，不是自然日曆週。</div>
+{update_error_html}
+<div class="page-shell">
+  <section class="market-section" aria-label="市場現況">
+    {_market_regime_html(market_regime)}
+  </section>
 
-<div class="secondary-row">
-  <div class="secondary-col">
-    <div class="section-head"><h2>異動族群</h2><span class="count">{len(anomaly_cards)} 檔符合</span></div>
-    <div class="section-sub">「現在正在發生」的瞬間訊號——爆量排名跳動、或連續多週噴出。跟旁邊「族群近況」不同：這裡是單日事件，族群近況是週度趨勢。</div>
-    <div class="anomaly-wrap"><div class="anomaly-strip">{_anomaly_cards_html(anomaly_cards)}</div></div>
-  </div>
-  <div class="secondary-col">
-    {_sector_recap_html(recap)}
-  </div>
+  <section class="ranking-section" aria-labelledby="sector-rank-title">
+    <div class="section-head ranking-head">
+      <div><span class="eyebrow">SECTOR RANKING</span><h2 id="sector-rank-title">族群 Top 10</h2></div>
+      <span class="count"><span id="showingCount">10</span> / {len(cards)} 個族群</span>
+    </div>
+    <div class="ranking-toolbar" aria-label="族群排行控制">
+      {ranking_mode_html}
+      <label class="control-field compact"><span>研究分類</span>
+        <select id="bucketFilter" onchange="applySectorView()">
+          <option value="">全部分類</option><option value="research">值得研究</option>
+          <option value="watch">先觀察</option><option value="avoid">避開</option>
+        </select>
+      </label>
+      <label class="control-field grow"><span>族群名稱</span>
+        <input id="sectorFilter" type="search" placeholder="輸入族群名稱" oninput="applySectorView()">
+      </label>
+      <label class="control-field compact"><span>排序</span>
+        <select id="sectorSort" onchange="applySectorView()">
+          <option value="pct">今日漲跌</option><option value="cum5">近 5 日報酬</option>
+          <option value="rankDelta">排名變化</option><option value="volRatio">量比</option>
+        </select>
+      </label>
+      <button type="button" class="toolbar-button" id="showAllToggle" aria-expanded="false" onclick="toggleShowAll()">顯示全部</button>
+      <button type="button" class="toolbar-button" id="advancedToggle" aria-expanded="false" aria-controls="advancedFilters" onclick="toggleAdvanced()">進階篩選</button>
+      <button type="button" class="icon-button" aria-label="開啟指標說明" title="指標說明" onclick="openIndicatorHelp()">?</button>
+      <button type="button" class="toolbar-button quiet" onclick="resetSectorView()">重設</button>
+    </div>
+    <div class="advanced-filters" id="advancedFilters" hidden>
+      <label class="control-field"><span>動能等級</span>
+        <select id="tierFilter"><option value="">全部</option><option value="super">超強</option><option value="strong">強</option><option value="mid">整理</option><option value="weak">弱</option><option value="superweak">超弱</option></select>
+      </label>
+      <label class="control-field"><span>最低量比</span><input id="minVolFilter" type="number" min="0" step="0.1" value="1.5"></label>
+      <label class="control-field"><span>排名最低跳升</span><input id="minRankFilter" type="number" min="0" step="1" value="10"></label>
+      <label class="check-field"><input id="foreignFilter" type="checkbox"> 外資連買</label>
+      <label class="check-field"><input id="trustFilter" type="checkbox"> 投信連買</label>
+      <button type="button" class="toolbar-button primary" onclick="activateAdvancedFilters()">套用條件</button>
+      <button type="button" class="toolbar-button quiet" onclick="clearAdvancedFilters()">停用進階條件</button>
+    </div>
+    <div class="heatgrid" id="heatgrid">{_heatgrid_html(cards)}</div>
+    <div class="filter-empty" id="filterEmpty" hidden>目前沒有符合篩選條件的族群</div>
+  </section>
+
+  {_research_buckets_html(research_buckets)}
+  {_vol_turnover_html(vol_turnover_signals, is_intraday=is_intraday)}
 </div>
 </main>
+
+<aside class="sector-drawer" id="sectorDrawer" aria-hidden="true" aria-labelledby="drawerTitle">
+  <div class="drawer-top"><span class="eyebrow">SECTOR DETAIL</span><button type="button" class="drawer-close" id="drawerClose" onclick="closeSectorDrawer()" aria-label="關閉族群詳情">關閉</button></div>
+  <div id="drawerContent"></div>
+</aside>
+
+<dialog class="indicator-dialog" id="indicatorDialog" aria-labelledby="indicatorTitle">
+  <div class="dialog-head"><h2 id="indicatorTitle">指標說明</h2><button type="button" class="drawer-close" onclick="closeIndicatorHelp()">關閉</button></div>
+  <dl>
+    <dt>動能等級</dt><dd>由連漲／連跌天數，以及近 5 日相對前 5 日的加速度分類；目前門檻尚未回測。</dd>
+    <dt>增溫／退燒</dt><dd>近 5 日報酬相對前 5 日增加或減少至少 5 個百分點。</dd>
+    <dt>即時異動</dt><dd>預設量比至少 1.5x、排名跳升至少 10 名；「動能加速」則表示連續走強。</dd>
+    <dt>研究分類</dt><dd>值得研究、先觀察、避開是研究優先順序，不是買賣建議；同一族群只進入一個主要分類。</dd>
+  </dl>
+</dialog>
 <script>
 const STOCKS = {stock_detail_js};
 const CARD_META = {card_meta_js};
 const STOCK_INDEX = {stock_index_js};
 const META_INDEX = {meta_index_js};
+const DATA_MODE = '{"intraday" if is_intraday else "close"}';
+const SECTOR_VIEW_KEY = 'tw-sector-index-view-v1';
+const DEFAULT_SECTOR_VIEW = {{
+  showAll:false, bucket:'', name:'', sort:'pct', rankMode:'live', advancedActive:false,
+  tier:'', minVol:1.5, minRank:10, foreign:false, trust:false
+}};
+let sectorView = {{...DEFAULT_SECTOR_VIEW}};
+let _drawerReturnFocus = null;
+
+function loadSectorView() {{
+  try {{
+    const saved = JSON.parse(localStorage.getItem(SECTOR_VIEW_KEY) || 'null');
+    if (saved && typeof saved === 'object') sectorView = {{...DEFAULT_SECTOR_VIEW, ...saved}};
+  }} catch (_) {{ sectorView = {{...DEFAULT_SECTOR_VIEW}}; }}
+}}
+
+function saveSectorView() {{
+  try {{ localStorage.setItem(SECTOR_VIEW_KEY, JSON.stringify(sectorView)); }} catch (_) {{}}
+}}
+
+function _numAttr(el, key) {{
+  const raw = el.dataset[key];
+  if (raw === undefined || raw === '') return null;
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : null;
+}}
+
+function _matchesSectorFilters(el) {{
+  const name = (el.dataset.metaName || '').toLocaleLowerCase('zh-Hant');
+  if (sectorView.name && !name.includes(sectorView.name.toLocaleLowerCase('zh-Hant'))) return false;
+  if (sectorView.bucket && el.dataset.bucket !== sectorView.bucket) return false;
+  if (!sectorView.advancedActive) return true;
+  if (sectorView.tier && el.dataset.tier !== sectorView.tier) return false;
+  const vol = _numAttr(el, 'volRatio');
+  const rankDelta = _numAttr(el, 'rankDelta');
+  if (sectorView.minVol > 0 && (vol === null || vol < sectorView.minVol)) return false;
+  if (sectorView.minRank > 0 && (rankDelta === null || rankDelta < sectorView.minRank)) return false;
+  if (sectorView.foreign && (_numAttr(el, 'foreignStreak') || 0) < 1) return false;
+  if (sectorView.trust && (_numAttr(el, 'trustStreak') || 0) < 1) return false;
+  return true;
+}}
+
+function _sortSectorTiles(a, b) {{
+  if (sectorView.rankMode === 'close') {{
+    const av = _numAttr(a, 'prevRank'), bv = _numAttr(b, 'prevRank');
+    if (av === null) return 1;
+    if (bv === null) return -1;
+    return av - bv;
+  }}
+  const key = {{pct:'pct', cum5:'cum5', rankDelta:'rankDelta', volRatio:'volRatio'}}[sectorView.sort] || 'pct';
+  const av = _numAttr(a, key), bv = _numAttr(b, key);
+  if (av === null) return 1;
+  if (bv === null) return -1;
+  return bv - av;
+}}
+
+function applySectorView() {{
+  sectorView.bucket = document.getElementById('bucketFilter').value;
+  sectorView.name = document.getElementById('sectorFilter').value.trim();
+  sectorView.sort = document.getElementById('sectorSort').value;
+  const grid = document.getElementById('heatgrid');
+  const tiles = [...grid.querySelectorAll('.heat-tile')].sort(_sortSectorTiles);
+  tiles.forEach(tile => grid.appendChild(tile));
+  tiles.forEach(tile => {{
+    const rankValue = tile.querySelector('.rank-value');
+    const rankDelta = tile.querySelector('.ht-rank-delta');
+    const previousRank = _numAttr(tile, 'prevRank');
+    const currentRank = _numAttr(tile, 'currentRank');
+    const showingClose = sectorView.rankMode === 'close' && previousRank !== null;
+    rankValue.textContent = `#${{showingClose ? previousRank : currentRank}}`;
+    if (rankDelta) rankDelta.hidden = sectorView.rankMode === 'close';
+  }});
+  const matching = tiles.filter(_matchesSectorFilters);
+  const visibleLimit = sectorView.showAll ? matching.length : 10;
+  tiles.forEach(tile => {{ tile.hidden = !matching.includes(tile) || matching.indexOf(tile) >= visibleLimit; }});
+
+  document.querySelectorAll('.research-row').forEach(row => {{ row.hidden = !_matchesSectorFilters(row); }});
+  document.querySelectorAll('[data-bucket-group]').forEach(column => {{
+    const wrongBucket = sectorView.bucket && column.dataset.bucketGroup !== sectorView.bucket;
+    column.hidden = Boolean(wrongBucket);
+  }});
+
+  const shown = Math.min(matching.length, visibleLimit);
+  document.getElementById('showingCount').textContent = String(shown);
+  document.getElementById('filterEmpty').hidden = shown !== 0;
+  document.getElementById('sector-rank-title').textContent = sectorView.showAll ? '全部族群' : '族群 Top 10';
+  const showAllButton = document.getElementById('showAllToggle');
+  showAllButton.textContent = sectorView.showAll ? '只看 Top 10' : '顯示全部';
+  showAllButton.setAttribute('aria-expanded', String(sectorView.showAll));
+  document.getElementById('advancedToggle').classList.toggle('active', sectorView.advancedActive);
+  saveSectorView();
+}}
+
+function syncSectorControls() {{
+  document.getElementById('bucketFilter').value = sectorView.bucket;
+  document.getElementById('sectorFilter').value = sectorView.name;
+  document.getElementById('sectorSort').value = sectorView.sort;
+  document.getElementById('tierFilter').value = sectorView.tier;
+  document.getElementById('minVolFilter').value = sectorView.minVol;
+  document.getElementById('minRankFilter').value = sectorView.minRank;
+  document.getElementById('foreignFilter').checked = sectorView.foreign;
+  document.getElementById('trustFilter').checked = sectorView.trust;
+  document.querySelectorAll('[data-rank-mode]').forEach(button => button.classList.toggle('active', button.dataset.rankMode === sectorView.rankMode));
+}}
+
+function toggleShowAll() {{ sectorView.showAll = !sectorView.showAll; applySectorView(); }}
+function toggleAdvanced() {{
+  const panel = document.getElementById('advancedFilters');
+  panel.hidden = !panel.hidden;
+  document.getElementById('advancedToggle').setAttribute('aria-expanded', String(!panel.hidden));
+}}
+function activateAdvancedFilters() {{
+  sectorView.advancedActive = true;
+  sectorView.tier = document.getElementById('tierFilter').value;
+  sectorView.minVol = Number(document.getElementById('minVolFilter').value) || 0;
+  sectorView.minRank = Number(document.getElementById('minRankFilter').value) || 0;
+  sectorView.foreign = document.getElementById('foreignFilter').checked;
+  sectorView.trust = document.getElementById('trustFilter').checked;
+  applySectorView();
+}}
+function clearAdvancedFilters() {{
+  sectorView.advancedActive = false;
+  sectorView.tier = '';
+  sectorView.minVol = 1.5;
+  sectorView.minRank = 10;
+  sectorView.foreign = false;
+  sectorView.trust = false;
+  syncSectorControls();
+  applySectorView();
+}}
+function resetSectorView() {{
+  sectorView = {{...DEFAULT_SECTOR_VIEW}};
+  syncSectorControls();
+  applySectorView();
+}}
+function setRankMode(mode) {{
+  sectorView.rankMode = mode === 'close' ? 'close' : 'live';
+  syncSectorControls();
+  applySectorView();
+}}
+function openIndicatorHelp() {{ document.getElementById('indicatorDialog').showModal(); }}
+function closeIndicatorHelp() {{ document.getElementById('indicatorDialog').close(); }}
 
 // escHtml：innerHTML拼字串前一律過這支，把字串當純文字塞進暫時的div再讀回escape過的innerHTML。
 // 這裡一定要用，不能省——name(族群名)是從data-meta-name屬性讀回來的(瀏覽器解析HTML屬性時
@@ -1396,52 +1623,123 @@ function buildSparkline(pcts, dates, cls, volumes) {{
     + `<line x1="0" y1="${{mid}}" x2="${{totalW}}" y2="${{mid}}" stroke="var(--border)" stroke-width="1"/>${{priceBars}}${{volBars}}</svg></div>`;
 }}
 
-// 個股卡片的價格走勢改用K棒(candlestick)：影線(wick)畫最高最低價，實體(body)畫開盤/
-// 收盤價，收盤>=開盤紅漲、收盤<開盤綠跌（台股慣例）。族群層級沒有OHLC資料(meta是整組
-// 平均概念，本來就沒有開高低收)，繼續用buildSparkline()的%漲跌bar，不會呼叫這支函式。
-// opens/highs/lows/closes/dates/volumes都是Python端算好的數值/日期字串，不是使用者
-// 輸入，不用escHtml。
-function buildCandlestick(dates, opens, highs, lows, closes, volumes, cls) {{
-  if (!closes || !closes.length) return '';
-  cls = cls || 'sc-sparkline';
-  const n = closes.length, priceH = 40, gap = 2;
-  const hasVol = volumes && volumes.length === n;
-  const volH = hasVol ? 16 : 0, volGap = hasVol ? 4 : 0;
-  const barW = Math.max(4, Math.floor(140 / n) - gap);
-  const totalW = n * (barW + gap) - gap;
-  const totalH = priceH + volGap + volH;
-  const validHighs = highs.filter(v => v !== null && v !== undefined);
-  const validLows = lows.filter(v => v !== null && v !== undefined);
-  if (!validHighs.length || !validLows.length) return '';
-  const minLow = Math.min(...validLows), maxHigh = Math.max(...validHighs);
-  const range = (maxHigh - minLow) || 1;
-  const maxVol = hasVol ? (Math.max(...volumes) || 1) : 1;
-  const y = v => priceH - (v - minLow) / range * priceH;
-  let bars = '', volBars = '';
-  for (let i = 0; i < n; i++) {{
-    const o = opens[i], h = highs[i], l = lows[i], c = closes[i];
-    if (o === null || h === null || l === null || c === null ||
-        o === undefined || h === undefined || l === undefined || c === undefined) continue;
-    const d = (dates && dates[i]) || '';
-    const up = c >= o;
-    const color = up ? 'var(--up)' : 'var(--down)';
-    const x = i * (barW + gap);
-    const cx = x + barW / 2;
-    const bodyTop = y(Math.max(o, c));
-    const bodyBottom = y(Math.min(o, c));
-    const bodyH = Math.max(1, bodyBottom - bodyTop);
-    bars += `<line x1="${{cx}}" y1="${{y(h)}}" x2="${{cx}}" y2="${{y(l)}}" stroke="${{color}}" stroke-width="1"/>`;
-    bars += `<rect x="${{x}}" y="${{bodyTop}}" width="${{barW}}" height="${{bodyH}}" fill="${{color}}" rx="0.5">`
-      + `<title>${{d}} 開${{o.toFixed(2)}} 高${{h.toFixed(2)}} 低${{l.toFixed(2)}} 收${{c.toFixed(2)}}</title></rect>`;
-    if (hasVol) {{
-      const vol = volumes[i] || 0;
-      const vBarH = Math.max(1, vol / maxVol * (volH - 1));
-      const vY = priceH + volGap + (volH - vBarH);
-      volBars += `<rect x="${{x}}" y="${{vY}}" width="${{barW}}" height="${{vBarH}}" fill="${{color}}" opacity="0.5" rx="1"><title>${{d}} 量 ${{vol.toLocaleString()}}張</title></rect>`;
-    }}
+// 個股圖表只在第一次開啟個股詳情時載入；價格與成交量仍完全使用本專案資料。
+// 固定版本避免 CDN 的 breaking change 讓已產生的靜態頁突然失效。
+const LIGHTWEIGHT_CHARTS_SRC = 'https://cdn.jsdelivr.net/npm/lightweight-charts@5.2.0/dist/lightweight-charts.standalone.production.js';
+let _lightweightChartsPromise = null;
+let _stockChart = null;
+let _stockChartResizeObserver = null;
+
+function ensureLightweightCharts() {{
+  if (window.LightweightCharts) return Promise.resolve(window.LightweightCharts);
+  if (_lightweightChartsPromise) return _lightweightChartsPromise;
+  _lightweightChartsPromise = new Promise((resolve, reject) => {{
+    const script = document.createElement('script');
+    script.src = LIGHTWEIGHT_CHARTS_SRC;
+    script.async = true;
+    script.dataset.lightweightCharts = '5.2.0';
+    script.onload = () => window.LightweightCharts
+      ? resolve(window.LightweightCharts)
+      : reject(new Error('Lightweight Charts loaded without global API'));
+    script.onerror = () => {{
+      _lightweightChartsPromise = null;
+      script.remove();
+      reject(new Error('Lightweight Charts download failed'));
+    }};
+    document.head.appendChild(script);
+  }});
+  return _lightweightChartsPromise;
+}}
+
+function destroyStockChart() {{
+  if (_stockChartResizeObserver) {{
+    _stockChartResizeObserver.disconnect();
+    _stockChartResizeObserver = null;
   }}
-  if (!bars) return '';
-  return `<div class="${{cls}}"><svg viewBox="0 0 ${{totalW}} ${{totalH}}" xmlns="http://www.w3.org/2000/svg">${{bars}}${{volBars}}</svg></div>`;
+  if (_stockChart) {{
+    _stockChart.remove();
+    _stockChart = null;
+  }}
+}}
+
+async function mountStockChart(s) {{
+  const container = document.getElementById('stockTvChart');
+  const status = document.getElementById('stockTvChartStatus');
+  if (!container || !status) return;
+
+  const times = s.iso_dates || [];
+  const points = times.map((time, index) => ({{
+    time,
+    index,
+    open: Number(s.opens[index]),
+    high: Number(s.highs[index]),
+    low: Number(s.lows[index]),
+    close: Number(s.closes[index]),
+  }})).filter(point => point.time && Number.isFinite(point.open) && Number.isFinite(point.high)
+    && Number.isFinite(point.low) && Number.isFinite(point.close));
+
+  if (points.length < 2) {{
+    status.textContent = '走勢資料不足';
+    return;
+  }}
+
+  try {{
+    const LightweightCharts = await ensureLightweightCharts();
+    if (!container.isConnected) return;
+    const styles = getComputedStyle(document.documentElement);
+    const color = name => styles.getPropertyValue(name).trim();
+    const chart = LightweightCharts.createChart(container, {{
+      width: container.clientWidth,
+      height: container.clientHeight,
+      layout: {{
+        background: {{type: LightweightCharts.ColorType.Solid, color: color('--panel-2')}},
+        textColor: color('--ink-2'),
+        fontFamily: 'ui-monospace, "IBM Plex Mono", "Cascadia Code", monospace',
+        attributionLogo: true,
+      }},
+      grid: {{
+        vertLines: {{color: color('--border')}},
+        horzLines: {{color: color('--border')}},
+      }},
+      rightPriceScale: {{borderColor: color('--border-2')}},
+      timeScale: {{borderColor: color('--border-2'), timeVisible: false}},
+      crosshair: {{mode: LightweightCharts.CrosshairMode.Normal}},
+    }});
+    const candles = chart.addSeries(LightweightCharts.CandlestickSeries, {{
+      upColor: color('--up'), downColor: color('--down'), borderVisible: false,
+      wickUpColor: color('--up'), wickDownColor: color('--down'),
+    }});
+    candles.setData(points.map(point => ({{
+      time: point.time, open: point.open, high: point.high, low: point.low, close: point.close,
+    }})));
+    candles.priceScale().applyOptions({{scaleMargins: {{top: 0.08, bottom: 0.28}}}});
+
+    const volumes = chart.addSeries(LightweightCharts.HistogramSeries, {{
+      priceFormat: {{type: 'volume'}}, priceScaleId: '',
+    }});
+    volumes.priceScale().applyOptions({{scaleMargins: {{top: 0.78, bottom: 0}}}});
+    volumes.setData(points.map(point => ({{
+      time: point.time,
+      value: Number.isFinite(Number(s.volumes[point.index])) ? Number(s.volumes[point.index]) : 0,
+      color: point.close >= point.open ? 'rgba(230,67,47,.45)' : 'rgba(55,178,92,.45)',
+    }})));
+    chart.timeScale().fitContent();
+    _stockChart = chart;
+    if ('ResizeObserver' in window) {{
+      _stockChartResizeObserver = new ResizeObserver(entries => {{
+        const width = Math.floor(entries[0].contentRect.width);
+        if (width > 0) chart.applyOptions({{width}});
+      }});
+      _stockChartResizeObserver.observe(container);
+    }}
+    status.hidden = true;
+  }} catch (error) {{
+    if (!container.isConnected) return;
+    status.hidden = false;
+    status.setAttribute('role', 'alert');
+    status.textContent = 'K 線載入失敗，請重新開啟個股詳情。';
+    console.error(error);
+  }}
 }}
 
 // meta是CARD_META[name]，所有欄位都是Python端算好的數值/bool，不是使用者輸入，不用escHtml。
@@ -1615,7 +1913,7 @@ function renderStockListItem(s) {{
     + `${{_rollTd(s.roll5)}}${{_rollTd(s.roll7)}}${{_rollTd(s.roll10)}}${{_rollTd(s.roll14)}}</tr>`;
 }}
 
-// 個股卡片：走勢圖(sparkline)+量價(今日成交量/量比)+近5/7/10/14日+外資/投信/融資，
+// 個股卡片：TradingView Lightweight Charts 日K+成交量、今日量價、近5/7/10/14日與籌碼，
 // 點列表項目才彈出，跟舊版html_generator.py::openStockModal()同樣的「列表→點選→詳細卡片」
 // 兩層式互動，不是永遠顯示在列表格子上。
 function openStockCard(sid) {{
@@ -1626,8 +1924,6 @@ function openStockCard(sid) {{
   const color = s.change_pct >= 0 ? 'var(--up)' : 'var(--down)';
   const sign = s.change_pct >= 0 ? '+' : '';
   const arrow = s.change_pct > 0 ? '▲' : (s.change_pct < 0 ? '▼' : '─');
-  const spark = buildCandlestick(s.dates, s.opens, s.highs, s.lows, s.closes, s.volumes)
-    || '<div class="sc-spark-empty">走勢資料不足</div>';
   const rollItems = [['5日', s.roll5], ['7日', s.roll7], ['10日', s.roll10], ['14日', s.roll14]]
     .filter(([, v]) => v !== null && v !== undefined)
     .map(([lbl, v]) => {{
@@ -1660,10 +1956,16 @@ function openStockCard(sid) {{
         <button type="button" class="detail-close" onclick="closeStockCard()">收合</button></div>
       <div class="sc-body"><span class="sc-price">${{fmtPrice(s.close)}}</span><span class="sc-pct" style="color:${{color}}">${{arrow}} ${{sign}}${{s.change_pct.toFixed(2)}}%</span></div>
       <div class="sc-volume-row">${{volHtml}}${{volRatioHtml}}</div>
-      ${{spark}}${{rollHtml}}${{chipsHtml}}
+      <div class="tv-chart-shell">
+        <div id="stockTvChartStatus" class="tv-chart-status" role="status">K 線載入中…</div>
+        <div id="stockTvChart" class="tv-chart" aria-label="${{escHtml(s.stock_name)}}日 K 與成交量"></div>
+        <a class="tv-attribution" href="https://www.tradingview.com/" target="_blank" rel="noopener noreferrer">圖表技術由 TradingView 提供</a>
+      </div>
+      ${{rollHtml}}${{chipsHtml}}
     </div>`;
   document.body.appendChild(backdrop);
   document.addEventListener('keydown', _stockCardEscHandler);
+  mountStockChart(s);
 }}
 
 function _stockCardEscHandler(e) {{
@@ -1671,6 +1973,7 @@ function _stockCardEscHandler(e) {{
 }}
 
 function closeStockCard() {{
+  destroyStockChart();
   const el = document.getElementById('stockCardBackdrop');
   if (el) el.remove();
   document.removeEventListener('keydown', _stockCardEscHandler);
@@ -1723,19 +2026,25 @@ function sortStockList(th, key) {{
 
 function selectGroup(name, toggle) {{
   closeStockCard();
-  const existing = document.getElementById('detailPanel');
-  // toggle=true（點族群格/anomaly卡/收合鈕）時，若點的正是目前已展開的族群 → 收合後結束，
-  // 不重新展開。判斷基準用目前帶.active的heat-tile（不論當初是從哪個元件開的都會標記它）。
+  const drawer = document.getElementById('sectorDrawer');
   const activeTile = document.querySelector('.heat-tile.active');
-  const alreadyOpen = existing && activeTile && activeTile.dataset.metaName === name;
-  if (existing) existing.remove();
-  document.querySelectorAll('.heat-tile').forEach(t => t.classList.remove('active'));
-  if (toggle && alreadyOpen) return;
+  const alreadyOpen = drawer.classList.contains('open') && activeTile && activeTile.dataset.metaName === name;
+  if (toggle && alreadyOpen) {{ closeSectorDrawer(); return; }}
 
   const tiles = [...document.querySelectorAll('.heat-tile')];
   const tile = tiles.find(t => t.dataset.metaName === name);
   if (!tile) return;
+  if (tile.hidden) {{
+    sectorView.showAll = true;
+    sectorView.bucket = '';
+    sectorView.name = '';
+    sectorView.advancedActive = false;
+    syncSectorControls();
+    applySectorView();
+  }}
+  document.querySelectorAll('.heat-tile').forEach(t => t.classList.remove('active'));
   tile.classList.add('active');
+  if (!toggle) tile.scrollIntoView({{behavior:'smooth', block:'center'}});
 
   const meta = CARD_META[name];
   if (!meta) return;
@@ -1750,23 +2059,27 @@ function selectGroup(name, toggle) {{
   panel.className = 'detail-panel';
   const pctColor = meta.pct >= 0 ? 'var(--up)' : 'var(--down)';
   const pctStr = (meta.pct >= 0 ? '+' : '') + meta.pct.toFixed(2) + '%';
-  // 收合按鈕故意不再靠interpolate name進onclick字串或事後從DOM文字反查——直接閉包捕捉
-  // selectGroup自己的name參數，同一個安全等級的做法比「從text內容讀回名字再傳一次」更直接。
-  const closeBtn = document.createElement('button');
-  closeBtn.className = 'detail-close';
-  closeBtn.textContent = '收合';
-  closeBtn.onclick = () => selectGroup(name, true);
-
   const metaSpark = buildSparkline(meta.daily_pct, meta.dates, 'meta-sparkline');
   const chipsSum = buildChipsSummary(meta);
   const historyRecord = buildHistoryRecord(meta);
   const asofStock = stocks.find(s => s.total_shares_asof);
   const asofNote = asofStock ? `<div class="asof-note">集保資料：${{escHtml(asofStock.total_shares_asof)}}</div>` : '';
+  const rankDelta = meta.rank_delta === null || meta.rank_delta === undefined ? '' : ` (${{meta.rank_delta>=0?'↑':'↓'}}${{Math.abs(meta.rank_delta)}})`;
+  const tierLabel = meta.tier ? escHtml(meta.tier.label) : '資料不足';
+  const tempLabel = meta.temp ? escHtml(meta.temp.label) : '溫度持平';
+  const cum5 = meta.cum5 === null || meta.cum5 === undefined ? '—' : `${{meta.cum5>=0?'+':''}}${{meta.cum5.toFixed(2)}}%`;
+  const volRatio = meta.vol_ratio === null || meta.vol_ratio === undefined ? '—' : `${{meta.vol_ratio.toFixed(2)}}x`;
+  const summary = `<div class="drawer-summary">
+      <span><b>排名</b><strong class="tabular">#${{meta.rank}}${{rankDelta}}</strong></span>
+      <span><b>動能</b><strong>${{tierLabel}}</strong></span><span><b>溫度</b><strong>${{tempLabel}}</strong></span>
+      <span><b>近 5 日</b><strong class="tabular">${{cum5}}</strong></span><span><b>量比</b><strong class="tabular">${{volRatio}}</strong></span>
+    </div>`;
 
   if (!stocks.length) {{
     panel.innerHTML = `
-      <div class="detail-head"><h3>${{safeName}}</h3><span class="dpct" style="color:${{pctColor}}">${{pctStr}}</span></div>
+      <div class="detail-head"><h3 id="drawerTitle">${{safeName}}</h3><span class="dpct" style="color:${{pctColor}}">${{pctStr}}</span></div>
       <div class="detail-sub">▲${{meta.up_count}}檔 ▼${{meta.down_count}}檔</div>
+      ${{summary}}
       <div class="detail-three-col">
         <div class="tc-box">${{metaSpark}}</div>
         <div class="tc-box">${{chipsSum}}</div>
@@ -1775,8 +2088,9 @@ function selectGroup(name, toggle) {{
       <div class="detail-empty">這個族群目前沒有個股行情資料。</div>`;
   }} else {{
     panel.innerHTML = `
-      <div class="detail-head"><h3>${{safeName}}</h3><span class="dpct" style="color:${{pctColor}}">${{pctStr}}</span></div>
+      <div class="detail-head"><h3 id="drawerTitle">${{safeName}}</h3><span class="dpct" style="color:${{pctColor}}">${{pctStr}}</span></div>
       <div class="detail-sub">▲${{meta.up_count}}檔 ▼${{meta.down_count}}檔　・　共 ${{stocks.length}} 檔</div>
+      ${{summary}}
       <div class="detail-three-col">
         <div class="tc-box">${{metaSpark}}</div>
         <div class="tc-box">${{chipsSum}}</div>
@@ -1803,19 +2117,28 @@ function selectGroup(name, toggle) {{
         <tbody id="panelStocksWrap"></tbody>
       </table></div>`;
   }}
-  panel.querySelector('.detail-head').appendChild(closeBtn);
 
-  // 面板錨定在#heatgrid容器「之後」(不是被點tile所在列的最後一格後面)——這樣熱區格
-  // 41格的排列永遠完整不被打斷，換族群時直接點旁邊的tile就換，不用先收合再點。
-  const heatgrid = document.getElementById('heatgrid');
-  heatgrid.insertAdjacentElement('afterend', panel);
-  // renderPanelStocks()一定要在panel插入document「之後」呼叫——它內部用
-  // document.getElementById('panelStocksWrap')找tbody，插入前panel還是離線節點，
-  // document.getElementById找不到，會被wrap===null的guard擋掉，表格永遠是空的
-  // （Cody回報「列表要點欄位才會出現」就是這個bug：點欄位排序時panel已經在document
-  // 裡了，才第一次真的render出東西）。
+  if (!drawer.classList.contains('open')) {{
+    _drawerReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : tile;
+  }}
+  document.getElementById('drawerContent').replaceChildren(panel);
+  drawer.classList.add('open');
+  document.body.classList.add('drawer-open');
+  drawer.setAttribute('aria-hidden', 'false');
   if (stocks.length) renderPanelStocks();
-  panel.scrollIntoView({{behavior:'smooth', block:'nearest'}});
+  document.getElementById('drawerClose').focus();
+}}
+
+function closeSectorDrawer() {{
+  closeStockCard();
+  const drawer = document.getElementById('sectorDrawer');
+  drawer.classList.remove('open');
+  document.body.classList.remove('drawer-open');
+  drawer.setAttribute('aria-hidden', 'true');
+  document.querySelectorAll('.heat-tile').forEach(t => t.classList.remove('active'));
+  document.getElementById('drawerContent').replaceChildren();
+  if (_drawerReturnFocus && document.contains(_drawerReturnFocus)) _drawerReturnFocus.focus();
+  _drawerReturnFocus = null;
 }}
 
 /* ── 個股/族群搜尋 ── */
@@ -1859,17 +2182,18 @@ function selectSearchStock(sid) {{
   if (entry) selectGroup(entry.meta);
 }}
 
-function toggleTheme() {{
-  const root = document.documentElement;
-  const isLight = root.getAttribute('data-theme') === 'light';
-  root.setAttribute('data-theme', isLight ? 'dark' : 'light');
-  document.getElementById('themeToggle').textContent = isLight ? '切換亮色預覽' : '切換深色預覽';
-}}
-
 // chips.html的外資/投信連買族群連結會產生 index.html#meta=族群名（見
 // export/chips_generator.py），舊版html_generator.py靠這段IIFE在載入時自動展開對應面板，
 // 這次改版漏掉了，造成從chips.html點連結進來會停在空白頁——補回同等行為。
 (function() {{
+  loadSectorView();
+  if (DATA_MODE !== 'intraday') sectorView.rankMode = 'live';
+  syncSectorControls();
+  applySectorView();
+  document.addEventListener('keydown', event => {{
+    if (event.key !== 'Escape' || document.getElementById('stockCardBackdrop')) return;
+    if (document.getElementById('sectorDrawer').classList.contains('open')) closeSectorDrawer();
+  }});
   const h = decodeURIComponent(location.hash);
   if (h.startsWith('#meta=')) selectGroup(h.slice(6));
 }})();

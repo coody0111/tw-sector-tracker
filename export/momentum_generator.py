@@ -378,8 +378,8 @@ a{color:inherit}
 .topbar{display:flex;align-items:baseline;gap:16px;padding:18px 24px;border-bottom:1px solid var(--border);flex-wrap:wrap}
 .topbar h1{font-size:1.2rem;font-weight:700;margin:0}
 .topbar .sub{font-size:.72rem;color:var(--ink-3)}
-.nav-links{display:flex;gap:8px;margin-left:auto}
-.nav-link{font-size:.78rem;padding:5px 14px;border-radius:6px;border:1px solid var(--border);color:var(--ink-2);text-decoration:none}
+.nav-links{display:flex;align-items:center;gap:8px;margin-left:auto;white-space:nowrap}
+.nav-link{display:inline-flex;align-items:center;min-height:32px;font-family:var(--sans);font-size:.78rem;font-weight:600;padding:5px 14px;border-radius:6px;border:1px solid var(--border);color:var(--ink-2);text-decoration:none;transition:color .15s,border-color .15s,background .15s}
 .nav-link:hover{border-color:var(--ink-2);color:var(--ink)}
 .nav-link.active{border-color:var(--accent);color:var(--ink);background:var(--panel-2)}
 .nav-link:focus-visible,button:focus-visible,summary:focus-visible,a:focus-visible{outline:3px solid var(--accent);outline-offset:2px}

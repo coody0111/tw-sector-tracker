@@ -1,0 +1,1067 @@
+<!doctype html>
+<html lang="zh-Hant"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<title>族群總覽 2026-09-01</title>
+<style>
+:root{
+  --bg:#080B12; --panel:#0F1420; --panel-2:#161D2C; --panel-3:#1E2738;
+  --border:#293346; --border-2:#37435C;
+  --ink:#DADFE8; --ink-2:#98A0B4; --ink-3:#636B80;
+  --up:#E6432F; --down:#37B25C;
+  --accent:#F0BB55; --accent-dim:#B98A3A;
+  --burst:#F0BB55; --trend:#C77FBD;
+  --tier-super:#F0BB55; --tier-strong:#4FC46A; --tier-mid:#8B94AC; --tier-weak:#E08A3E; --tier-superweak:#E6432F;
+  --heat-hot:#FF7A3D; --heat-cold:#4FA8E8;
+  --serif: Georgia,"Iowan Old Style","Source Serif 4","Noto Serif TC",serif;
+  --sans: "Public Sans",-apple-system,"PingFang TC","Microsoft JhengHei","Segoe UI",sans-serif;
+  --mono: ui-monospace,"IBM Plex Mono","Cascadia Code","Roboto Mono",monospace;
+  --shadow-1: 0 1px 2px rgba(0,0,0,.35);
+  --shadow-2: 0 10px 28px rgba(0,0,0,.5), 0 2px 6px rgba(0,0,0,.35);
+}
+:root[data-theme="light"]{
+  --bg:#EFE8D8; --panel:#F8F3E6; --panel-2:#EAE1CB; --panel-3:#E0D5B8;
+  --border:#D6C9A3; --border-2:#C3B387;
+  --ink:#241C10; --ink-2:#6B5B3D; --ink-3:#93825E;
+  --up:#A8432C; --down:#3D7048;
+  --accent:#93701E; --accent-dim:#C4A24E;
+  --burst:#93701E; --trend:#7A4E6E;
+  --tier-super:#93701E; --tier-strong:#3D7048; --tier-mid:#7A7260; --tier-weak:#9A5A24; --tier-superweak:#A8432C;
+  --heat-hot:#C05A20; --heat-cold:#2E6FA3;
+  --shadow-1: 0 1px 2px rgba(60,45,10,.1);
+  --shadow-2: 0 10px 28px rgba(60,45,10,.16), 0 2px 6px rgba(60,45,10,.1);
+}
+*{box-sizing:border-box}
+body{
+  margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.55;padding:0 0 80px;
+  background-image:radial-gradient(ellipse at top left, rgba(255,255,255,.04), transparent 55%);
+}
+.tabular{font-family:var(--mono);font-variant-numeric:tabular-nums}
+a{color:inherit}
+.skip-link{position:absolute;left:-999px;top:0;background:var(--panel);color:var(--ink);padding:8px 14px;z-index:100}
+.skip-link:focus{left:8px;top:8px}
+
+.topbar{position:sticky;top:0;z-index:30;display:flex;align-items:baseline;gap:16px;padding:16px 26px;border-bottom:1px solid var(--border);flex-wrap:wrap;background:color-mix(in srgb,var(--bg) 94%,transparent);backdrop-filter:blur(12px)}
+.topbar h1{font-family:var(--serif);font-size:1.28rem;font-weight:600;color:var(--ink);letter-spacing:.01em;margin:0}
+.topbar .kicker{font-size:.62rem;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--accent)}
+.topbar .updated{font-size:.72rem;color:var(--ink-3);margin-left:auto;font-family:var(--mono)}
+.topbar button{font-family:var(--mono);font-size:.68rem;background:var(--panel-2);border:1px solid var(--border);color:var(--ink-2);padding:5px 12px;border-radius:4px;cursor:pointer}
+.search-wrap{position:relative;flex:1;min-width:160px;max-width:320px}
+.stock-search{width:100%;background:var(--panel-2);border:1px solid var(--border);border-radius:6px;padding:6px 12px;color:var(--ink);font-family:var(--sans);font-size:.8rem;outline:none}
+.stock-search:focus{border-color:var(--border-2)}
+.search-dropdown{position:absolute;top:calc(100% + 4px);left:0;right:0;background:var(--panel-2);border:1px solid var(--border-2);border-radius:6px;box-shadow:var(--shadow-2);z-index:50;max-height:360px;overflow-y:auto}
+.search-item{display:flex;align-items:center;gap:8px;padding:8px 12px;cursor:pointer;font-size:.8rem}
+.search-item:hover{background:var(--panel-3)}
+.search-item .si-id{font-family:var(--mono);color:var(--ink-3);font-size:.72rem;flex-shrink:0}
+.search-item .si-meta-icon{color:var(--accent)}
+.search-item .si-name{font-family:var(--serif);font-weight:600;color:var(--ink);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.search-item .si-meta{color:var(--ink-3);font-size:.7rem;flex-shrink:0}
+.search-item .si-pct{font-family:var(--mono);font-weight:700;flex-shrink:0}
+.nav-links{display:flex;gap:8px}
+.nav-link{font-size:.78rem;padding:5px 14px;border-radius:6px;border:1px solid var(--border);color:var(--ink-2);text-decoration:none}
+.nav-link:hover{border-color:var(--ink-2);color:var(--ink)}
+.nav-link.active{border-color:var(--accent);color:var(--ink);background:var(--panel-2)}
+.nav-link:focus-visible,button:focus-visible,.heat-tile:focus-visible,.anomaly-card:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+
+.section-head{display:flex;align-items:baseline;gap:12px;padding:26px 26px 8px}
+.section-head h2{font-family:var(--serif);font-size:1.05rem;font-weight:600;color:var(--ink);margin:0}
+.section-head .count{font-family:var(--mono);font-size:.7rem;color:var(--ink-3)}
+.section-rule{height:1px;background:linear-gradient(to right,var(--ink) 0%,var(--border) 45%,transparent 100%);margin:0 26px 4px}
+.section-sub{padding:0 26px 14px;font-size:.76rem;color:var(--ink-2);max-width:720px}
+
+.market-regime{margin:0 26px 20px;padding:16px 18px;background:var(--panel);border:1px solid var(--border);border-left:3px solid var(--ink-3);border-radius:8px}
+.regime-label{font-family:var(--mono);font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3);margin-bottom:8px}
+.regime-head{display:flex;align-items:baseline;flex-wrap:wrap;gap:12px}
+.regime-tier{font-size:1.3rem;font-weight:800}
+.regime-pct{font-size:1rem;font-weight:700}
+.regime-breadth{color:var(--ink-2);font-size:.8rem}
+.regime-breadth b{color:var(--up)}
+.regime-tip{margin-top:8px;font-size:.86rem;color:var(--ink-2)}
+.regime-conc{margin-top:10px;padding-top:10px;border-top:1px solid var(--border);font-size:.82rem}
+.regime-conc-head{font-weight:700;color:var(--ink-2)}
+.regime-conc-head.warn{color:var(--accent)}
+.regime-conc-vals{display:flex;gap:18px;margin-top:6px;color:var(--ink-2);flex-wrap:wrap}
+.regime-conc-vals b{color:var(--ink)}
+
+.vol-turnover{margin:0 26px 20px;padding:14px 16px;background:var(--panel);border:1px solid var(--border);border-radius:8px}
+table.vt-table{width:100%;border-collapse:collapse}
+.vt-table th{text-align:left;padding:4px 8px;font-size:.65rem;color:var(--ink-3);border-bottom:1px solid var(--border)}
+.vt-table td{padding:6px 8px;font-size:.8rem;border-bottom:1px solid var(--border)}
+.vt-sector{color:var(--ink-3);font-size:.72rem;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+.heatgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(224px,1fr));gap:8px;padding:0 26px}
+.heat-tile{
+  border-radius:5px;padding:13px 14px;cursor:pointer;transition:transform .15s,box-shadow .15s;
+  position:relative;border:1px solid rgba(255,255,255,.06);background:var(--panel);
+  border-top:3px solid transparent;
+}
+.heat-tile:hover{transform:translateY(-2px);box-shadow:var(--shadow-2);z-index:2}
+.heat-tile.active{outline:2px solid var(--accent);outline-offset:-2px}
+
+.detail-panel{
+  margin:20px 26px 0;background:var(--panel);border:1px solid var(--accent);border-radius:5px;
+  padding:22px 26px;box-shadow:var(--shadow-2);scroll-margin-top:20px;
+  animation:expandIn .22s ease-out;
+}
+@keyframes expandIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
+.detail-head{display:flex;align-items:baseline;gap:12px;margin-bottom:2px}
+.detail-head h3{font-family:var(--serif);font-size:1.22rem;font-weight:600;margin:0;color:var(--ink)}
+.detail-head .dpct{font-family:var(--mono);font-size:.98rem;font-weight:700}
+.detail-close{margin-left:auto;font-family:var(--mono);font-size:.68rem;background:none;border:1px solid var(--border);color:var(--ink-3);padding:4px 10px;border-radius:4px;cursor:pointer}
+.detail-sub{font-size:.75rem;color:var(--ink-3);margin-bottom:8px;font-family:var(--mono)}
+.detail-three-col{display:grid;grid-template-columns:1fr 1fr 1.3fr;gap:12px;margin:10px 0 14px}
+@media (max-width:768px){.detail-three-col{grid-template-columns:1fr}}
+.tc-box{background:var(--panel-2);border-radius:5px;padding:10px 12px}
+.meta-sparkline{margin:0;line-height:0}
+.meta-sparkline svg{width:100%;height:auto;display:block}
+.chips-summary{display:flex;flex-direction:column;gap:6px;flex-wrap:wrap;margin:0;padding:0;background:none;font-size:.76rem}
+.cs-row{display:flex;align-items:center;gap:6px}
+.cs-row .cs-label{color:var(--ink-3)}
+.cs-row .cs-sub{color:var(--ink-3);font-size:.68rem}
+.cs-row .cs-streak-up{color:var(--up);font-size:.68rem}
+.cs-row .cs-streak-dn{color:var(--down);font-size:.68rem}
+.cs-row .cs-alert{color:var(--accent);font-size:.68rem;font-weight:700}
+.cs-row.cs-week{width:100%;border-top:1px solid var(--border);padding-top:8px;margin-top:2px;gap:14px}
+.overflow-wrap{overflow-x:auto}
+table.stock-list-table{width:100%;border-collapse:collapse}
+.stock-list-table thead th{text-align:left;padding:0 12px 10px;border-bottom:1px solid var(--border-2)}
+.stock-list-table thead th.num{text-align:right}
+.stock-list-table .sort-button{display:inline-flex;align-items:center;gap:4px;background:none;border:0;
+  padding:0;font-family:var(--mono);font-size:.74rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;
+  color:var(--ink-3);cursor:pointer}
+.stock-list-table thead th.num .sort-button{margin-left:auto}
+.stock-list-table .sort-button::after{content:"↕";color:var(--ink-3);font-size:.7rem}
+.stock-list-table th[aria-sort="ascending"] .sort-button::after{content:"↑";color:var(--accent)}
+.stock-list-table th[aria-sort="descending"] .sort-button::after{content:"↓";color:var(--accent)}
+.stock-list-table tbody td{padding:10px 12px;border-bottom:1px solid var(--border);font-size:.95rem}
+.stock-item{cursor:pointer;transition:background .15s}
+.stock-item:hover{background:var(--panel-2)}
+.stock-item:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.stock-item.no-data{opacity:.5;cursor:default}
+.stock-item .si-id{font-family:var(--mono);color:var(--ink-3);font-size:.8rem;margin-right:8px}
+.stock-item .si-name{font-family:var(--serif);font-weight:600;color:var(--ink);font-size:1rem}
+.stock-item td.num{font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:right}
+
+.stock-card-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:200;
+  display:flex;align-items:center;justify-content:center;padding:20px}
+.stock-card-modal{background:var(--panel);border:1px solid var(--border-2);border-radius:8px;
+  padding:22px 24px;box-shadow:var(--shadow-2);max-width:400px;width:100%;max-height:82vh;overflow-y:auto}
+.stock-card-modal .sc-header{display:flex;align-items:baseline;gap:8px;margin-bottom:6px}
+.stock-card-modal .sc-id{font-family:var(--mono);color:var(--ink-3);font-size:.72rem}
+.stock-card-modal .sc-name{font-family:var(--serif);font-weight:700;color:var(--ink);font-size:1.05rem;flex:1;min-width:0}
+.stock-card-modal .sc-body{display:flex;align-items:baseline;gap:12px;font-family:var(--mono);font-variant-numeric:tabular-nums;margin-bottom:10px}
+.stock-card-modal .sc-price{font-size:1rem;color:var(--ink-2)}
+.stock-card-modal .sc-pct{font-size:1rem;font-weight:700}
+.sc-volume-row{display:flex;align-items:center;gap:10px;margin-bottom:10px;font-family:var(--mono);font-size:.76rem;color:var(--ink-3);flex-wrap:wrap}
+.vol-ratio{color:var(--ink-3)}
+.vol-ratio.strong{color:var(--accent);font-weight:700}
+.vol-burst-badge{display:inline-block;padding:1px 5px;border-radius:3px;font-size:.68rem;font-weight:700;
+  background:color-mix(in srgb, var(--accent) 20%, transparent);color:var(--accent);vertical-align:middle}
+.maint-badge{display:inline-block;padding:1px 5px;border-radius:3px;font-size:.68rem;font-weight:700;
+  background:color-mix(in srgb, var(--down) 20%, transparent);color:var(--down);vertical-align:middle;margin-left:3px}
+.asof-note{font-size:.68rem;color:var(--ink-3);margin:6px 0 0;font-family:var(--mono)}
+.sc-spark-empty{display:block;margin-bottom:10px;font-size:.76rem;color:var(--ink-3);font-family:var(--serif)}
+.sc-sparkline{margin-bottom:10px;line-height:0}
+.sc-sparkline svg{width:100%;height:auto;display:block}
+.sc-roll{display:flex;gap:10px;margin-bottom:10px;font-family:var(--mono);font-size:.72rem;flex-wrap:wrap}
+.sc-roll-item .lbl{color:var(--ink-3);margin-right:3px}
+.sc-chips{display:flex;gap:10px;font-family:var(--mono);font-size:.72rem;flex-wrap:wrap;color:var(--ink-3)}
+.detail-empty{color:var(--ink-3);font-size:.86rem;padding:20px 0;font-family:var(--serif)}
+
+.ht-top{display:flex;align-items:baseline;gap:8px}
+.ht-rank{font-family:var(--mono);font-size:.6rem;color:var(--ink-3);flex-shrink:0}
+.ht-name{font-family:var(--serif);font-weight:700;font-size:.96rem;color:var(--ink);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;letter-spacing:.01em}
+.ht-pct{font-family:var(--mono);font-weight:700;font-size:1.0rem;flex-shrink:0}
+.ht-status-row{display:flex;align-items:center;gap:6px;margin-top:8px;flex-wrap:wrap}
+.badge{font-family:var(--mono);font-size:.58rem;font-weight:700;padding:2px 6px;border-radius:3px;display:inline-flex;align-items:center;gap:3px}
+.badge.foreign{background:rgba(212,162,78,.16);color:var(--accent);border:1px solid rgba(212,162,78,.3)}
+.ht-rank-delta{font-size:.6rem;font-weight:700}
+.ht-rank-delta.up{color:var(--up)}
+.ht-rank-delta.down{color:var(--down)}
+.history-wrap{margin-top:16px}
+.history-summary{font-family:var(--serif);font-size:.92rem;color:var(--ink);margin-bottom:10px;
+  padding:9px 13px;background:var(--panel-2);border-left:3px solid var(--accent);border-radius:0 4px 4px 0}
+.history-summary b{color:var(--accent)}
+.history-weekline-label{font-family:var(--mono);font-size:.6rem;font-weight:700;color:var(--ink-3);
+  letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px}
+.history-weekline{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
+.history-week{border:1px solid var(--border);border-radius:5px;padding:7px 8px;background:var(--panel-3);
+  font-family:var(--mono);font-size:.64rem;color:var(--ink-2);text-align:center}
+.history-week .hw-label{display:block;color:var(--ink-3)}
+.history-week .hw-rank{display:block;margin-top:3px;font-size:.86rem;font-weight:700;color:var(--ink)}
+.history-week .hw-pct{display:block;margin-top:2px;font-size:.62rem;font-weight:600}
+.history-week.in-top10{border-color:color-mix(in srgb, var(--accent) 45%, var(--border))}
+.history-week.in-top10 .hw-rank{color:var(--accent)}
+
+/* 2026-09 desktop research workspace */
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+[hidden]{display:none!important}
+.topbar{align-items:center;gap:14px;padding:10px 26px;background:color-mix(in srgb,var(--bg) 96%,transparent)}
+.topbar .brand{display:flex;align-items:baseline;gap:10px;white-space:nowrap}
+.topbar .brand h1{font-size:1.08rem}
+.topbar .updated{display:flex;flex-direction:column;align-items:flex-end;gap:2px;line-height:1.2}
+.topbar .updated strong{font-size:.68rem;color:var(--accent);font-weight:700}
+.topbar .updated span{font-size:.64rem;color:var(--ink-3)}
+.page-shell{max-width:1560px;margin:0 auto;padding:20px 26px 48px}
+.market-section .market-regime{margin:0}
+.data-error{max-width:1560px;margin:14px auto 0;padding:12px 26px;background:color-mix(in srgb,var(--down) 12%,var(--panel));border-block:1px solid color-mix(in srgb,var(--down) 45%,var(--border));font-size:.76rem;color:var(--ink)}
+.data-error span{display:block;margin-top:3px;color:var(--ink-3)}
+.eyebrow{display:block;margin-bottom:4px;font-family:var(--mono);font-size:.58rem;font-weight:700;letter-spacing:.15em;color:var(--accent)}
+.vol-turnover{margin:14px 0 24px;padding:0;background:var(--panel);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:5px;overflow:hidden}
+.event-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px 10px}
+.event-head h2{margin:0;font-family:var(--serif);font-size:1rem;color:var(--ink)}
+.event-count{font-size:.7rem;color:var(--ink-3)}
+.vol-turnover .overflow-wrap{padding:0 16px 14px}
+.vt-empty{text-align:center!important;padding:18px!important;color:var(--ink-3)!important}
+.ranking-section,.research-section{background:color-mix(in srgb,var(--panel) 72%,transparent);border:1px solid var(--border);border-radius:6px}
+.ranking-section{padding:0 16px 18px}
+.section-head.ranking-head,.section-head.compact{padding:18px 0 12px;align-items:flex-end}
+.section-head.ranking-head h2,.section-head.compact h2{font-size:1.05rem}
+.ranking-toolbar{display:flex;align-items:flex-end;gap:8px;padding:10px 0 14px;border-top:1px solid var(--border);flex-wrap:wrap}
+.control-field{display:flex;flex-direction:column;gap:5px;min-width:140px;font-size:.62rem;color:var(--ink-3)}
+.control-field.compact{min-width:128px}.control-field.grow{flex:1;min-width:180px;max-width:320px}
+.control-field input,.control-field select{height:38px;min-width:0;padding:0 10px;border:1px solid var(--border);border-radius:4px;background:var(--panel-2);color:var(--ink);font:inherit;font-size:.76rem}
+.toolbar-button,.icon-button,.segment{min-height:38px;padding:0 12px;border:1px solid var(--border);border-radius:4px;background:var(--panel-2);color:var(--ink-2);font-family:var(--mono);font-size:.67rem;cursor:pointer;transition:background .18s,color .18s,border-color .18s}
+.toolbar-button:hover,.icon-button:hover,.segment:hover{background:var(--panel);color:var(--ink);border-color:var(--ink-3)}
+.toolbar-button.primary,.segment.active{background:color-mix(in srgb,var(--accent) 16%,var(--panel));color:var(--accent);border-color:color-mix(in srgb,var(--accent) 55%,var(--border))}
+.toolbar-button.quiet{background:transparent}.icon-button{width:38px;padding:0;font-size:.82rem;font-weight:700}
+.segmented{display:flex;align-items:center}.segmented .segment{border-radius:0}.segmented .segment:first-child{border-radius:4px 0 0 4px}.segmented .segment:last-child{border-radius:0 4px 4px 0;margin-left:-1px}
+.advanced-filters{display:flex;align-items:flex-end;gap:12px;padding:14px;margin:0 0 14px;background:var(--panel-2);border:1px solid var(--border);border-radius:5px;flex-wrap:wrap}
+.advanced-filters .control-field{min-width:120px}.advanced-filters .check-field{display:flex;align-items:center;min-height:38px;gap:7px;font-size:.72rem;color:var(--ink-2)}
+.advanced-filters input[type=checkbox]{width:17px;height:17px;accent-color:var(--accent)}
+.heatgrid{grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;padding:0}
+.heat-tile{display:flex;flex-direction:column;min-height:104px;padding:14px 13px;border-radius:4px;box-shadow:none;transition:transform .18s,box-shadow .18s,opacity .18s}
+.heat-tile:hover{transform:translateY(-1px)}
+.heat-tile.active{outline:2px solid var(--accent);outline-offset:2px}
+.ht-top{grid-template-columns:auto minmax(0,1fr) auto;gap:8px}.ht-name{font-size:.92rem}.ht-pct{font-size:.9rem}
+.ht-status-row{margin-top:auto;padding-top:20px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.signal-chip{display:inline-flex;align-items:center;min-height:22px;padding:2px 7px;border:1px solid var(--border);border-radius:999px;font-size:.62rem;font-weight:700;background:color-mix(in srgb,var(--panel) 72%,transparent)}
+.signal-chip.temp.hot{color:var(--heat-hot)}.signal-chip.temp.cold{color:var(--heat-cold)}.signal-chip.muted{color:var(--ink-3)}
+.filter-empty{padding:28px;text-align:center;color:var(--ink-3);font-family:var(--serif)}
+.research-section{margin-top:18px;padding:0 16px 16px}
+.research-grid{display:grid;grid-template-columns:2fr 1fr 1fr;gap:12px}
+.research-column{min-width:0;border:1px solid var(--border);border-radius:5px;background:var(--panel-2);overflow:hidden}
+.research-column-head{display:flex;align-items:baseline;justify-content:space-between;padding:12px;border-bottom:1px solid var(--border)}
+.research-column-head h3{margin:0;font-size:.84rem;color:var(--ink)}.research-column-head span{font-size:.6rem;color:var(--ink-3)}
+.research-column.research{border-top:2px solid var(--accent)}.research-column.watch{border-top:2px solid var(--heat-hot)}.research-column.avoid{border-top:2px solid var(--down)}
+.research-row{display:grid;grid-template-columns:minmax(96px,1fr) auto auto;gap:7px;width:100%;padding:10px 11px;border:0;border-bottom:1px solid var(--border);background:transparent;color:var(--ink);text-align:left;cursor:pointer}
+.research-row:last-child{border-bottom:0}.research-row:hover{background:var(--panel)}
+.research-name{font-size:.76rem;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.research-pct,.research-metric{font-size:.68rem}.research-metric{color:var(--ink-3)}
+.research-tags{grid-column:1/-1;display:flex;gap:5px;flex-wrap:wrap}.research-tag{padding:2px 6px;border-radius:999px;background:color-mix(in srgb,var(--accent) 12%,var(--panel));color:var(--accent);font-size:.58rem}.research-tag.conflict{background:var(--panel);color:var(--ink-3);border:1px solid var(--border)}
+.research-empty{padding:18px 12px;color:var(--ink-3);font-size:.7rem}
+.sector-drawer{position:fixed;z-index:80;inset:0 0 0 auto;width:min(720px,56vw);padding:14px 16px 28px;background:var(--bg);border-left:1px solid var(--border);box-shadow:-18px 0 50px rgba(0,0,0,.38);overflow:auto;transform:translateX(102%);visibility:hidden;transition:transform .22s ease-out,visibility 0s linear .22s}
+.sector-drawer.open{transform:translateX(0);visibility:visible;transition:transform .22s ease-out}
+.drawer-top{position:sticky;top:-14px;z-index:3;display:flex;align-items:center;justify-content:space-between;padding:12px 0;background:color-mix(in srgb,var(--bg) 96%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--border)}
+.drawer-close{min-height:38px;padding:0 12px;border:1px solid var(--border);border-radius:4px;background:var(--panel-2);color:var(--ink-2);cursor:pointer}
+.sector-drawer .detail-panel{display:block;margin:0;padding:18px 0 0;border:0;border-radius:0;background:transparent}
+.drawer-summary{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin:12px 0}
+.drawer-summary span{display:flex;flex-direction:column;gap:3px;padding:9px 10px;background:var(--panel-2);border:1px solid var(--border);border-radius:4px}.drawer-summary b{font-size:.58rem;color:var(--ink-3);font-weight:500}.drawer-summary strong{font-size:.72rem;color:var(--ink);font-weight:700}
+.sector-drawer .detail-three-col{grid-template-columns:1fr 1fr;}.sector-drawer .detail-three-col .tc-box:last-child{grid-column:1/-1}
+.sector-drawer .stock-list-table{min-width:1120px}
+.stock-card-backdrop{z-index:120}
+.indicator-dialog{width:min(620px,calc(100vw - 32px));padding:0;border:1px solid var(--border);border-radius:6px;background:var(--panel);color:var(--ink);box-shadow:var(--shadow-2)}
+.indicator-dialog::backdrop{background:rgba(0,0,0,.58)}
+.dialog-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--border)}.dialog-head h2{margin:0;font-size:1rem}
+.indicator-dialog dl{margin:0;padding:8px 16px 18px}.indicator-dialog dt{margin-top:12px;font-size:.76rem;font-weight:700;color:var(--accent)}.indicator-dialog dd{margin:4px 0 0;font-size:.74rem;line-height:1.65;color:var(--ink-2)}
+@media (max-width:1180px){.heatgrid{grid-template-columns:repeat(4,minmax(0,1fr))}.research-grid{grid-template-columns:1fr 1fr}.research-column.research{grid-column:1/-1}.topbar{padding-inline:18px}.page-shell{padding-inline:18px}}
+@media (max-width:820px){body.drawer-open{overflow:hidden}.topbar{position:static}.topbar .updated{margin-left:0;align-items:flex-start}.nav-links{width:100%;overflow-x:auto}.page-shell{padding:12px}.heatgrid{grid-template-columns:repeat(2,minmax(0,1fr))}.research-grid{grid-template-columns:1fr}.research-column.research{grid-column:auto}.sector-drawer{width:100vw;padding-inline:12px}.sector-drawer .detail-three-col{grid-template-columns:1fr}.sector-drawer .detail-three-col .tc-box:last-child{grid-column:auto}.drawer-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.ranking-toolbar>*{flex:1 1 140px}.ranking-toolbar .icon-button{flex:0 0 44px}.toolbar-button,.icon-button,.segment,.drawer-close,.control-field input,.control-field select{min-height:44px}}
+@media (max-width:520px){.heatgrid{grid-template-columns:1fr}.research-row{grid-template-columns:minmax(90px,1fr) auto}.research-metric{grid-column:1}.topbar .search-wrap{order:4;width:100%;max-width:none}.market-regime{padding:14px}.regime-head{gap:6px}.advanced-filters>*{flex:1 1 100%}}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition-duration:.01ms!important;animation-duration:.01ms!important;animation-iteration-count:1!important}}
+</style>
+</head>
+<body>
+<a class="skip-link" href="#main-content">跳到主要內容</a>
+<header class="topbar">
+  <div class="brand"><div class="kicker">TW SECTOR TRACKER</div><h1>族群總覽</h1></div>
+  <div class="search-wrap">
+    <input id="stock-search" class="stock-search" placeholder="搜尋股票代號 / 名稱 / 族群…"
+      aria-label="搜尋股票代號、名稱或族群" oninput="searchStocks(this.value)" onblur="setTimeout(hideSearch,200)" autocomplete="off">
+    <div id="search-dropdown" class="search-dropdown" hidden></div>
+  </div>
+  <div class="updated"><strong>盤中資料，尚未收盤確認</strong><span>2026-09-01（週二）15:00</span></div>
+  <nav class="nav-links" aria-label="主要功能">
+    <a class="nav-link active" href="index.html" aria-current="page">族群績效</a>
+    <a class="nav-link" href="chips.html">籌碼分析</a>
+    <a class="nav-link" href="patterns.html">形態掃描</a>
+    <a class="nav-link" href="momentum.html">逆轟策略</a>
+  </nav>
+</header>
+<main id="main-content">
+
+<div class="page-shell">
+  <section class="market-section" aria-label="市場現況">
+    <div class="market-regime" style="border-left-color:var(--up)"><div class="regime-label">大盤現況</div><div class="regime-head"><span class="regime-tier tabular" style="color:var(--up)">小漲</span><span class="regime-pct tabular" style="color:var(--up)">加權指數 +1.24%</span><span class="regime-breadth">上漲 <b>986</b> / 共 1712 檔（廣度 58%）</span></div><div class="regime-tip">正常操作，續抱強勢股、汰弱留強。</div><div class="regime-conc"><span class="regime-conc-head warn">資金集中 — 權值偏強</span><div class="regime-conc-vals"><span>權值股（前20大）：<b class="tabular" style="color:var(--up)">+1.62%</b></span><span>非權值股：<b class="tabular" style="color:var(--up)">+0.74%</b></span><span>落差：<b class="tabular">+0.88 個百分點</b></span></div></div></div>
+  </section>
+  <section class="vol-turnover" aria-labelledby="vol-turnover-title"><div class="event-head"><div><span class="eyebrow">VOLUME EVENT</span><h2 id="vol-turnover-title">疑似巨量換手</h2></div><span class="event-count tabular">2 檔</span></div><div class="overflow-wrap"><table class="vt-table"><thead><tr><th>代號 / 名稱</th><th>族群</th><th>今日漲跌</th><th>量倍數</th><th>外資</th><th>確認</th></tr></thead><tbody><tr><td><span class="tabular" style="color:var(--ink-3)">3017</span> <span>奇鋐</span></td><td class="vt-sector">散熱</td><td class="tabular" style="color:var(--down);font-weight:700">-4.20%</td><td class="tabular" style="color:var(--accent);font-weight:700">3.8x</td><td><span class="tabular" style="color:var(--down)">-1,850張</span></td><td><span class="badge foreign">法人確認</span></td></tr><tr><td><span class="tabular" style="color:var(--ink-3)">2308</span> <span>台達電</span></td><td class="vt-sector">AI伺服器</td><td class="tabular" style="color:var(--down);font-weight:700">-2.10%</td><td class="tabular" style="color:var(--accent);font-weight:700">2.7x</td><td><span class="tabular" style="color:var(--up)">+620張</span></td><td></td></tr></tbody></table></div></section>
+
+  <section class="ranking-section" aria-labelledby="sector-rank-title">
+    <div class="section-head ranking-head">
+      <div><span class="eyebrow">SECTOR RANKING</span><h2 id="sector-rank-title">族群 Top 10</h2></div>
+      <span class="count"><span id="showingCount">10</span> / 18 個族群</span>
+    </div>
+    <div class="ranking-toolbar" aria-label="族群排行控制">
+      
+        <div class="segmented" role="group" aria-label="排行資料模式">
+          <button type="button" class="segment active" data-rank-mode="live" onclick="setRankMode('live')">即時排行</button>
+          <button type="button" class="segment" data-rank-mode="close" onclick="setRankMode('close')">上次收盤排行</button>
+        </div>
+      <label class="control-field compact"><span>研究分類</span>
+        <select id="bucketFilter" onchange="applySectorView()">
+          <option value="">全部分類</option><option value="research">值得研究</option>
+          <option value="watch">先觀察</option><option value="avoid">避開</option>
+        </select>
+      </label>
+      <label class="control-field grow"><span>族群名稱</span>
+        <input id="sectorFilter" type="search" placeholder="輸入族群名稱" oninput="applySectorView()">
+      </label>
+      <label class="control-field compact"><span>排序</span>
+        <select id="sectorSort" onchange="applySectorView()">
+          <option value="pct">今日漲跌</option><option value="cum5">近 5 日報酬</option>
+          <option value="rankDelta">排名變化</option><option value="volRatio">量比</option>
+        </select>
+      </label>
+      <button type="button" class="toolbar-button" id="showAllToggle" aria-expanded="false" onclick="toggleShowAll()">顯示全部</button>
+      <button type="button" class="toolbar-button" id="advancedToggle" aria-expanded="false" aria-controls="advancedFilters" onclick="toggleAdvanced()">進階篩選</button>
+      <button type="button" class="icon-button" aria-label="開啟指標說明" title="指標說明" onclick="openIndicatorHelp()">?</button>
+      <button type="button" class="toolbar-button quiet" onclick="resetSectorView()">重設</button>
+    </div>
+    <div class="advanced-filters" id="advancedFilters" hidden>
+      <label class="control-field"><span>動能等級</span>
+        <select id="tierFilter"><option value="">全部</option><option value="super">超強</option><option value="strong">強</option><option value="mid">整理</option><option value="weak">弱</option><option value="superweak">超弱</option></select>
+      </label>
+      <label class="control-field"><span>最低量比</span><input id="minVolFilter" type="number" min="0" step="0.1" value="1.5"></label>
+      <label class="control-field"><span>排名最低跳升</span><input id="minRankFilter" type="number" min="0" step="1" value="10"></label>
+      <label class="check-field"><input id="foreignFilter" type="checkbox"> 外資連買</label>
+      <label class="check-field"><input id="trustFilter" type="checkbox"> 投信連買</label>
+      <button type="button" class="toolbar-button primary" onclick="activateAdvancedFilters()">套用條件</button>
+      <button type="button" class="toolbar-button quiet" onclick="clearAdvancedFilters()">停用進階條件</button>
+    </div>
+    <div class="heatgrid" id="heatgrid"><article class="heat-tile" data-meta-name="AI伺服器" data-pct="5.66" data-cum5="9.62" data-rank-delta="15" data-vol-ratio="2.4" data-foreign-streak="1" data-trust-streak="0" data-tier="mid" data-bucket="research" data-current-rank="1" data-prev-rank="16" role="button" tabindex="0" aria-label="開啟 AI伺服器 個股詳情" onclick="selectGroup(this.dataset.metaName,true)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();selectGroup(this.dataset.metaName,true)}" style="background:color-mix(in srgb, var(--up) 66%, var(--panel));border-top-color:var(--tier-mid)"><div class="ht-top"><span class="ht-rank tabular"><span class="rank-value">#1</span> <span class="ht-rank-delta up">↑15</span></span><span class="ht-name" title="AI伺服器">AI伺服器</span><span class="ht-pct tabular" style="color:var(--up)">+5.66%</span></div><div class="ht-status-row"><span class="signal-chip tier" title="整理：目前方向不明確" style="color:var(--tier-mid);border-color:color-mix(in srgb,var(--tier-mid) 50%,var(--border))">整理</span><span class="signal-chip temp cold">退燒 -6.0pt</span></div></article><article class="heat-tile" data-meta-name="功率半導體" data-pct="4.28" data-cum5="7.28" data-rank-delta="15" data-vol-ratio="2.15" data-foreign-streak="1" data-trust-streak="0" data-tier="mid" data-bucket="research" data-current-rank="2" data-prev-rank="17" role="button" tabindex="0" aria-label="開啟 功率半導體 個股詳情" onclick="selectGroup(this.dataset.metaName,true)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();selectGroup(this.dataset.metaName,true)}" style="background:color-mix(in srgb, var(--up) 54%, var(--panel));border-top-color:var(--tier-mid)"><div class="ht-top"><span class="ht-rank tabular"><span class="rank-value">#2</span> <span class="ht-rank-delta up">↑15</span></span><span class="ht-name" title="功率半導體">功率半導體</span><span class="ht-pct tabular" style="color:var(--up)">+4.28%</span></div><div class="ht-status-row"><span class="signal-chip tier" title="整理：目前方向不明確" style="color:var(--tier-mid);border-color:color-mix(in srgb,var(--tier-mid) 50%,var(--border))">整理</span><span class="signal-chip temp cold">退燒 -6.0pt</span></div></article><article class="heat-tile" data-meta-name="散熱" data-pct="3.72" data-cum5="6.32" data-rank-delta="15" data-vol-ratio="1.9" data-foreign-streak="1" data-trust-streak="0" data-tier="mid" data-bucket="research" data-current-rank="3" data-prev-rank="18" role="button" tabindex="0" aria-label="開啟 散熱 個股詳情" onclick="selectGroup(this.dataset.metaName,true)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();selectGroup(this.dataset.metaName,true)}" style="background:color-mix(in srgb, var(--up) 49%, var(--panel));border-top-color:var(--tier-mid)"><div class="ht-top"><span class="ht-rank tabular"><span class="rank-value">#3</span> <span class="ht-rank-delta up">↑15</span></span><span class="ht-name" title="散熱">散熱</span><span class="ht-pct tabular" style="color:var(--up)">+3.72%</span></div><div class="ht-status-row"><span class="signal-chip tier" title="整理：目前方向不明確" style="color:var(--tier-mid);border-color:color-mix(in srgb,var(--tier-mid) 50%,var(--border))">整理</span><span class="signal-chip temp cold">退燒 -6.0pt</span></div></article><article class="heat-tile" data-meta-name="機器人" data-pct="2.95" data-cum5="5.02" data-rank-delta="0" data-vol-ratio="1.7" data-foreign-streak="5" data-trust-streak="0" data-tier="super" data-bucket="research" data-current-rank="4" data-prev-rank="4" role="button" tabindex="0" aria-label="開啟 機器人 個股詳情" onclick="selectGroup(this.dataset.metaName,true)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();selectGroup(this.dataset.metaName,true)}" style="background:color-mix(in srgb, var(--up) 42%, var(--panel));border-top-color:var(--tier-super)"><div class="ht-top"><span class="ht-rank tabular"><span class="rank-value">#4</span> </span><span class="ht-name" title="機器人">機器人</span><span class="ht-pct tabular" style="color:var(--up)">+2.95%</span></div><div class="ht-status-row"><span class="signal-chip tier" title="超強：連漲且近 5 日動能持續加速" style="color:var(--tier-super);border-color:color-mix(in srgb,var(--tier-super) 50%,var(--border))">超強</span><span class="signal-chip temp hot">增溫 +6.6pt</span></div></article><article class="heat-tile" data-meta-name="先進封裝" data-pct="2.41" data-cum5="4.1" data-rank-delta="0" data-vol-ratio="1.7" data-foreign-streak="5" data-trust-streak="0" data-tier="super" data-bucket="research" data-current-rank="5" data-prev-rank="5" role="button" tabindex="0" aria-label="開啟 先進封裝 個股詳情" onclick="selectGroup(this.dataset.metaName,true)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();selectGroup(this.dataset.metaName,true)}" style="background:color-mix(in srgb, var(--up) 37%, var(--panel));border-top-color:var(--tier-super)"><div class="ht-top"><span class="ht-rank tabular"><span class="rank-value">#5</span> </span><span class="ht-name" title="先進封裝">先進封裝</span><span class="ht-pct tabular" style="color:var(--up)">+2.41%</span></div><div class="ht-status-row"><span class="signal-chip tier" title="超強：連漲且近 5 日動能持續加速" style="color:var(--tier-super);border-color:color-mix(in srgb,var(--tier-super) 50%,var(--border))">超強</span><span class="signal-chip temp hot">增溫 +6.8pt</span></div></article><article class="heat-tile" data-meta-name="PCB" data-pct="1.86" data-cum5="3.16" data-rank-delta="0" data-vol-ratio="1.7" data-foreign-streak="1" data-trust-streak="4" data-tier="super" data-bucket="research" data-current-rank="6" data-prev-rank="6" role="button" tabindex="0" aria-label="開啟 PCB 個股詳情" onclick="selectGroup(this.dataset.metaName,true)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();selectGroup(this.dataset.metaName,true)}" style="background:color-mix(in srgb, var(--up) 32%, var(--panel));border-top-color:var(--tier-super)"><div class="ht-top"><span class="ht-rank tabular"><span class="rank-value">#6</span> </span><span class="ht-name" title="PCB">PCB</span><span class="ht-pct tabular" style="color:var(--up)">+1.86%</span></div><div class="ht-status-row"><span class="signal-chip tier" title="超強：連漲且近 5 日動能持續加速" style="color:var(--tier-super);border-color:color-mix(in srgb,var(--tier-super) 50%,var(--border))">超強</span><span class="signal-chip temp hot">增溫 +7.0pt</span></div></article><article class="heat-tile" data-meta-name="記憶體" data-pct="1.32" data-cum5="2.24" data-rank-delta="0" data-vol-ratio="1.7" data-foreign-streak="1" data-trust-streak="4" data-tier="super" data-bucket="research" data-current-rank="7" data-prev-rank="7" role="button" tabindex="0" aria-label="開啟 記憶體 個股詳情" onclick="selectGroup(this.dataset.metaName,true)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();selectGroup(this.dataset.metaName,true)}" style="background:color-mix(in srgb, var(--up) 28%, var(--panel));border-top-color:var(--tier-super)"><div class="ht-top"><span class="ht-rank tabular"><span class="rank-value">#7</span> </span><span class="ht-name" title="記憶體">記憶體</span><span class="ht-pct tabular" style="color:var(--up)">+1.32%</span></div><div class="ht-status-row"><span class="signal-chip tier" title="超強：連漲且近 5 日動能持續加速" style="color:var(--tier-super);border-color:color-mix(in srgb,var(--tier-super) 50%,var(--border))">超強</span><span class="signal-chip temp hot">增溫 +7.2pt</span></div></article><article class="heat-tile" data-meta-name="重電" data-pct="0.84" data-cum5="1.43" data-rank-delta="0" data-vol-ratio="1.15" data-foreign-streak="5" data-trust-streak="0" data-tier="weak" data-bucket="avoid" data-current-rank="8" data-prev-rank="8" role="button" tabindex="0" aria-label="開啟 重電 個股詳情" onclick="selectGroup(this.dataset.metaName,true)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();selectGroup(this.dataset.metaName,true)}" style="background:color-mix(in srgb, var(--up) 23%, var(--panel));border-top-color:var(--tier-weak)"><div class="ht-top"><span class="ht-rank tabular"><span class="rank-value">#8</span> </span><span class="ht-name" title="重電">重電</span><span class="ht-pct tabular" style="color:var(--up)">+0.84%</span></div><div class="ht-status-row"><span class="signal-chip tier" title="弱：下跌且動能仍在減弱" style="color:var(--tier-weak);border-color:color-mix(in srgb,var(--tier-weak) 50%,var(--border))">弱</span><span class="signal-chip temp cold">退燒 -7.2pt</span></div></article><article class="heat-tile" data-meta-name="軍工" data-pct="0.42" data-cum5="0.71" data-rank-delta="0" data-vol-ratio="1.15" data-foreign-streak="1" data-trust-streak="0" data-tier="weak" data-bucket="avoid" data-current-rank="9" data-prev-rank="9" role="button" tabindex="0" aria-label="開啟 軍工 個股詳情" onclick="selectGroup(this.dataset.metaName,true)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();selectGroup(this.dataset.metaName,true)}" style="background:color-mix(in srgb, var(--up) 20%, var(--panel));border-top-color:var(--tier-weak)"><div class="ht-top"><span class="ht-rank tabular"><span class="rank-value">#9</span> </span><span class="ht-name" title="軍工">軍工</span><span class="ht-pct tabular" style="color:var(--up)">+0.42%</span></div><div class="ht-status-row"><span class="signal-chip tier" title="弱：下跌且動能仍在減弱" style="color:var(--tier-weak);border-color:color-mix(in srgb,var(--tier-weak) 50%,var(--border))">弱</span><span class="signal-chip temp cold">退燒 -7.3pt</span></div></article><article class="heat-tile" data-meta-name="生技" data-pct="0.12" data-cum5="0.2" data-rank-delta="0" data-vol-ratio="1.15" data-foreign-streak="1" data-trust-streak="0" data-tier="weak" data-bucket="avoid" data-current-rank="10" data-prev-rank="10" role="button" tabindex="0" aria-label="開啟 生技 個股詳情" onclick="selectGroup(this.dataset.metaName,true)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();selectGroup(this.dataset.metaName,true)}" style="background:color-mix(in srgb, var(--up) 17%, var(--panel));border-top-color:var(--tier-weak)"><div class="ht-top"><span class="ht-rank tabular"><span class="rank-value">#10</span> </span><span class="ht-name" title="生技">生技</span><span class="ht-pct tabular" style="color:var(--up)">+0.12%</span></div><div class="ht-status-row"><span class="signal-chip tier" title="弱：下跌且動能仍在減弱" style="color:var(--tier-weak);border-color:color-mix(in srgb,var(--tier-weak) 50%,var(--border))">弱</span><span class="signal-chip temp cold">退燒 -7.4pt</span></div></article><article class="heat-tile" data-meta-name="金融" data-pct="-0.18" data-cum5="-0.31" data-rank-delta="0" data-vol-ratio="1.15" data-foreign-streak="1" data-trust-streak="0" data-tier="weak" data-bucket="avoid" data-current-rank="11" data-prev-rank="11" role="button" tabindex="0" aria-label="開啟 金融 個股詳情" onclick="selectGroup(this.dataset.metaName,true)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();selectGroup(this.dataset.metaName,true)}" style="background:color-mix(in srgb, var(--down) 18%, var(--panel));border-top-color:var(--tier-weak)"><div class="ht-top"><span class="ht-rank tabular"><span class="rank-value">#11</span> </span><span class="ht-name" title="金融">金融</span><span class="ht-pct tabular" style="color:var(--down)">-0.18%</span></div><div class="ht-status-row"><span class="signal-chip tier" title="弱：下跌且動能仍在減弱" style="color:var(--tier-weak);border-color:color-mix(in srgb,var(--tier-weak) 50%,var(--border))">弱</span><span class="signal-chip temp cold">退燒 -7.5pt</span></div></article><article class="heat-tile" data-meta-name="航運" data-pct="-0.45" data-cum5="-0.77" data-rank-delta="0" data-vol-ratio="1.15" data-foreign-streak="1" data-trust-streak="0" data-tier="strong" data-bucket="" data-current-rank="12" data-prev-rank="12" role="button" tabindex="0" aria-label="開啟 航運 個股詳情" onclick="selectGroup(this.dataset.metaName,true)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();selectGroup(this.dataset.metaName,true)}" style="background:color-mix(in srgb, var(--down) 20%, var(--panel));border-top-color:var(--tier-strong)"><div class="ht-top"><span class="ht-rank tabular"><span class="rank-value">#12</span> </span><span class="ht-name" title="航運">航運</span><span class="ht-pct tabular" style="color:var(--down)">-0.45%</span></div><div class="ht-status-row"><span class="signal-chip tier" title="強：連漲且動能維持穩定" style="color:var(--tier-strong);border-color:color-mix(in srgb,var(--tier-strong) 50%,var(--border))">強</span></div></article><article class="heat-tile" data-meta-name="網通" data-pct="-0.82" data-cum5="-1.39" data-rank-delta="0" data-vol-ratio="1.15" data-foreign-streak="1" data-trust-streak="0" data-tier="strong" data-bucket="" data-current-rank="13" data-prev-rank="13" role="button" tabindex="0" aria-label="開啟 網通 個股詳情" onclick="selectGroup(this.dataset.metaName,true)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();selectGroup(this.dataset.metaName,true)}" style="background:color-mix(in srgb, var(--down) 23%, var(--panel));border-top-color:var(--tier-strong)"><div class="ht-top"><span class="ht-rank tabular"><span class="rank-value">#13</span> </span><span class="ht-name" title="網通">網通</span><span class="ht-pct tabular" style="color:var(--down)">-0.82%</span></div><div class="ht-status-row"><span class="signal-chip tier" title="強：連漲且動能維持穩定" style="color:var(--tier-strong);border-color:color-mix(in srgb,var(--tier-strong) 50%,var(--border))">強</span></div></article><article class="heat-tile" data-meta-name="光通訊" data-pct="-1.14" data-cum5="-1.94" data-rank-delta="0" data-vol-ratio="1.15" data-foreign-streak="1" data-trust-streak="0" data-tier="strong" data-bucket="" data-current-rank="14" data-prev-rank="14" role="button" tabindex="0" aria-label="開啟 光通訊 個股詳情" onclick="selectGroup(this.dataset.metaName,true)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();selectGroup(this.dataset.metaName,true)}" style="background:color-mix(in srgb, var(--down) 26%, var(--panel));border-top-color:var(--tier-strong)"><div class="ht-top"><span class="ht-rank tabular"><span class="rank-value">#14</span> </span><span class="ht-name" title="光通訊">光通訊</span><span class="ht-pct tabular" style="color:var(--down)">-1.14%</span></div><div class="ht-status-row"><span class="signal-chip tier" title="強：連漲且動能維持穩定" style="color:var(--tier-strong);border-color:color-mix(in srgb,var(--tier-strong) 50%,var(--border))">強</span></div></article><article class="heat-tile" data-meta-name="低軌衛星" data-pct="-1.62" data-cum5="-2.75" data-rank-delta="0" data-vol-ratio="1.15" data-foreign-streak="1" data-trust-streak="0" data-tier="strong" data-bucket="" data-current-rank="15" data-prev-rank="15" role="button" tabindex="0" aria-label="開啟 低軌衛星 個股詳情" onclick="selectGroup(this.dataset.metaName,true)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();selectGroup(this.dataset.metaName,true)}" style="background:color-mix(in srgb, var(--down) 30%, var(--panel));border-top-color:var(--tier-strong)"><div class="ht-top"><span class="ht-rank tabular"><span class="rank-value">#15</span> </span><span class="ht-name" title="低軌衛星">低軌衛星</span><span class="ht-pct tabular" style="color:var(--down)">-1.62%</span></div><div class="ht-status-row"><span class="signal-chip tier" title="強：連漲且動能維持穩定" style="color:var(--tier-strong);border-color:color-mix(in srgb,var(--tier-strong) 50%,var(--border))">強</span></div></article><article class="heat-tile" data-meta-name="矽光子" data-pct="-2.08" data-cum5="-3.54" data-rank-delta="0" data-vol-ratio="1.15" data-foreign-streak="1" data-trust-streak="0" data-tier="strong" data-bucket="" data-current-rank="16" data-prev-rank="16" role="button" tabindex="0" aria-label="開啟 矽光子 個股詳情" onclick="selectGroup(this.dataset.metaName,true)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();selectGroup(this.dataset.metaName,true)}" style="background:color-mix(in srgb, var(--down) 34%, var(--panel));border-top-color:var(--tier-strong)"><div class="ht-top"><span class="ht-rank tabular"><span class="rank-value">#16</span> </span><span class="ht-name" title="矽光子">矽光子</span><span class="ht-pct tabular" style="color:var(--down)">-2.08%</span></div><div class="ht-status-row"><span class="signal-chip tier" title="強：連漲且動能維持穩定" style="color:var(--tier-strong);border-color:color-mix(in srgb,var(--tier-strong) 50%,var(--border))">強</span></div></article><article class="heat-tile" data-meta-name="車用電子" data-pct="-2.66" data-cum5="-4.52" data-rank-delta="0" data-vol-ratio="1.15" data-foreign-streak="1" data-trust-streak="0" data-tier="strong" data-bucket="" data-current-rank="17" data-prev-rank="17" role="button" tabindex="0" aria-label="開啟 車用電子 個股詳情" onclick="selectGroup(this.dataset.metaName,true)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();selectGroup(this.dataset.metaName,true)}" style="background:color-mix(in srgb, var(--down) 39%, var(--panel));border-top-color:var(--tier-strong)"><div class="ht-top"><span class="ht-rank tabular"><span class="rank-value">#17</span> </span><span class="ht-name" title="車用電子">車用電子</span><span class="ht-pct tabular" style="color:var(--down)">-2.66%</span></div><div class="ht-status-row"><span class="signal-chip tier" title="強：連漲且動能維持穩定" style="color:var(--tier-strong);border-color:color-mix(in srgb,var(--tier-strong) 50%,var(--border))">強</span></div></article><article class="heat-tile" data-meta-name="營建" data-pct="-3.21" data-cum5="-5.46" data-rank-delta="0" data-vol-ratio="1.15" data-foreign-streak="1" data-trust-streak="0" data-tier="strong" data-bucket="" data-current-rank="18" data-prev-rank="18" role="button" tabindex="0" aria-label="開啟 營建 個股詳情" onclick="selectGroup(this.dataset.metaName,true)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();selectGroup(this.dataset.metaName,true)}" style="background:color-mix(in srgb, var(--down) 44%, var(--panel));border-top-color:var(--tier-strong)"><div class="ht-top"><span class="ht-rank tabular"><span class="rank-value">#18</span> </span><span class="ht-name" title="營建">營建</span><span class="ht-pct tabular" style="color:var(--down)">-3.21%</span></div><div class="ht-status-row"><span class="signal-chip tier" title="強：連漲且動能維持穩定" style="color:var(--tier-strong);border-color:color-mix(in srgb,var(--tier-strong) 50%,var(--border))">強</span></div></article></div>
+    <div class="filter-empty" id="filterEmpty" hidden>目前沒有符合篩選條件的族群</div>
+  </section>
+
+  
+<section class="research-section" aria-labelledby="sector-recap-title">
+  <div class="section-head compact"><div><span class="eyebrow">RESEARCH QUEUE</span><h2 id="sector-recap-title">今日研究順序</h2></div><span class="count">互斥分類</span></div>
+  <div class="research-grid">
+    <section class="research-column research" data-bucket-group="research"><div class="research-column-head"><h3>值得研究</h3><span>最多 10 個</span></div><button type="button" class="research-row" data-meta-name="AI伺服器" data-pct="5.66" data-cum5="9.62" data-rank-delta="15" data-vol-ratio="2.4" data-foreign-streak="1" data-trust-streak="0" data-tier="mid" data-bucket="research" data-current-rank="1" data-prev-rank="16" onclick="selectGroup(this.dataset.metaName)"><span class="research-name">AI伺服器</span><span class="research-pct tabular" style="color:var(--up)">+5.66%</span><span class="research-metric tabular">排名 ↑15</span><span class="research-tags"><span class="research-tag">爆量異常跳升</span><span class="research-tag conflict">週度仍退燒</span></span></button><button type="button" class="research-row" data-meta-name="功率半導體" data-pct="4.28" data-cum5="7.28" data-rank-delta="15" data-vol-ratio="2.15" data-foreign-streak="1" data-trust-streak="0" data-tier="mid" data-bucket="research" data-current-rank="2" data-prev-rank="17" onclick="selectGroup(this.dataset.metaName)"><span class="research-name">功率半導體</span><span class="research-pct tabular" style="color:var(--up)">+4.28%</span><span class="research-metric tabular">排名 ↑15</span><span class="research-tags"><span class="research-tag">爆量異常跳升</span><span class="research-tag conflict">週度仍退燒</span></span></button><button type="button" class="research-row" data-meta-name="散熱" data-pct="3.72" data-cum5="6.32" data-rank-delta="15" data-vol-ratio="1.9" data-foreign-streak="1" data-trust-streak="0" data-tier="mid" data-bucket="research" data-current-rank="3" data-prev-rank="18" onclick="selectGroup(this.dataset.metaName)"><span class="research-name">散熱</span><span class="research-pct tabular" style="color:var(--up)">+3.72%</span><span class="research-metric tabular">排名 ↑15</span><span class="research-tags"><span class="research-tag">爆量異常跳升</span><span class="research-tag conflict">週度仍退燒</span></span></button><button type="button" class="research-row" data-meta-name="機器人" data-pct="2.95" data-cum5="5.02" data-rank-delta="0" data-vol-ratio="1.7" data-foreign-streak="5" data-trust-streak="0" data-tier="super" data-bucket="research" data-current-rank="4" data-prev-rank="4" onclick="selectGroup(this.dataset.metaName)"><span class="research-name">機器人</span><span class="research-pct tabular" style="color:var(--up)">+2.95%</span><span class="research-metric tabular">排名 ↑0</span><span class="research-tags"><span class="research-tag">動能加速</span></span></button><button type="button" class="research-row" data-meta-name="先進封裝" data-pct="2.41" data-cum5="4.1" data-rank-delta="0" data-vol-ratio="1.7" data-foreign-streak="5" data-trust-streak="0" data-tier="super" data-bucket="research" data-current-rank="5" data-prev-rank="5" onclick="selectGroup(this.dataset.metaName)"><span class="research-name">先進封裝</span><span class="research-pct tabular" style="color:var(--up)">+2.41%</span><span class="research-metric tabular">排名 ↑0</span><span class="research-tags"><span class="research-tag">動能加速</span></span></button><button type="button" class="research-row" data-meta-name="PCB" data-pct="1.86" data-cum5="3.16" data-rank-delta="0" data-vol-ratio="1.7" data-foreign-streak="1" data-trust-streak="4" data-tier="super" data-bucket="research" data-current-rank="6" data-prev-rank="6" onclick="selectGroup(this.dataset.metaName)"><span class="research-name">PCB</span><span class="research-pct tabular" style="color:var(--up)">+1.86%</span><span class="research-metric tabular">排名 ↑0</span><span class="research-tags"><span class="research-tag">動能加速</span></span></button><button type="button" class="research-row" data-meta-name="記憶體" data-pct="1.32" data-cum5="2.24" data-rank-delta="0" data-vol-ratio="1.7" data-foreign-streak="1" data-trust-streak="4" data-tier="super" data-bucket="research" data-current-rank="7" data-prev-rank="7" onclick="selectGroup(this.dataset.metaName)"><span class="research-name">記憶體</span><span class="research-pct tabular" style="color:var(--up)">+1.32%</span><span class="research-metric tabular">排名 ↑0</span><span class="research-tags"><span class="research-tag">動能加速</span></span></button></section>
+    <section class="research-column watch" data-bucket-group="watch"><div class="research-column-head"><h3>先觀察</h3><span>最多 5 個</span></div><div class="research-empty">目前沒有符合條件的族群</div></section>
+    <section class="research-column avoid" data-bucket-group="avoid"><div class="research-column-head"><h3>避開</h3><span>最多 5 個</span></div><button type="button" class="research-row" data-meta-name="金融" data-pct="-0.18" data-cum5="-0.31" data-rank-delta="0" data-vol-ratio="1.15" data-foreign-streak="1" data-trust-streak="0" data-tier="weak" data-bucket="avoid" data-current-rank="11" data-prev-rank="11" onclick="selectGroup(this.dataset.metaName)"><span class="research-name">金融</span><span class="research-pct tabular" style="color:var(--down)">-0.18%</span><span class="research-metric tabular">-7.5pt</span><span class="research-tags"><span class="research-tag">週度退燒</span></span></button><button type="button" class="research-row" data-meta-name="生技" data-pct="0.12" data-cum5="0.2" data-rank-delta="0" data-vol-ratio="1.15" data-foreign-streak="1" data-trust-streak="0" data-tier="weak" data-bucket="avoid" data-current-rank="10" data-prev-rank="10" onclick="selectGroup(this.dataset.metaName)"><span class="research-name">生技</span><span class="research-pct tabular" style="color:var(--up)">+0.12%</span><span class="research-metric tabular">-7.4pt</span><span class="research-tags"><span class="research-tag">週度退燒</span></span></button><button type="button" class="research-row" data-meta-name="軍工" data-pct="0.42" data-cum5="0.71" data-rank-delta="0" data-vol-ratio="1.15" data-foreign-streak="1" data-trust-streak="0" data-tier="weak" data-bucket="avoid" data-current-rank="9" data-prev-rank="9" onclick="selectGroup(this.dataset.metaName)"><span class="research-name">軍工</span><span class="research-pct tabular" style="color:var(--up)">+0.42%</span><span class="research-metric tabular">-7.3pt</span><span class="research-tags"><span class="research-tag">週度退燒</span></span></button><button type="button" class="research-row" data-meta-name="重電" data-pct="0.84" data-cum5="1.43" data-rank-delta="0" data-vol-ratio="1.15" data-foreign-streak="5" data-trust-streak="0" data-tier="weak" data-bucket="avoid" data-current-rank="8" data-prev-rank="8" onclick="selectGroup(this.dataset.metaName)"><span class="research-name">重電</span><span class="research-pct tabular" style="color:var(--up)">+0.84%</span><span class="research-metric tabular">-7.2pt</span><span class="research-tags"><span class="research-tag">週度退燒</span></span></button></section>
+  </div>
+</section>
+</div>
+</main>
+
+<aside class="sector-drawer" id="sectorDrawer" aria-hidden="true" aria-labelledby="drawerTitle">
+  <div class="drawer-top"><span class="eyebrow">SECTOR DETAIL</span><button type="button" class="drawer-close" id="drawerClose" onclick="closeSectorDrawer()" aria-label="關閉族群詳情">關閉</button></div>
+  <div id="drawerContent"></div>
+</aside>
+
+<dialog class="indicator-dialog" id="indicatorDialog" aria-labelledby="indicatorTitle">
+  <div class="dialog-head"><h2 id="indicatorTitle">指標說明</h2><button type="button" class="drawer-close" onclick="closeIndicatorHelp()">關閉</button></div>
+  <dl>
+    <dt>動能等級</dt><dd>由連漲／連跌天數，以及近 5 日相對前 5 日的加速度分類；目前門檻尚未回測。</dd>
+    <dt>增溫／退燒</dt><dd>近 5 日報酬相對前 5 日增加或減少至少 5 個百分點。</dd>
+    <dt>即時異動</dt><dd>預設量比至少 1.5x、排名跳升至少 10 名；「動能加速」則表示連續走強。</dd>
+    <dt>研究分類</dt><dd>值得研究、先觀察、避開是研究優先順序，不是買賣建議；同一族群只進入一個主要分類。</dd>
+  </dl>
+</dialog>
+<script>
+const STOCKS = {"AI伺服器": [{"stock_id": "3000", "stock_name": "AI伺服器代表股1", "no_data": false, "close": 70.0, "change_pct": 6.11, "pcts": [], "dates": [], "volumes": [], "volume": null, "vol_ratio": null, "opens": [], "highs": [], "lows": [], "closes": [], "roll5": null, "roll7": null, "roll10": null, "roll14": null, "foreign_net": null, "trust_net": null, "margin_balance": null, "margin_change": null, "financed_pct": null, "maintenance_est": null, "shorted_pct": null, "short_maintenance_est": null, "total_shares_asof": null, "holder_pct": null, "holder_week_chg": null}, {"stock_id": "3001", "stock_name": "AI伺服器代表股2", "no_data": false, "close": 75.0, "change_pct": 5.66, "pcts": [], "dates": [], "volumes": [], "volume": null, "vol_ratio": null, "opens": [], "highs": [], "lows": [], "closes": [], "roll5": null, "roll7": null, "roll10": null, "roll14": null, "foreign_net": null, "trust_net": null, "margin_balance": null, "margin_change": null, "financed_pct": null, "maintenance_est": null, "shorted_pct": null, "short_maintenance_est": null, "total_shares_asof": null, "holder_pct": null, "holder_week_chg": null}, {"stock_id": "3002", "stock_name": "AI伺服器代表股3", "no_data": false, "close": 80.0, "change_pct": 5.21, "pcts": [], "dates": [], "volumes": [], "volume": null, "vol_ratio": null, "opens": [], "highs": [], "lows": [], "closes": [], "roll5": null, "roll7": null, "roll10": null, "roll14": null, "foreign_net": null, "trust_net": null, "margin_balance": null, "margin_change": null, "financed_pct": null, "maintenance_est": null, "shorted_pct": null, "short_maintenance_est": null, "total_shares_asof": null, "holder_pct": null, "holder_week_chg": null}], "功率半導體": [{"stock_id": "3003", "stock_name": "功率半導體代表股1", "no_data": false, "close": 72.0, "change_pct": 4.73, "pcts": [], "dates": [], "volumes": [], "volume": null, "vol_ratio": null, "opens": [], "highs": [], "lows": [], "closes": [], "roll5": null, "roll7": null, "roll10": null, "roll14": null, "foreign_net": null, "trust_net": null, "margin_balance": null, "margin_change": null, "financed_pct": null, "maintenance_est": null, "shorted_pct": null, "short_maintenance_est": null, "total_shares_asof": null, "holder_pct": null, "holder_week_chg": null}, {"stock_id": "3004", "stock_name": "功率半導體代表股2", "no_data": false, "close": 77.0, "change_pct": 4.28, "pcts": [], "dates": [], "volumes": [], "volume": null, "vol_ratio": null, "opens": [], "highs": [], "lows": [], "closes": [], "roll5": null, "roll7": null, "roll10": null, "roll14": null, "foreign_net": null, "trust_net": null, "margin_balance": null, "margin_change": null, "financed_pct": null, "maintenance_est": null, "shorted_pct": null, "short_maintenance_est": null, "total_shares_asof": null, "holder_pct": null, "holder_week_chg": null}, {"stock_id": "3005", "stock_name": "功率半導體代表股3", "no_data": false, "close": 82.0, "change_pct": 3.83, "pcts": [], "dates": [], "volumes": [], "volume": null, "vol_ratio": null, "opens": [], "highs": [], "lows": [], "closes": [], "roll5": null, "roll7": null, "roll10": null, "roll14": null, "foreign_net": null, "trust_net": null, "margin_balance": null, "margin_change": null, "financed_pct": null, "maintenance_est": null, "shorted_pct": null, "short_maintenance_est": null, "total_shares_asof": null, "holder_pct": null, "holder_week_chg": null}], "散熱": [{"stock_id": "3006", "stock_name": "散熱代表股1", "no_data": false, "close": 74.0, "change_pct": 4.17, "pcts": [], "dates": [], "volumes": [], "volume": null, "vol_ratio": null, "opens": [], "highs": [], "lows": [], "closes": [], "roll5": null, "roll7": null, "roll10": null, "roll14": null, "foreign_net": null, "trust_net": null, "margin_balance": null, "margin_change": null, "financed_pct": null, "maintenance_est": null, "shorted_pct": null, "short_maintenance_est": null, "total_shares_asof": null, "holder_pct": null, "holder_week_chg": null}, {"stock_id": "3007", "stock_name": "散熱代表股2", "no_data": false, "close": 79.0, "change_pct": 3.72, "pcts": [], "dates": [], "volumes": [], "volume": null, "vol_ratio": null, "opens": [], "highs": [], "lows": [], "closes": [], "roll5": null, "roll7": null, "roll10": null, "roll14": null, "foreign_net": null, "trust_net": null, "margin_balance": null, "margin_change": null, "financed_pct": null, "maintenance_est": null, "shorted_pct": null, "short_maintenance_est": null, "total_shares_asof": null, "holder_pct": null, "holder_week_chg": null}, {"stock_id": "3008", "stock_name": "散熱代表股3", "no_data": false, "close": 84.0, "change_pct": 3.27, "pcts": [], "dates": [], "volumes": [], "volume": null, "vol_ratio": null, "opens": [], "highs": [], "lows": [], "closes": [], "roll5": null, "roll7": null, "roll10": null, "roll14": null, "foreign_net": null, "trust_net": null, "margin_balance": null, "margin_change": null, "financed_pct": null, "maintenance_est": null, "shorted_pct": null, "short_maintenance_est": null, "total_shares_asof": null, "holder_pct": null, "holder_week_chg": null}], "機器人": [{"stock_id": "3009", "stock_name": "機器人代表股1", "no_data": false, "close": 76.0, "change_pct": 3.4, "pcts": [], "dates": [], "volumes": [], "volume": null, "vol_ratio": null, "opens": [], "highs": [], "lows": [], "closes": [], "roll5": null, "roll7": null, "roll10": null, "roll14": null, "foreign_net": null, "trust_net": null, "margin_balance": null, "margin_change": null, "financed_pct": null, "maintenance_est": null, "shorted_pct": null, "short_maintenance_est": null, "total_shares_asof": null, "holder_pct": null, "holder_week_chg": null}, {"stock_id": "3010", "stock_name": "機器人代表股2", "no_data": false, "close": 81.0, "change_pct": 2.95, "pcts": [], "dates": [], "volumes": [], "volume": null, "vol_ratio": null, "opens": [], "highs": [], "lows": [], "closes": [], "roll5": null, "roll7": null, "roll10": null, "roll14": null, "foreign_net": null, "trust_net": null, "margin_balance": null, "margin_change": null, "financed_pct": null, "maintenance_est": null, "shorted_pct": null, "short_maintenance_est": null, "total_shares_asof": null, "holder_pct": null, "holder_week_chg": null}, {"stock_id": "3011", "stock_name": "機器人代表股3", "no_data": false, "close": 86.0, "change_pct": 2.5, "pcts": [], "dates": [], "volumes": [], "volume": null, "vol_ratio": null, "opens": [], "highs": [], "lows": [], "closes": [], "roll5": null, "roll7": null, "roll10": null, "roll14": null, "foreign_net": null, "trust_net": null, "margin_balance": null, "margin_change": null, "financed_pct": null, "maintenance_est": null, "shorted_pct": null, "short_maintenance_est": null, "total_shares_asof": null, "holder_pct": null, "holder_week_chg": null}], "先進封裝": [{"stock_id": "3012", "stock_name": "先進封裝代表股1", "no_data": false, "close": 78.0, "change_pct": 2.86, "pcts": [], "dates": [], "volumes": [], "volume": null, "vol_ratio": null, "opens": [], "highs": [], "lows": [], "closes": [], "roll5": null, "roll7": null, "roll10": null, "roll14": null, "foreign_net": null, "trust_net": null, "margin_balance": null, "margin_change": null, "financed_pct": null, "maintenance_est": null, "shorted_pct": null, "short_maintenance_est": null, "total_shares_asof": null, "holder_pct": null, "holder_week_chg": null}, {"stock_id": "3013", "stock_name": "先進封裝代表股2", "no_data": false, "close": 83.0, "change_pct": 2.41, "pcts": [], "dates": [], "volumes": [], "volume": null, "vol_ratio": null, "opens": [], "highs": [], "lows": [], "closes": [], "roll5": null, "roll7": null, "roll10": null, "roll14": null, "foreign_net": null, "trust_net": null, "margin_balance": null, "margin_change": null, "financed_pct": null, "maintenance_est": null, "shorted_pct": null, "short_maintenance_est": null, "total_shares_asof": null, "holder_pct": null, "holder_week_chg": null}, {"stock_id": "3014", "stock_name": "先進封裝代表股3", "no_data": false, "close": 88.0, "change_pct": 1.96, "pcts": [], "dates": [], "volumes": [], "volume": null, "vol_ratio": null, "opens": [], "highs": [], "lows": [], "closes": [], "roll5": null, "roll7": null, "roll10": null, "roll14": null, "foreign_net": null, "trust_net": null, "margin_balance": null, "margin_change": null, "financed_pct": null, "maintenance_est": null, "shorted_pct": null, "short_maintenance_est": null, "total_shares_asof": null, "holder_pct": null, "holder_week_chg": null}], "PCB": [{"stock_id": "3015", "stock_name": "PCB代表股1", "no_data": false, "close": 80.0, "change_pct": 2.31, "pcts": [], "dates": [], "volumes": [], "volume": null, "vol_ratio": null, "opens": [], "highs": [], "lows": [], "closes": [], "roll5": null, "roll7": null, "roll10": null, "roll14": null, "foreign_net": null, "trust_net": null, "margin_balance": null, "margin_change": null, "financed_pct": null, "maintenance_est": null, "shorted_pct": null, "short_maintenance_est": null, "total_shares_asof": null, "holder_pct": null, "holder_week_chg": null}, {"stock_id": "3016", "stock_name": "PCB代表股2", "no_data": false, "close": 85.0, "change_pct": 1.86, "pcts": [], "dates": [], "volumes": [], "volume": null, "vol_ratio": null, "opens": [], "highs": [], "lows": [], "closes": [], "roll5": null, "roll7": null, "roll10": null, "roll14": null, "foreign_net": null, "trust_net": null, "margin_balance": null, "margin_change": null, "financed_pct": null, "maintenance_est": null, "shorted_pct": null, "short_maintenance_est": null, "total_shares_asof": null, "holder_pct": null, "holder_week_chg": null}, {"stock_id": "3017", "stock_name": "PCB代表股3", "no_data": false, "close": 90.0, "change_pct": 1.41, "pcts": [], "dates": [], "volumes": [], "volume": null, "vol_ratio": null, "opens": [], "highs": [], "lows": [], "closes": [], "roll5": null, "roll7": null, "roll10": null, "roll14": null, "foreign_net": null, "trust_net": null, "margin_balance": null, "margin_change": null, "financed_pct": null, "maintenance_est": null, "shorted_pct": null, "short_maintenance_est": null, "total_shares_asof": null, "holder_pct": null, "holder_week_chg": null}], "記憶體": [{"stock_id": "3018", "stock_name": "記憶體代表股1", "no_data": false, "close": 82.0, "change_pct": 1.77, "pcts": [], "dates": [], "volumes": [], "volume": null, "vol_ratio": null, "opens": [], "highs": [], "lows": [], "closes": [], "roll5": null, "roll7": null, "roll10": null, "roll14": null, "foreign_net": null, "trust_net": null, "margin_balance": null, "margin_change": null, "financed_pct": null, "maintenance_est": null, "shorted_pct": null, "short_maintenance_est": null, "total_shares_asof": null, "holder_pct": null, "holder_week_chg": null}, {"stock_id": "3019", "stock_name": "記憶體代表股2", "no_data": false, "close": 87.0, "change_pct": 1.32, "pcts": [], "dates": [], "volumes": [], "volume": null, "vol_ratio": null, "opens": [], "highs": [], "lows": [], "closes": [], "roll5": null, "roll7": null, "roll10": null, "roll14": null, "foreign_net": null, "trust_net": null, "margin_balance": null, "margin_change": null, "financed_pct": null, "maintenance_est": null, "shorted_pct": null, "short_maintenance_est": null, "total_shares_asof": null, "holder_pct": null, "holder_week_chg": null}, {"stock_id": "3020", "stock_name": "記憶體代表股3", "no_data": false, "close": 92.0, "change_pct": 0.87, "pcts": [], "dates": [], "volumes": [], "volume": null, "vol_ratio": null, "opens": [], "highs": [], "lows": [], "closes": [], "roll5": null, "roll7": null, "roll10": null, "roll14": null, "foreign_net": null, "trust_net": null, "margin_balance": null, "margin_change": null, "financed_pct": null, "maintenance_est": null, "shorted_pct": null, "short_maintenance_est": null, "total_shares_asof": null, "holder_pct": null, "holder_week_chg": null}], "重電": [{"stock_id": "3021", "stock_name": "重電代表股1", "no_data": false, "close": 84.0, "change_pct": 1.29, "pcts": [], "dates": [], "volumes": [], "volume": null, "vol_ratio": null, "opens": [], "highs": [], "lows": [], "closes": [], "roll5": null, "roll7": null, "roll10": null, "roll14": null, "foreign_net": null, "trust_net": null, "margin_balance": null, "margin_change": null, "financed_pct": null, "maintenance_est": null, "shorted_pct": null, "short_maintenance_est": null, "total_shares_asof": null, "holder_pct": null, "holder_week_chg": null}, {"stock_id": "3022", "stock_name": "重電代表股2", "no_data": false, "close": 89.0, "change_pct": 0.84, "pcts": [], "dates": [], "volumes": [], "volume": null, "vol_ratio": null, "opens": [], "highs": [], "lows": [], "closes": [], "roll5": null, "roll7": null, "roll10": null, "roll14": null, "foreign_net": null, "trust_net": null, "margin_balance": null, "margin_change": null, "financed_pct": null, "maintenance_est": null, "shorted_pct": null, "short_maintenance_est": null, "total_shares_asof": null, "holder_pct": null, "holder_week_chg": null}, {"stock_id": "3023", "stock_name": "重電代表股3", "no_data": false, "close": 94.0, "change_pct": 0.39, "pcts": [], "dates": [], "volumes": [], "volume": null, "vol_ratio": null, "opens": [], "highs": [], "lows": [], "closes": [], "roll5": null, "roll7": null, "roll10": null, "roll14": null, "foreign_net": null, "trust_net": null, "margin_balance": null, "margin_change": null, "financed_pct": null, "maintenance_est": null, "shorted_pct": null, "short_maintenance_est": null, "total_shares_asof": null, "holder_pct": null, "holder_week_chg": null}], "軍工": [{"stock_id": "3024", "stock_name": "軍工代表股1", "no_data": false, "close": 86.0, "change_pct": 0.87, "pcts": [], "dates": [], "volumes": [], "volume": null, "vol_ratio": null, "opens": [], "highs": [], "lows": [], "closes": [], "roll5": null, "roll7": null, "roll10": null, "roll14": null, "foreign_net": null, "trust_net": null, "margin_balance": null, "margin_change": null, "financed_pct": null, "maintenance_est": null, "shorted_pct": null, "short_maintenance_est": null, "total_shares_asof": null, "holder_pct": null, "holder_week_chg": null}, {"stock_id": "3025", "stock_name": "軍工代表股2", "no_data": false, "close": 91.0, "change_pct": 0.42, "pcts": [], "dates": [], "volumes": [], "volume": null, "vol_ratio": null, "opens": [], "highs": [], "lows": [], "closes": [], "roll5": null, "roll7": null, "roll10": null, "roll14": null, "foreign_net": null, "trust_net": null, "margin_balance": null, "margin_change": null, "financed_pct": null, "maintenance_est": null, "shorted_pct": null, "short_maintenance_est": null, "total_shares_asof": null, "holder_pct": null, "holder_week_chg": null}, {"stock_id": "3026", "stock_name": "軍工代表股3", "no_data": false, "close": 96.0, "change_pct": -0.03, "pcts": [], "dates": [], "volumes": [], "volume": null, "vol_ratio": null, "opens": [], "highs": [], "lows": [], "closes": [], "roll5": null, "roll7": null, "roll10": null, "roll14": null, "foreign_net": null, "trust_net": null, "margin_balance": null, "margin_change": null, "financed_pct": null, "maintenance_est": null, "shorted_pct": null, "short_maintenance_est": null, "total_shares_asof": null, "holder_pct": null, "holder_week_chg": null}], "生技": [{"stock_id": "3027", "stock_name": "生技代表股1", "no_data": false, "close": 88.0, "change_pct": 0.57, "pcts": [], "dates": [], "volumes": [], "volume": null, "vol_ratio": null, "opens": [], "highs": [], "lows": [], "closes": [], "roll5": null, "roll7": null, "roll10": null, "roll14": null, "foreign_net": null, "trust_net": null, "margin_balance": null, "margin_change": null, "financed_pct": null, "maintenance_est": null, "shorted_pct": null, "short_maintenance_est": null, "total_shares_asof": null, "holder_pct": null, "holder_week_chg": null}, {"stock_id": "3028", "stock_name": "生技代表股2", "no_data": false, "close": 93.0, "change_pct": 0.12, "pcts": [], "dates": [], "volumes": [], "volume": null, "vol_ratio": null, "opens": [], "highs": [], "lows": [], "closes": [], "roll5": null, "roll7": null, "roll10": null, "roll14": null, "foreign_net": null, "trust_net": null, "margin_balance": null, "margin_change": null, "financed_pct": null, "maintenance_est": null, "shorted_pct": null, "short_maintenance_est": null, "total_shares_asof": null, "holder_pct": null, "holder_week_chg": null}, {"stock_id": "3029", "stock_name": "生技代表股3", "no_data": false, "close": 98.0, "change_pct": -0.33, "pcts": [], "dates": [], "volumes": [], "volume": null, "vol_ratio": null, "opens": [], "highs": [], "lows": [], "closes": [], "roll5": null, "roll7": null, "roll10": null, "roll14": null, "foreign_net": null, "trust_net": null, "margin_balance": null, "margin_change": null, "financed_pct": null, "maintenance_est": null, "shorted_pct": null, "short_maintenance_est": null, "total_shares_asof": null, "holder_pct": null, "holder_week_chg": null}], "金融": [{"stock_id": "3030", "stock_name": "金融代表股1", "no_data": false, "close": 90.0, "change_pct": 0.27, "pcts": [], "dates": [], "volumes": [], "volume": null, "vol_ratio": null, "opens": [], "highs": [], "lows": [], "closes": [], "roll5": null, "roll7": null, "roll10": null, "roll14": null, "foreign_net": null, "trust_net": null, "margin_balance": null, "margin_change": null, "financed_pct": null, "maintenance_est": null, "shorted_pct": null, "short_maintenance_est": null, "total_shares_asof": null, "holder_pct": null, "holder_week_chg": null}, {"stock_id": "3031", "stock_name": "金融代表股2", "no_data": false, "close": 95.0, "change_pct": -0.18, "pcts": [], "dates": [], "volumes": [], "volume": null, "vol_ratio": null, "opens": [], "highs": [], "lows": [], "closes": [], "roll5": null, "roll7": null, "roll10": null, "roll14": null, "foreign_net": null, "trust_net": null, "margin_balance": null, "margin_change": null, "financed_pct": null, "maintenance_est": null, "shorted_pct": null, "short_maintenance_est": null, "total_shares_asof": null, "holder_pct": null, "holder_week_chg": null}, {"stock_id": "3032", "stock_name": "金融代表股3", "no_data": false, "close": 100.0, "change_pct": -0.63, "pcts": [], "dates": [], "volumes": [], "volume": null, "vol_ratio": null, "opens": [], "highs": [], "lows": [], "closes": [], "roll5": null, "roll7": null, "roll10": null, "roll14": null, "foreign_net": null, "trust_net": null, "margin_balance": null, "margin_change": null, "financed_pct": null, "maintenance_est": null, "shorted_pct": null, "short_maintenance_est": null, "total_shares_asof": null, "holder_pct": null, "holder_week_chg": null}], "航運": [{"stock_id": "3033", "stock_name": "航運代表股1", "no_data": false, "close": 92.0, "change_pct": 0.0, "pcts": [], "dates": [], "volumes": [], "volume": null, "vol_ratio": null, "opens": [], "highs": [], "lows": [], "closes": [], "roll5": null, "roll7": null, "roll10": null, "roll14": null, "foreign_net": null, "trust_net": null, "margin_balance": null, "margin_change": null, "financed_pct": null, "maintenance_est": null, "shorted_pct": null, "short_maintenance_est": null, "total_shares_asof": null, "holder_pct": null, "holder_week_chg": null}, {"stock_id": "3034", "stock_name": "航運代表股2", "no_data": false, "close": 97.0, "change_pct": -0.45, "pcts": [], "dates": [], "volumes": [], "volume": null, "vol_ratio": null, "opens": [], "highs": [], "lows": [], "closes": [], "roll5": null, "roll7": null, "roll10": null, "roll14": null, "foreign_net": null, "trust_net": null, "margin_balance": null, "margin_change": null, "financed_pct": null, "maintenance_est": null, "shorted_pct": null, "short_maintenance_est": null, "total_shares_asof": null, "holder_pct": null, "holder_week_chg": null}, {"stock_id": "3035", "stock_name": "航運代表股3", "no_data": false, "close": 102.0, "change_pct": -0.9, "pcts": [], "dates": [], "volumes": [], "volume": null, "vol_ratio": null, "opens": [], "highs": [], "lows": [], "closes": [], "roll5": null, "roll7": null, "roll10": null, "roll14": null, "foreign_net": null, "trust_net": null, "margin_balance": null, "margin_change": null, "financed_pct": null, "maintenance_est": null, "shorted_pct": null, "short_maintenance_est": null, "total_shares_asof": null, "holder_pct": null, "holder_week_chg": null}], "網通": [{"stock_id": "3036", "stock_name": "網通代表股1", "no_data": false, "close": 94.0, "change_pct": -0.37, "pcts": [], "dates": [], "volumes": [], "volume": null, "vol_ratio": null, "opens": [], "highs": [], "lows": [], "closes": [], "roll5": null, "roll7": null, "roll10": null, "roll14": null, "foreign_net": null, "trust_net": null, "margin_balance": null, "margin_change": null, "financed_pct": null, "maintenance_est": null, "shorted_pct": null, "short_maintenance_est": null, "total_shares_asof": null, "holder_pct": null, "holder_week_chg": null}, {"stock_id": "3037", "stock_name": "網通代表股2", "no_data": false, "close": 99.0, "change_pct": -0.82, "pcts": [], "dates": [], "volumes": [], "volume": null, "vol_ratio": null, "opens": [], "highs": [], "lows": [], "closes": [], "roll5": null, "roll7": null, "roll10": null, "roll14": null, "foreign_net": null, "trust_net": null, "margin_balance": null, "margin_change": null, "financed_pct": null, "maintenance_est": null, "shorted_pct": null, "short_maintenance_est": null, "total_shares_asof": null, "holder_pct": null, "holder_week_chg": null}, {"stock_id": "3038", "stock_name": "網通代表股3", "no_data": false, "close": 104.0, "change_pct": -1.27, "pcts": [], "dates": [], "volumes": [], "volume": null, "vol_ratio": null, "opens": [], "highs": [], "lows": [], "closes": [], "roll5": null, "roll7": null, "roll10": null, "roll14": null, "foreign_net": null, "trust_net": null, "margin_balance": null, "margin_change": null, "financed_pct": null, "maintenance_est": null, "shorted_pct": null, "short_maintenance_est": null, "total_shares_asof": null, "holder_pct": null, "holder_week_chg": null}], "光通訊": [{"stock_id": "3039", "stock_name": "光通訊代表股1", "no_data": false, "close": 96.0, "change_pct": -0.69, "pcts": [], "dates": [], "volumes": [], "volume": null, "vol_ratio": null, "opens": [], "highs": [], "lows": [], "closes": [], "roll5": null, "roll7": null, "roll10": null, "roll14": null, "foreign_net": null, "trust_net": null, "margin_balance": null, "margin_change": null, "financed_pct": null, "maintenance_est": null, "shorted_pct": null, "short_maintenance_est": null, "total_shares_asof": null, "holder_pct": null, "holder_week_chg": null}, {"stock_id": "3040", "stock_name": "光通訊代表股2", "no_data": false, "close": 101.0, "change_pct": -1.14, "pcts": [], "dates": [], "volumes": [], "volume": null, "vol_ratio": null, "opens": [], "highs": [], "lows": [], "closes": [], "roll5": null, "roll7": null, "roll10": null, "roll14": null, "foreign_net": null, "trust_net": null, "margin_balance": null, "margin_change": null, "financed_pct": null, "maintenance_est": null, "shorted_pct": null, "short_maintenance_est": null, "total_shares_asof": null, "holder_pct": null, "holder_week_chg": null}, {"stock_id": "3041", "stock_name": "光通訊代表股3", "no_data": false, "close": 106.0, "change_pct": -1.59, "pcts": [], "dates": [], "volumes": [], "volume": null, "vol_ratio": null, "opens": [], "highs": [], "lows": [], "closes": [], "roll5": null, "roll7": null, "roll10": null, "roll14": null, "foreign_net": null, "trust_net": null, "margin_balance": null, "margin_change": null, "financed_pct": null, "maintenance_est": null, "shorted_pct": null, "short_maintenance_est": null, "total_shares_asof": null, "holder_pct": null, "holder_week_chg": null}], "低軌衛星": [{"stock_id": "3042", "stock_name": "低軌衛星代表股1", "no_data": false, "close": 98.0, "change_pct": -1.17, "pcts": [], "dates": [], "volumes": [], "volume": null, "vol_ratio": null, "opens": [], "highs": [], "lows": [], "closes": [], "roll5": null, "roll7": null, "roll10": null, "roll14": null, "foreign_net": null, "trust_net": null, "margin_balance": null, "margin_change": null, "financed_pct": null, "maintenance_est": null, "shorted_pct": null, "short_maintenance_est": null, "total_shares_asof": null, "holder_pct": null, "holder_week_chg": null}, {"stock_id": "3043", "stock_name": "低軌衛星代表股2", "no_data": false, "close": 103.0, "change_pct": -1.62, "pcts": [], "dates": [], "volumes": [], "volume": null, "vol_ratio": null, "opens": [], "highs": [], "lows": [], "closes": [], "roll5": null, "roll7": null, "roll10": null, "roll14": null, "foreign_net": null, "trust_net": null, "margin_balance": null, "margin_change": null, "financed_pct": null, "maintenance_est": null, "shorted_pct": null, "short_maintenance_est": null, "total_shares_asof": null, "holder_pct": null, "holder_week_chg": null}, {"stock_id": "3044", "stock_name": "低軌衛星代表股3", "no_data": false, "close": 108.0, "change_pct": -2.07, "pcts": [], "dates": [], "volumes": [], "volume": null, "vol_ratio": null, "opens": [], "highs": [], "lows": [], "closes": [], "roll5": null, "roll7": null, "roll10": null, "roll14": null, "foreign_net": null, "trust_net": null, "margin_balance": null, "margin_change": null, "financed_pct": null, "maintenance_est": null, "shorted_pct": null, "short_maintenance_est": null, "total_shares_asof": null, "holder_pct": null, "holder_week_chg": null}], "矽光子": [{"stock_id": "3045", "stock_name": "矽光子代表股1", "no_data": false, "close": 100.0, "change_pct": -1.63, "pcts": [], "dates": [], "volumes": [], "volume": null, "vol_ratio": null, "opens": [], "highs": [], "lows": [], "closes": [], "roll5": null, "roll7": null, "roll10": null, "roll14": null, "foreign_net": null, "trust_net": null, "margin_balance": null, "margin_change": null, "financed_pct": null, "maintenance_est": null, "shorted_pct": null, "short_maintenance_est": null, "total_shares_asof": null, "holder_pct": null, "holder_week_chg": null}, {"stock_id": "3046", "stock_name": "矽光子代表股2", "no_data": false, "close": 105.0, "change_pct": -2.08, "pcts": [], "dates": [], "volumes": [], "volume": null, "vol_ratio": null, "opens": [], "highs": [], "lows": [], "closes": [], "roll5": null, "roll7": null, "roll10": null, "roll14": null, "foreign_net": null, "trust_net": null, "margin_balance": null, "margin_change": null, "financed_pct": null, "maintenance_est": null, "shorted_pct": null, "short_maintenance_est": null, "total_shares_asof": null, "holder_pct": null, "holder_week_chg": null}, {"stock_id": "3047", "stock_name": "矽光子代表股3", "no_data": false, "close": 110.0, "change_pct": -2.53, "pcts": [], "dates": [], "volumes": [], "volume": null, "vol_ratio": null, "opens": [], "highs": [], "lows": [], "closes": [], "roll5": null, "roll7": null, "roll10": null, "roll14": null, "foreign_net": null, "trust_net": null, "margin_balance": null, "margin_change": null, "financed_pct": null, "maintenance_est": null, "shorted_pct": null, "short_maintenance_est": null, "total_shares_asof": null, "holder_pct": null, "holder_week_chg": null}], "車用電子": [{"stock_id": "3048", "stock_name": "車用電子代表股1", "no_data": false, "close": 102.0, "change_pct": -2.21, "pcts": [], "dates": [], "volumes": [], "volume": null, "vol_ratio": null, "opens": [], "highs": [], "lows": [], "closes": [], "roll5": null, "roll7": null, "roll10": null, "roll14": null, "foreign_net": null, "trust_net": null, "margin_balance": null, "margin_change": null, "financed_pct": null, "maintenance_est": null, "shorted_pct": null, "short_maintenance_est": null, "total_shares_asof": null, "holder_pct": null, "holder_week_chg": null}, {"stock_id": "3049", "stock_name": "車用電子代表股2", "no_data": false, "close": 107.0, "change_pct": -2.66, "pcts": [], "dates": [], "volumes": [], "volume": null, "vol_ratio": null, "opens": [], "highs": [], "lows": [], "closes": [], "roll5": null, "roll7": null, "roll10": null, "roll14": null, "foreign_net": null, "trust_net": null, "margin_balance": null, "margin_change": null, "financed_pct": null, "maintenance_est": null, "shorted_pct": null, "short_maintenance_est": null, "total_shares_asof": null, "holder_pct": null, "holder_week_chg": null}, {"stock_id": "3050", "stock_name": "車用電子代表股3", "no_data": false, "close": 112.0, "change_pct": -3.11, "pcts": [], "dates": [], "volumes": [], "volume": null, "vol_ratio": null, "opens": [], "highs": [], "lows": [], "closes": [], "roll5": null, "roll7": null, "roll10": null, "roll14": null, "foreign_net": null, "trust_net": null, "margin_balance": null, "margin_change": null, "financed_pct": null, "maintenance_est": null, "shorted_pct": null, "short_maintenance_est": null, "total_shares_asof": null, "holder_pct": null, "holder_week_chg": null}], "營建": [{"stock_id": "3051", "stock_name": "營建代表股1", "no_data": false, "close": 104.0, "change_pct": -2.76, "pcts": [], "dates": [], "volumes": [], "volume": null, "vol_ratio": null, "opens": [], "highs": [], "lows": [], "closes": [], "roll5": null, "roll7": null, "roll10": null, "roll14": null, "foreign_net": null, "trust_net": null, "margin_balance": null, "margin_change": null, "financed_pct": null, "maintenance_est": null, "shorted_pct": null, "short_maintenance_est": null, "total_shares_asof": null, "holder_pct": null, "holder_week_chg": null}, {"stock_id": "3052", "stock_name": "營建代表股2", "no_data": false, "close": 109.0, "change_pct": -3.21, "pcts": [], "dates": [], "volumes": [], "volume": null, "vol_ratio": null, "opens": [], "highs": [], "lows": [], "closes": [], "roll5": null, "roll7": null, "roll10": null, "roll14": null, "foreign_net": null, "trust_net": null, "margin_balance": null, "margin_change": null, "financed_pct": null, "maintenance_est": null, "shorted_pct": null, "short_maintenance_est": null, "total_shares_asof": null, "holder_pct": null, "holder_week_chg": null}, {"stock_id": "3053", "stock_name": "營建代表股3", "no_data": false, "close": 114.0, "change_pct": -3.66, "pcts": [], "dates": [], "volumes": [], "volume": null, "vol_ratio": null, "opens": [], "highs": [], "lows": [], "closes": [], "roll5": null, "roll7": null, "roll10": null, "roll14": null, "foreign_net": null, "trust_net": null, "margin_balance": null, "margin_change": null, "financed_pct": null, "maintenance_est": null, "shorted_pct": null, "short_maintenance_est": null, "total_shares_asof": null, "holder_pct": null, "holder_week_chg": null}]};
+const CARD_META = {"AI伺服器": {"pct": 5.66, "up_count": 6, "down_count": 1, "rank": 1, "rank_delta": 15, "tier": {"key": "mid", "label": "整理"}, "temp": {"key": "cold", "label": "退燒 -6.0pt"}, "streak": 2, "vol_ratio": 2.4, "cum3": 6.79, "cum5": 9.62, "cum7": 11.89, "accel": -6.0, "last_week_pct": 4.0, "this_week_pct": -2.0, "research_bucket": "research", "daily_pct": [], "dates": [], "foreign_net_today": 0, "trust_net_today": 0, "dealer_net_today": 0, "foreign_net_week": 0, "trust_net_week": 0, "foreign_buy_count": 0, "total_stocks": 0, "foreign_streak": 1, "trust_streak": 0, "margin_change_today": 0, "margin_balance_today": 0, "margin_alert": false, "weekly_ranks": [], "weekly_returns": [], "in_top10_this_week": false, "consecutive_weeks_in_top10": 0, "last_top10_week_index": null, "last_top10_rank": null}, "功率半導體": {"pct": 4.28, "up_count": 6, "down_count": 1, "rank": 2, "rank_delta": 15, "tier": {"key": "mid", "label": "整理"}, "temp": {"key": "cold", "label": "退燒 -6.0pt"}, "streak": 2, "vol_ratio": 2.15, "cum3": 5.14, "cum5": 7.28, "cum7": 8.99, "accel": -6.0, "last_week_pct": 4.0, "this_week_pct": -2.0, "research_bucket": "research", "daily_pct": [], "dates": [], "foreign_net_today": 0, "trust_net_today": 0, "dealer_net_today": 0, "foreign_net_week": 0, "trust_net_week": 0, "foreign_buy_count": 0, "total_stocks": 0, "foreign_streak": 1, "trust_streak": 0, "margin_change_today": 0, "margin_balance_today": 0, "margin_alert": false, "weekly_ranks": [], "weekly_returns": [], "in_top10_this_week": false, "consecutive_weeks_in_top10": 0, "last_top10_week_index": null, "last_top10_rank": null}, "散熱": {"pct": 3.72, "up_count": 6, "down_count": 1, "rank": 3, "rank_delta": 15, "tier": {"key": "mid", "label": "整理"}, "temp": {"key": "cold", "label": "退燒 -6.0pt"}, "streak": 2, "vol_ratio": 1.9, "cum3": 4.46, "cum5": 6.32, "cum7": 7.81, "accel": -6.0, "last_week_pct": 4.0, "this_week_pct": -2.0, "research_bucket": "research", "daily_pct": [], "dates": [], "foreign_net_today": 0, "trust_net_today": 0, "dealer_net_today": 0, "foreign_net_week": 0, "trust_net_week": 0, "foreign_buy_count": 0, "total_stocks": 0, "foreign_streak": 1, "trust_streak": 0, "margin_change_today": 0, "margin_balance_today": 0, "margin_alert": false, "weekly_ranks": [], "weekly_returns": [], "in_top10_this_week": false, "consecutive_weeks_in_top10": 0, "last_top10_week_index": null, "last_top10_rank": null}, "機器人": {"pct": 2.95, "up_count": 5, "down_count": 1, "rank": 4, "rank_delta": 0, "tier": {"key": "super", "label": "超強"}, "temp": {"key": "hot", "label": "增溫 +6.6pt"}, "streak": 6, "vol_ratio": 1.7, "cum3": 3.54, "cum5": 5.02, "cum7": 6.2, "accel": 6.6, "last_week_pct": -1.5, "this_week_pct": 5.1, "research_bucket": "research", "daily_pct": [], "dates": [], "foreign_net_today": 0, "trust_net_today": 0, "dealer_net_today": 0, "foreign_net_week": 0, "trust_net_week": 0, "foreign_buy_count": 0, "total_stocks": 0, "foreign_streak": 5, "trust_streak": 0, "margin_change_today": 0, "margin_balance_today": 0, "margin_alert": false, "weekly_ranks": [], "weekly_returns": [], "in_top10_this_week": false, "consecutive_weeks_in_top10": 0, "last_top10_week_index": null, "last_top10_rank": null}, "先進封裝": {"pct": 2.41, "up_count": 5, "down_count": 1, "rank": 5, "rank_delta": 0, "tier": {"key": "super", "label": "超強"}, "temp": {"key": "hot", "label": "增溫 +6.8pt"}, "streak": 6, "vol_ratio": 1.7, "cum3": 2.89, "cum5": 4.1, "cum7": 5.06, "accel": 6.8, "last_week_pct": -1.5, "this_week_pct": 5.3, "research_bucket": "research", "daily_pct": [], "dates": [], "foreign_net_today": 0, "trust_net_today": 0, "dealer_net_today": 0, "foreign_net_week": 0, "trust_net_week": 0, "foreign_buy_count": 0, "total_stocks": 0, "foreign_streak": 5, "trust_streak": 0, "margin_change_today": 0, "margin_balance_today": 0, "margin_alert": false, "weekly_ranks": [], "weekly_returns": [], "in_top10_this_week": false, "consecutive_weeks_in_top10": 0, "last_top10_week_index": null, "last_top10_rank": null}, "PCB": {"pct": 1.86, "up_count": 5, "down_count": 2, "rank": 6, "rank_delta": 0, "tier": {"key": "super", "label": "超強"}, "temp": {"key": "hot", "label": "增溫 +7.0pt"}, "streak": 6, "vol_ratio": 1.7, "cum3": 2.23, "cum5": 3.16, "cum7": 3.91, "accel": 7.0, "last_week_pct": -1.5, "this_week_pct": 5.5, "research_bucket": "research", "daily_pct": [], "dates": [], "foreign_net_today": 0, "trust_net_today": 0, "dealer_net_today": 0, "foreign_net_week": 0, "trust_net_week": 0, "foreign_buy_count": 0, "total_stocks": 0, "foreign_streak": 1, "trust_streak": 4, "margin_change_today": 0, "margin_balance_today": 0, "margin_alert": false, "weekly_ranks": [], "weekly_returns": [], "in_top10_this_week": false, "consecutive_weeks_in_top10": 0, "last_top10_week_index": null, "last_top10_rank": null}, "記憶體": {"pct": 1.32, "up_count": 4, "down_count": 2, "rank": 7, "rank_delta": 0, "tier": {"key": "super", "label": "超強"}, "temp": {"key": "hot", "label": "增溫 +7.2pt"}, "streak": 6, "vol_ratio": 1.7, "cum3": 1.58, "cum5": 2.24, "cum7": 2.77, "accel": 7.2, "last_week_pct": -1.5, "this_week_pct": 5.7, "research_bucket": "research", "daily_pct": [], "dates": [], "foreign_net_today": 0, "trust_net_today": 0, "dealer_net_today": 0, "foreign_net_week": 0, "trust_net_week": 0, "foreign_buy_count": 0, "total_stocks": 0, "foreign_streak": 1, "trust_streak": 4, "margin_change_today": 0, "margin_balance_today": 0, "margin_alert": false, "weekly_ranks": [], "weekly_returns": [], "in_top10_this_week": false, "consecutive_weeks_in_top10": 0, "last_top10_week_index": null, "last_top10_rank": null}, "重電": {"pct": 0.84, "up_count": 4, "down_count": 2, "rank": 8, "rank_delta": 0, "tier": {"key": "weak", "label": "弱"}, "temp": {"key": "cold", "label": "退燒 -7.2pt"}, "streak": -3, "vol_ratio": 1.15, "cum3": 1.01, "cum5": 1.43, "cum7": 1.76, "accel": -7.2, "last_week_pct": 4.5, "this_week_pct": -2.7, "research_bucket": "avoid", "daily_pct": [], "dates": [], "foreign_net_today": 0, "trust_net_today": 0, "dealer_net_today": 0, "foreign_net_week": 0, "trust_net_week": 0, "foreign_buy_count": 0, "total_stocks": 0, "foreign_streak": 5, "trust_streak": 0, "margin_change_today": 0, "margin_balance_today": 0, "margin_alert": false, "weekly_ranks": [], "weekly_returns": [], "in_top10_this_week": false, "consecutive_weeks_in_top10": 0, "last_top10_week_index": null, "last_top10_rank": null}, "軍工": {"pct": 0.42, "up_count": 4, "down_count": 2, "rank": 9, "rank_delta": 0, "tier": {"key": "weak", "label": "弱"}, "temp": {"key": "cold", "label": "退燒 -7.3pt"}, "streak": -3, "vol_ratio": 1.15, "cum3": 0.5, "cum5": 0.71, "cum7": 0.88, "accel": -7.3, "last_week_pct": 4.5, "this_week_pct": -2.8, "research_bucket": "avoid", "daily_pct": [], "dates": [], "foreign_net_today": 0, "trust_net_today": 0, "dealer_net_today": 0, "foreign_net_week": 0, "trust_net_week": 0, "foreign_buy_count": 0, "total_stocks": 0, "foreign_streak": 1, "trust_streak": 0, "margin_change_today": 0, "margin_balance_today": 0, "margin_alert": false, "weekly_ranks": [], "weekly_returns": [], "in_top10_this_week": false, "consecutive_weeks_in_top10": 0, "last_top10_week_index": null, "last_top10_rank": null}, "生技": {"pct": 0.12, "up_count": 3, "down_count": 2, "rank": 10, "rank_delta": 0, "tier": {"key": "weak", "label": "弱"}, "temp": {"key": "cold", "label": "退燒 -7.4pt"}, "streak": -3, "vol_ratio": 1.15, "cum3": 0.14, "cum5": 0.2, "cum7": 0.25, "accel": -7.4, "last_week_pct": 4.5, "this_week_pct": -2.9, "research_bucket": "avoid", "daily_pct": [], "dates": [], "foreign_net_today": 0, "trust_net_today": 0, "dealer_net_today": 0, "foreign_net_week": 0, "trust_net_week": 0, "foreign_buy_count": 0, "total_stocks": 0, "foreign_streak": 1, "trust_streak": 0, "margin_change_today": 0, "margin_balance_today": 0, "margin_alert": false, "weekly_ranks": [], "weekly_returns": [], "in_top10_this_week": false, "consecutive_weeks_in_top10": 0, "last_top10_week_index": null, "last_top10_rank": null}, "金融": {"pct": -0.18, "up_count": 3, "down_count": 3, "rank": 11, "rank_delta": 0, "tier": {"key": "weak", "label": "弱"}, "temp": {"key": "cold", "label": "退燒 -7.5pt"}, "streak": -3, "vol_ratio": 1.15, "cum3": -0.22, "cum5": -0.31, "cum7": -0.38, "accel": -7.5, "last_week_pct": 4.5, "this_week_pct": -3.0, "research_bucket": "avoid", "daily_pct": [], "dates": [], "foreign_net_today": 0, "trust_net_today": 0, "dealer_net_today": 0, "foreign_net_week": 0, "trust_net_week": 0, "foreign_buy_count": 0, "total_stocks": 0, "foreign_streak": 1, "trust_streak": 0, "margin_change_today": 0, "margin_balance_today": 0, "margin_alert": false, "weekly_ranks": [], "weekly_returns": [], "in_top10_this_week": false, "consecutive_weeks_in_top10": 0, "last_top10_week_index": null, "last_top10_rank": null}, "航運": {"pct": -0.45, "up_count": 3, "down_count": 3, "rank": 12, "rank_delta": 0, "tier": {"key": "strong", "label": "強"}, "temp": null, "streak": 1, "vol_ratio": 1.15, "cum3": -0.54, "cum5": -0.77, "cum7": -0.95, "accel": 1.2, "last_week_pct": -0.8, "this_week_pct": 0.4, "research_bucket": "", "daily_pct": [], "dates": [], "foreign_net_today": 0, "trust_net_today": 0, "dealer_net_today": 0, "foreign_net_week": 0, "trust_net_week": 0, "foreign_buy_count": 0, "total_stocks": 0, "foreign_streak": 1, "trust_streak": 0, "margin_change_today": 0, "margin_balance_today": 0, "margin_alert": false, "weekly_ranks": [], "weekly_returns": [], "in_top10_this_week": false, "consecutive_weeks_in_top10": 0, "last_top10_week_index": null, "last_top10_rank": null}, "網通": {"pct": -0.82, "up_count": 2, "down_count": 3, "rank": 13, "rank_delta": 0, "tier": {"key": "strong", "label": "強"}, "temp": null, "streak": 1, "vol_ratio": 1.15, "cum3": -0.98, "cum5": -1.39, "cum7": -1.72, "accel": 1.2, "last_week_pct": -0.8, "this_week_pct": 0.4, "research_bucket": "", "daily_pct": [], "dates": [], "foreign_net_today": 0, "trust_net_today": 0, "dealer_net_today": 0, "foreign_net_week": 0, "trust_net_week": 0, "foreign_buy_count": 0, "total_stocks": 0, "foreign_streak": 1, "trust_streak": 0, "margin_change_today": 0, "margin_balance_today": 0, "margin_alert": false, "weekly_ranks": [], "weekly_returns": [], "in_top10_this_week": false, "consecutive_weeks_in_top10": 0, "last_top10_week_index": null, "last_top10_rank": null}, "光通訊": {"pct": -1.14, "up_count": 2, "down_count": 3, "rank": 14, "rank_delta": 0, "tier": {"key": "strong", "label": "強"}, "temp": null, "streak": 1, "vol_ratio": 1.15, "cum3": -1.37, "cum5": -1.94, "cum7": -2.39, "accel": 1.2, "last_week_pct": -0.8, "this_week_pct": 0.4, "research_bucket": "", "daily_pct": [], "dates": [], "foreign_net_today": 0, "trust_net_today": 0, "dealer_net_today": 0, "foreign_net_week": 0, "trust_net_week": 0, "foreign_buy_count": 0, "total_stocks": 0, "foreign_streak": 1, "trust_streak": 0, "margin_change_today": 0, "margin_balance_today": 0, "margin_alert": false, "weekly_ranks": [], "weekly_returns": [], "in_top10_this_week": false, "consecutive_weeks_in_top10": 0, "last_top10_week_index": null, "last_top10_rank": null}, "低軌衛星": {"pct": -1.62, "up_count": 2, "down_count": 3, "rank": 15, "rank_delta": 0, "tier": {"key": "strong", "label": "強"}, "temp": null, "streak": 1, "vol_ratio": 1.15, "cum3": -1.94, "cum5": -2.75, "cum7": -3.4, "accel": 1.2, "last_week_pct": -0.8, "this_week_pct": 0.4, "research_bucket": "", "daily_pct": [], "dates": [], "foreign_net_today": 0, "trust_net_today": 0, "dealer_net_today": 0, "foreign_net_week": 0, "trust_net_week": 0, "foreign_buy_count": 0, "total_stocks": 0, "foreign_streak": 1, "trust_streak": 0, "margin_change_today": 0, "margin_balance_today": 0, "margin_alert": false, "weekly_ranks": [], "weekly_returns": [], "in_top10_this_week": false, "consecutive_weeks_in_top10": 0, "last_top10_week_index": null, "last_top10_rank": null}, "矽光子": {"pct": -2.08, "up_count": 1, "down_count": 4, "rank": 16, "rank_delta": 0, "tier": {"key": "strong", "label": "強"}, "temp": null, "streak": 1, "vol_ratio": 1.15, "cum3": -2.5, "cum5": -3.54, "cum7": -4.37, "accel": 1.2, "last_week_pct": -0.8, "this_week_pct": 0.4, "research_bucket": "", "daily_pct": [], "dates": [], "foreign_net_today": 0, "trust_net_today": 0, "dealer_net_today": 0, "foreign_net_week": 0, "trust_net_week": 0, "foreign_buy_count": 0, "total_stocks": 0, "foreign_streak": 1, "trust_streak": 0, "margin_change_today": 0, "margin_balance_today": 0, "margin_alert": false, "weekly_ranks": [], "weekly_returns": [], "in_top10_this_week": false, "consecutive_weeks_in_top10": 0, "last_top10_week_index": null, "last_top10_rank": null}, "車用電子": {"pct": -2.66, "up_count": 1, "down_count": 4, "rank": 17, "rank_delta": 0, "tier": {"key": "strong", "label": "強"}, "temp": null, "streak": 1, "vol_ratio": 1.15, "cum3": -3.19, "cum5": -4.52, "cum7": -5.59, "accel": 1.2, "last_week_pct": -0.8, "this_week_pct": 0.4, "research_bucket": "", "daily_pct": [], "dates": [], "foreign_net_today": 0, "trust_net_today": 0, "dealer_net_today": 0, "foreign_net_week": 0, "trust_net_week": 0, "foreign_buy_count": 0, "total_stocks": 0, "foreign_streak": 1, "trust_streak": 0, "margin_change_today": 0, "margin_balance_today": 0, "margin_alert": false, "weekly_ranks": [], "weekly_returns": [], "in_top10_this_week": false, "consecutive_weeks_in_top10": 0, "last_top10_week_index": null, "last_top10_rank": null}, "營建": {"pct": -3.21, "up_count": 1, "down_count": 4, "rank": 18, "rank_delta": 0, "tier": {"key": "strong", "label": "強"}, "temp": null, "streak": 1, "vol_ratio": 1.15, "cum3": -3.85, "cum5": -5.46, "cum7": -6.74, "accel": 1.2, "last_week_pct": -0.8, "this_week_pct": 0.4, "research_bucket": "", "daily_pct": [], "dates": [], "foreign_net_today": 0, "trust_net_today": 0, "dealer_net_today": 0, "foreign_net_week": 0, "trust_net_week": 0, "foreign_buy_count": 0, "total_stocks": 0, "foreign_streak": 1, "trust_streak": 0, "margin_change_today": 0, "margin_balance_today": 0, "margin_alert": false, "weekly_ranks": [], "weekly_returns": [], "in_top10_this_week": false, "consecutive_weeks_in_top10": 0, "last_top10_week_index": null, "last_top10_rank": null}};
+const STOCK_INDEX = [{"id": "3000", "name": "AI伺服器代表股1", "meta": "AI伺服器", "pct": 6.11}, {"id": "3001", "name": "AI伺服器代表股2", "meta": "AI伺服器", "pct": 5.66}, {"id": "3002", "name": "AI伺服器代表股3", "meta": "AI伺服器", "pct": 5.21}, {"id": "3003", "name": "功率半導體代表股1", "meta": "功率半導體", "pct": 4.73}, {"id": "3004", "name": "功率半導體代表股2", "meta": "功率半導體", "pct": 4.28}, {"id": "3005", "name": "功率半導體代表股3", "meta": "功率半導體", "pct": 3.83}, {"id": "3006", "name": "散熱代表股1", "meta": "散熱", "pct": 4.17}, {"id": "3007", "name": "散熱代表股2", "meta": "散熱", "pct": 3.72}, {"id": "3008", "name": "散熱代表股3", "meta": "散熱", "pct": 3.27}, {"id": "3009", "name": "機器人代表股1", "meta": "機器人", "pct": 3.4}, {"id": "3010", "name": "機器人代表股2", "meta": "機器人", "pct": 2.95}, {"id": "3011", "name": "機器人代表股3", "meta": "機器人", "pct": 2.5}, {"id": "3012", "name": "先進封裝代表股1", "meta": "先進封裝", "pct": 2.86}, {"id": "3013", "name": "先進封裝代表股2", "meta": "先進封裝", "pct": 2.41}, {"id": "3014", "name": "先進封裝代表股3", "meta": "先進封裝", "pct": 1.96}, {"id": "3015", "name": "PCB代表股1", "meta": "PCB", "pct": 2.31}, {"id": "3016", "name": "PCB代表股2", "meta": "PCB", "pct": 1.86}, {"id": "3017", "name": "PCB代表股3", "meta": "PCB", "pct": 1.41}, {"id": "3018", "name": "記憶體代表股1", "meta": "記憶體", "pct": 1.77}, {"id": "3019", "name": "記憶體代表股2", "meta": "記憶體", "pct": 1.32}, {"id": "3020", "name": "記憶體代表股3", "meta": "記憶體", "pct": 0.87}, {"id": "3021", "name": "重電代表股1", "meta": "重電", "pct": 1.29}, {"id": "3022", "name": "重電代表股2", "meta": "重電", "pct": 0.84}, {"id": "3023", "name": "重電代表股3", "meta": "重電", "pct": 0.39}, {"id": "3024", "name": "軍工代表股1", "meta": "軍工", "pct": 0.87}, {"id": "3025", "name": "軍工代表股2", "meta": "軍工", "pct": 0.42}, {"id": "3026", "name": "軍工代表股3", "meta": "軍工", "pct": -0.03}, {"id": "3027", "name": "生技代表股1", "meta": "生技", "pct": 0.57}, {"id": "3028", "name": "生技代表股2", "meta": "生技", "pct": 0.12}, {"id": "3029", "name": "生技代表股3", "meta": "生技", "pct": -0.33}, {"id": "3030", "name": "金融代表股1", "meta": "金融", "pct": 0.27}, {"id": "3031", "name": "金融代表股2", "meta": "金融", "pct": -0.18}, {"id": "3032", "name": "金融代表股3", "meta": "金融", "pct": -0.63}, {"id": "3033", "name": "航運代表股1", "meta": "航運", "pct": 0.0}, {"id": "3034", "name": "航運代表股2", "meta": "航運", "pct": -0.45}, {"id": "3035", "name": "航運代表股3", "meta": "航運", "pct": -0.9}, {"id": "3036", "name": "網通代表股1", "meta": "網通", "pct": -0.37}, {"id": "3037", "name": "網通代表股2", "meta": "網通", "pct": -0.82}, {"id": "3038", "name": "網通代表股3", "meta": "網通", "pct": -1.27}, {"id": "3039", "name": "光通訊代表股1", "meta": "光通訊", "pct": -0.69}, {"id": "3040", "name": "光通訊代表股2", "meta": "光通訊", "pct": -1.14}, {"id": "3041", "name": "光通訊代表股3", "meta": "光通訊", "pct": -1.59}, {"id": "3042", "name": "低軌衛星代表股1", "meta": "低軌衛星", "pct": -1.17}, {"id": "3043", "name": "低軌衛星代表股2", "meta": "低軌衛星", "pct": -1.62}, {"id": "3044", "name": "低軌衛星代表股3", "meta": "低軌衛星", "pct": -2.07}, {"id": "3045", "name": "矽光子代表股1", "meta": "矽光子", "pct": -1.63}, {"id": "3046", "name": "矽光子代表股2", "meta": "矽光子", "pct": -2.08}, {"id": "3047", "name": "矽光子代表股3", "meta": "矽光子", "pct": -2.53}, {"id": "3048", "name": "車用電子代表股1", "meta": "車用電子", "pct": -2.21}, {"id": "3049", "name": "車用電子代表股2", "meta": "車用電子", "pct": -2.66}, {"id": "3050", "name": "車用電子代表股3", "meta": "車用電子", "pct": -3.11}, {"id": "3051", "name": "營建代表股1", "meta": "營建", "pct": -2.76}, {"id": "3052", "name": "營建代表股2", "meta": "營建", "pct": -3.21}, {"id": "3053", "name": "營建代表股3", "meta": "營建", "pct": -3.66}];
+const META_INDEX = [{"name": "AI伺服器", "pct": 5.66}, {"name": "功率半導體", "pct": 4.28}, {"name": "散熱", "pct": 3.72}, {"name": "機器人", "pct": 2.95}, {"name": "先進封裝", "pct": 2.41}, {"name": "PCB", "pct": 1.86}, {"name": "記憶體", "pct": 1.32}, {"name": "重電", "pct": 0.84}, {"name": "軍工", "pct": 0.42}, {"name": "生技", "pct": 0.12}, {"name": "金融", "pct": -0.18}, {"name": "航運", "pct": -0.45}, {"name": "網通", "pct": -0.82}, {"name": "光通訊", "pct": -1.14}, {"name": "低軌衛星", "pct": -1.62}, {"name": "矽光子", "pct": -2.08}, {"name": "車用電子", "pct": -2.66}, {"name": "營建", "pct": -3.21}];
+const DATA_MODE = 'intraday';
+const SECTOR_VIEW_KEY = 'tw-sector-index-view-v1';
+const DEFAULT_SECTOR_VIEW = {
+  showAll:false, bucket:'', name:'', sort:'pct', rankMode:'live', advancedActive:false,
+  tier:'', minVol:1.5, minRank:10, foreign:false, trust:false
+};
+let sectorView = {...DEFAULT_SECTOR_VIEW};
+let _drawerReturnFocus = null;
+
+function loadSectorView() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SECTOR_VIEW_KEY) || 'null');
+    if (saved && typeof saved === 'object') sectorView = {...DEFAULT_SECTOR_VIEW, ...saved};
+  } catch (_) { sectorView = {...DEFAULT_SECTOR_VIEW}; }
+}
+
+function saveSectorView() {
+  try { localStorage.setItem(SECTOR_VIEW_KEY, JSON.stringify(sectorView)); } catch (_) {}
+}
+
+function _numAttr(el, key) {
+  const raw = el.dataset[key];
+  if (raw === undefined || raw === '') return null;
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : null;
+}
+
+function _matchesSectorFilters(el) {
+  const name = (el.dataset.metaName || '').toLocaleLowerCase('zh-Hant');
+  if (sectorView.name && !name.includes(sectorView.name.toLocaleLowerCase('zh-Hant'))) return false;
+  if (sectorView.bucket && el.dataset.bucket !== sectorView.bucket) return false;
+  if (!sectorView.advancedActive) return true;
+  if (sectorView.tier && el.dataset.tier !== sectorView.tier) return false;
+  const vol = _numAttr(el, 'volRatio');
+  const rankDelta = _numAttr(el, 'rankDelta');
+  if (sectorView.minVol > 0 && (vol === null || vol < sectorView.minVol)) return false;
+  if (sectorView.minRank > 0 && (rankDelta === null || rankDelta < sectorView.minRank)) return false;
+  if (sectorView.foreign && (_numAttr(el, 'foreignStreak') || 0) < 1) return false;
+  if (sectorView.trust && (_numAttr(el, 'trustStreak') || 0) < 1) return false;
+  return true;
+}
+
+function _sortSectorTiles(a, b) {
+  if (sectorView.rankMode === 'close') {
+    const av = _numAttr(a, 'prevRank'), bv = _numAttr(b, 'prevRank');
+    if (av === null) return 1;
+    if (bv === null) return -1;
+    return av - bv;
+  }
+  const key = {pct:'pct', cum5:'cum5', rankDelta:'rankDelta', volRatio:'volRatio'}[sectorView.sort] || 'pct';
+  const av = _numAttr(a, key), bv = _numAttr(b, key);
+  if (av === null) return 1;
+  if (bv === null) return -1;
+  return bv - av;
+}
+
+function applySectorView() {
+  sectorView.bucket = document.getElementById('bucketFilter').value;
+  sectorView.name = document.getElementById('sectorFilter').value.trim();
+  sectorView.sort = document.getElementById('sectorSort').value;
+  const grid = document.getElementById('heatgrid');
+  const tiles = [...grid.querySelectorAll('.heat-tile')].sort(_sortSectorTiles);
+  tiles.forEach(tile => grid.appendChild(tile));
+  tiles.forEach(tile => {
+    const rankValue = tile.querySelector('.rank-value');
+    const rankDelta = tile.querySelector('.ht-rank-delta');
+    const previousRank = _numAttr(tile, 'prevRank');
+    const currentRank = _numAttr(tile, 'currentRank');
+    const showingClose = sectorView.rankMode === 'close' && previousRank !== null;
+    rankValue.textContent = `#${showingClose ? previousRank : currentRank}`;
+    if (rankDelta) rankDelta.hidden = sectorView.rankMode === 'close';
+  });
+  const matching = tiles.filter(_matchesSectorFilters);
+  const visibleLimit = sectorView.showAll ? matching.length : 10;
+  tiles.forEach(tile => { tile.hidden = !matching.includes(tile) || matching.indexOf(tile) >= visibleLimit; });
+
+  document.querySelectorAll('.research-row').forEach(row => { row.hidden = !_matchesSectorFilters(row); });
+  document.querySelectorAll('[data-bucket-group]').forEach(column => {
+    const wrongBucket = sectorView.bucket && column.dataset.bucketGroup !== sectorView.bucket;
+    column.hidden = Boolean(wrongBucket);
+  });
+
+  const shown = Math.min(matching.length, visibleLimit);
+  document.getElementById('showingCount').textContent = String(shown);
+  document.getElementById('filterEmpty').hidden = shown !== 0;
+  document.getElementById('sector-rank-title').textContent = sectorView.showAll ? '全部族群' : '族群 Top 10';
+  const showAllButton = document.getElementById('showAllToggle');
+  showAllButton.textContent = sectorView.showAll ? '只看 Top 10' : '顯示全部';
+  showAllButton.setAttribute('aria-expanded', String(sectorView.showAll));
+  document.getElementById('advancedToggle').classList.toggle('active', sectorView.advancedActive);
+  saveSectorView();
+}
+
+function syncSectorControls() {
+  document.getElementById('bucketFilter').value = sectorView.bucket;
+  document.getElementById('sectorFilter').value = sectorView.name;
+  document.getElementById('sectorSort').value = sectorView.sort;
+  document.getElementById('tierFilter').value = sectorView.tier;
+  document.getElementById('minVolFilter').value = sectorView.minVol;
+  document.getElementById('minRankFilter').value = sectorView.minRank;
+  document.getElementById('foreignFilter').checked = sectorView.foreign;
+  document.getElementById('trustFilter').checked = sectorView.trust;
+  document.querySelectorAll('[data-rank-mode]').forEach(button => button.classList.toggle('active', button.dataset.rankMode === sectorView.rankMode));
+}
+
+function toggleShowAll() { sectorView.showAll = !sectorView.showAll; applySectorView(); }
+function toggleAdvanced() {
+  const panel = document.getElementById('advancedFilters');
+  panel.hidden = !panel.hidden;
+  document.getElementById('advancedToggle').setAttribute('aria-expanded', String(!panel.hidden));
+}
+function activateAdvancedFilters() {
+  sectorView.advancedActive = true;
+  sectorView.tier = document.getElementById('tierFilter').value;
+  sectorView.minVol = Number(document.getElementById('minVolFilter').value) || 0;
+  sectorView.minRank = Number(document.getElementById('minRankFilter').value) || 0;
+  sectorView.foreign = document.getElementById('foreignFilter').checked;
+  sectorView.trust = document.getElementById('trustFilter').checked;
+  applySectorView();
+}
+function clearAdvancedFilters() {
+  sectorView.advancedActive = false;
+  sectorView.tier = '';
+  sectorView.minVol = 1.5;
+  sectorView.minRank = 10;
+  sectorView.foreign = false;
+  sectorView.trust = false;
+  syncSectorControls();
+  applySectorView();
+}
+function resetSectorView() {
+  sectorView = {...DEFAULT_SECTOR_VIEW};
+  syncSectorControls();
+  applySectorView();
+}
+function setRankMode(mode) {
+  sectorView.rankMode = mode === 'close' ? 'close' : 'live';
+  syncSectorControls();
+  applySectorView();
+}
+function openIndicatorHelp() { document.getElementById('indicatorDialog').showModal(); }
+function closeIndicatorHelp() { document.getElementById('indicatorDialog').close(); }
+
+// escHtml：innerHTML拼字串前一律過這支，把字串當純文字塞進暫時的div再讀回escape過的innerHTML。
+// 這裡一定要用，不能省——name(族群名)是從data-meta-name屬性讀回來的(瀏覽器解析HTML屬性時
+// 已經把&lt;還原成<，所以.dataset.metaName拿到的是「解過碼的原始字串」)，s.stock_name是從
+// 內嵌JSON讀的(json.dumps只做JSON字串轉義，從來沒被HTML-escape過)——這兩個字串如果直接
+// 內插進innerHTML模板字串，等於繞過Python端generate()裡_esc()做過的escaping，是真的可以
+// 執行的DOM XSS路徑(尤其<img onerror=...>/<svg onload=...>這類非<script>標籤，瀏覽器插入
+// innerHTML後event handler真的會觸發，不是<script>標籤那種inert的假象全)。
+function escHtml(s) {
+  const div = document.createElement('div');
+  div.textContent = s;
+  return div.innerHTML;
+}
+
+// pcts/dates/volumes 是 calc_stock_sparklines() 算出的數值/日期字串（"%m/%d"），不是使用者
+// 輸入，不用經過 escHtml 也不會有 XSS 風險——跟這個檔案其他數值型欄位（pct/rank等）的處理
+// 一致。volumes 是選填的第4個參數，只有個股卡片會傳（族群層級的sparkline沒有量能資料，
+// 呼叫端不傳這個參數，函式自動退回原本只畫價格的版本，不影響既有呼叫）。
+function buildSparkline(pcts, dates, cls, volumes) {
+  if (!pcts || !pcts.length) return '';
+  cls = cls || 'sc-sparkline';
+  const n = pcts.length, priceH = 26, gap = 2;
+  const hasVol = volumes && volumes.length === n;
+  const volH = hasVol ? 16 : 0, volGap = hasVol ? 4 : 0;
+  const barW = Math.max(4, Math.floor(140 / n) - gap);
+  const totalW = n * (barW + gap) - gap;
+  const totalH = priceH + volGap + volH;
+  const mid = priceH / 2;
+  const maxAbs = Math.max(...pcts.map(p => Math.abs(p))) || 1;
+  const maxVol = hasVol ? (Math.max(...volumes) || 1) : 1;
+  let priceBars = '', volBars = '';
+  for (let i = 0; i < n; i++) {
+    const pct = pcts[i];
+    const d = (dates && dates[i]) || '';
+    const barH = Math.max(1.5, Math.abs(pct) / maxAbs * (mid - 2));
+    const y = pct >= 0 ? mid - barH : mid;
+    const color = pct > 0 ? 'var(--up)' : (pct < 0 ? 'var(--down)' : 'var(--ink-3)');
+    const x = i * (barW + gap);
+    const sign = pct >= 0 ? '+' : '';
+    priceBars += `<rect x="${x}" y="${y}" width="${barW}" height="${barH}" fill="${color}" rx="1"><title>${d} ${sign}${pct.toFixed(2)}%</title></rect>`;
+    if (hasVol) {
+      const vol = volumes[i] || 0;
+      const vBarH = Math.max(1, vol / maxVol * (volH - 1));
+      const vY = priceH + volGap + (volH - vBarH);
+      volBars += `<rect x="${x}" y="${vY}" width="${barW}" height="${vBarH}" fill="${color}" opacity="0.5" rx="1"><title>${d} 量 ${vol.toLocaleString()}張</title></rect>`;
+    }
+  }
+  return `<div class="${cls}"><svg viewBox="0 0 ${totalW} ${totalH}" xmlns="http://www.w3.org/2000/svg">`
+    + `<line x1="0" y1="${mid}" x2="${totalW}" y2="${mid}" stroke="var(--border)" stroke-width="1"/>${priceBars}${volBars}</svg></div>`;
+}
+
+// 個股卡片的價格走勢改用K棒(candlestick)：影線(wick)畫最高最低價，實體(body)畫開盤/
+// 收盤價，收盤>=開盤紅漲、收盤<開盤綠跌（台股慣例）。族群層級沒有OHLC資料(meta是整組
+// 平均概念，本來就沒有開高低收)，繼續用buildSparkline()的%漲跌bar，不會呼叫這支函式。
+// opens/highs/lows/closes/dates/volumes都是Python端算好的數值/日期字串，不是使用者
+// 輸入，不用escHtml。
+function buildCandlestick(dates, opens, highs, lows, closes, volumes, cls) {
+  if (!closes || !closes.length) return '';
+  cls = cls || 'sc-sparkline';
+  const n = closes.length, priceH = 40, gap = 2;
+  const hasVol = volumes && volumes.length === n;
+  const volH = hasVol ? 16 : 0, volGap = hasVol ? 4 : 0;
+  const barW = Math.max(4, Math.floor(140 / n) - gap);
+  const totalW = n * (barW + gap) - gap;
+  const totalH = priceH + volGap + volH;
+  const validHighs = highs.filter(v => v !== null && v !== undefined);
+  const validLows = lows.filter(v => v !== null && v !== undefined);
+  if (!validHighs.length || !validLows.length) return '';
+  const minLow = Math.min(...validLows), maxHigh = Math.max(...validHighs);
+  const range = (maxHigh - minLow) || 1;
+  const maxVol = hasVol ? (Math.max(...volumes) || 1) : 1;
+  const y = v => priceH - (v - minLow) / range * priceH;
+  let bars = '', volBars = '';
+  for (let i = 0; i < n; i++) {
+    const o = opens[i], h = highs[i], l = lows[i], c = closes[i];
+    if (o === null || h === null || l === null || c === null ||
+        o === undefined || h === undefined || l === undefined || c === undefined) continue;
+    const d = (dates && dates[i]) || '';
+    const up = c >= o;
+    const color = up ? 'var(--up)' : 'var(--down)';
+    const x = i * (barW + gap);
+    const cx = x + barW / 2;
+    const bodyTop = y(Math.max(o, c));
+    const bodyBottom = y(Math.min(o, c));
+    const bodyH = Math.max(1, bodyBottom - bodyTop);
+    bars += `<line x1="${cx}" y1="${y(h)}" x2="${cx}" y2="${y(l)}" stroke="${color}" stroke-width="1"/>`;
+    bars += `<rect x="${x}" y="${bodyTop}" width="${barW}" height="${bodyH}" fill="${color}" rx="0.5">`
+      + `<title>${d} 開${o.toFixed(2)} 高${h.toFixed(2)} 低${l.toFixed(2)} 收${c.toFixed(2)}</title></rect>`;
+    if (hasVol) {
+      const vol = volumes[i] || 0;
+      const vBarH = Math.max(1, vol / maxVol * (volH - 1));
+      const vY = priceH + volGap + (volH - vBarH);
+      volBars += `<rect x="${x}" y="${vY}" width="${barW}" height="${vBarH}" fill="${color}" opacity="0.5" rx="1"><title>${d} 量 ${vol.toLocaleString()}張</title></rect>`;
+    }
+  }
+  if (!bars) return '';
+  return `<div class="${cls}"><svg viewBox="0 0 ${totalW} ${totalH}" xmlns="http://www.w3.org/2000/svg">${bars}${volBars}</svg></div>`;
+}
+
+// meta是CARD_META[name]，所有欄位都是Python端算好的數值/bool，不是使用者輸入，不用escHtml。
+function buildChipsSummary(meta) {
+  const rows = [];
+  if (meta.foreign_net_today) {
+    const fn = meta.foreign_net_today, k = Math.trunc(fn / 1000);
+    const color = fn > 0 ? 'var(--up)' : 'var(--down)';
+    const sign = fn > 0 ? '+' : '';
+    let sub = '';
+    if (fn > 0 && meta.total_stocks > 0) sub = `<span class="cs-sub">買超${meta.foreign_buy_count}/${meta.total_stocks}股</span>`;
+    else if (fn < 0 && meta.total_stocks > 0) sub = `<span class="cs-sub">賣超${meta.total_stocks - meta.foreign_buy_count}/${meta.total_stocks}股</span>`;
+    let streak = '';
+    if (Math.abs(meta.foreign_streak) >= 2) {
+      const cls = meta.foreign_streak > 0 ? 'cs-streak-up' : 'cs-streak-dn';
+      const word = meta.foreign_streak > 0 ? `連買${meta.foreign_streak}日` : `連賣${Math.abs(meta.foreign_streak)}日`;
+      streak = `<span class="${cls}">${word}</span>`;
+    }
+    rows.push(`<div class="cs-row"><span class="cs-label">外資</span><span style="color:${color};font-weight:700">${sign}${k.toLocaleString()}張</span>${sub}${streak}</div>`);
+  }
+  if (meta.trust_net_today) {
+    const tn = meta.trust_net_today, k = Math.trunc(tn / 1000);
+    const color = tn > 0 ? 'var(--up)' : 'var(--down)';
+    const sign = tn > 0 ? '+' : '';
+    let streak = '';
+    if (Math.abs(meta.trust_streak) >= 2) {
+      const cls = meta.trust_streak > 0 ? 'cs-streak-up' : 'cs-streak-dn';
+      const word = meta.trust_streak > 0 ? `連買${meta.trust_streak}日` : `連賣${Math.abs(meta.trust_streak)}日`;
+      streak = `<span class="${cls}">${word}</span>`;
+    }
+    rows.push(`<div class="cs-row"><span class="cs-label">投信</span><span style="color:${color};font-weight:700">${sign}${k.toLocaleString()}張</span>${streak}</div>`);
+  }
+  if (meta.dealer_net_today) {
+    const dn = meta.dealer_net_today, k = Math.trunc(dn / 1000);
+    const color = dn > 0 ? 'var(--up)' : 'var(--down)';
+    const sign = dn > 0 ? '+' : '';
+    rows.push(`<div class="cs-row"><span class="cs-label">自營商</span><span style="color:${color};font-weight:700">${sign}${k.toLocaleString()}張</span></div>`);
+  }
+  if (meta.margin_change_today && meta.margin_balance_today > 0) {
+    const pct = meta.margin_change_today / meta.margin_balance_today * 100;
+    const arrow = meta.margin_change_today > 0 ? '↑' : '↓';
+    const color = meta.margin_change_today > 0 ? 'var(--accent)' : 'var(--ink-3)';
+    const alert = meta.margin_alert ? '<span class="cs-alert">融資擴張</span>' : '';
+    rows.push(`<div class="cs-row"><span class="cs-label">融資</span><span style="color:${color};font-weight:700">${arrow}${Math.abs(pct).toFixed(1)}%</span>${alert}</div>`);
+  }
+  if (meta.foreign_net_week || meta.trust_net_week) {
+    const fw = meta.foreign_net_week || 0, tw = meta.trust_net_week || 0;
+    const fwK = Math.trunc(fw / 1000), twK = Math.trunc(tw / 1000);
+    const fColor = fw >= 0 ? 'var(--up)' : 'var(--down)';
+    const tColor = tw >= 0 ? 'var(--up)' : 'var(--down)';
+    rows.push(
+      `<div class="cs-row cs-week"><span class="cs-label">本週累計</span>`
+      + `<span>外資 <span style="color:${fColor};font-weight:700">${fw>=0?'+':''}${fwK.toLocaleString()}張</span></span>`
+      + `<span>投信 <span style="color:${tColor};font-weight:700">${tw>=0?'+':''}${twK.toLocaleString()}張</span></span></div>`
+    );
+  }
+  return rows.length ? `<div class="chips-summary">${rows.join('')}</div>` : '';
+}
+
+// 單一族群「歷史出現紀錄」：近幾週精確排名軌跡+文字摘要。meta是CARD_META[name]，
+// weekly_ranks/in_top10_this_week/consecutive_weeks_in_top10/last_top10_week_index/
+// last_top10_rank都是Python端calc_meta_rank_history()算好的數值，不是使用者輸入，不用escHtml。
+function buildHistoryRecord(meta) {
+  const ranks = meta.weekly_ranks || [];
+  if (!ranks.length) return '';
+  const returns = meta.weekly_returns || [];
+
+  let summary;
+  if (meta.in_top10_this_week) {
+    summary = `連續 <b>${meta.consecutive_weeks_in_top10}</b> 週進榜（前10名）`;
+  } else if (meta.last_top10_week_index !== null && meta.last_top10_week_index !== undefined) {
+    const weeksAgo = ranks.length - 1 - meta.last_top10_week_index;
+    summary = `上次進榜是 <b>W-${weeksAgo}</b>，當時排第 <b>#${meta.last_top10_rank}</b> 名`;
+  } else {
+    summary = `近${ranks.length}週都沒有進前10`;
+  }
+
+  const weekCells = ranks.map((rank, i) => {
+    const isCurrent = i === ranks.length - 1;
+    const label = isCurrent ? '本週' : `W-${ranks.length - 1 - i}`;
+    const inTop10 = rank <= 10;
+    const cls = 'history-week' + (inTop10 ? ' in-top10' : '');
+    const ret = returns[i];
+    const retHtml = (ret !== null && ret !== undefined)
+      ? `<span class="hw-pct tabular" style="color:${ret >= 0 ? 'var(--up)' : 'var(--down)'}">${ret>=0?'+':''}${ret.toFixed(1)}%</span>`
+      : '';
+    return `<div class="${cls}"><span class="hw-label">${label}</span><span class="hw-rank tabular">#${rank}</span>${retHtml}</div>`;
+  }).join('');
+
+  return `<div class="history-wrap">
+    <div class="history-summary">${summary}</div>
+    <div class="history-weekline-label">近${ranks.length}週排行軌跡</div>
+    <div class="history-weekline">${weekCells}</div>
+  </div>`;
+}
+
+// 收盤價格式：>=100且整數才用千分位逗號分隔，其餘2位小數——比照舊版
+// html_generator.py::_fmt_price() 的規則，避免小型股價位（例如12.35）被誤格式化。
+function fmtPrice(v) {
+  if (v >= 100 && Number.isInteger(v)) return v.toLocaleString();
+  return v.toFixed(2);
+}
+
+// 個股列表(.stock-item)只顯示基本資訊(代號/名稱/收盤/漲跌%)，點擊後才彈出「個股卡片」
+// (.stock-card-modal)顯示走勢圖/量價/籌碼等列表之外的詳細資訊——這是Cody要的兩層式設計
+// (列表 vs 卡片是兩個不同東西，卡片是點選後才出現的彈窗，不是列表格子本身)。
+function _rollTd(v) {
+  if (v === null || v === undefined) return '<td class="num tabular">─</td>';
+  const c = v >= 0 ? 'var(--up)' : 'var(--down)';
+  return `<td class="num tabular" style="color:${c}">${v>=0?'+':''}${v.toFixed(2)}%</td>`;
+}
+
+// 量比>=1.5x視為「爆大量」，用強調色+粗體+文字徽章明確標示，不是只靠數字大小自己判斷。
+function _volTd(v) {
+  if (v === null || v === undefined) return '<td class="num tabular">─</td>';
+  const isBurst = v >= 1.5;
+  const style = isBurst ? 'color:var(--accent);font-weight:700' : 'color:var(--ink-3)';
+  const badge = isBurst ? ' <span class="vol-burst-badge">爆量</span>' : '';
+  return `<td class="num tabular" style="${style}">${v.toFixed(2)}x${badge}</td>`;
+}
+
+// 融資佔比/融券餘額佔比：純數字顯示，不設警示門檻(沒有客觀依據硬設門檻)。
+function _plainPctTd(v) {
+  if (v === null || v === undefined) return '<td class="num tabular">─</td>';
+  return `<td class="num tabular">${v.toFixed(2)}%</td>`;
+}
+
+// 大戶佔比：純數字顯示，跟融資/融券佔比一樣不設門檻。
+function _holderPctTd(v) {
+  if (v === null || v === undefined) return '<td class="num tabular">─</td>';
+  return `<td class="num tabular">${v.toFixed(2)}%</td>`;
+}
+
+// 大戶週變化：有正負號，紅漲綠跌配色(比照_rollTd的漲跌色慣例)。
+function _holderChgTd(v) {
+  if (v === null || v === undefined) return '<td class="num tabular">─</td>';
+  const c = v >= 0 ? 'var(--up)' : 'var(--down)';
+  return `<td class="num tabular" style="color:${c}">${v>=0?'+':''}${v.toFixed(2)}%</td>`;
+}
+
+// 融資/融券維持率(估)：低於130%(法規追繳門檻)視為警示，用警示色+粗體+文字徽章明確標示。
+// 融資/融券兩欄共用同一套門檻邏輯(見docs/adr/0002-margin-maintenance-ratio-is-an-estimate.md)。
+function _maintTd(v) {
+  if (v === null || v === undefined) return '<td class="num tabular">─</td>';
+  const isDanger = v < 130;
+  const style = isDanger ? 'color:var(--down);font-weight:700' : 'color:var(--ink-2)';
+  const badge = isDanger ? ' <span class="maint-badge">追繳risk</span>' : '';
+  return `<td class="num tabular" style="${style}">${v.toFixed(1)}%${badge}</td>`;
+}
+
+function renderStockListItem(s) {
+  const sid = escHtml(s.stock_id);
+  if (s.no_data) {
+    return `<tr class="stock-item no-data"><td><span class="si-id">${sid}</span><span class="si-name">${escHtml(s.stock_name)}</span></td><td colspan="13">無行情</td></tr>`;
+  }
+  const color = s.change_pct >= 0 ? 'var(--up)' : 'var(--down)';
+  const sign = s.change_pct >= 0 ? '+' : '';
+  const arrow = s.change_pct > 0 ? '▲' : (s.change_pct < 0 ? '▼' : '─');
+  return `<tr class="stock-item" tabindex="0" onclick="openStockCard('${sid}')" `
+    + `onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openStockCard('${sid}')}">`
+    + `<td><span class="si-id">${sid}</span><span class="si-name">${escHtml(s.stock_name)}</span></td>`
+    + `<td class="num tabular">${fmtPrice(s.close)}</td>`
+    + `<td class="num tabular" style="color:${color}">${arrow} ${sign}${s.change_pct.toFixed(2)}%</td>`
+    + `${_volTd(s.vol_ratio)}`
+    + `${_holderPctTd(s.holder_pct)}`
+    + `${_holderChgTd(s.holder_week_chg)}`
+    + `${_plainPctTd(s.financed_pct)}`
+    + `${_maintTd(s.maintenance_est)}`
+    + `${_plainPctTd(s.shorted_pct)}`
+    + `${_maintTd(s.short_maintenance_est)}`
+    + `${_rollTd(s.roll5)}${_rollTd(s.roll7)}${_rollTd(s.roll10)}${_rollTd(s.roll14)}</tr>`;
+}
+
+// 個股卡片：走勢圖(sparkline)+量價(今日成交量/量比)+近5/7/10/14日+外資/投信/融資，
+// 點列表項目才彈出，跟舊版html_generator.py::openStockModal()同樣的「列表→點選→詳細卡片」
+// 兩層式互動，不是永遠顯示在列表格子上。
+function openStockCard(sid) {
+  const s = _panelStocks.find(x => x.stock_id === sid);
+  if (!s || s.no_data) return;
+  closeStockCard();
+
+  const color = s.change_pct >= 0 ? 'var(--up)' : 'var(--down)';
+  const sign = s.change_pct >= 0 ? '+' : '';
+  const arrow = s.change_pct > 0 ? '▲' : (s.change_pct < 0 ? '▼' : '─');
+  const spark = buildCandlestick(s.dates, s.opens, s.highs, s.lows, s.closes, s.volumes)
+    || '<div class="sc-spark-empty">走勢資料不足</div>';
+  const rollItems = [['5日', s.roll5], ['7日', s.roll7], ['10日', s.roll10], ['14日', s.roll14]]
+    .filter(([, v]) => v !== null && v !== undefined)
+    .map(([lbl, v]) => {
+      const c = v >= 0 ? 'var(--up)' : 'var(--down)';
+      return `<span class="sc-roll-item"><span class="lbl">${lbl}</span><span class="tabular" style="color:${c}">${v>=0?'+':''}${v.toFixed(2)}%</span></span>`;
+    }).join('');
+  const rollHtml = rollItems ? `<div class="sc-roll">${rollItems}</div>` : '';
+  const volHtml = s.volume !== null && s.volume !== undefined
+    ? `<span class="sc-vol">今日 ${s.volume.toLocaleString()} 張</span>`
+    : '';
+  const volRatioHtml = s.vol_ratio !== null && s.vol_ratio !== undefined
+    ? `<span class="vol-ratio${s.vol_ratio >= 1.5 ? ' strong' : ''}">量比 ${s.vol_ratio.toFixed(2)}x</span>`
+    : '';
+  const chipsParts = [];
+  if (s.foreign_net) chipsParts.push(`<span style="color:${s.foreign_net>0?'var(--up)':'var(--down)'}">外資${s.foreign_net>0?'+':''}${Math.trunc(s.foreign_net/1000).toLocaleString()}張</span>`);
+  if (s.trust_net) chipsParts.push(`<span style="color:${s.trust_net>0?'var(--up)':'var(--down)'}">投信${s.trust_net>0?'+':''}${Math.trunc(s.trust_net/1000).toLocaleString()}張</span>`);
+  if (s.margin_change && s.margin_balance > 0) {
+    const pct = s.margin_change / s.margin_balance * 100;
+    const marginArrow = s.margin_change > 0 ? '↑' : '↓';
+    chipsParts.push(`<span style="color:var(--accent)">融資${marginArrow}${Math.abs(pct).toFixed(1)}%</span>`);
+  }
+  const chipsHtml = chipsParts.length ? `<div class="sc-chips">${chipsParts.join('')}</div>` : '';
+
+  const backdrop = document.createElement('div');
+  backdrop.id = 'stockCardBackdrop';
+  backdrop.className = 'stock-card-backdrop';
+  backdrop.onclick = (e) => { if (e.target === backdrop) closeStockCard(); };
+  backdrop.innerHTML = `<div class="stock-card-modal" role="dialog" aria-modal="true">
+      <div class="sc-header"><span class="sc-id">${escHtml(sid)}</span><span class="sc-name">${escHtml(s.stock_name)}</span>
+        <button type="button" class="detail-close" onclick="closeStockCard()">收合</button></div>
+      <div class="sc-body"><span class="sc-price">${fmtPrice(s.close)}</span><span class="sc-pct" style="color:${color}">${arrow} ${sign}${s.change_pct.toFixed(2)}%</span></div>
+      <div class="sc-volume-row">${volHtml}${volRatioHtml}</div>
+      ${spark}${rollHtml}${chipsHtml}
+    </div>`;
+  document.body.appendChild(backdrop);
+  document.addEventListener('keydown', _stockCardEscHandler);
+}
+
+function _stockCardEscHandler(e) {
+  if (e.key === 'Escape') closeStockCard();
+}
+
+function closeStockCard() {
+  const el = document.getElementById('stockCardBackdrop');
+  if (el) el.remove();
+  document.removeEventListener('keydown', _stockCardEscHandler);
+}
+
+let _panelStocks = [], _panelSortKey = 'pct', _panelSortAsc = false;
+
+function _sortValue(s, key) {
+  if (key === 'pct') return s.change_pct;
+  if (key === 'id') return s.stock_id;
+  if (key === 'close') return s.close;
+  if (key === 'vol') return s.vol_ratio;
+  if (key === 'holder') return s.holder_pct;
+  if (key === 'holderchg') return s.holder_week_chg;
+  if (key === 'financed') return s.financed_pct;
+  if (key === 'maint') return s.maintenance_est;
+  if (key === 'shorted') return s.shorted_pct;
+  if (key === 'shortmaint') return s.short_maintenance_est;
+  if (key === '5' || key === '7' || key === '10' || key === '14') return s['roll' + key];
+  return null;
+}
+
+function renderPanelStocks() {
+  const wrap = document.getElementById('panelStocksWrap');
+  if (!wrap) return;
+  const key = _panelSortKey, asc = _panelSortAsc;
+  const sorted = [..._panelStocks].sort((a, b) => {
+    const av = _sortValue(a, key), bv = _sortValue(b, key);
+    if (av === null || av === undefined) return 1;
+    if (bv === null || bv === undefined) return -1;
+    const cmp = key === 'id' ? String(av).localeCompare(String(bv)) : av - bv;
+    return asc ? cmp : -cmp;
+  });
+  wrap.innerHTML = sorted.map(renderStockListItem).join('');
+}
+
+// 點欄位名稱排序（由高到低起手，再點同一欄切換方向）——跟chips.html既有的
+// .sort-button/aria-sort排序慣例一致，取代先前的下拉選單。
+function sortStockList(th, key) {
+  if (_panelSortKey === key) {
+    _panelSortAsc = !_panelSortAsc;
+  } else {
+    _panelSortKey = key;
+    _panelSortAsc = false;
+  }
+  th.closest('table').querySelectorAll('th').forEach(h => h.setAttribute('aria-sort', 'none'));
+  th.setAttribute('aria-sort', _panelSortAsc ? 'ascending' : 'descending');
+  renderPanelStocks();
+}
+
+function selectGroup(name, toggle) {
+  closeStockCard();
+  const drawer = document.getElementById('sectorDrawer');
+  const activeTile = document.querySelector('.heat-tile.active');
+  const alreadyOpen = drawer.classList.contains('open') && activeTile && activeTile.dataset.metaName === name;
+  if (toggle && alreadyOpen) { closeSectorDrawer(); return; }
+
+  const tiles = [...document.querySelectorAll('.heat-tile')];
+  const tile = tiles.find(t => t.dataset.metaName === name);
+  if (!tile) return;
+  if (tile.hidden) {
+    sectorView.showAll = true;
+    sectorView.bucket = '';
+    sectorView.name = '';
+    sectorView.advancedActive = false;
+    syncSectorControls();
+    applySectorView();
+  }
+  document.querySelectorAll('.heat-tile').forEach(t => t.classList.remove('active'));
+  tile.classList.add('active');
+  if (!toggle) tile.scrollIntoView({behavior:'smooth', block:'center'});
+
+  const meta = CARD_META[name];
+  if (!meta) return;
+  const stocks = STOCKS[name] || [];
+  const safeName = escHtml(name);
+  _panelStocks = stocks;
+  _panelSortKey = 'pct';
+  _panelSortAsc = false;
+
+  const panel = document.createElement('div');
+  panel.id = 'detailPanel';
+  panel.className = 'detail-panel';
+  const pctColor = meta.pct >= 0 ? 'var(--up)' : 'var(--down)';
+  const pctStr = (meta.pct >= 0 ? '+' : '') + meta.pct.toFixed(2) + '%';
+  const metaSpark = buildSparkline(meta.daily_pct, meta.dates, 'meta-sparkline');
+  const chipsSum = buildChipsSummary(meta);
+  const historyRecord = buildHistoryRecord(meta);
+  const asofStock = stocks.find(s => s.total_shares_asof);
+  const asofNote = asofStock ? `<div class="asof-note">集保資料：${escHtml(asofStock.total_shares_asof)}</div>` : '';
+  const rankDelta = meta.rank_delta === null || meta.rank_delta === undefined ? '' : ` (${meta.rank_delta>=0?'↑':'↓'}${Math.abs(meta.rank_delta)})`;
+  const tierLabel = meta.tier ? escHtml(meta.tier.label) : '資料不足';
+  const tempLabel = meta.temp ? escHtml(meta.temp.label) : '溫度持平';
+  const cum5 = meta.cum5 === null || meta.cum5 === undefined ? '—' : `${meta.cum5>=0?'+':''}${meta.cum5.toFixed(2)}%`;
+  const volRatio = meta.vol_ratio === null || meta.vol_ratio === undefined ? '—' : `${meta.vol_ratio.toFixed(2)}x`;
+  const summary = `<div class="drawer-summary">
+      <span><b>排名</b><strong class="tabular">#${meta.rank}${rankDelta}</strong></span>
+      <span><b>動能</b><strong>${tierLabel}</strong></span><span><b>溫度</b><strong>${tempLabel}</strong></span>
+      <span><b>近 5 日</b><strong class="tabular">${cum5}</strong></span><span><b>量比</b><strong class="tabular">${volRatio}</strong></span>
+    </div>`;
+
+  if (!stocks.length) {
+    panel.innerHTML = `
+      <div class="detail-head"><h3 id="drawerTitle">${safeName}</h3><span class="dpct" style="color:${pctColor}">${pctStr}</span></div>
+      <div class="detail-sub">▲${meta.up_count}檔 ▼${meta.down_count}檔</div>
+      ${summary}
+      <div class="detail-three-col">
+        <div class="tc-box">${metaSpark}</div>
+        <div class="tc-box">${chipsSum}</div>
+        <div class="tc-box">${historyRecord}</div>
+      </div>
+      <div class="detail-empty">這個族群目前沒有個股行情資料。</div>`;
+  } else {
+    panel.innerHTML = `
+      <div class="detail-head"><h3 id="drawerTitle">${safeName}</h3><span class="dpct" style="color:${pctColor}">${pctStr}</span></div>
+      <div class="detail-sub">▲${meta.up_count}檔 ▼${meta.down_count}檔　・　共 ${stocks.length} 檔</div>
+      ${summary}
+      <div class="detail-three-col">
+        <div class="tc-box">${metaSpark}</div>
+        <div class="tc-box">${chipsSum}</div>
+        <div class="tc-box">${historyRecord}</div>
+      </div>
+      ${asofNote}
+      <div class="overflow-wrap"><table class="stock-list-table">
+        <thead><tr>
+          <th aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'id')">股票</button></th>
+          <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'close')">收盤</button></th>
+          <th class="num" aria-sort="descending"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'pct')">漲跌%</button></th>
+          <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'vol')">量比</button></th>
+          <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'holder')">大戶佔比</button></th>
+          <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'holderchg')">大戶週變化</button></th>
+          <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'financed')">融資佔比</button></th>
+          <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'maint')">融資維持率(估)</button></th>
+          <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'shorted')">融券餘額佔比</button></th>
+          <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'shortmaint')">融券維持率(估)</button></th>
+          <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'5')">5日</button></th>
+          <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'7')">7日</button></th>
+          <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'10')">10日</button></th>
+          <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'14')">14日</button></th>
+        </tr></thead>
+        <tbody id="panelStocksWrap"></tbody>
+      </table></div>`;
+  }
+
+  if (!drawer.classList.contains('open')) {
+    _drawerReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : tile;
+  }
+  document.getElementById('drawerContent').replaceChildren(panel);
+  drawer.classList.add('open');
+  document.body.classList.add('drawer-open');
+  drawer.setAttribute('aria-hidden', 'false');
+  if (stocks.length) renderPanelStocks();
+  document.getElementById('drawerClose').focus();
+}
+
+function closeSectorDrawer() {
+  closeStockCard();
+  const drawer = document.getElementById('sectorDrawer');
+  drawer.classList.remove('open');
+  document.body.classList.remove('drawer-open');
+  drawer.setAttribute('aria-hidden', 'true');
+  document.querySelectorAll('.heat-tile').forEach(t => t.classList.remove('active'));
+  document.getElementById('drawerContent').replaceChildren();
+  if (_drawerReturnFocus && document.contains(_drawerReturnFocus)) _drawerReturnFocus.focus();
+  _drawerReturnFocus = null;
+}
+
+/* ── 個股/族群搜尋 ── */
+function searchStocks(q) {
+  const dd = document.getElementById('search-dropdown');
+  q = q.trim();
+  if (!q) { dd.hidden = true; return; }
+
+  const stockMatches = STOCK_INDEX.filter(s => s.id.startsWith(q) || s.name.includes(q)).slice(0, 6);
+  const metaMatches = META_INDEX.filter(m => m.name.includes(q)).slice(0, 5);
+  if (!stockMatches.length && !metaMatches.length) { dd.hidden = true; return; }
+
+  const stockHtml = stockMatches.map(s => {
+    const col = s.pct > 0 ? 'var(--up)' : (s.pct < 0 ? 'var(--down)' : 'var(--ink-3)');
+    const sign = s.pct >= 0 ? '+' : '';
+    return `<div class="search-item" onmousedown="selectSearchStock('${s.id}')">`
+      + `<span class="si-id">${escHtml(s.id)}</span><span class="si-name">${escHtml(s.name)}</span>`
+      + `<span class="si-meta">${escHtml(s.meta)}</span>`
+      + `<span class="si-pct" style="color:${col}">${sign}${s.pct.toFixed(2)}%</span></div>`;
+  }).join('');
+  const metaHtml = metaMatches.map(m => {
+    const col = m.pct > 0 ? 'var(--up)' : (m.pct < 0 ? 'var(--down)' : 'var(--ink-3)');
+    const sign = m.pct >= 0 ? '+' : '';
+    return `<div class="search-item" onmousedown="selectSearchMeta('${m.name.replace(/'/g, "\\'")}')">`
+      + `<span class="si-id si-meta-icon">族群</span><span class="si-name">${escHtml(m.name)}</span>`
+      + `<span class="si-pct" style="color:${col}">${sign}${m.pct.toFixed(2)}%</span></div>`;
+  }).join('');
+  dd.innerHTML = stockHtml + metaHtml;
+  dd.hidden = false;
+}
+function hideSearch() { document.getElementById('search-dropdown').hidden = true; }
+function selectSearchMeta(name) {
+  document.getElementById('search-dropdown').hidden = true;
+  document.getElementById('stock-search').value = '';
+  selectGroup(name);
+}
+function selectSearchStock(sid) {
+  document.getElementById('search-dropdown').hidden = true;
+  document.getElementById('stock-search').value = '';
+  const entry = STOCK_INDEX.find(s => s.id === sid);
+  if (entry) selectGroup(entry.meta);
+}
+
+// chips.html的外資/投信連買族群連結會產生 index.html#meta=族群名（見
+// export/chips_generator.py），舊版html_generator.py靠這段IIFE在載入時自動展開對應面板，
+// 這次改版漏掉了，造成從chips.html點連結進來會停在空白頁——補回同等行為。
+(function() {
+  loadSectorView();
+  if (DATA_MODE !== 'intraday') sectorView.rankMode = 'live';
+  syncSectorControls();
+  applySectorView();
+  document.addEventListener('keydown', event => {
+    if (event.key !== 'Escape' || document.getElementById('stockCardBackdrop')) return;
+    if (document.getElementById('sectorDrawer').classList.contains('open')) closeSectorDrawer();
+  });
+  const h = decodeURIComponent(location.hash);
+  if (h.startsWith('#meta=')) selectGroup(h.slice(6));
+})();
+</script>
+</body></html>

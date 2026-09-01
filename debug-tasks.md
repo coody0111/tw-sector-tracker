@@ -4130,3 +4130,187 @@ close/change/volume 寫進 row → 每次 backfill 都讓 K 棒失去 OHLC。這
   再跑一次 `python main.py --backfill-yf 20 --workers 3`，否則會重現同樣的斷層與炸掉。
 - 回補指令與兩個踩雷點已寫進 `CLAUDE-developer.md`「🚑 資料跑掉時」一節，
   `log.md` 兩處過時說明（月數填 18、要另外下 `--reimport`）已修正。
+## [2026-08-31] 官方基本面資料層 Phase 1
+
+### 改了什麼
+
+- 異動檔案：`scrapers/fundamentals.py`、`screener/database.py`、`main.py`、
+  `tests/test_fundamentals.py`、`docs/fundamentals.md`、
+  `docs/superpowers/specs/2026-08-31-official-fundamentals-data-design.md`、`log.md`
+- 新增 `python main.py --update-fundamentals`：只更新官方基本面 DuckDB，不跑行情、HTML 或 push。
+- 新增月營收、財報 facts 兩張表，以及自行重算 MoM／YoY／QoQ 的兩個 view。
+- 同一市場的月營收＋財報使用同一 DuckDB transaction；任一寫入失敗會整體 rollback。
+
+### 資料來源相關
+
+- 上市資料（TWSE）：`openapi.twse.com.tw/v1/opendata/t187ap05_L`、
+  `t187ap06_L_*`、`t187ap07_L_*`。
+- 上櫃資料（TPEx）：`www.tpex.org.tw/openapi/v1/mopsfin_t187ap05_O`、
+  `mopsfin_t187ap06_O_*`、`mopsfin_t187ap07_O_*`。
+- 基本面不使用 FinMind；官方 OpenAPI 無歷史參數，MOPS XBRL 歷史回補另列 Phase 2。
+
+### 請 Debugger 驗證
+
+- [ ] `pytest tests/test_fundamentals.py -v` 全綠。
+- [ ] `pytest tests/test_database.py tests/test_main.py -v` 無 regression。
+- [ ] 使用 mock 確認 24 個季報 endpoint（2 市場 × 2 報表 × 6 schema）網址正確。
+- [ ] 真實執行一次 `python main.py --update-fundamentals`，確認 TWSE／TPEx 都有寫入且重跑不增重複列。
+- [ ] 抽查 1101、2330、1240 的官方月營收、EPS、資產總計與 DB 一致。
+- [ ] `monthly_revenue_growth` 在缺月時不跨洞；`financial_fact_growth` 在缺前季時不硬算單季。
+- [ ] 模擬財報寫入失敗，確認同市場月營收一起 rollback。
+
+### 特別注意
+
+- 金額保存官方原始單位「新台幣千元」，EPS／每股淨值為元。
+- 官方損益表是累計值；EPS 刻意不做累計相減。
+- 本次沒有改 UI、排程或選股分數。
+- Developer 未跑 pytest 或真實資料，只有 AST／diff 靜態檢查。
+
+---
+
+## [2026-09-01] MOPS 官方基本面歷史 Phase 2A＋2B
+
+### 改了什麼
+
+- 異動檔案：`scrapers/mops_xbrl.py`、`scrapers/mops_monthly_revenue.py`、
+  `screener/database.py`、`main.py`、`tests/test_mops_xbrl.py`、
+  `tests/test_mops_monthly_revenue.py`、`docs/fundamentals.md`、`docs/CONTEXT.md`、
+  `docs/adr/0005-xbrl-filings-are-append-only-versions.md`、
+  `docs/superpowers/specs/2026-09-01-mops-xbrl-phase2-design.md`、
+  `docs/superpowers/specs/2026-09-01-mops-monthly-revenue-phase2b-design.md`、
+  `docs/superpowers/plans/2026-09-01-mops-xbrl-phase2.md`、`log.md`。
+- 新增 `python main.py --backfill-fundamentals 2013`，只執行官方 XBRL 歷史回填，
+  不跑行情、HTML 或 git push。
+- 官方清單探索、ZIP SHA-256 版本化、XML／iXBRL context parser、raw facts、canonical facts、
+  current projection 與 `financial_facts` 串接皆以 archive transaction 寫入。
+- 原始申報版本 append-only；同季度新 SHA 更新 current projection，但不刪舊 filing/facts。
+- 基本／稀釋 EPS 不做累計相減；現金流可使用既有單季／QoQ／YoY 邏輯。
+- Phase 2B 解析 Big5 月營收 11 欄整批頁，保存 page SHA／normalized versions，排除合計列；
+  同一 `--backfill-fundamentals` 在 XBRL 後接續回填月營收。
+
+### 資料來源相關
+
+- 季報歷史：MOPS 官方 `https://mopsov.twse.com.tw/mops/web/t203sb02` 公布的 IFRS 季度 ZIP，
+  2013 Q1 起；不使用 FinMind、Yahoo 或其他第三方 fallback。
+- 上市／上櫃不由 parser 猜測：投影時用官方最新月營收表對照 exchange；歷史公司無對照時標 `UNKNOWN`。
+- 月營收歷史：MOPS 官方 `nas/t21/sii`（上市）與 `nas/t21/otc`（上櫃）靜態頁；
+  parser 與 XBRL 分開。Phase 1 TWSE／TPEx OpenAPI 每期更新流程維持不變。
+
+### 請 Debugger 驗證
+
+- [ ] `pytest tests/test_mops_xbrl.py tests/test_mops_monthly_revenue.py tests/test_fundamentals.py -v` 全綠。
+- [ ] `pytest tests/test_database.py tests/test_main.py -v` 無 regression。
+- [ ] mock 官方下載頁同時含 IFRS、TW-GAAP、外站 URL 時，只接受 MOPS IFRS ZIP。
+- [ ] XML 與 Inline XBRL 的 context/unit/scale/sign/decimals 正確，`decimals=-3` 不會被當倍率。
+- [ ] 外層 ZIP 直接放 instance 與 ZIP 內再包公司 ZIP 都能解析，且 `../` entry 不會寫到磁碟。
+- [ ] 同 archive SHA 重跑 idempotent；同季度新 SHA 保留兩版 raw facts並更新 `xbrl_current_facts`。
+- [ ] `financial_facts.report_date` 對 MOPS XBRL 為 NULL，不等於 retrieved_at。
+- [ ] Q2 累計值能精確以 3/31 前季推回單季；缺前季保持 NULL。
+- [ ] 基本／稀釋 EPS 的單季值、QoQ、單季 YoY 為 NULL，累計同期 YoY 正確。
+- [ ] 在小範圍真實執行，抽查 2330、1101；確認 ZIP 真實目錄結構、taxonomy local names、
+      金額除以 1000 與現金流方向。
+- [ ] 確認真實 MOPS archive 若含 parser 尚未涵蓋的 XML support file，會安全跳過而非整批誤判。
+- [ ] Big5 上市／上櫃月營收中文正常、11 欄對位、產業別正確、合計列未寫入。
+- [ ] HTTP 200 擋頁、錯誤年月、無 11 欄公司資料時不寫入空頁。
+- [ ] `monthly_revenue_pages` 同 SHA idempotent，新 SHA 保留舊 versions 並更新目前營收。
+- [ ] 歷史頁的 NULL report_date 不會覆蓋既有 OpenAPI 官方出表日期；完整 13 個月後 YoY 正確。
+
+### 特別注意
+
+- Developer 依規則沒有跑 pytest、初始化 DuckDB 或下載真實資料；8 個 Python 檔 AST 與
+  102 個常數 DuckDB SQL statements 靜態解析通過。
+- MOPS 官方未確認 ZIP 更正版順序與精確申報時間；目前資料不可宣稱為無前視偏誤回測。
+- 首次從 2013 回填會下載多季大型 ZIP；請先用 Debugger 小範圍驗證真實結構，再跑完整歷史。
+- `data/fundamentals/` 被 `.gitignore` 排除，不會進 commit；不同電腦各自需要回填。
+- MOPS 未官方確認靜態月營收的完整歷史起點與缺頁行為；從 2013 小範圍驗證後再跑完整歷史。
+
+### 2026-09-01 首次真實回填追加修正
+
+- [x] 已重現 4712 `pretax_income` 衝突：IASB 主損益表 `-514,600,000` 與 `tifrs/scf`
+      現金流調節項 `-515,173,000` 被 local-name-only mapping 錯併。
+- [x] 已重現下一筆 2882 `retained_earnings` 衝突：IASB 主表與 `tifrs/notes` 附註局部值錯併。
+- [x] 修正後兩個最小 regression cases 直接執行通過，且完整 cached `tifrs-2013Q1.zip` parser 重播成功。
+- [ ] Debugger 仍需正式執行 `pytest tests/test_mops_xbrl.py -v`，確認新增案例與全部既有案例。
+- [ ] Cody 可重新執行 `python main.py --backfill-fundamentals 2013`，確認 DB transaction 寫入與後續季度。
+
+### 2026-09-01 2014 Q1 inconsistent duplicate 與斷點續跑
+
+- [x] 已最小化 3356 同 QName/context/unit/decimals 的兩個衝突值；無語意依據可安全擇一。
+- [x] 修正為保留兩筆 raw、warning 並略過該 canonical metric，完整 cached 2014 Q1 parser 重播成功。
+- [x] 回填預設略過已有 committed `xbrl_archives` manifest 的季度；確認本機 2013 Q1～Q4 均被辨識完成。
+- [ ] 驗證新版 archive 的 metric 發生衝突時，`xbrl_current_facts` 與 `financial_facts` 不會殘留舊版值。
+- [ ] Debugger 執行 `pytest tests/test_mops_xbrl.py -v`，特別確認 inconsistent duplicate 與 resume cases。
+- [ ] Cody 重跑同一 backfill 指令，log 應先顯示 2013 Q1～Q4「已完成，跳過」，再從 2014 Q1 寫入。
+- [x] 修正 `xbrl_current_facts` view 的 ambiguous `archive_sha256` join；新增
+      `test_init_db_binds_xbrl_current_facts_view`，聚焦執行與記憶體 `init_db()` 已通過。
+- [x] 2020 Q3 官方回應偶發 `PK` 開頭但 ZIP central directory 不完整；新增 4 次下載驗證與
+      5／20／60 秒退避、no-cache／close 重試，壞內容不寫 cache。截斷→成功 regression 已通過。
+- [x] 修正後直接下載官方 2020 Q3 至記憶體並完成 CRC 驗證：80,635,246 bytes，官方檔非永久損壞。
+- [ ] Debugger 以 mock 驗證 4 次皆壞時錯誤訊息含 attempts、bytes 與 Content-Type／Length。
+
+---
+
+## [2026-09-01] Index 第二輪：抽屜、固定色階、導覽與 TradingView K 線
+
+### 改了什麼
+
+- Index 右側族群抽屜改為 `min(1180px, 80vw)`；820px 以下維持 100vw。
+- 抽屜中的族群／股票名稱與一般文字改用無襯線，代號與數值維持等寬字。
+- Top 10 卡片改成固定絕對漲跌幅級距：0–1%、1–2%、2–4%、4%以上；紅漲綠跌且強度對稱。
+- Index／籌碼／形態／逆轟四頁主導覽統一字型、padding、border、radius 與 active 樣式。
+- 首頁內容順序改為市場現況 → Top 10 → 三組研究分類 → 巨量換手。
+- 個股詳情改用鎖定 `lightweight-charts@5.2.0` 的 TradingView Lightweight Charts；
+  第一次點個股才下載，使用本專案 ISO 日期＋OHLC＋成交量，關閉時移除 chart 並 disconnect ResizeObserver。
+- 未加入 MA10／20／50 或 Oliver Kell 訊號；本輪仍沿用既有 11 個交易日資料視窗。
+
+### 請 Debugger 驗證
+
+- [ ] `pytest tests/test_index_generator.py tests/test_processors.py -q --basetemp <可寫路徑>` 全綠。
+- [ ] 產生 mock HTML 後確認順序為市場現況 → Top 10 → 今日研究順序 → 巨量換手。
+- [ ] 固定色階邊界 0、1、2、4% 與負值鏡像正確；同一 1.5% 不因當日最大漲幅不同而變色。
+- [ ] 1440px 點族群後抽屜約佔 80vw、最大 1180px；820px 以下為 100vw，表格只在抽屜內橫向捲動。
+- [ ] 抽屜名稱／個股文字為 sans，代號／數值仍為 monospace，14 欄表格與排序未退化。
+- [ ] 四個頁面的導覽尺寸一致，只有目前頁 active；鍵盤 focus 與窄螢幕橫向捲動正常。
+- [ ] 第一次點個股時 Network 才請求 `lightweight-charts@5.2.0`，第二次不重複插入 script。
+- [ ] 個股 modal 同時顯示日 K 與成交量，紅漲綠跌、日期順序與本地 OHLC 一致，TradingView attribution 可見。
+- [ ] 關閉個股 modal 後 chart canvas／ResizeObserver 已清理；重複開關、切族群、Esc 與 backdrop close 無錯誤。
+- [ ] 斷網或阻擋 jsDelivr 時顯示「K 線載入失敗，請重新開啟個股詳情」，其餘個股資料仍可閱讀。
+- [ ] 1440／1180／820／520px 實際瀏覽器 layout 無重疊、溢位或 loading 狀態雙倍高度。
+
+### 特別注意
+
+- Developer 只完成 Python compile 與 `git diff --check`，沒有執行 pytest、`main.py`、真實資料或產生／發布 `docs/*.html`。
+- 工作區仍混有 Cody 的 fundamental-data WIP；測試、commit 或 stage 時只能挑本任務相關 hunk。
+- `docs/index-preview.html` 是既有未追蹤預覽檔，本輪沒有覆寫或納入交付。
+
+---
+
+## [2026-09-01] Index 桌面工作區精簡＋右側研究抽屜
+
+### 改了什麼
+- 異動檔案：`export/index_generator.py`、`tests/test_index_generator.py`、`main.py`（只新增 `data_mode` 透傳）、`docs/CONTEXT.md`。
+- 首頁順序改為市場現況 → 完整寬度巨量換手 → Top 10 → 值得研究／先觀察／避開。
+- 新增互斥研究分類、衝突標記、Top 10／全部、排序、篩選、localStorage 與右側個股 drawer。
+- 移除可見轉折點、排名進出榜、悄悄佈局、重複量能排行、常駐五級圖例與 WIP 左側 sticky rail。
+- 盤中／收盤模式由 `main.py` 透傳，盤中顯示暫定資料與「疑似巨量換手」。
+
+### 資料來源相關
+- 未變更 TWSE／TPEx 行情、法人、族群績效或巨量換手 scanner；只重組既有 generator 輸入與 UI。
+- `scan_volume_turnover()` 既有 9.5%／126 日最大量／1.5x／20 日歷史門檻未改。
+
+### 請 Debugger 驗證
+- [ ] 使用可寫 `--basetemp` 執行 `tests/test_index_generator.py`，確認新舊純函式與產生器契約全綠。
+- [ ] 以真實資料重產後確認 1440px 恰為 5×2 Top 10，市場現況與巨量換手皆為完整寬度。
+- [ ] Top 10／全部、研究分類、名稱搜尋、四種排序、進階條件與重設會同步影響排行／摘要且 reload 後保留。
+- [ ] 三組研究摘要互斥；短線異常跳升但週度退燒時顯示衝突標記；巨量換手不進「避開」。
+- [ ] 卡片、摘要、Header 搜尋與 `index.html#meta=<族群>` 都開同一右側 drawer，不造成 heatgrid reflow。
+- [ ] drawer 的 Esc、關閉按鈕、切換族群與 focus restoration 正常；個股表格所有 14 欄、排序與個股 K 線 modal 未退化。
+- [ ] 375／820／1180／1440px 無整頁水平破版；窄螢幕 drawer 為全寬，表格只在 drawer 內橫向捲動。
+- [ ] 盤中頁顯示「盤中資料，尚未收盤確認」「疑似巨量換手」；收盤頁顯示「收盤快照」「巨量換手」。
+- [ ] Header 無主題切換；首頁看不到常駐五級圖例、轉折點、排名進出榜與舊 secondary-row。
+- [ ] 檢查惡意族群／個股名稱的 HTML／DOM escaping 未退化。
+
+### 特別注意
+- Developer 依 repo 規則未執行 pytest、真實資料流程或重產 `docs/index.html`；只完成 Python compile 與 `git diff --check`。
+- `main.py`、`docs/CONTEXT.md`、`log.md` 同時有 Cody 的官方基本面 WIP；驗證／commit 時只能挑本任務相關 hunk，不可覆蓋或整批 stage。
+- 60 交易日快照保存與更新失敗 stale banner 的排程生命週期尚未接線，不列為本次 UI 驗證失敗。

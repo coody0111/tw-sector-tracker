@@ -429,6 +429,51 @@ def _update_insider_holdings() -> None:
         )
 
 
+def _update_fundamentals() -> None:
+    """抓 TWSE／TPEx 官方最新月營收與季報並存入 DuckDB。"""
+    from scrapers.fundamentals import (
+        fetch_monthly_revenue,
+        fetch_financial_facts,
+        save_official_fundamentals,
+    )
+
+    init_db()
+    totals = {"monthly": 0, "facts": 0}
+    for exchange in ("TWSE", "TPEx"):
+        logger.info("=== %s 官方基本面更新 ===", exchange)
+        monthly_rows = fetch_monthly_revenue(exchange)
+        fact_rows = fetch_financial_facts(exchange)
+        monthly_count, fact_count = save_official_fundamentals(monthly_rows, fact_rows)
+        totals["monthly"] += monthly_count
+        totals["facts"] += fact_count
+        logger.info(
+            "%s 官方基本面寫入：月營收 %d 筆、財報 facts %d 筆",
+            exchange, monthly_count, fact_count,
+        )
+    logger.info(
+        "=== 官方基本面更新完成：月營收 %d 筆、財報 facts %d 筆 ===",
+        totals["monthly"], totals["facts"],
+    )
+
+
+def _backfill_fundamentals(start_year: int = 2013) -> None:
+    """從 MOPS 官方來源回填 IFRS 季報與上市／上櫃月營收歷史。"""
+    from scrapers.mops_xbrl import backfill_mops_xbrl
+    from scrapers.mops_monthly_revenue import backfill_mops_monthly_revenue
+
+    init_db()
+    totals = backfill_mops_xbrl(start_year=start_year)
+    logger.info(
+        "=== MOPS XBRL 回填完成：archives %d、filings %d、raw facts %d、canonical %d；開始月營收歷史 ===",
+        totals["archives"], totals["filings"], totals["raw_facts"], totals["canonical_facts"],
+    )
+    monthly_totals = backfill_mops_monthly_revenue(start_year=start_year)
+    logger.info(
+        "=== MOPS 官方基本面歷史回填完成：月營收 pages %d、versions %d、current rows %d ===",
+        monthly_totals["pages"], monthly_totals["versions"], monthly_totals["current_rows"],
+    )
+
+
 def _load_insider_ranking_rows(db_path: str = "data/screener.db") -> list[dict]:
     """讀取每檔最新董監持股，獨立建立排行榜資料，不依賴 TDCC 入選名單。"""
     import duckdb as _ddb
@@ -868,12 +913,6 @@ def run(trade_date: date = None, realtime: bool = False, push: bool = True, summ
             logger.warning("巨量換手訊號計算失敗，index.html本次不顯示: %s", exc)
             vol_turnover_signals = []
 
-        try:
-            index_limit_up_results = scan_consecutive_limit_up(trade_date.isoformat()) if universe_df is not None else []
-        except Exception as exc:
-            logger.warning("連續漲停鎖死掃描失敗，index.html「今日/本週異動」本次不顯示這項: %s", exc)
-            index_limit_up_results = []
-
         if universe_df is not None:
             generate_index_html(trade_date, meta_perf, universe_df,
                                  meta_signals=meta_signals,
@@ -890,8 +929,7 @@ def run(trade_date: date = None, realtime: bool = False, push: bool = True, summ
                                  total_shares_df=total_shares_df,
                                  avg20_map=avg20_map,
                                  shareholder_df=index_shareholder_df,
-                                 margin_divergence=margin_div,
-                                 limit_up_results=index_limit_up_results)
+                                 data_mode="intraday" if realtime else "close")
             logger.info("HTML generated → docs/index.html")
         else:
             logger.warning("universe_df 未載入（data/stock_universe.csv 不存在），本次不產生 docs/index.html")
@@ -1162,6 +1200,13 @@ if __name__ == "__main__":
                         help="補齊集保持股分散表過去 N 週資料（每支股票一次請求，約 17 分鐘/週）")
     parser.add_argument("--update-insider-holdings", action="store_true",
                         help="抓公開資訊觀測站內部人持股（公司派/大股東），計算月變化")
+    parser.add_argument("--update-fundamentals", action="store_true",
+                        help="抓 TWSE/TPEx 官方最新月營收、損益表與資產負債表並存入 DuckDB")
+    parser.add_argument(
+        "--backfill-fundamentals", nargs="?", type=int, const=2013, default=None,
+        metavar="START_YEAR",
+        help="從 MOPS 官方來源回填 START_YEAR 起的 IFRS 季報與上市／上櫃月營收（省略時從 2013）",
+    )
     parser.add_argument("--reimport", action="store_true",
                         help="清空 daily_prices 並從所有現有 CSV 重新匯入，用於修復資料庫錯誤")
     parser.add_argument("--full-rebuild", action="store_true",
@@ -1210,6 +1255,10 @@ if __name__ == "__main__":
         _backfill_shareholder(weeks=args.backfill_shareholder)
     elif args.update_insider_holdings:
         _update_insider_holdings()
+    elif args.update_fundamentals:
+        _update_fundamentals()
+    elif args.backfill_fundamentals is not None:
+        _backfill_fundamentals(start_year=args.backfill_fundamentals)
     elif args.reimport:
         from screener.database import reimport_db
         init_db()

@@ -349,6 +349,9 @@ def calc_stock_sparklines(
             "pcts": [round(float(pct_pivot.loc[sid, d]), 2) for d in all_dates],
             "volumes": volumes,
             "dates": [pd.Timestamp(d).strftime("%m/%d") for d in all_dates],
+            # Lightweight Charts 的 BusinessDay/string time 需要不含時區的 ISO 日期；
+            # 顯示用 dates 仍保留短格式，避免既有 sparkline/tooltip 契約改變。
+            "iso_dates": [pd.Timestamp(d).strftime("%Y-%m-%d") for d in all_dates],
             "avg_volume": avg_volume,
             "vol_ratio": round(today_volume / avg_volume, 2) if avg_volume > 0 else None,
             "opens": _ohlc_list(open_pivot, sid),

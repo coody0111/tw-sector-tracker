@@ -59,19 +59,18 @@ def test_classify_temp_hot_and_cold_thresholds():
     assert classify_temp(None) is None
 
 
-def test_heat_bg_scales_alpha_by_relative_magnitude():
-    up_full = heat_bg(10.0, max_abs_pct=10.0)  # t=1.0, alpha=0.66
-    up_half = heat_bg(5.0, max_abs_pct=10.0)   # t=0.5, alpha=0.41
-    down = heat_bg(-10.0, max_abs_pct=10.0)
-    assert "var(--up)" in up_full and "66%" in up_full
-    assert "var(--up)" in up_half and "41%" in up_half
-    assert "var(--down)" in down
+def test_heat_bg_uses_fixed_absolute_pct_bands_symmetrically():
+    assert "var(--up) 18%" in heat_bg(0.5)
+    assert "var(--up) 30%" in heat_bg(1.0)
+    assert "var(--up) 46%" in heat_bg(2.0)
+    assert "var(--up) 62%" in heat_bg(4.0)
+    assert "var(--down) 30%" in heat_bg(-1.0)
+    assert "var(--down) 62%" in heat_bg(-8.0)
 
 
-def test_heat_bg_handles_zero_max_abs_without_crash():
-    """全市場今日漲跌全部剛好0%的極端情況（理論上不會發生，但不能讓除以0直接crash）。"""
-    result = heat_bg(0.0, max_abs_pct=0.0)
-    assert "var(--up)" in result  # pct=0視為非負，走up分支，alpha取t=0的最低值
+def test_heat_bg_is_independent_of_daily_market_max_for_cross_day_consistency():
+    assert heat_bg(1.5, max_abs_pct=2.0) == heat_bg(1.5, max_abs_pct=10.0)
+    assert "var(--up) 18%" in heat_bg(0.0, max_abs_pct=0.0)
 
 
 from export.index_generator import find_turning_points, find_anomaly_cards, find_rank_crossings
@@ -460,7 +459,50 @@ def test_build_heatgrid_cards_defaults_cum_to_none_without_cum_data():
     assert cards[0]["cum3"] is None and cards[0]["cum5"] is None and cards[0]["cum7"] is None
 
 
-from export.index_generator import build_sector_recap
+from export.index_generator import build_research_buckets, build_sector_recap
+
+
+def test_build_research_buckets_is_mutually_exclusive_and_keeps_conflict_tags():
+    meta_perf = [
+        {"meta_name": "短強週弱", "avg_change_pct": 4.0, "up_count": 8, "down_count": 1, "flat_count": 0},
+        {"meta_name": "週度增溫", "avg_change_pct": 2.0, "up_count": 5, "down_count": 2, "flat_count": 0},
+        {"meta_name": "週度退燒", "avg_change_pct": -2.0, "up_count": 1, "down_count": 6, "flat_count": 0},
+    ]
+    meta_signals = {
+        "短強週弱": {"vol_ratio": 2.0, "yesterday_rank": 20},
+        "週度增溫": {"vol_ratio": 1.0, "yesterday_rank": 2},
+        "週度退燒": {"vol_ratio": 1.0, "yesterday_rank": 3},
+    }
+    windows = {
+        "短強週弱": {"streak_today": -2, "last_week_pct_today": 5.0, "this_week_pct_today": -2.0},
+        "週度增溫": {"streak_today": 3, "last_week_pct_today": 0.0, "this_week_pct_today": 6.0},
+        "週度退燒": {"streak_today": -3, "last_week_pct_today": 4.0, "this_week_pct_today": -3.0},
+    }
+    cards = build_heatgrid_cards(meta_perf, meta_signals, {}, windows)
+    buckets = build_research_buckets(cards, [{"meta_name": "短強週弱", "kind": "burst"}])
+
+    assert [row["meta_name"] for row in buckets["research"]] == ["短強週弱"]
+    assert buckets["research"][0]["primary_tag"] == "爆量異常跳升"
+    assert "週度仍退燒" in buckets["research"][0]["conflict_tags"]
+    assert [row["meta_name"] for row in buckets["watch"]] == ["週度增溫"]
+    assert [row["meta_name"] for row in buckets["avoid"]] == ["週度退燒"]
+    all_names = [row["meta_name"] for rows in buckets.values() for row in rows]
+    assert len(all_names) == len(set(all_names))
+
+
+def test_build_research_buckets_caps_research_at_ten_and_sorts_rank_jump_descending():
+    cards = []
+    for index in range(12):
+        cards.append({
+            "meta_name": f"族群{index}", "pct": 1.0, "rank": index + 1,
+            "rank_delta": 30 - index, "temp": None, "vol_ratio": 1.0,
+            "accel": 0.0, "tier": None, "foreign_streak": 0, "trust_streak": 0,
+        })
+
+    buckets = build_research_buckets(cards, [])
+
+    assert len(buckets["research"]) == 10
+    assert [row["rank_delta"] for row in buckets["research"]] == list(range(30, 20, -1))
 
 
 def test_build_sector_recap_sorts_hot_and_cold_by_accel():
@@ -927,13 +969,16 @@ def test_build_stock_detail_data_attaches_sparkline_when_provided():
     ])
     prices_df = pd.DataFrame([{"stock_id": "1000", "close": 100.0, "change_pct": 2.0}])
     stock_sparklines = {
-        "1000": {"pcts": [1.0, -0.5, 2.0], "dates": ["7/20", "7/21", "7/22"], "avg_volume": 1000, "vol_ratio": 1.2},
+        "1000": {"pcts": [1.0, -0.5, 2.0], "dates": ["7/20", "7/21", "7/22"],
+                 "iso_dates": ["2026-07-20", "2026-07-21", "2026-07-22"],
+                 "avg_volume": 1000, "vol_ratio": 1.2},
     }
 
     result = build_stock_detail_data(universe_df, prices_df, stock_sparklines)
 
     assert result["族群A"][0]["pcts"] == [1.0, -0.5, 2.0]
     assert result["族群A"][0]["dates"] == ["7/20", "7/21", "7/22"]
+    assert result["族群A"][0]["iso_dates"] == ["2026-07-20", "2026-07-21", "2026-07-22"]
 
 
 def test_build_stock_detail_data_defaults_to_empty_sparkline_when_missing():
@@ -1131,8 +1176,7 @@ def test_generate_uses_this_dataset_metaname_not_raw_string_interpolation(tmp_pa
 
 
 def test_generate_selectgroup_toggles_closed_on_repeat_click(tmp_path):
-    """再按一次已展開的族群要能收合(toggle)：selectGroup 需吃 toggle 參數，且在
-    toggle 且該族群已展開時直接 return 不重新展開。族群格/anomaly卡/收合鈕都要傳 true。"""
+    """再按一次已開啟的族群卡要關閉右側 drawer；搜尋與 deep link 則只負責開啟。"""
     output_path = tmp_path / "index.html"
     meta_perf = [
         {"meta_name": "光通訊", "avg_change_pct": 1.0, "up_count": 1, "down_count": 0, "flat_count": 0},
@@ -1147,9 +1191,8 @@ def test_generate_selectgroup_toggles_closed_on_repeat_click(tmp_path):
 
     # 函式簽章帶 toggle 參數 + 收合 guard 存在
     assert "function selectGroup(name, toggle)" in html
-    assert "if (toggle && alreadyOpen) return;" in html
-    # 收合鈕主動傳 true（讓「收合」真的收合，而非重新 render 留在原地）
-    assert "selectGroup(name, true)" in html
+    assert "if (toggle && alreadyOpen) { closeSectorDrawer(); return; }" in html
+    assert "function closeSectorDrawer()" in html
     # 搜尋/hash 呼叫端維持「只展開、不 toggle」(不帶第二參數)
     assert "selectGroup(entry.meta)" in html
     assert "selectGroup(h.slice(6))" in html
@@ -1170,7 +1213,8 @@ def test_generate_renders_anomaly_section_empty_state_when_no_cards_qualify(tmp_
     generate(date(2026, 7, 22), _sample_meta_perf(), _sample_universe_df(), {}, {}, _sample_prices_df(), {}, output_path=str(output_path))
 
     html = output_path.read_text(encoding="utf-8")
-    assert "目前沒有族群符合" in html  # 0張異動族群卡片時的誠實空狀態文案
+    assert "今日研究順序" in html
+    assert "目前沒有符合條件的族群" in html
 
 
 def test_pct_str_does_not_double_sign_negative_zero():
@@ -1205,24 +1249,16 @@ def test_generate_renders_populated_tier_temp_badges_and_recap_data(tmp_path):
     generate(date(2026, 7, 22), meta_perf, universe_df, meta_signals, meta_chips, prices_df, heatgrid_windows, output_path=str(output_path))
 
     html = output_path.read_text(encoding="utf-8")
-    # tier badge應用badge-weak + 「（草案）」信心分層標示（見docs/adr/0005）
-    assert 'class="ht-tier badge-weak"' in html
-    assert "超強（草案）" in html
-    # temp badge應用badge-weak + 「（草案）」信心分層標示
-    assert 'class="ht-temp badge-weak"' in html
-    assert "增溫" in html and "（草案）" in html
-    # 其他真數字badge保持原狀
-    assert "外資連買3日" in html  # 法人badge
-    assert "投信連買2日" in html
-    assert "近5日→前5日" in html  # 週對比區塊
-    assert "強勢族群" in html  # 出現在族群近況hot_top5（accel=5.0升溫）
-    # 轉折點已移到_today_week_movements_html()，尚未wired進generate()（Task 10才做），
-    # 故暫不出現在族群近況區塊，這個assertion已刪除
+    assert "超強" in html  # tier badge：streak=3>0, accel=6.0-1.0=5.0>3 → super
+    assert "增溫" in html  # temp badge：accel=5.0達hot門檻
+    assert '"foreign_streak": 3' in html  # 完整證據移入 CARD_META／drawer
+    assert '"trust_streak": 2' in html
+    assert "爆量異常跳升" in html  # 排名跳升 + 量比成立，進入「值得研究」
+    assert "轉強訊號" not in html  # 轉折點不再是首頁可見區塊
 
 
-def test_build_heatgrid_cards_super_tier_tile_gets_tier_super_css_class(tmp_path):
-    """超強(super)tier的熱區格tile要多帶一個tier-super class，供CSS加玻璃質感+光暈；
-    其餘tier(strong/mid/weak/superweak/None)不受影響，維持原本只有heat-tile一個class。"""
+def test_generate_compact_tile_keeps_tier_as_tooltip_chip(tmp_path):
+    """精簡卡片仍保留五級動能，但定義移到 tooltip，不再用特殊發光卡片製造額外層級。"""
     output_path = tmp_path / "index.html"
     meta_perf = [
         {"meta_name": "超強族群", "avg_change_pct": 6.0, "up_count": 1, "down_count": 0, "flat_count": 0},
@@ -1250,8 +1286,10 @@ def test_build_heatgrid_cards_super_tier_tile_gets_tier_super_css_class(tmp_path
              output_path=str(output_path))
 
     html = output_path.read_text(encoding="utf-8")
-    assert 'class="heat-tile tier-super"' in html
-    assert 'class="heat-tile"' in html  # 整理族群仍是純heat-tile，沒被誤加class
+    assert 'class="heat-tile"' in html
+    assert 'class="signal-chip tier"' in html
+    assert "超強：連漲且近 5 日動能持續加速" in html
+    assert 'class="heat-tile tier-super"' not in html
 
 
 def test_generate_embeds_stock_sparklines_and_renders_card_js(tmp_path):
@@ -1319,8 +1357,7 @@ def test_generate_renders_market_regime_dashboard_when_provided(tmp_path):
 
 
 def test_generate_renders_volume_turnover_section_when_provided(tmp_path):
-    """Cody稽核發現的巨量換手訊號區塊——vol_turnover_signals有資料時要render表格，
-    空list或None時整塊不顯示。"""
+    """巨量換手維持完整寬度獨立事件；沒有訊號時顯示精簡空狀態。"""
     output_path = tmp_path / "index.html"
     meta_perf = [{"meta_name": "族群A", "avg_change_pct": 2.0, "up_count": 1, "down_count": 0, "flat_count": 0}]
     universe_df = pd.DataFrame([{"stock_id": "1000", "stock_name": "測試股", "meta_sector": "族群A"}])
@@ -1333,15 +1370,22 @@ def test_generate_renders_volume_turnover_section_when_provided(tmp_path):
     generate(date(2026, 7, 22), meta_perf, universe_df, {}, {}, prices_df, {},
              vol_turnover_signals=vol_turnover_signals, output_path=str(output_path))
     html = output_path.read_text(encoding="utf-8")
-    assert "巨量換手訊號" in html
+    assert "巨量換手" in html
     assert "台積電" in html
-    assert "外資+投信確認" in html
+    assert "法人確認" in html
 
     output_path2 = tmp_path / "index2.html"
     generate(date(2026, 7, 22), meta_perf, universe_df, {}, {}, prices_df, {},
              vol_turnover_signals=[], output_path=str(output_path2))
     html2 = output_path2.read_text(encoding="utf-8")
-    assert "巨量換手訊號" not in html2
+    assert "目前沒有巨量換手訊號" in html2
+
+    output_path3 = tmp_path / "index3.html"
+    generate(date(2026, 7, 22), meta_perf, universe_df, {}, {}, prices_df, {},
+             data_mode="intraday", vol_turnover_signals=[], output_path=str(output_path3))
+    html3 = output_path3.read_text(encoding="utf-8")
+    assert "疑似巨量換手" in html3
+    assert "盤中資料，尚未收盤確認" in html3
 
 
 def test_generate_includes_search_box_and_meta_hash_routing(tmp_path):
@@ -1401,17 +1445,14 @@ def test_generate_renders_sortable_column_headers_not_dropdown(tmp_path):
     assert "onclick=\"sortStockList(this.parentElement,'pct')\"" in html
     assert "onclick=\"sortStockList(this.parentElement,'close')\"" in html
     assert "onclick=\"sortStockList(this.parentElement,'id')\"" in html
-    assert "<select" not in html
+    select_group_start = html.index("function selectGroup(")
+    select_group_end = html.index("/* ── 個股/族群搜尋 ── */")
+    assert "<select" not in html[select_group_start:select_group_end]
     assert "sortPanelStocks" not in html  # 下拉選單機制已經整個拿掉
 
 
 def test_generate_calls_render_panel_stocks_after_panel_is_attached_to_dom(tmp_path):
-    """Cody回報「族群點開後列表要點欄位才會出現」——實際用jsdom模擬點擊重現過：
-    renderPanelStocks()在selectGroup()裡原本是在panel.insertAdjacentElement()「之前」
-    呼叫，這時panel還是離線節點，document.getElementById('panelStocksWrap')找不到東西，
-    wrap===null的guard擋掉，表格永遠是空的，直到點擊欄位排序時panel已經在DOM裡、
-    renderPanelStocks()才第一次真的render出東西。這裡用原始碼順序守住這個修正：
-    selectGroup()裡renderPanelStocks()呼叫必須出現在insertAdjacentElement()「之後」。"""
+    """先把 detail panel 掛進 drawer DOM，再 render 個股列，避免 tbody 尚未存在。"""
     output_path = tmp_path / "index.html"
     meta_perf = [{"meta_name": "族群A", "avg_change_pct": 2.0, "up_count": 1, "down_count": 0, "flat_count": 0}]
     universe_df = pd.DataFrame([{"stock_id": "1000", "stock_name": "測試股", "meta_sector": "族群A"}])
@@ -1424,18 +1465,16 @@ def test_generate_calls_render_panel_stocks_after_panel_is_attached_to_dom(tmp_p
     select_group_end = html.index("\n}", html.index("/* ── 個股/族群搜尋 ── */")) if "/* ── 個股/族群搜尋 ── */" in html else len(html)
     select_group_body = html[select_group_start:select_group_end]
 
-    insert_pos = select_group_body.index("insertAdjacentElement(")
+    insert_pos = select_group_body.index("replaceChildren(panel)")
     render_pos = select_group_body.index("renderPanelStocks();")
     assert render_pos > insert_pos, (
-        "renderPanelStocks() 必須在 panel.insertAdjacentElement() 之後呼叫，"
+        "renderPanelStocks() 必須在 drawerContent.replaceChildren(panel) 之後呼叫，"
         "否則panel還沒掛進document，document.getElementById找不到tbody，表格永遠是空的"
     )
 
 
-def test_generate_selectgroup_inserts_panel_after_heatgrid_container_not_inside_a_row(tmp_path):
-    """個股明細面板要插在#heatgrid容器「之後」(整個熱區格結束後)，不是插進被點tile
-    所在列的最後一格後面——避免面板打斷41格熱區格的排列。用原始碼字串檢查selectGroup()
-    的insertAdjacentElement()呼叫對象是heatgrid變數，不是tiles/rowTiles相關的東西。"""
+def test_generate_selectgroup_renders_into_fixed_right_drawer(tmp_path):
+    """族群明細改放固定右側 drawer，不能再插入 heatgrid 後造成排行 reflow。"""
     output_path = tmp_path / "index.html"
     generate(date(2026, 8, 25), _sample_meta_perf(), _sample_universe_df(), {}, {}, _sample_prices_df(), {},
              output_path=str(output_path))
@@ -1445,9 +1484,10 @@ def test_generate_selectgroup_inserts_panel_after_heatgrid_container_not_inside_
     select_group_end = html.index("/* ── 個股/族群搜尋 ── */")
     select_group_body = html[select_group_start:select_group_end]
 
-    assert "heatgrid.insertAdjacentElement('afterend', panel)" in select_group_body
-    assert "rowTiles" not in select_group_body
-    assert "document.getElementById('heatgrid')" in select_group_body
+    assert "document.getElementById('drawerContent').replaceChildren(panel)" in select_group_body
+    assert "drawer.classList.add('open')" in select_group_body
+    assert "insertAdjacentElement" not in select_group_body
+    assert 'class="sector-drawer"' in html
 
 
 def test_generate_renders_rolling_return_columns_directly_on_stock_list(tmp_path):
@@ -1504,9 +1544,7 @@ def test_generate_renders_volume_ratio_column_with_burst_badge(tmp_path):
 
 
 def test_generate_attaches_full_volume_history_for_stock_card_chart(tmp_path):
-    """Cody問走勢圖能不能順便畫成交量——確認build_stock_detail_data()有把完整的
-    volumes歷史陣列(不只是今日單一值)附加到個股資料上，供buildCandlestick()疊加
-    量能柱狀圖用。"""
+    """成交量完整歷史要附加到個股資料，供 Lightweight Charts 的 HistogramSeries 使用。"""
     output_path = tmp_path / "index.html"
     meta_perf = [{"meta_name": "族群A", "avg_change_pct": 2.0, "up_count": 1, "down_count": 0, "flat_count": 0}]
     universe_df = pd.DataFrame([{"stock_id": "1000", "stock_name": "測試股", "meta_sector": "族群A"}])
@@ -1518,19 +1556,18 @@ def test_generate_attaches_full_volume_history_for_stock_card_chart(tmp_path):
 
     html = output_path.read_text(encoding="utf-8")
     assert '"volumes": [800, 1800]' in html
-    assert "buildCandlestick(s.dates, s.opens, s.highs, s.lows, s.closes, s.volumes)" in html
+    assert "LightweightCharts.HistogramSeries" in html
 
 
-def test_generate_renders_candlestick_chart_with_ohlc_data(tmp_path):
-    """Cody要求個股卡片的價格走勢改用K棒(candlestick)呈現，不是純%漲跌bar——確認
-    build_stock_detail_data()有把opens/highs/lows/closes近N日OHLC歷史附加到個股
-    資料上，且個股卡片彈窗呼叫的是buildCandlestick()不是buildSparkline()。"""
+def test_generate_renders_lazy_lightweight_chart_with_project_ohlc_data(tmp_path):
+    """個股彈窗延遲載入固定版 Lightweight Charts，並餵入本專案 OHLC/成交量。"""
     output_path = tmp_path / "index.html"
     meta_perf = [{"meta_name": "族群A", "avg_change_pct": 2.0, "up_count": 1, "down_count": 0, "flat_count": 0}]
     universe_df = pd.DataFrame([{"stock_id": "1000", "stock_name": "測試股", "meta_sector": "族群A"}])
     prices_df = pd.DataFrame([{"stock_id": "1000", "close": 100.0, "change_pct": 2.0}])
     stock_sparklines = {
-        "1000": {"pcts": [1.0, 2.0], "dates": ["7/21", "7/22"], "volumes": [800, 1800],
+        "1000": {"pcts": [1.0, 2.0], "dates": ["7/21", "7/22"],
+                 "iso_dates": ["2026-07-21", "2026-07-22"], "volumes": [800, 1800],
                  "opens": [98.0, 99.0], "highs": [100.0, 101.0], "lows": [97.0, 98.5], "closes": [99.0, 100.0]},
     }
 
@@ -1542,7 +1579,63 @@ def test_generate_renders_candlestick_chart_with_ohlc_data(tmp_path):
     assert '"highs": [100.0, 101.0]' in html
     assert '"lows": [97.0, 98.5]' in html
     assert '"closes": [99.0, 100.0]' in html
-    assert "function buildCandlestick" in html
+    assert '"iso_dates": ["2026-07-21", "2026-07-22"]' in html
+    assert "lightweight-charts@5.2.0" in html
+    assert "function ensureLightweightCharts()" in html
+    assert "LightweightCharts.CandlestickSeries" in html
+    assert "LightweightCharts.HistogramSeries" in html
+    assert "mountStockChart(s);" in html
+    assert "function buildCandlestick" not in html
+    assert "圖表技術由 TradingView 提供" in html
+
+
+def test_generate_cleans_up_stock_chart_and_resize_observer_on_close(tmp_path):
+    output_path = tmp_path / "index.html"
+    generate(date(2026, 7, 22), _sample_meta_perf(), _sample_universe_df(), {}, {}, _sample_prices_df(), {},
+             output_path=str(output_path))
+
+    html = output_path.read_text(encoding="utf-8")
+    assert "function destroyStockChart()" in html
+    assert "_stockChartResizeObserver.disconnect()" in html
+    assert "_stockChart.remove()" in html
+    close_start = html.index("function closeStockCard()")
+    close_end = html.index("let _panelStocks", close_start)
+    assert "destroyStockChart();" in html[close_start:close_end]
+
+
+def test_generate_maps_just_dropped_out_sector_into_avoid_bucket(tmp_path):
+    """剛掉出前 10 且自身報酬為負時，首頁只在「避開」摘要顯示，不恢復舊排名區塊。"""
+    meta_perf = [
+        {"meta_name": "散熱", "avg_change_pct": 1.0, "up_count": 1, "down_count": 0, "flat_count": 0},
+        {"meta_name": "半導體設備", "avg_change_pct": -1.0, "up_count": 0, "down_count": 1, "flat_count": 0},
+    ]
+    universe_df = pd.DataFrame([
+        {"stock_id": "1", "stock_name": "股票一", "meta_sector": "散熱"},
+        {"stock_id": "2", "stock_name": "股票二", "meta_sector": "半導體設備"},
+    ])
+    prices_df = pd.DataFrame([
+        {"stock_id": "1", "change_pct": 1.0, "close": 100.0},
+        {"stock_id": "2", "change_pct": -1.0, "close": 50.0},
+    ])
+    rank_history = {
+        "散熱": {"weekly_ranks": [14, 3], "in_top10_this_week": True,
+                 "consecutive_weeks_in_top10": 1, "last_top10_week_index": None, "last_top10_rank": None},
+        "半導體設備": {"weekly_ranks": [7, 28], "weekly_returns": [2.0, -3.0], "in_top10_this_week": False,
+                     "consecutive_weeks_in_top10": 0, "last_top10_week_index": 0, "last_top10_rank": 7},
+    }
+
+    output_path = tmp_path / "index.html"
+    generate(
+        date(2026, 7, 29), meta_perf, universe_df,
+        meta_signals={}, meta_chips={}, prices_df=prices_df,
+        heatgrid_windows={}, rank_history=rank_history,
+        output_path=str(output_path),
+    )
+
+    html = output_path.read_text(encoding="utf-8")
+    assert "今日研究順序" in html
+    assert "避開" in html and "半導體設備" in html and "剛掉出前10" in html
+    assert "rankmove-wrap" not in html
 
 
 def test_generate_embeds_rank_history_into_card_meta_for_history_record(tmp_path):
@@ -1751,6 +1844,59 @@ def test_generate_includes_weekly_return_pct_in_history_record_function(tmp_path
     assert "hw-pct" in history_body
 
 
+def test_generate_renders_top10_before_three_research_buckets(tmp_path):
+    """新桌面 IA 固定為 Top 10 在前、互斥三組研究摘要在後，不再使用 secondary-row。"""
+    output_path = tmp_path / "index.html"
+    generate(date(2026, 8, 25), _sample_meta_perf(), _sample_universe_df(), {}, {}, _sample_prices_df(), {},
+             output_path=str(output_path))
+
+    html = output_path.read_text(encoding="utf-8")
+    heatgrid_pos = html.index('id="heatgrid"')
+    recap_pos = html.index('id="sector-recap-title"')
+
+    assert heatgrid_pos < recap_pos
+    assert "值得研究" in html and "先觀察" in html and "避開" in html
+    assert 'class="secondary-row"' not in html
+
+
+def test_generate_desktop_information_order_and_removed_visible_copy(tmp_path):
+    output_path = tmp_path / "index.html"
+    market_regime = {
+        "tier": "小漲", "taiex_change_pct": 0.8, "up_count": 700, "total": 1000,
+        "breadth_ratio": 0.7, "heavyweight_avg_pct": 1.0, "broad_avg_pct": 0.6,
+        "is_concentrated": False, "divergence": 0.4,
+    }
+    generate(
+        date(2026, 9, 1), _sample_meta_perf(), _sample_universe_df(), {}, {}, _sample_prices_df(), {},
+        market_regime=market_regime, vol_turnover_signals=[], output_path=str(output_path),
+    )
+
+    html = output_path.read_text(encoding="utf-8")
+    assert html.index("大盤現況") < html.index('id="heatgrid"') < html.index('id="sector-recap-title"')
+    assert html.index('id="sector-recap-title"') < html.index('id="vol-turnover-title"')
+    assert 'id="themeToggle"' not in html
+    assert 'class="tier-legend"' not in html
+    assert 'class="turning-wrap"' not in html
+    assert 'class="rankmove-wrap"' not in html
+
+
+def test_generate_embeds_persistent_filters_and_accessible_drawer_contract(tmp_path):
+    output_path = tmp_path / "index.html"
+    generate(date(2026, 9, 1), _sample_meta_perf(), _sample_universe_df(), {}, {}, _sample_prices_df(), {},
+             output_path=str(output_path))
+
+    html = output_path.read_text(encoding="utf-8")
+    assert "SECTOR_VIEW_KEY" in html and "localStorage.setItem" in html
+    assert 'id="showAllToggle"' in html and 'id="advancedFilters"' in html
+    assert "function applySectorView()" in html and "function resetSectorView()" in html
+    assert 'id="sectorDrawer"' in html and 'aria-hidden="true"' in html
+    assert "if (event.key !== 'Escape'" in html
+    assert "_drawerReturnFocus.focus()" in html
+    assert "width:min(1180px,80vw)" in html
+    assert ".sector-drawer{position:fixed" in html and "font-family:var(--sans)" in html
+    assert "max-width:920px" in html
+
+
 def test_generate_wraps_spark_chips_history_in_three_column_grid(tmp_path):
     """走勢/籌碼動向/歷史進榜三個摘要區塊要包在.detail-three-col容器裡並排三欄，
     不是原本的垂直堆疊(各自獨立一整行)。"""
@@ -1767,50 +1913,6 @@ def test_generate_wraps_spark_chips_history_in_three_column_grid(tmp_path):
     assert "metaSpark" in select_group_body
     assert "chipsSum" in select_group_body
     assert "historyRecord" in select_group_body
-
-
-def test_generate_accepts_margin_divergence_and_limit_up_results_params(tmp_path):
-    """generate()要能吃margin_divergence/limit_up_results兩個新參數，不crash——
-    這一步只確認簽章接受，實際渲染邏輯是後面Task 8才做。"""
-    output_path = tmp_path / "index.html"
-    margin_divergence = {"bearish": [{"stock_id": "1101", "stock_name": "台泥", "meta_sector": "水泥",
-                                       "margin_pct": 5.2, "price_pct": -3.1, "days": 10, "close": 30.5}],
-                          "bullish": [], "days_used": 10}
-    limit_up_results = [{"stock_id": "2330", "stock_name": "台積電", "meta_sector": "半導體",
-                          "close": 1080.0, "change_pct": 9.9, "volume": 50000,
-                          "limit_up_streak": 2, "volume_declining_streak": True,
-                          "breakout_volume_confirmed": True}]
-
-    generate(date(2026, 8, 27), _sample_meta_perf(), _sample_universe_df(), {}, {}, _sample_prices_df(), {},
-             margin_divergence=margin_divergence, limit_up_results=limit_up_results,
-             output_path=str(output_path))
-
-    assert output_path.exists()
-
-
-def test_heatgrid_tier_and_temp_badges_use_confidence_tiering(tmp_path):
-    """五級動能(tier)/溫度(temp)標籤是未回測草案分類(見docs/adr/0005)，要用badge-weak
-    降噪樣式(虛線框+透明底)呈現，且標籤文字要帶「（草案）」字樣誠實揭露，不能再用
-    實色圓角膠囊(舊版ht-tier inline style帶background/color)。"""
-    output_path = tmp_path / "index.html"
-    meta_perf = [{"meta_name": "超強族群", "avg_change_pct": 6.0, "up_count": 1, "down_count": 0, "flat_count": 0}]
-    universe_df = pd.DataFrame([{"stock_id": "1", "stock_name": "股票一", "meta_sector": "超強族群"}])
-    prices_df = pd.DataFrame([{"stock_id": "1", "close": 100.0, "change_pct": 6.0}])
-    heatgrid_windows = {
-        "超強族群": {"streak_today": 3, "last_week_pct_today": 1.0, "this_week_pct_today": 6.0,
-                    "streak_5d_ago": None, "last_week_pct_5d_ago": None},
-    }
-
-    generate(date(2026, 8, 27), meta_perf, universe_df, {}, {}, prices_df, heatgrid_windows,
-             output_path=str(output_path))
-
-    html = output_path.read_text(encoding="utf-8")
-    assert 'class="ht-tier badge-weak"' in html
-    assert "超強（草案）" in html
-    assert 'class="ht-temp badge-weak"' in html
-    assert "加速" in html and "（草案）" in html
-    # 舊版寫死顏色的inline style不該再出現在tier_html裡
-    assert 'style="background:var(--tier-super)22' not in html
 
 
 def test_margin_divergence_html_renders_bearish_and_bullish_tables():
@@ -1842,54 +1944,6 @@ def test_margin_divergence_html_returns_empty_string_when_no_signals():
     assert _margin_divergence_html({}) == ""
 
 
-def test_sector_recap_html_no_longer_renders_today_breakout():
-    """今日爆發移到「今日/本週異動」區塊(今日層)，族群近況不再顯示它，
-    也不再顯示轉折點/排名進出榜(Task 9才會確認這兩個也搬走)——這裡先鎖今日爆發。"""
-    from export.index_generator import _sector_recap_html
-    recap = {
-        "hot_top5": [], "cold_top5": [],
-        "today_breakout": [{"meta_name": "衝刺族群", "pct": 3.0, "rank_delta": 12}],
-        "foreign_stealth": [], "trust_stealth": [], "volume_anomaly": [],
-        "turning_points": [], "rank_crossings": {"just_in": [], "just_out": []},
-    }
-    html = _sector_recap_html(recap)
-    assert "今日爆發" not in html
-    assert "衝刺族群" not in html
-
-
-def test_sector_recap_html_no_longer_renders_turning_points_or_rank_crossings():
-    """轉折點/排名進出榜移到_today_week_movements_html()(Task 8)，族群近況不再顯示，
-    避免同一份資料被畫兩次。"""
-    from export.index_generator import _sector_recap_html
-    recap = {
-        "hot_top5": [], "cold_top5": [], "today_breakout": [],
-        "foreign_stealth": [], "trust_stealth": [], "volume_anomaly": [],
-        "turning_points": [{"meta_name": "轉折族群", "prev_key": "weak", "prev_label": "弱",
-                             "cur_key": "strong", "cur_label": "強", "direction": "轉強"}],
-        "rank_crossings": {"just_in": [{"meta_name": "進榜族群", "prev_rank": 15, "cur_rank": 8}], "just_out": []},
-    }
-    html = _sector_recap_html(recap)
-    assert "轉折族群" not in html
-    assert "進榜族群" not in html
-    assert "turning-wrap" not in html
-    assert "rankmove-wrap" not in html
-
-
-def test_sector_recap_html_remaining_5_categories_use_badge_weak():
-    """族群近況剩下的5大類(升溫/退燒/外資/投信/量能)門檻同樣未回測，這次也套badge-weak
-    (原本這5類是靠status-col-head的彩色底線區分類別，不是badge-weak——這裡改成整個
-    status-col-head也降噪)。"""
-    from export.index_generator import _sector_recap_html
-    recap = {
-        "hot_top5": [{"meta_name": "熱族群", "pct": 5.0, "accel": 3.2}],
-        "cold_top5": [], "today_breakout": [],
-        "foreign_stealth": [], "trust_stealth": [], "volume_anomaly": [],
-        "turning_points": [], "rank_crossings": {"just_in": [], "just_out": []},
-    }
-    html = _sector_recap_html(recap)
-    assert "badge-weak" in html
-
-
 def test_today_breakout_html_renders_real_number_rows():
     """新的_today_breakout_html()渲染函式：今日爆發是真數字(排名跳動+今日漲跌%)，
     不套badge-weak。"""
@@ -1906,98 +1960,3 @@ def test_today_breakout_html_returns_empty_string_when_no_items():
     assert _today_breakout_html([]) == ""
 
 
-def test_anomaly_strip_css_uses_grid_not_horizontal_scroll(tmp_path):
-    """異動族群卡片現在放進滿版寬的「今日/本週異動」今日層(Task 8)，不再需要橫向
-    捲動——改成grid全部展開，有幾張顯幾張。"""
-    output_path = tmp_path / "index.html"
-    generate(date(2026, 8, 27), _sample_meta_perf(), _sample_universe_df(), {}, {}, _sample_prices_df(), {},
-             output_path=str(output_path))
-
-    html = output_path.read_text(encoding="utf-8")
-    # Remove whitespace for easier matching
-    html_normalized = html.replace(" ", "").replace("\n", "")
-    assert ".anomaly-strip{display:grid" in html_normalized
-    # Verify overflow-x:auto is not in the .anomaly-strip section
-    anomaly_strip_section = html[html.index(".anomaly-strip"):html.index(".anomaly-strip") + 200]
-    assert "overflow-x:auto" not in anomaly_strip_section
-
-
-def test_today_week_movements_html_assembles_today_and_week_layers():
-    """新的_today_week_movements_html()把今日層(異動族群卡片grid+今日爆發+融資背離+
-    連續漲停鎖死)跟本週層(轉折點+排名進出榜並排二欄，套badge-weak)組裝成一個區塊，
-    今日層在前、本週層在後，開頭有一次性揭露文案。"""
-    from export.index_generator import _today_week_movements_html
-    anomaly_cards = [{"kind": "burst", "meta_name": "爆量族群", "pct": 5.0, "reason": "測試理由"}]
-    today_breakout = [{"meta_name": "衝刺族群", "pct": 3.0, "rank_delta": 12}]
-    margin_divergence = {"bearish": [{"stock_id": "1101", "stock_name": "台泥", "meta_sector": "水泥",
-                                       "margin_pct": 5.2, "price_pct": -3.1, "days": 10, "close": 30.5}],
-                          "bullish": [], "days_used": 10}
-    limit_up_results = [{"stock_id": "2330", "stock_name": "台積電", "meta_sector": "半導體",
-                          "close": 1080.0, "change_pct": 9.9, "volume": 50000,
-                          "limit_up_streak": 2, "volume_declining_streak": True,
-                          "breakout_volume_confirmed": True}]
-    turning_points = [{"meta_name": "轉折族群", "prev_key": "weak", "prev_label": "弱",
-                        "cur_key": "strong", "cur_label": "強", "direction": "轉強"}]
-    rank_crossings = {"just_in": [{"meta_name": "進榜族群", "prev_rank": 15, "cur_rank": 8}], "just_out": []}
-
-    html = _today_week_movements_html(
-        anomaly_cards, today_breakout, margin_divergence, limit_up_results,
-        turning_points, rank_crossings,
-    )
-
-    today_pos = html.index("今日")
-    week_pos = html.index("本週")
-    assert today_pos < week_pos, "今日層要在本週層前面"
-    assert "爆量族群" in html
-    assert "衝刺族群" in html
-    assert "台泥" in html
-    assert "台積電" in html
-    assert "轉折族群" in html
-    assert "進榜族群" in html
-    # 本週層的轉折點/排名進出榜要套badge-weak，今日層的東西不要
-    week_section = html[week_pos:]
-    assert "badge-weak" in week_section
-
-
-def test_today_week_movements_html_includes_one_time_disclosure_for_week_layer():
-    """揭露文案只針對本週層(草案門檻)出現一次，不是每張卡片重複。"""
-    from export.index_generator import _today_week_movements_html
-    html = _today_week_movements_html([], [], {}, [], [], {"just_in": [], "just_out": []})
-    assert "未回測" in html or "草案" in html
-
-
-def test_generate_renders_heatgrid_then_full_width_today_week_movements_then_sector_recap(tmp_path):
-    """新頁面順序：①熱區格(滿版)→②今日/本週異動(滿版,新)→③族群近況(滿版,瘦身)。
-    不再有secondary-row二欄並排(Wave1 Task9的產物，這次拆掉，因為②③都改滿版寬)。"""
-    output_path = tmp_path / "index.html"
-    generate(date(2026, 8, 27), _sample_meta_perf(), _sample_universe_df(), {}, {}, _sample_prices_df(), {},
-             output_path=str(output_path))
-
-    html = output_path.read_text(encoding="utf-8")
-    heatgrid_pos = html.index('id="heatgrid"')
-    movements_pos = html.index('<h2>今日/本週異動</h2>')
-    recap_pos = html.index('<h2>族群近況</h2>')
-
-    assert heatgrid_pos < movements_pos < recap_pos, "順序要是熱區格→今日本週異動→族群近況"
-    assert 'class="secondary-row"' not in html, "二欄並排容器這次拆掉了，②③都改滿版"
-
-
-def test_generate_passes_margin_divergence_and_limit_up_into_today_week_movements(tmp_path):
-    """generate()要把margin_divergence/limit_up_results透傳給_today_week_movements_html()，
-    確認資料真的接到頁面輸出裡（不只是Task2測過參數簽章本身）。"""
-    output_path = tmp_path / "index.html"
-    margin_divergence = {"bearish": [{"stock_id": "9999", "stock_name": "測試背離股", "meta_sector": "測試族群",
-                                       "margin_pct": 5.2, "price_pct": -3.1, "days": 10, "close": 30.5}],
-                          "bullish": [], "days_used": 10}
-    limit_up_results = [{"stock_id": "8888", "stock_name": "測試漲停股", "meta_sector": "測試族群",
-                          "close": 100.0, "change_pct": 9.9, "volume": 5000,
-                          "limit_up_streak": 4, "volume_declining_streak": None,
-                          "breakout_volume_confirmed": None}]
-
-    generate(date(2026, 8, 27), _sample_meta_perf(), _sample_universe_df(), {}, {}, _sample_prices_df(), {},
-             margin_divergence=margin_divergence, limit_up_results=limit_up_results,
-             output_path=str(output_path))
-
-    html = output_path.read_text(encoding="utf-8")
-    assert "測試背離股" in html
-    assert "測試漲停股" in html

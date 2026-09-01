@@ -68,7 +68,11 @@ tw-sector-tracker-debug/
 
 ### 收到任務時
 1. `git merge master` 取得 Developer 最新的 code 和檔案
-2. 讀 `debug-tasks.md`（本資料夾內，跟 master 同步追蹤）確認最新任務
+2. 讀 `debug-tasks.md`（本資料夾內，跟 master 同步追蹤）確認最新任務——
+   **`debug-tasks.md`／`bug-reports.md` 都是 append-only，一律 append 到檔案最後面，
+   不會 prepend 到最上面**（2026-09-02 踩過的雷：曾誤以為「新的在最上面」只驗頂部幾則，
+   結果 append 在檔案最下面的交接被完全略過，拖了好幾天沒人驗到）。**永遠從檔案最下面
+   往上找「還沒驗證/還沒處理」的交接，不要只看開頭幾則。**
 3. 先看 `logs/` 有無既有錯誤
 4. 開始 review 和測試
 
@@ -127,7 +131,8 @@ tw-sector-tracker-debug/
 4. `git merge master` → 應該乾淨 fast-forward，**不該再撞 `.gitignore`/`CLAUDE.md` 衝突**
 
 **🔍 驗證任務**
-5. 對照 `debug-tasks.md` 最新那則的「請 Debugger 驗證」清單，逐項做
+5. 對照 `debug-tasks.md` **最下面那則**（append-only，最下面才是最新，不是最上面）的
+   「請 Debugger 驗證」清單，逐項做；順便確認再往上有沒有更早、還沒被 `bug-reports.md` 回應過的交接
 6. `python -m pytest -q`，記過/失敗數，區分「本次改動造成」vs「既有環境限制」
    （例如 `test_scan_patterns_returns_list` 需要本機 `data/screener.db`，debug 資料夾常常沒有，屬既有限制）
 7. 回報寫進 `bug-reports.md`（🔴/🟡/✅/結論 格式）

@@ -75,7 +75,10 @@ tw-sector-tracker/
 2. **主動同步到 debug worktree**：去 `../tw-sector-tracker-debug` 資料夾確認乾淨
    （沒有未 commit 的東西）後執行 `git merge master`，不用等 Cody 提醒。如果那邊
    有未 commit 的變更，先跟 Cody 確認怎麼處理，不要硬蓋過去。
-3. 更新 `debug-tasks.md`：
+3. 更新 `debug-tasks.md`：**一律 append 到檔案最後面，不要 prepend 到最上面**（2026-09-02
+   踩過的雷：曾有交接被插到檔案最上面，Debugger 自己認定「新的在最上面」只驗頂部幾則，
+   結果後來 append 在檔案最下面的交接被完全略過，拖了好幾天沒人驗到）。`bug-reports.md`
+   也是同一個規矩——append-only，兩份檔案永遠只從最下面找「還沒驗證/還沒處理」的交接。
 
 ```
 ## [YYYY-MM-DD] 任務名稱
@@ -104,6 +107,30 @@ tw-sector-tracker/
 - **開發功能前先 brainstorming**：新增/調整功能邏輯之前，先用 `mattpocock-skills:grilling` ＋ `mattpocock-skills:domain-modeling` 兩個 skill 釐清需求跟設計（過程中也會順便維護 `docs/CONTEXT.md`/ADR），不要直接動手寫 code。
   - 內容等同 `/grill-with-docs`，但那個標了 `disable-model-invocation`、只能你手動打；**直接點名這兩個底層 skill，Claude 才能自動觸發**，不用等你下指令。
 - **UI 設計要用 UI Pro Max**：畫面/視覺相關的設計（配色、排版、元件風格）要用 `ui-ux-pro-max` skill，不要憑感覺套版。
+
+---
+
+## 🚑 資料跑掉時（近N日漲跌幅離譜／`daily_prices` 空了）
+
+**症狀**：個股「近5日」漲跌幅明顯不合理（2026-08-28 金居 8358 顯示 +100%，實際是近一個月
+的漲幅）；或 `daily_prices` 查出來 0 筆。
+
+**指令**（就這一行，約 7 分鐘 / 1036 支）：
+```bash
+python main.py --backfill-yf 20 --workers 3
+```
+
+- **⚠️ 月數一定要蓋住全部歷史**：`_clear_price_csvs()` 會先刪光 `data/daily_prices/` 底下
+  **所有** CSV，再重抓你指定的月數。填小數字（例如 3）＝ 舊歷史被刪掉又不重抓，接著
+  reimport 就只剩 3 個月。有效歷史目前從 2025-01 起，所以填 **20**，之後隨時間往上加。
+- **不用再下 `--reimport`**：`backfill_yf()` 跑完會自己呼叫 `reimport_db()`。
+  （`log.md` 舊版寫要分兩步，那份是過時的。）
+- 跑完再跑一次 `python main.py` 重產頁面即可。
+
+**為什麼會跑掉**：`data/` 是 gitignored，桌電／筆電各一份 DB，哪台沒跑那天就永遠缺那天。
+交易日一缺，所有「近N日」指標都會跨過那個洞、算出偏大的漲跌幅。
+現在 `screener/data_integrity.py` 會擋下跨度異常的窗口回 `None`（頁面顯示「—」），
+`main.py` 也會做行情連續性體檢寫進 log 與 Telegram 警告——但**真正的解法還是把資料補回來**。
 
 ---
 

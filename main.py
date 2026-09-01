@@ -94,15 +94,27 @@ _configure_logging()
 logger = logging.getLogger(__name__)
 
 
-def _update_chips_db(trade_date: date, stock_ids: list) -> None:
-    """每日收盤後更新籌碼資料庫。"""
+def _update_chips_db(trade_date: date, stock_ids: list, warnings: list | None = None) -> None:
+    """每日收盤後更新籌碼資料庫。warnings 是選填的可變 list：抓取/寫入失敗時除了
+    logger.warning 照舊記錄，也會附一筆簡短訊息進這個 list，讓呼叫端（run()）能把
+    「三大法人/融資融券資料實際上沒進資料庫」這種資料完整性問題，一併放進
+    --summary-json 的 warnings 欄位、進而出現在排程通知的「資料異常」提示裡——
+    2026-08-27 全分支 review 抓到的殘留項目：舊版這些例外只寫 log，Telegram 摘要
+    看不到，會顯示「資料完整性：正常」但其實資料沒收到（見
+    docs/superpowers/plans/2026-08-26-scheduler-telegram-notifications.md 最終
+    review 記錄）。"""
     try:
         init_db()
-        n = import_csv_prices()
+        # incremental=True：只匯「DB 缺的日期 + 最新兩天」，不再每天重讀 400+ 個 CSV
+        # 把 41 萬筆原樣覆蓋回去（實測 6.69s → 0.14s，且不再隨歷史線性變慢）。
+        # 缺漏自我修復的行為保留在 _incremental_csv_files() 裡，沒有弄丟。
+        n = import_csv_prices(incremental=True)
         logger.info("DuckDB: 匯入行情 %d 筆", n)
         import_sector_stocks()
     except Exception as exc:
         logger.warning("DuckDB 行情匯入失敗: %s", exc)
+        if warnings is not None:
+            warnings.append("DuckDB 行情匯入失敗")
 
     try:
         inst_date = trade_date
@@ -126,6 +138,8 @@ def _update_chips_db(trade_date: date, stock_ids: list) -> None:
             logger.info("三大法人寫入 %d 筆（%s）", len(inst_df), inst_date)
     except Exception as exc:
         logger.warning("三大法人寫入失敗: %s", exc)
+        if warnings is not None:
+            warnings.append("三大法人（TWSE）資料寫入失敗")
 
     try:
         # TPEx OpenAPI 沒有日期參數，只回傳當下這支 API 認定的「今天」，可能跟 trade_date 對不上
@@ -151,6 +165,8 @@ def _update_chips_db(trade_date: date, stock_ids: list) -> None:
             logger.info("TPEx 三大法人寫入 %d 筆（%s）", len(inst_tpex_df), resp_date)
     except Exception as exc:
         logger.warning("TPEx 三大法人寫入失敗: %s", exc)
+        if warnings is not None:
+            warnings.append("三大法人（TPEx）資料寫入失敗")
 
     try:
         marg_date = trade_date
@@ -174,6 +190,8 @@ def _update_chips_db(trade_date: date, stock_ids: list) -> None:
             logger.info("融資融券寫入 %d 筆（%s）", len(margin_df), marg_date)
     except Exception as exc:
         logger.warning("融資融券寫入失敗: %s", exc)
+        if warnings is not None:
+            warnings.append("融資融券（TWSE）資料寫入失敗")
 
     try:
         margin_tpex_df = _retry_fetch(fetch_margin_all_tpex)
@@ -196,6 +214,8 @@ def _update_chips_db(trade_date: date, stock_ids: list) -> None:
             logger.info("TPEx 融資融券寫入 %d 筆（%s）", len(margin_tpex_df), resp_date)
     except Exception as exc:
         logger.warning("TPEx 融資融券寫入失敗: %s", exc)
+        if warnings is not None:
+            warnings.append("融資融券（TPEx）資料寫入失敗")
 
     try:
         fh_date = trade_date
@@ -424,6 +444,51 @@ def _update_insider_holdings() -> None:
             "不要當成這批股票沒有內部人持股 ===",
             len(blocked_ids),
         )
+
+
+def _update_fundamentals() -> None:
+    """抓 TWSE／TPEx 官方最新月營收與季報並存入 DuckDB。"""
+    from scrapers.fundamentals import (
+        fetch_monthly_revenue,
+        fetch_financial_facts,
+        save_official_fundamentals,
+    )
+
+    init_db()
+    totals = {"monthly": 0, "facts": 0}
+    for exchange in ("TWSE", "TPEx"):
+        logger.info("=== %s 官方基本面更新 ===", exchange)
+        monthly_rows = fetch_monthly_revenue(exchange)
+        fact_rows = fetch_financial_facts(exchange)
+        monthly_count, fact_count = save_official_fundamentals(monthly_rows, fact_rows)
+        totals["monthly"] += monthly_count
+        totals["facts"] += fact_count
+        logger.info(
+            "%s 官方基本面寫入：月營收 %d 筆、財報 facts %d 筆",
+            exchange, monthly_count, fact_count,
+        )
+    logger.info(
+        "=== 官方基本面更新完成：月營收 %d 筆、財報 facts %d 筆 ===",
+        totals["monthly"], totals["facts"],
+    )
+
+
+def _backfill_fundamentals(start_year: int = 2013) -> None:
+    """從 MOPS 官方來源回填 IFRS 季報與上市／上櫃月營收歷史。"""
+    from scrapers.mops_xbrl import backfill_mops_xbrl
+    from scrapers.mops_monthly_revenue import backfill_mops_monthly_revenue
+
+    init_db()
+    totals = backfill_mops_xbrl(start_year=start_year)
+    logger.info(
+        "=== MOPS XBRL 回填完成：archives %d、filings %d、raw facts %d、canonical %d；開始月營收歷史 ===",
+        totals["archives"], totals["filings"], totals["raw_facts"], totals["canonical_facts"],
+    )
+    monthly_totals = backfill_mops_monthly_revenue(start_year=start_year)
+    logger.info(
+        "=== MOPS 官方基本面歷史回填完成：月營收 pages %d、versions %d、current rows %d ===",
+        monthly_totals["pages"], monthly_totals["versions"], monthly_totals["current_rows"],
+    )
 
 
 def _load_insider_ranking_rows(db_path: str = "data/screener.db") -> list[dict]:
@@ -724,7 +789,7 @@ def run(trade_date: date = None, realtime: bool = False, push: bool = True, summ
             logger.info("Sector performance written (%d sectors, %d meta).", len(perf), len(meta_perf))
 
     # 6. 籌碼資料寫入 DuckDB
-    _update_chips_db(trade_date, unique_ids)
+    _update_chips_db(trade_date, unique_ids, warnings=_run_warnings)
 
     # 6.5 行情連續性體檢：daily_prices 缺交易日時，所有「近N日」指標都會跨過那些洞、
     # 算出偏大的漲跌幅（2026-08-28 金居 8358 顯示「5日 +100%」實為近一個月）。
@@ -865,12 +930,6 @@ def run(trade_date: date = None, realtime: bool = False, push: bool = True, summ
             logger.warning("巨量換手訊號計算失敗，index.html本次不顯示: %s", exc)
             vol_turnover_signals = []
 
-        try:
-            index_limit_up_results = scan_consecutive_limit_up(trade_date.isoformat()) if universe_df is not None else []
-        except Exception as exc:
-            logger.warning("連續漲停鎖死掃描失敗，index.html「今日/本週異動」本次不顯示這項: %s", exc)
-            index_limit_up_results = []
-
         if universe_df is not None:
             generate_index_html(trade_date, meta_perf, universe_df,
                                  meta_signals=meta_signals,
@@ -887,8 +946,7 @@ def run(trade_date: date = None, realtime: bool = False, push: bool = True, summ
                                  total_shares_df=total_shares_df,
                                  avg20_map=avg20_map,
                                  shareholder_df=index_shareholder_df,
-                                 margin_divergence=margin_div,
-                                 limit_up_results=index_limit_up_results)
+                                 data_mode="intraday" if realtime else "close")
             logger.info("HTML generated → docs/index.html")
         else:
             logger.warning("universe_df 未載入（data/stock_universe.csv 不存在），本次不產生 docs/index.html")
@@ -1159,6 +1217,13 @@ if __name__ == "__main__":
                         help="補齊集保持股分散表過去 N 週資料（每支股票一次請求，約 17 分鐘/週）")
     parser.add_argument("--update-insider-holdings", action="store_true",
                         help="抓公開資訊觀測站內部人持股（公司派/大股東），計算月變化")
+    parser.add_argument("--update-fundamentals", action="store_true",
+                        help="抓 TWSE/TPEx 官方最新月營收、損益表與資產負債表並存入 DuckDB")
+    parser.add_argument(
+        "--backfill-fundamentals", nargs="?", type=int, const=2013, default=None,
+        metavar="START_YEAR",
+        help="從 MOPS 官方來源回填 START_YEAR 起的 IFRS 季報與上市／上櫃月營收（省略時從 2013）",
+    )
     parser.add_argument("--reimport", action="store_true",
                         help="清空 daily_prices 並從所有現有 CSV 重新匯入，用於修復資料庫錯誤")
     parser.add_argument("--full-rebuild", action="store_true",
@@ -1207,6 +1272,10 @@ if __name__ == "__main__":
         _backfill_shareholder(weeks=args.backfill_shareholder)
     elif args.update_insider_holdings:
         _update_insider_holdings()
+    elif args.update_fundamentals:
+        _update_fundamentals()
+    elif args.backfill_fundamentals is not None:
+        _backfill_fundamentals(start_year=args.backfill_fundamentals)
     elif args.reimport:
         from screener.database import reimport_db
         init_db()

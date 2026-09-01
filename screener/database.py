@@ -2,10 +2,13 @@
 DuckDB 資料庫 - 存放每日行情歷史與技術指標。
 直接從 data/daily_prices/*.csv 讀取，不需要手動 import。
 """
+import glob
 import logging
+import re
 import duckdb
 import pandas as pd
 from pathlib import Path
+from typing import List, Optional
 
 from screener.data_integrity import window_is_reliable
 
@@ -111,6 +114,340 @@ def init_db() -> None:
         )
     """)
     con.execute("""
+        CREATE TABLE IF NOT EXISTS monthly_revenue (
+            stock_id                 VARCHAR NOT NULL,
+            stock_name               VARCHAR,
+            exchange                 VARCHAR NOT NULL,
+            industry                 VARCHAR,
+            revenue_month            DATE NOT NULL,
+            revenue                  BIGINT,
+            previous_month_revenue   BIGINT,
+            previous_year_revenue    BIGINT,
+            reported_mom_pct         DOUBLE,
+            reported_yoy_pct         DOUBLE,
+            ytd_revenue              BIGINT,
+            previous_ytd_revenue     BIGINT,
+            reported_ytd_yoy_pct     DOUBLE,
+            note                     VARCHAR,
+            report_date              DATE,
+            first_seen_at            TIMESTAMP NOT NULL,
+            fetched_at               TIMESTAMP NOT NULL,
+            source                   VARCHAR NOT NULL,
+            PRIMARY KEY (stock_id, revenue_month)
+        )
+    """)
+    con.execute("DROP VIEW IF EXISTS monthly_revenue_growth")
+    monthly_report_date_is_not_null = any(
+        "report_date" in (columns or [])
+        for (columns,) in con.execute("""
+            SELECT constraint_column_names
+            FROM duckdb_constraints()
+            WHERE table_name = 'monthly_revenue' AND constraint_type = 'NOT NULL'
+        """).fetchall()
+    )
+    if monthly_report_date_is_not_null:
+        con.execute("ALTER TABLE monthly_revenue ALTER COLUMN report_date DROP NOT NULL")
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS monthly_revenue_pages (
+            page_sha256   VARCHAR PRIMARY KEY,
+            exchange      VARCHAR NOT NULL,
+            revenue_month DATE NOT NULL,
+            source_url    VARCHAR NOT NULL,
+            local_path    VARCHAR NOT NULL,
+            byte_size     BIGINT NOT NULL,
+            first_seen_at TIMESTAMP NOT NULL,
+            retrieved_at  TIMESTAMP NOT NULL
+        )
+    """)
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS monthly_revenue_versions (
+            page_sha256              VARCHAR NOT NULL,
+            stock_id                 VARCHAR NOT NULL,
+            stock_name               VARCHAR,
+            exchange                 VARCHAR NOT NULL,
+            industry                 VARCHAR,
+            revenue_month            DATE NOT NULL,
+            revenue                  BIGINT,
+            previous_month_revenue   BIGINT,
+            previous_year_revenue    BIGINT,
+            reported_mom_pct         DOUBLE,
+            reported_yoy_pct         DOUBLE,
+            ytd_revenue              BIGINT,
+            previous_ytd_revenue     BIGINT,
+            reported_ytd_yoy_pct     DOUBLE,
+            note                     VARCHAR,
+            report_date              DATE,
+            first_seen_at            TIMESTAMP NOT NULL,
+            source                   VARCHAR NOT NULL,
+            PRIMARY KEY (page_sha256, stock_id)
+        )
+    """)
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS financial_facts (
+            stock_id         VARCHAR NOT NULL,
+            stock_name       VARCHAR,
+            exchange         VARCHAR NOT NULL,
+            period_end       DATE NOT NULL,
+            fiscal_year      INTEGER NOT NULL,
+            quarter          INTEGER NOT NULL,
+            statement_type   VARCHAR NOT NULL,
+            industry_schema  VARCHAR NOT NULL,
+            metric_key       VARCHAR NOT NULL,
+            raw_name         VARCHAR NOT NULL,
+            value            DOUBLE,
+            unit             VARCHAR NOT NULL,
+            is_ytd           BOOLEAN NOT NULL,
+            report_date      DATE,
+            first_seen_at    TIMESTAMP NOT NULL,
+            fetched_at       TIMESTAMP NOT NULL,
+            source           VARCHAR NOT NULL,
+            PRIMARY KEY (stock_id, period_end, statement_type, metric_key, industry_schema)
+        )
+    """)
+    # DuckDB 不允許有 dependent view 時 ALTER table；先移除、下方會用新定義重建。
+    con.execute("DROP VIEW IF EXISTS financial_fact_growth")
+    con.execute("DROP VIEW IF EXISTS financial_ratios")
+    # Phase 1 已建立的本機 DB 曾把 report_date 設為 NOT NULL；MOPS 批次 ZIP 沒有官方保證的
+    # 申報日，不能拿抓取日冒充，因此 migration 明確允許 NULL。
+    report_date_is_not_null = any(
+        "report_date" in (columns or [])
+        for (columns,) in con.execute("""
+            SELECT constraint_column_names
+            FROM duckdb_constraints()
+            WHERE table_name = 'financial_facts' AND constraint_type = 'NOT NULL'
+        """).fetchall()
+    )
+    if report_date_is_not_null:
+        con.execute("ALTER TABLE financial_facts ALTER COLUMN report_date DROP NOT NULL")
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS xbrl_archives (
+            archive_sha256     VARCHAR PRIMARY KEY,
+            accounting_standard VARCHAR NOT NULL,
+            fiscal_year        INTEGER NOT NULL,
+            quarter            INTEGER NOT NULL,
+            period_end         DATE NOT NULL,
+            source_url         VARCHAR NOT NULL,
+            source_filename    VARCHAR NOT NULL,
+            local_path         VARCHAR NOT NULL,
+            byte_size          BIGINT NOT NULL,
+            etag               VARCHAR,
+            last_modified      VARCHAR,
+            first_seen_at      TIMESTAMP NOT NULL,
+            retrieved_at       TIMESTAMP NOT NULL
+        )
+    """)
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS xbrl_filings (
+            filing_sha256      VARCHAR PRIMARY KEY,
+            archive_sha256     VARCHAR NOT NULL,
+            entry_path         VARCHAR NOT NULL,
+            stock_id           VARCHAR NOT NULL,
+            stock_name         VARCHAR,
+            period_end         DATE NOT NULL,
+            fiscal_year        INTEGER NOT NULL,
+            quarter            INTEGER NOT NULL,
+            content_format     VARCHAR NOT NULL,
+            taxonomy_refs_json VARCHAR NOT NULL,
+            reported_at        TIMESTAMP,
+            first_seen_at      TIMESTAMP NOT NULL
+        )
+    """)
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS xbrl_archive_entries (
+            archive_sha256 VARCHAR NOT NULL,
+            entry_path     VARCHAR NOT NULL,
+            filing_sha256  VARCHAR NOT NULL,
+            PRIMARY KEY (archive_sha256, entry_path)
+        )
+    """)
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS xbrl_archive_entries (
+            archive_sha256 VARCHAR NOT NULL,
+            entry_path     VARCHAR NOT NULL,
+            filing_sha256  VARCHAR NOT NULL,
+            PRIMARY KEY (archive_sha256, entry_path)
+        )
+    """)
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS xbrl_facts (
+            filing_sha256 VARCHAR NOT NULL,
+            fact_index    INTEGER NOT NULL,
+            stock_id      VARCHAR NOT NULL,
+            qname         VARCHAR NOT NULL,
+            namespace_uri VARCHAR NOT NULL,
+            local_name    VARCHAR NOT NULL,
+            context_id    VARCHAR NOT NULL,
+            period_start  DATE,
+            period_end    DATE,
+            instant       DATE,
+            unit_id       VARCHAR,
+            unit          VARCHAR,
+            decimals      VARCHAR,
+            dimensions_json VARCHAR NOT NULL,
+            raw_value     VARCHAR,
+            numeric_value DOUBLE,
+            is_nil        BOOLEAN NOT NULL,
+            PRIMARY KEY (filing_sha256, fact_index)
+        )
+    """)
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS xbrl_canonical_facts (
+            filing_sha256 VARCHAR NOT NULL,
+            stock_id      VARCHAR NOT NULL,
+            period_end    DATE NOT NULL,
+            fiscal_year   INTEGER NOT NULL,
+            quarter       INTEGER NOT NULL,
+            statement_type VARCHAR NOT NULL,
+            industry_schema VARCHAR NOT NULL,
+            metric_key    VARCHAR NOT NULL,
+            qname         VARCHAR NOT NULL,
+            context_id    VARCHAR NOT NULL,
+            value         DOUBLE,
+            unit          VARCHAR NOT NULL,
+            is_ytd        BOOLEAN NOT NULL,
+            first_seen_at TIMESTAMP NOT NULL,
+            reported_at   TIMESTAMP,
+            PRIMARY KEY (filing_sha256, statement_type, metric_key)
+        )
+    """)
+    con.execute("""
+        CREATE OR REPLACE VIEW xbrl_current_facts AS
+        WITH ranked_archives AS (
+            SELECT archive_sha256, fiscal_year, quarter,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY accounting_standard, fiscal_year, quarter
+                       ORDER BY retrieved_at DESC, archive_sha256 DESC
+                   ) AS version_rank
+            FROM xbrl_archives
+            WHERE accounting_standard = 'IFRS'
+        ), latest_archive AS (
+            SELECT archive_sha256
+            FROM ranked_archives
+            WHERE version_rank = 1
+        ), ranked AS (
+            SELECT canonical.*, filing.stock_name,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY canonical.stock_id, canonical.period_end,
+                                    canonical.statement_type, canonical.metric_key
+                       ORDER BY filing.first_seen_at DESC, canonical.filing_sha256 DESC
+                   ) AS version_rank
+            FROM xbrl_canonical_facts canonical
+            JOIN xbrl_filings filing USING (filing_sha256)
+            JOIN xbrl_archive_entries entry USING (filing_sha256)
+            JOIN latest_archive
+              ON latest_archive.archive_sha256 = entry.archive_sha256
+        )
+        SELECT filing_sha256, stock_id, stock_name, period_end, fiscal_year, quarter,
+               statement_type, industry_schema, metric_key, qname, context_id,
+               value, unit, is_ytd, first_seen_at, reported_at
+        FROM ranked
+        WHERE version_rank = 1
+    """)
+    con.execute("""
+        CREATE OR REPLACE VIEW monthly_revenue_growth AS
+        SELECT
+            current.*,
+            CASE
+                WHEN previous.revenue IS NULL OR previous.revenue = 0 THEN NULL
+                ELSE (current.revenue / previous.revenue::DOUBLE - 1) * 100
+            END AS calculated_mom_pct,
+            CASE
+                WHEN previous_year.revenue IS NULL OR previous_year.revenue = 0 THEN NULL
+                ELSE (current.revenue / previous_year.revenue::DOUBLE - 1) * 100
+            END AS calculated_yoy_pct
+        FROM monthly_revenue current
+        LEFT JOIN monthly_revenue previous
+          ON previous.stock_id = current.stock_id
+         AND previous.revenue_month = CAST(current.revenue_month - INTERVAL '1 month' AS DATE)
+        LEFT JOIN monthly_revenue previous_year
+          ON previous_year.stock_id = current.stock_id
+         AND previous_year.revenue_month = CAST(current.revenue_month - INTERVAL '1 year' AS DATE)
+    """)
+    con.execute("""
+        CREATE OR REPLACE VIEW financial_fact_growth AS
+        WITH single_period AS (
+            SELECT
+                current.*,
+                CASE
+                    WHEN current.statement_type = 'balance' THEN current.value
+                    WHEN current.metric_key IN ('eps', 'diluted_eps') THEN NULL
+                    WHEN current.quarter = 1 THEN current.value
+                    WHEN previous_ytd.value IS NULL THEN NULL
+                    ELSE current.value - previous_ytd.value
+                END AS single_quarter_value
+            FROM financial_facts current
+            LEFT JOIN financial_facts previous_ytd
+              ON previous_ytd.stock_id = current.stock_id
+             AND previous_ytd.statement_type = current.statement_type
+             AND previous_ytd.industry_schema = current.industry_schema
+             AND previous_ytd.metric_key = current.metric_key
+             AND previous_ytd.fiscal_year = current.fiscal_year
+             AND previous_ytd.quarter = current.quarter - 1
+        ), compared AS (
+            SELECT
+                current.*,
+                previous_quarter.single_quarter_value AS previous_quarter_value,
+                previous_year.single_quarter_value AS previous_year_quarter_value,
+                previous_year.value AS previous_year_reported_value
+            FROM single_period current
+            LEFT JOIN single_period previous_quarter
+              ON previous_quarter.stock_id = current.stock_id
+             AND previous_quarter.statement_type = current.statement_type
+             AND previous_quarter.industry_schema = current.industry_schema
+             AND previous_quarter.metric_key = current.metric_key
+              AND previous_quarter.period_end = CAST(
+                    date_trunc('quarter', current.period_end) - INTERVAL '1 day' AS DATE
+                  )
+            LEFT JOIN single_period previous_year
+              ON previous_year.stock_id = current.stock_id
+             AND previous_year.statement_type = current.statement_type
+             AND previous_year.industry_schema = current.industry_schema
+             AND previous_year.metric_key = current.metric_key
+             AND previous_year.fiscal_year = current.fiscal_year - 1
+             AND previous_year.quarter = current.quarter
+        )
+        SELECT
+            compared.*,
+            CASE
+                WHEN metric_key IN ('eps', 'diluted_eps')
+                     OR previous_quarter_value IS NULL OR previous_quarter_value = 0 THEN NULL
+                ELSE (single_quarter_value / previous_quarter_value - 1) * 100
+            END AS calculated_qoq_pct,
+            CASE
+                WHEN metric_key IN ('eps', 'diluted_eps')
+                     OR previous_year_quarter_value IS NULL OR previous_year_quarter_value = 0 THEN NULL
+                ELSE (single_quarter_value / previous_year_quarter_value - 1) * 100
+            END AS calculated_quarter_yoy_pct,
+            CASE
+                WHEN NOT is_ytd OR previous_year_reported_value IS NULL
+                     OR previous_year_reported_value = 0 THEN NULL
+                ELSE (value / previous_year_reported_value - 1) * 100
+            END AS calculated_ytd_yoy_pct
+        FROM compared
+    """)
+    con.execute("""
+        CREATE OR REPLACE VIEW financial_ratios AS
+        WITH pivoted AS (
+            SELECT stock_id, period_end, fiscal_year, quarter,
+                   MAX(CASE WHEN metric_key = 'revenue' THEN value END) AS revenue,
+                   MAX(CASE WHEN metric_key = 'gross_profit' THEN value END) AS gross_profit,
+                   MAX(CASE WHEN metric_key = 'operating_income' THEN value END) AS operating_income,
+                   MAX(CASE WHEN metric_key = 'net_income_parent' THEN value END) AS net_income_parent,
+                   MAX(CASE WHEN metric_key = 'net_income' THEN value END) AS net_income
+            FROM financial_facts
+            WHERE is_ytd
+            GROUP BY stock_id, period_end, fiscal_year, quarter
+        )
+        SELECT *,
+               CASE WHEN revenue IS NULL OR revenue = 0 THEN NULL
+                    ELSE gross_profit / revenue * 100 END AS gross_margin_pct,
+               CASE WHEN revenue IS NULL OR revenue = 0 THEN NULL
+                    ELSE operating_income / revenue * 100 END AS operating_margin_pct,
+               CASE WHEN revenue IS NULL OR revenue = 0 THEN NULL
+                    ELSE COALESCE(net_income_parent, net_income) / revenue * 100 END AS net_margin_pct
+        FROM pivoted
+    """)
+    con.execute("""
         CREATE TABLE IF NOT EXISTS pattern_signals (
             stock_id     VARCHAR NOT NULL,
             pattern      VARCHAR NOT NULL,
@@ -175,9 +512,57 @@ def _filter_stale(df: pd.DataFrame, min_streak: int = 5) -> pd.DataFrame:
     return df[~mask].drop(columns=["_cv", "_streak"])
 
 
-def import_csv_prices(filter_stale: bool = False) -> int:
-    """把 data/daily_prices/*.csv 的資料全部 upsert 進 daily_prices 表。
+def _incremental_csv_files(con) -> Optional[List[str]]:
+    """算出「這次真的需要匯入」的 CSV 檔清單，回 None 代表要走全量。
+
+    每日流程只寫當天的 CSV，卻每次重讀全部 400+ 個檔、41 萬筆 upsert 回去，
+    等於拿一模一樣的資料覆蓋自己（實測 6.69 秒，且隨歷史線性變慢：
+    2026-08-25 是 3 秒、08-31 已 10 秒）。但全量匯入有個不能弄丟的副作用——
+    它每天把所有歷史重新確保一次，某天匯入失敗（例如 TPEx 5xx、DuckDB 例外）
+    留下的洞，隔天會自動補上。缺交易日正是「近N日漲跌幅失真」的根因，
+    所以增量不能只匯今天，要匯：
+
+      1. CSV 有、但 daily_prices 沒有的日期（不限多久以前）→ 保留自我修復
+      2. 最新兩個日期 → 盤中 --realtime 寫的是即時價，收盤後要被收盤價覆蓋；
+         取兩天是因為 main.py「市場尚未更新」防呆會把 trade_date 切回前一交易日
+
+    比對成本約 40 毫秒（403 個檔名 vs 一次 DISTINCT date）。
+    """
+    files = sorted(Path(p) for p in glob.glob(CSV_GLOB))
+    if not files:
+        # 一個 CSV 都沒有＝沒東西可匯（回空清單），不是「退回全量」——退回全量會讓
+        # read_csv_auto 對空目錄拋 IOException，重演 2026-08-28 那種匯入炸掉的情況
+        return []
+
+    def _date_of(path: Path) -> Optional[str]:
+        m = re.search(r"(\d{4}-\d{2}-\d{2})", path.name)
+        return m.group(1) if m else None
+
+    by_date = {}
+    for f in files:
+        d = _date_of(f)
+        if d is None:      # 檔名沒有日期就無從比對，保守起見退回全量
+            return None
+        by_date[d] = f
+
+    db_dates = {
+        str(r[0]) for r in con.execute("SELECT DISTINCT date FROM daily_prices").fetchall()
+    }
+    all_dates = sorted(by_date)
+    todo = (set(all_dates) - db_dates) | set(all_dates[-2:])
+
+    filled = sorted(set(all_dates) - db_dates)
+    if filled:
+        logger.info("增量匯入：補上 daily_prices 缺的 %d 天（%s）", len(filled), ", ".join(filled[:5]))
+    return [str(by_date[d]) for d in sorted(todo)]
+
+
+def import_csv_prices(filter_stale: bool = False, incremental: bool = False) -> int:
+    """把 data/daily_prices/*.csv 的資料 upsert 進 daily_prices 表。
+
     filter_stale=True 時自動排除連續多天完全相同的假資料。
+    incremental=True（每日流程用）只匯入 _incremental_csv_files() 算出來的那幾天，
+    其餘（reimport_db()／backfill 收尾）維持全量，語意不變。
     """
     con = get_conn()
 
@@ -186,8 +571,13 @@ def import_csv_prices(filter_stale: bool = False) -> int:
     # open/high/low，例如scrapers/realtime.py)混在同一批glob讀取時，缺欄位的
     # 檔案自動補NULL，而不是像原本那樣不管CSV裡有沒有這3欄一律寫死NULL、
     # 把scraper真的抓到的OHLC資料在匯入這關直接丟掉。
+    target_files = _incremental_csv_files(con) if incremental else None
+    if target_files is not None and not target_files:
+        con.close()
+        return 0
+    csv_arg = repr(target_files) if target_files is not None else f"'{CSV_GLOB}'"
     source = (
-        f"read_csv_auto('{CSV_GLOB}', filename=true, union_by_name=true, "
+        f"read_csv_auto({csv_arg}, filename=true, union_by_name=true, "
         f"types={{'stock_id': 'VARCHAR'}})"
     )
 

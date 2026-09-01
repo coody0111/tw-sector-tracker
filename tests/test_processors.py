@@ -563,6 +563,7 @@ def test_calc_stock_sparklines_includes_daily_volume_and_ratio(tmp_path):
     assert result["pcts"] == [1.0, -0.5, 1.5]
     assert result["volumes"] == [10000, 20000, 45000]
     assert result["dates"] == ["07/13", "07/14", "07/15"]
+    assert result["iso_dates"] == ["2026-07-13", "2026-07-14", "2026-07-15"]
     assert result["avg_volume"] == 15000
     assert result["vol_ratio"] == 3.0
 

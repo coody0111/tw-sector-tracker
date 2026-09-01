@@ -701,10 +701,10 @@ _CSS = """
   .brand-lockup{display:flex;align-items:baseline;gap:12px;min-width:max-content}
   h1{margin:0;font-size:1rem;font-weight:760;color:var(--text);letter-spacing:.015em}
   .page-name{font-size:.75rem;color:var(--accent);font-weight:750;padding-left:12px;border-left:1px solid var(--border-strong)}
-  .nav-links{display:flex;align-items:stretch;gap:2px;align-self:stretch;white-space:nowrap}
-  .nav-link{display:inline-flex;align-items:center;padding:0 13px;border-bottom:2px solid transparent;color:var(--muted);text-decoration:none;font-size:.8125rem;font-weight:650;transition:color .16s,background .16s,border-color .16s}
-  .nav-link:hover{color:var(--text);background:var(--surface)}
-  .nav-link.active{color:var(--text);border-bottom-color:var(--accent);background:var(--surface)}
+  .nav-links{display:flex;align-items:center;gap:8px;white-space:nowrap}
+  .nav-link{display:inline-flex;align-items:center;min-height:32px;padding:5px 14px;border:1px solid var(--border);border-radius:6px;color:var(--muted);text-decoration:none;font-family:"Public Sans",-apple-system,"PingFang TC","Microsoft JhengHei","Segoe UI",sans-serif;font-size:.78rem;font-weight:600;transition:color .15s,border-color .15s,background .15s}
+  .nav-link:hover{color:var(--text);border-color:var(--border-strong);background:var(--surface)}
+  .nav-link.active{color:var(--text);border-color:var(--accent);background:var(--surface)}
   .data-status{margin-left:auto;display:grid;grid-template-columns:auto auto;column-gap:10px;align-items:baseline;white-space:nowrap}
   .data-status span{color:var(--subtle);font-size:.6875rem;font-weight:700}
   .data-status strong{font-size:.8125rem;font-weight:720;font-variant-numeric:tabular-nums;color:var(--text)}
@@ -776,8 +776,8 @@ _CSS = """
     .tab-btn.active{border-left-color:transparent;border-bottom-color:var(--accent)}.chips-toolbar{top:124px}
   }
   @media(max-width:760px){
-    .topbar{position:static;min-height:auto;padding:12px 14px;flex-wrap:wrap;gap:10px 16px}.brand-lockup{width:100%}.nav-links{height:42px;order:3;width:100%;overflow-x:auto;border-top:1px solid var(--border)}
-    .nav-link{padding:0 12px}.data-status{margin-left:0}.section-nav{position:static}.main-content{padding:12px}
+    .topbar{position:static;min-height:auto;padding:12px 14px;flex-wrap:wrap;gap:10px 16px}.brand-lockup{width:100%}.nav-links{order:3;width:100%;overflow-x:auto}
+    .nav-link{min-height:44px;padding:5px 12px}.data-status{margin-left:0}.section-nav{position:static}.main-content{padding:12px}
     .chips-toolbar{position:static;align-items:stretch;flex-wrap:wrap}.search-field{grid-template-columns:1fr;width:100%;gap:4px}.search-field input{min-width:0}
     .exchange-filter{flex:1}.exch-btn{flex:1}.filter-result{margin-left:0;width:100%}.chips-grid{grid-template-columns:minmax(0,1fr)}
   }

@@ -343,10 +343,10 @@ _CSS = """
 body{background:#080B12;color:#DADFE8;font-family:system-ui,sans-serif;padding:12px 20px}
 a{color:#F0BB55}
 .page-head{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap}
-.nav-links{display:flex;gap:8px;margin-left:auto}
-.nav-link{font-size:.78rem;padding:5px 14px;border-radius:6px;border:1px solid #293346;color:#636B80;text-decoration:none;transition:all .15s}
+.nav-links{display:flex;align-items:center;gap:8px;margin-left:auto;white-space:nowrap}
+.nav-link{display:inline-flex;align-items:center;min-height:32px;font-family:"Public Sans",-apple-system,"PingFang TC","Microsoft JhengHei","Segoe UI",sans-serif;font-size:.78rem;font-weight:600;padding:5px 14px;border-radius:6px;border:1px solid #293346;color:#636B80;text-decoration:none;transition:color .15s,border-color .15s,background .15s}
 .nav-link:hover{border-color:#37435C;color:#98A0B4}
-.nav-link.active{border-color:#37435C;color:#DADFE8;background:#161D2C}
+.nav-link.active{border-color:#F0BB55;color:#DADFE8;background:#161D2C}
 .filter-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:14px 0 0}
 .exch-btn{background:transparent;color:#98A0B4;border:1px solid #293346;border-radius:6px;padding:4px 12px;cursor:pointer;font-size:.72rem;transition:all .15s}
 .exch-btn.active{background:#293346;color:#DADFE8;border-color:#37435C}
@@ -464,7 +464,7 @@ def generate(trade_date: date, results: list[dict], output_path: str) -> None:
   <div class="nav-links">
     <a class="nav-link" href="index.html">族群績效</a>
     <a class="nav-link" href="chips.html">籌碼分析</a>
-    <a class="nav-link active" href="patterns.html">形態掃描</a>
+    <a class="nav-link active" href="patterns.html" aria-current="page">形態掃描</a>
     <a class="nav-link" href="momentum.html">逆轟策略</a>
   </div>
 </div>

@@ -5,6 +5,7 @@ import pandas as pd
 
 from scrapers.backfill import (
     _fetch_yfinance_one_stock,
+    _ohlc_value,
     _first_month_start,
     _iter_weekdays,
     _looks_like_twse_block,
@@ -264,3 +265,44 @@ def test_backfill_yfinance_ticker_suffix_mapping(tmp_path):
     assert seen_tickers["2330"] == "2330.TW"
     assert seen_tickers["3213"] == "3213.TWO"
     assert seen_tickers["9999"] == "9999.TWO"
+
+
+def test_fetch_yfinance_one_stock_keeps_ohlc(monkeypatch):
+    """回歸測試：yfinance history() 本來就回 Open/High/Low，但 _fetch_yfinance_one_stock
+    以前只把 close/change/volume 寫進 row，等於每次 backfill 都把抓到的 OHLC 丟掉，
+    K 棒功能永遠只剩 NULL（同 2026-07「K棒失效」那次的問題，當時只修了 daily_prices
+    scraper，backfill 這條沒修到）。"""
+    idx = pd.to_datetime(["2026-08-26", "2026-08-27", "2026-08-28"])
+    idx.name = "Date"
+    hist = pd.DataFrame(
+        {
+            "Open":   [420.0, 454.0, 525.0],
+            "High":   [449.5, 494.0, 543.0],
+            "Low":    [415.0, 450.0, 505.0],
+            "Close":  [449.5, 494.0, 543.0],
+            "Volume": [1_000_000, 2_000_000, 3_000_000],
+        },
+        index=idx,
+    )
+    fake_ticker = MagicMock()
+    fake_ticker.history.return_value = hist
+
+    with patch("yfinance.Ticker", return_value=fake_ticker),          patch("scrapers.backfill.time.sleep"):
+        _sid, rows = _fetch_yfinance_one_stock("8358", "8358.TWO", "2026-08-27", "2026-08-29")
+
+    assert rows, "應該要有資料"
+    first = rows[0]
+    assert first["open"] == 454.0
+    assert first["high"] == 494.0
+    assert first["low"] == 450.0
+    assert first["close"] == 494.0
+
+
+def test_ohlc_value_rejects_nan_and_non_positive():
+    """停牌／冷門股 yfinance 偶爾回 0 或 NaN，寫成 0 會讓 K 棒畫出假的實體，要回 None。"""
+    assert _ohlc_value(123.456) == 123.46
+    assert _ohlc_value(0) is None
+    assert _ohlc_value(-5) is None
+    assert _ohlc_value(None) is None
+    assert _ohlc_value(float("nan")) is None
+    assert _ohlc_value("not a number") is None

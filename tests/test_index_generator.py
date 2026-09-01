@@ -1156,6 +1156,40 @@ def test_generate_escapes_malicious_meta_and_stock_name(tmp_path):
     assert "escHtml(s.stock_id)" in html
 
 
+def test_search_dropdown_uses_escaped_data_attrs_not_inline_string_interpolation(tmp_path):
+    """2026-09-02 debug驗證抓到的真實XSS：searchStocks()的onmousedown原本是
+    `onmousedown="selectSearchMeta('${m.name...}')"`，把族群名稱直接內插進「HTML屬性裡的
+    JS字串」，只轉義了單引號，"><img src=x onerror=...> 這類payload能提前結束屬性、注入
+    任意事件。修法比照熱區格tile已經在用的安全寫法：改用escAttr()把值放進data-*屬性，
+    onmousedown只呼叫this.dataset讀值，不再把使用者可控字串直接寫進JS字串literal。"""
+    output_path = tmp_path / "index.html"
+    meta_perf = [
+        {"meta_name": "測試族群", "avg_change_pct": 1.0, "up_count": 1, "down_count": 0, "flat_count": 0},
+    ]
+    universe_df = pd.DataFrame([
+        {"stock_id": "9999", "stock_name": "測試股", "meta_sector": "測試族群"},
+    ])
+    prices_df = pd.DataFrame([{"stock_id": "9999", "close": 1.0, "change_pct": 1.0}])
+
+    generate(date(2026, 7, 22), meta_perf, universe_df, {}, {}, prices_df, {}, output_path=str(output_path))
+
+    html = output_path.read_text(encoding="utf-8")
+
+    # 舊的、有洞的寫法不能再出現
+    assert "selectSearchMeta('${" not in html
+    assert "selectSearchStock('${" not in html
+
+    # 新寫法：data-* 屬性走 escAttr()，事件處理器只讀 this.dataset，不內插原始字串
+    assert 'data-stock-id="${escAttr(s.id)}"' in html
+    assert 'onmousedown="selectSearchStock(this.dataset.stockId)"' in html
+    assert 'data-meta-name="${escAttr(m.name)}"' in html
+    assert 'onmousedown="selectSearchMeta(this.dataset.metaName)"' in html
+
+    # escAttr() 本身要跳脫雙引號/角括號（塞進雙引號屬性值時最關鍵的字元）
+    assert "function escAttr(s)" in html
+    assert "'&quot;'" in html or '"&quot;"' in html
+
+
 def test_generate_uses_this_dataset_metaname_not_raw_string_interpolation(tmp_path):
     """族群名稱含斜線(例如「機器人/自動化」)時，onclick不能直接內插原始名稱字串，
     必須用this.dataset.metaName讀DOM屬性——這是最容易在改版時不小心退化回不安全寫法的地方。"""

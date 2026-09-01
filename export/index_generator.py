@@ -1709,6 +1709,14 @@ function escHtml(s) {{
   return div.innerHTML;
 }}
 
+// escAttr：塞進雙引號HTML屬性值前要用這支，不能借用escHtml——escHtml靠textContent/innerHTML
+// 往返，瀏覽器序列化文字節點時不會跳脫雙引號(文字節點裡引號本來就不需要跳脫)，直接拿來當
+// 屬性值會被惡意字串("><img src=x onerror=...>)提前結束屬性、注入任意屬性/事件
+// (2026-09-02 debug 驗證在searchStocks()的onmousedown抓到這個真實可重現的XSS)。
+function escAttr(s) {{
+  return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}}
+
 // pcts/dates/volumes 是 calc_stock_sparklines() 算出的數值/日期字串（"%m/%d"），不是使用者
 // 輸入，不用經過 escHtml 也不會有 XSS 風險——跟這個檔案其他數值型欄位（pct/rank等）的處理
 // 一致。volumes 是選填的第4個參數，只有個股卡片會傳（族群層級的sparkline沒有量能資料，
@@ -2277,7 +2285,7 @@ function searchStocks(q) {{
   const stockHtml = stockMatches.map(s => {{
     const col = s.pct > 0 ? 'var(--up)' : (s.pct < 0 ? 'var(--down)' : 'var(--ink-3)');
     const sign = s.pct >= 0 ? '+' : '';
-    return `<div class="search-item" onmousedown="selectSearchStock('${{s.id}}')">`
+    return `<div class="search-item" data-stock-id="${{escAttr(s.id)}}" onmousedown="selectSearchStock(this.dataset.stockId)">`
       + `<span class="si-id">${{escHtml(s.id)}}</span><span class="si-name">${{escHtml(s.name)}}</span>`
       + `<span class="si-meta">${{escHtml(s.meta)}}</span>`
       + `<span class="si-pct" style="color:${{col}}">${{sign}}${{s.pct.toFixed(2)}}%</span></div>`;
@@ -2285,7 +2293,7 @@ function searchStocks(q) {{
   const metaHtml = metaMatches.map(m => {{
     const col = m.pct > 0 ? 'var(--up)' : (m.pct < 0 ? 'var(--down)' : 'var(--ink-3)');
     const sign = m.pct >= 0 ? '+' : '';
-    return `<div class="search-item" onmousedown="selectSearchMeta('${{m.name.replace(/'/g, "\\\\'")}}')">`
+    return `<div class="search-item" data-meta-name="${{escAttr(m.name)}}" onmousedown="selectSearchMeta(this.dataset.metaName)">`
       + `<span class="si-id si-meta-icon">族群</span><span class="si-name">${{escHtml(m.name)}}</span>`
       + `<span class="si-pct" style="color:${{col}}">${{sign}}${{m.pct.toFixed(2)}}%</span></div>`;
   }}).join('');

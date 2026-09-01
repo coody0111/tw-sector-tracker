@@ -622,7 +622,12 @@ def _normalize_canonical_value(
             return None
         return value / 1000.0, "TWD_thousand"
     if definition.unit_kind == "eps":
-        if "twd" not in unit or "share" not in unit:
+        # 早期申報（實測 2013Q1，2330/1101 等 300/300 中）常見用純 TWD 當
+        # unitRef，不透過 divide/unitDenominator=shares 表示「每股」；concept 本身
+        # 已經是 BasicEarningsLossPerShare/DilutedEarningsLossPerShare，語意不需要
+        # unit 字串裡也含 "share" 才能確認，硬性要求會把值正確、只是單位標示不規範
+        # 的早期資料整批濾成 None（2026-09-02 debug 驗證抓到）。
+        if "twd" not in unit:
             return None
         return value, "TWD/share"
     if definition.unit_kind == "shares":

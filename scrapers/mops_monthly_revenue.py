@@ -119,7 +119,11 @@ def parse_monthly_revenue_html(
     if exchange not in _MARKET_PATH:
         raise ValueError(f"不支援的市場：{exchange}")
     try:
-        page = content.decode("big5")
+        # 用 cp950（big5 的相容超集）而非嚴格 big5：實測 TWSE 2025-06 那頁在股票代號
+        # 2353 公司名遇到 Big5 擴充字元（0xf9 開頭）就整月直接 UnicodeDecodeError，
+        # 不是舊資料才有的邊界案例（2026-09-02 debug 驗證抓到）。cp950/big5hkscs 都
+        # 驗證過能完整解碼同一頁，且對本來就是標準 big5 的頁面不影響解析結果。
+        page = content.decode("cp950")
     except UnicodeDecodeError as exc:
         raise MopsMonthlyRevenueError(f"MOPS 月營收頁不是有效 Big5：{exchange} {year}-{month:02d}") from exc
     compact_page = re.sub(r"\s+", "", BeautifulSoup(page, "html.parser").get_text())

@@ -3220,3 +3220,69 @@ reimport 完成：共 372163 筆
   漏洞**（族群搜尋下拉選單的 onmousedown 屬性跳脫不完整），符合 checklist 明確要求
   檢查的「惡意族群/個股名稱」項目，建議修掉；視覺/互動類項目本機無法驗證，如實記錄
   跳過，需要有瀏覽器工具的環境或 Cody 親自過一輪。
+
+---
+
+## [2026-09-02] 驗證 - 修復3個真實bug(EPS遺失/Big5解碼/搜尋XSS) — commit 37c7d52
+
+### 驗證方式
+- `pytest tests/test_mops_xbrl.py tests/test_mops_monthly_revenue.py tests/test_index_generator.py -q`：
+  120 項全過；全專案 `pytest -q`：647 passed，跟 Developer 回報一致
+- **用我原本抽查的同一份真實 `tifrs-2013Q1.zip`（已快取，不重新下載）重新解析**，對照
+  2330／1101 修復前後的 canonical_facts
+- **重新對真實 TWSE 2025-06 月營收頁跑一次 `fetch_monthly_revenue_page()`**（不是只看
+  decode 那一步，是完整跑到底看有沒有真的成功回傳）
+- **用 Node.js 直接執行修好的 `escAttr()`＋`searchStocks()` 樣板字串邏輯**，把我原本的
+  payload 餵進去，檢查產生的 HTML attribute 有沒有被逃逸、`dataset` 讀回來的值是否跟
+  原始 payload 一致（Developer 也做了同樣的 node.js 驗證，這次是我用同一份真實 payload
+  獨立複驗一次）
+
+### ✅ 驗證通過（2/3 修復確認有效）
+- **EPS 修復生效，用真實資料重新驗證**：`_normalize_canonical_value()` 拿掉 share
+  要求後，重新解析同一份 `tifrs-2013Q1.zip`：2330 canonical `eps`/`diluted_eps` 都是
+  `1.53`、1101 都是 `0.38`，兩者都跟真實已知數字吻合。整份 archive（1530 instance）
+  「有raw EPS事實的公司」canonical覆蓋率從修復前 0/1530 提升到 **1403/1530（91.7%）**。
+  剩下 127 筆不是同一個 bug——抽查發現這批的 `unit_id` 是字面上的 `"Shares"`（不是
+  `"TWD"`），是原始申報單位標示更離譜的另一種錯誤，現在的判斷邏輯正確地不接受（強行
+  接受反而危險），屬於獨立、更小範圍的資料品質問題，非這次修復的回歸，記錄供之後參考
+  即可，不是阻擋項。
+- **搜尋 XSS 修復生效，用 Node.js 獨立複驗**：抽出真實生成頁面裡的 `escAttr()`／
+  `searchStocks()` 樣板字串，餵進我原本的 payload
+  (`"><img src=x onerror=alert(2)>`)，確認：產生的 `data-meta-name="..."` 屬性值
+  被正確跳脫成 `&quot;&gt;&lt;img src=x onerror=alert(2)&gt;`、不含任何未跳脫的
+  `"`，不會提前結束屬性；透過 `this.dataset.metaName` 讀回來的值正確解碼回原始
+  payload（瀏覽器 DOM API 的正常行為），`selectSearchMeta`/`selectSearchStock`
+  兩個函式都已改成從 `dataset` 讀值，不是只修了族群那半——確認 Developer 這次是真的
+  兩處都改了。
+
+### 🔴 Big5→cp950 這個修復本身沒錯，但同一個真實頁面還是抓不到資料（新問題，不是同一個bug的殘留）
+- **codec 換成 `cp950` 之後，原本的 `UnicodeDecodeError` 確實不再發生**——這部分修復
+  正確、直接驗證過。但完整重跑 `fetch_monthly_revenue_page('TWSE', 2025, 6, ...)`，
+  **還是失敗**，只是錯誤訊息從「不是有效Big5」變成「MOPS官方頁缺少11欄公司資料」。
+  往下追：decode 成功後這頁其實有 **990 列**合法的 11 欄公司資料（`_STOCK_ID_RE`／
+  欄位數都對），但 `parse_monthly_revenue_html()` 的表頭偵測邏輯
+  （`len(texts)>=11 and texts[0]=="公司代號" and texts[1]=="公司名稱"`）**在這份真實
+  頁面上永遠對不上**——實際表頭列只有 **10 個儲存格**（不是 11，這個表頭列沒有跟資料
+  列一樣多的欄位數），且第一格文字是 `"公司 代號"`（中間多一個空格，不是
+  `"公司代號"`）。這個表頭每隔幾十列就重複出現一次（頁面排版習慣），每次都因為
+  儲存格數跟精確字串兩個條件都對不上而被跳過，導致 `header_seen` 永遠是
+  `False`，即使990列資料都正確收集到了，仍然因為`if not header_seen or not raw_rows`
+  這個 guard 判定失敗、整頁被當成失敗丟掉。**這是一個獨立於 Big5 編碼問題之外、
+  之前被 codec crash 擋住看不到的表頭偵測 bug**，不是這次修復造成的 regression，
+  是修完 codec 之後才第一次真正跑到這一步、才暴露出來。
+  位置：`scrapers/mops_monthly_revenue.py` 的 `parse_monthly_revenue_html()`，
+  表頭判斷那個 if 條件（`len(texts) >= 11 and texts[0] == "公司代號" ...`）。
+  建議修法：表頭判斷改成不要求儲存格數等於資料列格式（表頭本來就可能欄位數不同，
+  例如合併儲存格），改用「文字內容去空白後比對」（例如
+  `texts[0].replace(" ", "") == "公司代號"`）而不是同時綁死儲存格數跟精確字串；
+  或者既然 `raw_rows` 本身已經有獨立的資料列驗證（`_STOCK_ID_RE` fullmatch），
+  `header_seen` 這個 guard 的必要性也可以重新考慮——目前它反而是唯一擋住這頁正確
+  解析的原因。
+
+### 結論
+- [ ] 需要 Developer 再修一次 — EPS 遺失、搜尋 XSS 這兩個都已確認修復生效（用真實
+  archive／Node.js 獨立複驗，不是只信 Developer 的說法）。Big5 解碼本身修對了，但
+  **同一個真實頁面（TWSE 2025-06）修完 codec 後還是拿不到資料**，卡在一個新暴露出來、
+  跟編碼無關的表頭格式偵測問題——這代表「月營收 Big5 解碼」這個原始 bug report 的
+  使用者可見症狀（那個月的資料抓不到）其實還沒真正解決，只是失敗原因換了，需要再補一次
+  修復才能真正跑通。EPS／XSS 兩項可以標記完成。

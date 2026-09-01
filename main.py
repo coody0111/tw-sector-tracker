@@ -94,8 +94,15 @@ _configure_logging()
 logger = logging.getLogger(__name__)
 
 
-def _update_chips_db(trade_date: date, stock_ids: list) -> None:
-    """每日收盤後更新籌碼資料庫。"""
+def _update_chips_db(trade_date: date, stock_ids: list, warnings: list | None = None) -> None:
+    """每日收盤後更新籌碼資料庫。warnings 是選填的可變 list：抓取/寫入失敗時除了
+    logger.warning 照舊記錄，也會附一筆簡短訊息進這個 list，讓呼叫端（run()）能把
+    「三大法人/融資融券資料實際上沒進資料庫」這種資料完整性問題，一併放進
+    --summary-json 的 warnings 欄位、進而出現在排程通知的「資料異常」提示裡——
+    2026-08-27 全分支 review 抓到的殘留項目：舊版這些例外只寫 log，Telegram 摘要
+    看不到，會顯示「資料完整性：正常」但其實資料沒收到（見
+    docs/superpowers/plans/2026-08-26-scheduler-telegram-notifications.md 最終
+    review 記錄）。"""
     try:
         init_db()
         # incremental=True：只匯「DB 缺的日期 + 最新兩天」，不再每天重讀 400+ 個 CSV
@@ -106,6 +113,8 @@ def _update_chips_db(trade_date: date, stock_ids: list) -> None:
         import_sector_stocks()
     except Exception as exc:
         logger.warning("DuckDB 行情匯入失敗: %s", exc)
+        if warnings is not None:
+            warnings.append("DuckDB 行情匯入失敗")
 
     try:
         inst_date = trade_date
@@ -129,6 +138,8 @@ def _update_chips_db(trade_date: date, stock_ids: list) -> None:
             logger.info("三大法人寫入 %d 筆（%s）", len(inst_df), inst_date)
     except Exception as exc:
         logger.warning("三大法人寫入失敗: %s", exc)
+        if warnings is not None:
+            warnings.append("三大法人（TWSE）資料寫入失敗")
 
     try:
         # TPEx OpenAPI 沒有日期參數，只回傳當下這支 API 認定的「今天」，可能跟 trade_date 對不上
@@ -154,6 +165,8 @@ def _update_chips_db(trade_date: date, stock_ids: list) -> None:
             logger.info("TPEx 三大法人寫入 %d 筆（%s）", len(inst_tpex_df), resp_date)
     except Exception as exc:
         logger.warning("TPEx 三大法人寫入失敗: %s", exc)
+        if warnings is not None:
+            warnings.append("三大法人（TPEx）資料寫入失敗")
 
     try:
         marg_date = trade_date
@@ -177,6 +190,8 @@ def _update_chips_db(trade_date: date, stock_ids: list) -> None:
             logger.info("融資融券寫入 %d 筆（%s）", len(margin_df), marg_date)
     except Exception as exc:
         logger.warning("融資融券寫入失敗: %s", exc)
+        if warnings is not None:
+            warnings.append("融資融券（TWSE）資料寫入失敗")
 
     try:
         margin_tpex_df = _retry_fetch(fetch_margin_all_tpex)
@@ -199,6 +214,8 @@ def _update_chips_db(trade_date: date, stock_ids: list) -> None:
             logger.info("TPEx 融資融券寫入 %d 筆（%s）", len(margin_tpex_df), resp_date)
     except Exception as exc:
         logger.warning("TPEx 融資融券寫入失敗: %s", exc)
+        if warnings is not None:
+            warnings.append("融資融券（TPEx）資料寫入失敗")
 
     try:
         fh_date = trade_date
@@ -772,7 +789,7 @@ def run(trade_date: date = None, realtime: bool = False, push: bool = True, summ
             logger.info("Sector performance written (%d sectors, %d meta).", len(perf), len(meta_perf))
 
     # 6. 籌碼資料寫入 DuckDB
-    _update_chips_db(trade_date, unique_ids)
+    _update_chips_db(trade_date, unique_ids, warnings=_run_warnings)
 
     # 6.5 行情連續性體檢：daily_prices 缺交易日時，所有「近N日」指標都會跨過那些洞、
     # 算出偏大的漲跌幅（2026-08-28 金居 8358 顯示「5日 +100%」實為近一個月）。

@@ -1,9 +1,12 @@
 """_retry_fetch() 的回歸測試（debug-tasks.md #6：TWSE/TPEx 籌碼抓取單邊整批失敗，
 加重試機制。實測 2026-07-13 TPEx 三大法人/融資融券 API 當下正常，但當次抓取因暫時性
 問題整批漏掉——這兩個 TPEx 端點沒有歷史回補路徑，失敗一次當天資料就永久遺失）。"""
+from datetime import date
+
 import pytest
 
-from main import _retry_fetch
+import main
+from main import _retry_fetch, _update_chips_db
 
 
 class _CustomError(Exception):
@@ -206,3 +209,76 @@ def test_push_html_returns_false_when_pull_rebase_fails(monkeypatch):
 
     monkeypatch.setattr("main.subprocess.run", fake_run)
     assert _push_html(date(2026, 8, 26)) is False
+
+
+def _stub_all_chips_fetches(monkeypatch, empty_df):
+    """把 _update_chips_db() 會呼叫的 6 個外部抓取函式全部換成回傳空 DataFrame 的假函式——
+    這幾個測試只在意 warnings 有沒有正確附加，不該真的打 TWSE/TPEx 網路（之前一版忘記
+    mock 這些，測試會真的發 HTTPS 請求出去，違反 Developer 規則的「不要自己執行程式跑
+    資料」，已修正）。"""
+    for name in (
+        "fetch_institutional", "fetch_institutional_tpex",
+        "fetch_margin_all_twse", "fetch_margin_all_tpex",
+        "fetch_foreign_holding_twse", "fetch_foreign_holding_tpex",
+    ):
+        monkeypatch.setattr(main, name, lambda *a, **k: empty_df)
+
+
+def test_update_chips_db_appends_price_import_failure_to_warnings(monkeypatch):
+    """DuckDB 行情匯入失敗時，除了 logger.warning，也要附進 warnings list——
+    2026-08-27 全分支 review 抓到的殘留項：舊版這類失敗只寫 log，排程通知的
+    「資料異常」看不到，會誤報「資料完整性：正常」。"""
+    import pandas as pd
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("匯入炸了")
+
+    monkeypatch.setattr(main, "import_csv_prices", _boom)
+    monkeypatch.setattr(main, "import_sector_stocks", lambda: None)
+    _stub_all_chips_fetches(monkeypatch, pd.DataFrame())
+    warnings: list = []
+
+    _update_chips_db(date(2026, 8, 26), ["2330"], warnings=warnings)
+
+    assert warnings == ["DuckDB 行情匯入失敗"]
+
+
+def test_update_chips_db_appends_institutional_write_failure_to_warnings(monkeypatch):
+    """三大法人（TWSE）資料寫入失敗時，要附進 warnings——這是 margin_alerts 的
+    上游資料源，資料沒進去時通知不該顯示「資料完整性：正常」。"""
+    import pandas as pd
+
+    monkeypatch.setattr(main, "import_csv_prices", lambda **kwargs: 0)
+    monkeypatch.setattr(main, "import_sector_stocks", lambda: None)
+    monkeypatch.setattr(main, "fetch_institutional",
+                         lambda *a, **k: pd.DataFrame({"stock_id": ["2330"]}))
+
+    class _FakeConn:
+        def execute(self, *a, **k):
+            raise RuntimeError("DB寫入失敗")
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr("duckdb.connect", lambda *a, **k: _FakeConn())
+    monkeypatch.setattr(main, "fetch_institutional_tpex", lambda *a, **k: pd.DataFrame())
+    monkeypatch.setattr(main, "fetch_margin_all_twse", lambda *a, **k: pd.DataFrame())
+    monkeypatch.setattr(main, "fetch_margin_all_tpex", lambda *a, **k: pd.DataFrame())
+    monkeypatch.setattr(main, "fetch_foreign_holding_twse", lambda *a, **k: pd.DataFrame())
+    monkeypatch.setattr(main, "fetch_foreign_holding_tpex", lambda *a, **k: pd.DataFrame())
+    warnings: list = []
+
+    _update_chips_db(date(2026, 8, 26), ["2330"], warnings=warnings)
+
+    assert "三大法人（TWSE）資料寫入失敗" in warnings
+
+
+def test_update_chips_db_warnings_stays_none_safe_when_not_passed(monkeypatch):
+    """既有呼叫端不傳 warnings 時（None）要維持原行為，不能因為新參數而炸掉。"""
+    import pandas as pd
+
+    monkeypatch.setattr(main, "import_csv_prices", lambda **kwargs: 0)
+    monkeypatch.setattr(main, "import_sector_stocks", lambda: None)
+    _stub_all_chips_fetches(monkeypatch, pd.DataFrame())
+
+    _update_chips_db(date(2026, 8, 26), [])  # 不傳 warnings，僅確認不 raise TypeError

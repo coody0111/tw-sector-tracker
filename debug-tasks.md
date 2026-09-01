@@ -4418,3 +4418,29 @@ close/change/volume 寫進 row → 每次 backfill 都讓 K 棒失去 OHLC。這
 - Developer本機用node.js實際執行修好的`escAttr()`邏輯確認payload不再能跳脫屬性（不只是靜態比對generate()輸出字串），但沒有真實瀏覽器環境跑過`searchStocks()`完整互動流程。
 - EPS修法是放寬unit判斷（拿掉share要求），沒有對早期資料加額外warning區分「真的缺資料」vs「單位標示不規範」——如果你覺得這個區分也該做，請在報告裡提出來，這次先解決「值被誤濾成None」這個核心問題。
 - 月營收沒有再往前找cp950是否對所有歷史年月都適用，只驗證了你抓到的2025-06這頁。
+
+---
+
+## [2026-09-02] 修復月營收表頭偵測bug — commit 8aeb976
+
+### 改了什麼
+- 異動檔案：`scrapers/mops_monthly_revenue.py`、`tests/test_mops_monthly_revenue.py`。
+- 你複驗Big5→cp950時抓到的獨立bug：`parse_monthly_revenue_html()`表頭判斷原本要求
+  `len(texts)>=11 and texts[0]=="公司代號"`，但真實TWSE 2025-06頁面表頭列只有10格、
+  第一格文字是「公司 代號」（多一格空白），兩個條件都對不上，`header_seen`永遠False，
+  990列合法資料全被判失敗。改成只看去空白後的第一格文字，不再要求儲存格數。
+
+### 請 Debugger 驗證
+- [ ] `pytest tests/test_mops_monthly_revenue.py -q` 全綠（本機648 passed）。
+- [ ] 用你原本複驗用的同一個真實頁面，重新完整跑一次
+      `fetch_monthly_revenue_page('TWSE', 2025, 6, ...)`，確認真的回傳990列、
+      stock_name/industry等欄位正確（不是只到decode那步，要跑到底看有沒有真的成功）。
+- [ ] 順便抽查一兩個你手邊有的其他月份/上櫃(TPEx)真實頁面，確認這個表頭比對改法沒有
+      引入新的誤判（例如某個月表頭剛好是11格、或某個月表頭文字有其他變體）。
+
+### 特別注意
+- Developer本機也是直接打真實MOPS伺服器驗證（不是只跑合成測試），確認990列解析成功、
+  stock_name/industry等內容正確，但只驗了2025-06這一頁，沒有掃過其他月份/上櫃頁面。
+- 這是「Big5解碼」原始bug report使用者可見症狀（那個月資料抓不到）鏈條上的最後一段——
+  這個修完之後，2013年EPS遺失、搜尋XSS、月營收Big5/表頭偵測，三個原始bug report列的
+  問題應該都真正解決了。

@@ -4444,3 +4444,57 @@ close/change/volume 寫進 row → 每次 backfill 都讓 K 棒失去 OHLC。這
 - 這是「Big5解碼」原始bug report使用者可見症狀（那個月資料抓不到）鏈條上的最後一段——
   這個修完之後，2013年EPS遺失、搜尋XSS、月營收Big5/表頭偵測，三個原始bug report列的
   問題應該都真正解決了。
+
+---
+
+## [2026-09-02] 籌碼資料每日自動回補缺口 — commit 93f8b05
+
+### 改了什麼
+- 異動檔案：`scrapers/backfill.py`、`main.py`、`tests/test_backfill.py`、`tests/test_main.py`。
+- 背景：跟 Cody 討論後發現近60天三大法人/融資融券/外資持股%(TWSE三個每日發布來源)
+  缺口嚴重程度差很多——三大法人缺4天(90%完整)，融資融券缺19天(55%)，外資持股%缺25天
+  (40%，原本連手動補洞指令都沒有)。根因：`_update_chips_db()`原本對這3個來源都是
+  「只抓當天，今日尚未發布就fallback抓前一天」，任何一天main.py沒跑(機器沒開/連假/
+  程式當掉)就永久留下缺口。
+- 新增 `backfill_chips(days=14)`（`scrapers/backfill.py`）取代原本 `backfill_institutional()`/
+  `backfill_margin()` 兩個獨立函式：單一迴圈跑過去N個交易日，三大法人/融資融券/
+  外資持股%(TWSE) 三個來源各自獨立判斷該天缺不缺、只補真的缺的(同一天可能只有其中
+  幾個來源缺資料)；單一來源被TWSE封鎖只中止該來源本輪剩餘天數，不影響其他來源。
+- `_update_chips_db()` 開頭直接呼叫 `backfill_chips(days=14)` 取代原本3段各自的單日
+  抓取+fallback，不特判星期幾，任何一天漏跑隔天一跑就自動補齊；TPEx對應的3個來源
+  (無日期參數、無法回溯)維持原樣不動。
+- CLI 只留一個 `--backfill-chips DAYS`，取代原本 `--backfill-institutional`/
+  `--backfill-margin` 兩個獨立入口(呼應「越少越好」的要求)。
+- 回補失敗會附進 `warnings` list，跟現有其他區塊一致(才會出現在Telegram通知)。
+
+### 資料來源相關
+- 三大法人(T86)/融資融券(MI_MARGN)/外資持股%(MI_QFIIS) 都是 TWSE 官方每日發布來源，
+  不是FinMind/yfinance；本次沒有動FinMind/yfinance路徑。
+- TPEx對應三個來源(fetch_institutional_tpex/fetch_margin_all_tpex/fetch_foreign_holding_tpex)
+  沒有日期參數、只回傳「當下」，無法回溯，維持原樣，不受這次改動影響。
+
+### 請 Debugger 驗證
+- [ ] `pytest tests/test_backfill.py tests/test_main.py -q` 全綠（本機650 passed）。
+- [ ] 檢查 `backfill_chips()` 的核心邏輯：同一天institutional已有資料、margin/foreign_holdings
+      沒有時，是否真的分別各自判斷、只補缺的那兩個(不會因institutional有資料就整天跳過)。
+- [ ] 檢查TWSEBlockedError只中止「那個來源」的剩餘天數，不會連坐讓其他兩個來源也停下來
+      （這是合併成單一迴圈後最容易不小心退化回舊行為「整個函式break」的地方）。
+- [ ] `main.py --help` 確認 `--backfill-institutional`/`--backfill-margin` 已完全移除，
+      只剩 `--backfill-chips DAYS` 一個入口，且argparse help字串裡的`%%`跳脫正確顯示
+      成`%`（不會拋ValueError）。
+- [ ] `_update_chips_db()` 裡TPEx三段(institutional_tpex/margin_tpex/foreign_holding_tpex)
+      的比對邏輯改用`trade_date`取代原本的`inst_date`/`marg_date`/`fh_date`，確認沒有殘留
+      對已刪除變數的引用（NameError風險）。
+- [ ] 若你手邊有真實 `data/screener.db`，可以自己謹慎評估要不要實際跑一次
+      `python main.py --backfill-chips 60` 驗證能不能把現有的歷史缺口真的補起來
+      （Developer 依規則沒有對正式DB跑過這個指令，只用tmp_path假DB驗證過核心邏輯）。
+
+### 特別注意
+- Developer 完全沒有對 `data/screener.db`(正式DB)執行任何寫入——所有測試都用
+  `tmp_path`建立的暫時DB，符合「不要自己執行程式跑資料」的規則。真正要補齊現有
+  60天歷史缺口，還是要 Cody 自己開 terminal 跑 `python main.py --backfill-chips 60`。
+- `warnings`訊息從原本3個獨立訊息（三大法人/融資融券/外資持股% TWSE資料寫入失敗）
+  合併成1個統一訊息「籌碼資料（TWSE 三大法人/融資融券/外資持股%）回補失敗」——
+  如果之後想在Telegram通知裡分辨到底是哪個來源失敗，這個粒度會不夠，需要另外設計。
+- N=14天是跟Cody討論後的預設值，涵蓋長假或機器關機約2週的情況；如果覺得不夠或太多，
+  這個常數目前寫死在`_update_chips_db()`呼叫處，之後要調整很好改。

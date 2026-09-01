@@ -3,12 +3,15 @@ from unittest.mock import MagicMock, patch
 
 import pandas as pd
 
+import duckdb
+
 from scrapers.backfill import (
     _fetch_yfinance_one_stock,
     _ohlc_value,
     _first_month_start,
     _iter_weekdays,
     _looks_like_twse_block,
+    backfill_chips,
     backfill_twse_monthly,
     backfill_yfinance,
 )
@@ -306,3 +309,94 @@ def test_ohlc_value_rejects_nan_and_non_positive():
     assert _ohlc_value(None) is None
     assert _ohlc_value(float("nan")) is None
     assert _ohlc_value("not a number") is None
+
+
+def _inst_df(d: str) -> pd.DataFrame:
+    return pd.DataFrame([{
+        "stock_id": "2330", "date": d, "foreign_net": 100, "trust_net": 10,
+        "dealer_net": 1, "total_net": 111,
+    }])
+
+
+def _margin_df(d: str) -> pd.DataFrame:
+    return pd.DataFrame([{
+        "stock_id": "2330", "date": d, "margin_balance": 1000, "margin_change": 10,
+        "short_balance": 100, "short_change": 1,
+    }])
+
+
+def _fh_df(d: str) -> pd.DataFrame:
+    return pd.DataFrame([{"stock_id": "2330", "date": d, "foreign_pct": 75.5}])
+
+
+def test_backfill_chips_skips_existing_dates_per_source_independently(tmp_path):
+    """2026-09-02 實測發現的真實情況：同一天institutional有資料、margin/foreign_holdings
+    卻沒有，是常態不是例外。backfill_chips()同一輪迴圈要對每個(來源,日期)組合各自判斷，
+    不能因為institutional這天已經有資料就連帶跳過margin/foreign_holdings。"""
+    db_path = str(tmp_path / "test.db")
+    con = duckdb.connect(db_path)
+    con.execute("""
+        CREATE TABLE institutional (
+            stock_id VARCHAR, date DATE, foreign_net BIGINT, trust_net BIGINT,
+            dealer_net BIGINT, total_net BIGINT, PRIMARY KEY (stock_id, date)
+        )
+    """)
+    con.execute("INSERT INTO institutional VALUES ('2330', '2026-01-02', 1, 1, 1, 3)")
+    con.close()
+
+    inst_calls, margin_calls, fh_calls = [], [], []
+
+    def fake_inst(d):
+        inst_calls.append(d.isoformat())
+        return _inst_df(d.isoformat())
+
+    def fake_margin(d):
+        margin_calls.append(d.isoformat())
+        return _margin_df(d.isoformat())
+
+    def fake_fh(d):
+        fh_calls.append(d.isoformat())
+        return _fh_df(d.isoformat())
+
+    with patch("scrapers.chips.fetch_institutional", side_effect=fake_inst), \
+         patch("scrapers.chips.fetch_margin_all_twse", side_effect=fake_margin), \
+         patch("scrapers.chips.fetch_foreign_holding_twse", side_effect=fake_fh):
+        written = backfill_chips(days=3, db_path=db_path, sleep_sec=0, today=date(2026, 1, 5))
+
+    # institutional 2026-01-02 已有資料，不該被重抓；margin/foreign_holdings 同一天沒有資料，要補
+    assert inst_calls == ["2026-01-05"]
+    assert margin_calls == ["2026-01-02", "2026-01-05"]
+    assert fh_calls == ["2026-01-02", "2026-01-05"]
+    assert written == {"institutional": 1, "margin": 2, "foreign_holdings": 2}
+
+    con = duckdb.connect(db_path)
+    assert con.execute("SELECT count(*) FROM margin WHERE date = '2026-01-02'").fetchone()[0] == 1
+    con.close()
+
+
+def test_backfill_chips_blocked_source_does_not_stop_other_sources(tmp_path):
+    """三大法人被TWSE封鎖時，只該中止「三大法人」這個來源本輪剩餘天數，不該連帶讓
+    margin/foreign_holdings 也停下來——這是合併成單一迴圈後最容易不小心退化回舊行為
+    （整個函式break掉）的地方。"""
+    db_path = str(tmp_path / "test.db")
+
+    def blocked_inst(d):
+        from scrapers.chips import TWSEBlockedError
+        raise TWSEBlockedError("模擬被封鎖")
+
+    margin_calls = []
+
+    def fake_margin(d):
+        margin_calls.append(d.isoformat())
+        return _margin_df(d.isoformat())
+
+    with patch("scrapers.chips.fetch_institutional", side_effect=blocked_inst), \
+         patch("scrapers.chips.fetch_margin_all_twse", side_effect=fake_margin), \
+         patch("scrapers.chips.fetch_foreign_holding_twse", side_effect=lambda d: _fh_df(d.isoformat())):
+        written = backfill_chips(days=3, db_path=db_path, sleep_sec=0, today=date(2026, 1, 5))
+
+    # institutional 第一天就被擋，之後的交易日不再嘗試；margin 不受影響，兩天都補上
+    assert written["institutional"] == 0
+    assert margin_calls == ["2026-01-02", "2026-01-05"]
+    assert written["margin"] == 2
+    assert written["foreign_holdings"] == 2

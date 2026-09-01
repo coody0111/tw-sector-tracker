@@ -6,16 +6,15 @@ import subprocess
 import sys
 import time
 import pandas as pd
-import requests
 from datetime import date, timedelta
 from pathlib import Path
 
 from scrapers.moneydj import scrape_industry_sectors
 from scrapers.daily_prices import fetch_prices_for_stocks
 from scrapers.realtime import fetch_realtime_prices
-from scrapers.chips import fetch_institutional, fetch_institutional_tpex, fetch_margin_all_twse, fetch_margin_all_tpex, fetch_foreign_holding_twse, fetch_foreign_holding_tpex, TWSEBlockedError
+from scrapers.chips import fetch_institutional_tpex, fetch_margin_all_tpex, fetch_foreign_holding_tpex, TWSEBlockedError
 from scrapers.taiex import fetch_taiex_index
-from scrapers.backfill import backfill_twse_monthly, backfill_institutional, backfill_margin, backfill_yfinance
+from scrapers.backfill import backfill_twse_monthly, backfill_chips, backfill_yfinance
 from processors.changes import detect_changes
 from processors.performance import calc_sector_performance, calc_meta_performance, calc_universe_performance, calc_cumulative_meta, calc_meta_signals, calc_meta_chips_signals, get_stock_chips_ranking, get_margin_divergence, calc_market_breadth, calc_capital_concentration, classify_market_regime, calc_meta_heatgrid_windows, calc_stock_sparklines, calc_meta_rank_history, calc_avg20_close
 from storage.csv_writer import CsvWriter
@@ -117,29 +116,22 @@ def _update_chips_db(trade_date: date, stock_ids: list, warnings: list | None = 
             warnings.append("DuckDB 行情匯入失敗")
 
     try:
-        inst_date = trade_date
-        try:
-            inst_df = _retry_fetch(fetch_institutional, inst_date,
-                                    retry_on=(TWSEBlockedError, requests.exceptions.RequestException))
-        except TWSEBlockedError as exc:
-            logger.warning("三大法人抓取失敗（非『尚未發布』）：%s，本次跳過", exc)
-            inst_df = pd.DataFrame()
-        except ValueError:
-            inst_date = _prev_trading_day(trade_date)
-            logger.info("三大法人今日尚未發布，改抓前一交易日 %s", inst_date)
-            inst_df = _retry_fetch(fetch_institutional, inst_date,
-                                    retry_on=(TWSEBlockedError, requests.exceptions.RequestException))
-        if not inst_df.empty:
-            import duckdb
-            con = duckdb.connect("data/screener.db")
-            con.execute("DELETE FROM institutional WHERE date = ?", [inst_date.isoformat()])
-            con.execute("INSERT INTO institutional SELECT * FROM inst_df")
-            con.close()
-            logger.info("三大法人寫入 %d 筆（%s）", len(inst_df), inst_date)
+        # backfill_chips()：回看14個交易日、逐日逐來源(三大法人/融資融券/外資持股%)
+        # 各自判斷缺不缺、只補真的缺的(已有資料的日期直接跳過，多數天真正要打API的
+        # 只有0~1天)。取代原本各自「單日抓取+今日尚未發布就fallback抓前一天」的寫法：
+        # 那種寫法只能補「今天」，任何一天忘記跑(機器沒開、連假、程式當掉)就會留下永久
+        # 缺口，除非事後手動下--backfill-chips——2026-09-02發現margin/foreign_holdings
+        # 缺口遠比institutional嚴重(近60天分別缺19天/25天)，根因就是從沒有這種每日
+        # 自動回補、只能等人手動補。這裡不特判星期幾，任何一天漏跑隔天一跑就自動補齊。
+        chips_written = backfill_chips(days=14)
+        logger.info(
+            "籌碼回補：三大法人%d／融資融券%d／外資持股%%%d 個交易日",
+            chips_written["institutional"], chips_written["margin"], chips_written["foreign_holdings"],
+        )
     except Exception as exc:
-        logger.warning("三大法人寫入失敗: %s", exc)
+        logger.warning("籌碼回補失敗: %s", exc)
         if warnings is not None:
-            warnings.append("三大法人（TWSE）資料寫入失敗")
+            warnings.append("籌碼資料（TWSE 三大法人/融資融券/外資持股%）回補失敗")
 
     try:
         # TPEx OpenAPI 沒有日期參數，只回傳當下這支 API 認定的「今天」，可能跟 trade_date 對不上
@@ -152,8 +144,8 @@ def _update_chips_db(trade_date: date, stock_ids: list, warnings: list | None = 
                 logger.warning("TPEx 三大法人回應包含多個日期 %s，只留最新一天", resp_dates)
                 inst_tpex_df = inst_tpex_df[inst_tpex_df["date"] == max(resp_dates)]
             resp_date = inst_tpex_df["date"].iloc[0]
-            if resp_date != inst_date.isoformat():
-                logger.info("TPEx 三大法人目前是 %s（跟 TWSE 端 %s 不同天，可能尚未更新）", resp_date, inst_date)
+            if resp_date != trade_date.isoformat():
+                logger.info("TPEx 三大法人目前是 %s（跟預期交易日 %s 不同天，可能尚未更新）", resp_date, trade_date)
             import duckdb
             con = duckdb.connect("data/screener.db")
             con.execute(
@@ -169,31 +161,6 @@ def _update_chips_db(trade_date: date, stock_ids: list, warnings: list | None = 
             warnings.append("三大法人（TPEx）資料寫入失敗")
 
     try:
-        marg_date = trade_date
-        try:
-            margin_df = _retry_fetch(fetch_margin_all_twse, marg_date,
-                                      retry_on=(TWSEBlockedError, requests.exceptions.RequestException))
-        except TWSEBlockedError as exc:
-            logger.warning("融資融券抓取失敗（非『尚未發布』）：%s，本次跳過", exc)
-            margin_df = pd.DataFrame()
-        except ValueError:
-            marg_date = _prev_trading_day(trade_date)
-            logger.info("融資融券今日尚未發布，改抓前一交易日 %s", marg_date)
-            margin_df = _retry_fetch(fetch_margin_all_twse, marg_date,
-                                      retry_on=(TWSEBlockedError, requests.exceptions.RequestException))
-        if not margin_df.empty:
-            import duckdb
-            con = duckdb.connect("data/screener.db")
-            con.execute("DELETE FROM margin WHERE date = ?", [marg_date.isoformat()])
-            con.execute("INSERT INTO margin SELECT * FROM margin_df")
-            con.close()
-            logger.info("融資融券寫入 %d 筆（%s）", len(margin_df), marg_date)
-    except Exception as exc:
-        logger.warning("融資融券寫入失敗: %s", exc)
-        if warnings is not None:
-            warnings.append("融資融券（TWSE）資料寫入失敗")
-
-    try:
         margin_tpex_df = _retry_fetch(fetch_margin_all_tpex)
         if not margin_tpex_df.empty:
             resp_dates = margin_tpex_df["date"].unique().tolist()
@@ -201,8 +168,8 @@ def _update_chips_db(trade_date: date, stock_ids: list, warnings: list | None = 
                 logger.warning("TPEx 融資融券回應包含多個日期 %s，只留最新一天", resp_dates)
                 margin_tpex_df = margin_tpex_df[margin_tpex_df["date"] == max(resp_dates)]
             resp_date = margin_tpex_df["date"].iloc[0]
-            if resp_date != marg_date.isoformat():
-                logger.info("TPEx 融資融券目前是 %s（跟 TWSE 端 %s 不同天，可能尚未更新）", resp_date, marg_date)
+            if resp_date != trade_date.isoformat():
+                logger.info("TPEx 融資融券目前是 %s（跟預期交易日 %s 不同天，可能尚未更新）", resp_date, trade_date)
             import duckdb
             con = duckdb.connect("data/screener.db")
             con.execute(
@@ -216,29 +183,6 @@ def _update_chips_db(trade_date: date, stock_ids: list, warnings: list | None = 
         logger.warning("TPEx 融資融券寫入失敗: %s", exc)
         if warnings is not None:
             warnings.append("融資融券（TPEx）資料寫入失敗")
-
-    try:
-        fh_date = trade_date
-        try:
-            fh_df = _retry_fetch(fetch_foreign_holding_twse, fh_date,
-                                  retry_on=(TWSEBlockedError, requests.exceptions.RequestException))
-        except TWSEBlockedError as exc:
-            logger.warning("外資持股%%抓取失敗（非『尚未發布』）：%s，本次跳過", exc)
-            fh_df = pd.DataFrame()
-        except ValueError:
-            fh_date = _prev_trading_day(trade_date)
-            logger.info("外資持股%%今日尚未發布，改抓前一交易日 %s", fh_date)
-            fh_df = _retry_fetch(fetch_foreign_holding_twse, fh_date,
-                                  retry_on=(TWSEBlockedError, requests.exceptions.RequestException))
-        if not fh_df.empty:
-            import duckdb
-            con = duckdb.connect("data/screener.db")
-            con.execute("DELETE FROM foreign_holdings WHERE date = ?", [fh_date.isoformat()])
-            con.execute("INSERT INTO foreign_holdings SELECT * FROM fh_df")
-            con.close()
-            logger.info("外資持股%% 寫入 %d 筆（%s）", len(fh_df), fh_date)
-    except Exception as exc:
-        logger.warning("外資持股%% 寫入失敗: %s", exc)
 
     try:
         # TPEx 沒有日期參數，只回傳「當下」的排行表；用回應自己的 date 為準，不強套 trade_date。
@@ -404,18 +348,14 @@ def backfill_yf(months: int = 19, workers: int = 3) -> None:
     logger.info("=== 補齊完成，共寫入/更新 %d 日 ===", n)
 
 
-def backfill_marg(days: int = 60) -> None:
-    """補齊過去 N 個工作日的 TWSE 融資融券資料"""
-    logger.info("=== 融資融券補齊（往前 %d 個工作日）===", days)
-    n = backfill_margin(days=days)
-    logger.info("=== 融資補齊完成，共寫入 %d 個交易日 ===", n)
-
-
-def backfill_inst(days: int = 60) -> None:
-    """補齊過去 N 個工作日的三大法人資料（TWSE T86，每日一次 API）"""
-    logger.info("=== 法人資料補齊（往前 %d 個工作日）===", days)
-    n = backfill_institutional(days=days)
-    logger.info("=== 法人補齊完成，共寫入 %d 個交易日 ===", n)
+def backfill_chips_cli(days: int = 14) -> None:
+    """補齊過去 N 個交易日的三大法人/融資融券/外資持股%（TWSE 官方三支 API）"""
+    logger.info("=== 籌碼資料補齊（往前 %d 個交易日）===", days)
+    n = backfill_chips(days=days)
+    logger.info(
+        "=== 籌碼補齊完成：三大法人%d／融資融券%d／外資持股%%%d 個交易日 ===",
+        n["institutional"], n["margin"], n["foreign_holdings"],
+    )
 
 
 def _update_shareholder() -> None:
@@ -1186,10 +1126,9 @@ if __name__ == "__main__":
                              "建議 19，會刪舊 CSV 重抓）")
     parser.add_argument("--workers", type=int, default=3, metavar="N",
                         help="backfill-twse / backfill-yf 並行 workers 數（預設 3，過高可能被限速）")
-    parser.add_argument("--backfill-institutional", type=int, default=0, metavar="DAYS",
-                        help="TWSE T86 補齊過去 N 個工作日三大法人資料（建議 60）")
-    parser.add_argument("--backfill-margin", type=int, default=0, metavar="DAYS",
-                        help="TWSE MI_MARGN 補齊過去 N 個工作日融資融券資料（建議 60）")
+    parser.add_argument("--backfill-chips", type=int, default=0, metavar="DAYS",
+                        help="TWSE 三大法人(T86)/融資融券(MI_MARGN)/外資持股%%(MI_QFIIS) "
+                             "補齊過去 N 個交易日（建議 14；同一天缺哪個來源就補哪個）")
     parser.add_argument("--backtest", action="store_true",
                         help="跑巨量換手回測，輸出勝率與期望值統計")
     parser.add_argument("--backtest-accumulation", action="store_true",
@@ -1238,10 +1177,8 @@ if __name__ == "__main__":
         backfill_twse(months=args.backfill_twse, workers=args.workers)
     elif args.backfill_yf:
         backfill_yf(months=args.backfill_yf, workers=args.workers)
-    elif args.backfill_institutional:
-        backfill_inst(days=args.backfill_institutional)
-    elif args.backfill_margin:
-        backfill_marg(days=args.backfill_margin)
+    elif args.backfill_chips:
+        backfill_chips_cli(days=args.backfill_chips)
     elif args.backtest:
         df = run_backtest(lambda d, p: scan_volume_turnover(d, db_path=p))
         print_backtest_summary(df)

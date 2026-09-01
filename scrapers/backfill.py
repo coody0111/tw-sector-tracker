@@ -4,11 +4,11 @@
 方式：
   1. backfill_twse_monthly()     — TWSE STOCK_DAY + TPEx st43 逐股月別（完整覆蓋上市+上櫃）
   2. backfill_yfinance()         — Yahoo Finance 逐股月別（不需 token，雙市場都支援）
-  3. backfill_institutional()    — TWSE T86 逐日三大法人（每日一次 API，速度快）
+  3. backfill_chips()            — TWSE 三大法人/融資融券/外資持股% 逐日補齊（每日各一次 API）
 
 建議流程：
   跑 backfill_twse_monthly（TWSE 先抓，non-TWSE 自動轉 TPEx，約 2~3 小時）；
-  跑 backfill_institutional 補齊過去法人籌碼（建議 60 天）。
+  跑 backfill_chips 補齊過去籌碼資料（預設回看 14 天）。
 """
 import logging
 import time
@@ -575,153 +575,131 @@ def backfill_twse_monthly(
     return written
 
 
-def backfill_margin(
-    days: int = 60,
+_CHIPS_TABLE_SCHEMAS = {
+    "institutional": """
+        CREATE TABLE IF NOT EXISTS institutional (
+            stock_id    VARCHAR,
+            date        DATE,
+            foreign_net BIGINT,
+            trust_net   BIGINT,
+            dealer_net  BIGINT,
+            total_net   BIGINT,
+            PRIMARY KEY (stock_id, date)
+        )
+    """,
+    "margin": """
+        CREATE TABLE IF NOT EXISTS margin (
+            stock_id        VARCHAR,
+            date            DATE,
+            margin_balance  BIGINT,
+            margin_change   BIGINT,
+            short_balance   BIGINT,
+            short_change    BIGINT,
+            PRIMARY KEY (stock_id, date)
+        )
+    """,
+    "foreign_holdings": """
+        CREATE TABLE IF NOT EXISTS foreign_holdings (
+            stock_id    VARCHAR NOT NULL,
+            date        DATE NOT NULL,
+            foreign_pct DOUBLE,
+            PRIMARY KEY (stock_id, date)
+        )
+    """,
+}
+
+
+def backfill_chips(
+    days: int = 14,
     db_path: str = "data/screener.db",
     sleep_sec: float = 0.8,
     today: date = None,
-) -> int:
+) -> dict:
     """
-    補齊過去 N 個工作日的 TWSE 融資融券資料（MI_MARGN API）。
-    已有資料的日期會跳過。回傳：成功寫入的交易日數。
+    補齊過去 N 個交易日的三大法人(T86)/融資融券(MI_MARGN)/外資持股%(MI_QFIIS)——
+    TWSE 三支獨立官方 API，同一天可能只有其中幾個有資料(2026-09-02 實測發現同一天
+    institutional 有寫入、margin/foreign_holdings 卻沒有的情況並不少見)，所以同一輪
+    迴圈裡對每個交易日、每個來源各自獨立判斷缺不缺、各自補，不會因為其中一個來源當天
+    已有資料就連帶跳過其他來源。已有的(來源,日期)組合會跳過。
+
+    TPEx 對應的三個來源(fetch_institutional_tpex/fetch_margin_all_tpex/
+    fetch_foreign_holding_tpex)沒有日期參數、只回傳「當下」，無法回溯，不在這支
+    函式範圍內，仍由每日流程單獨處理。
+
+    回傳 {"institutional": 補了幾天, "margin": 補了幾天, "foreign_holdings": 補了幾天}。
     """
-    from scrapers.chips import fetch_margin_all_twse, TWSEBlockedError
+    from scrapers.chips import (
+        fetch_institutional,
+        fetch_margin_all_twse,
+        fetch_foreign_holding_twse,
+        TWSEBlockedError,
+    )
     import duckdb
 
     today = today or date.today()
     start_date = today - timedelta(days=days)
     trade_days = list(_iter_weekdays(start_date, today))
 
+    sources = [
+        ("institutional", fetch_institutional),
+        ("margin", fetch_margin_all_twse),
+        ("foreign_holdings", fetch_foreign_holding_twse),
+    ]
+
+    existing: dict[str, set] = {}
     try:
         con = duckdb.connect(db_path)
-        con.execute("""
-            CREATE TABLE IF NOT EXISTS margin (
-                stock_id        VARCHAR,
-                date            DATE,
-                margin_balance  BIGINT,
-                margin_change   BIGINT,
-                short_balance   BIGINT,
-                short_change    BIGINT,
-                PRIMARY KEY (stock_id, date)
-            )
-        """)
-        existing_rows = con.execute("SELECT DISTINCT date FROM margin").df()
+        for table, _ in sources:
+            con.execute(_CHIPS_TABLE_SCHEMAS[table])
+        for table, _ in sources:
+            rows = con.execute(f"SELECT DISTINCT date FROM {table}").df()
+            existing[table] = set(rows["date"].astype(str).tolist()) if not rows.empty else set()
         con.close()
-        existing_dates = set(existing_rows["date"].astype(str).tolist()) if not existing_rows.empty else set()
     except Exception as exc:
-        logger.warning("無法讀取現有融資資料: %s", exc)
-        existing_dates = set()
+        logger.warning("無法讀取現有籌碼資料: %s", exc)
+        existing = {table: set() for table, _ in sources}
 
-    need = len([d for d in trade_days if d.isoformat() not in existing_dates])
-    logger.info("融資補齊：%s ~ %s（%d 工作日），需補 %d 日",
-                start_date.isoformat(), today.isoformat(), len(trade_days), need)
-
-    written = 0
-    for i, trade_day in enumerate(trade_days, 1):
-        d_str = trade_day.isoformat()
-        if d_str in existing_dates:
-            continue
-        try:
-            margin_df = fetch_margin_all_twse(trade_day)
-            if margin_df.empty:
-                time.sleep(sleep_sec)
-                continue
-            con = duckdb.connect(db_path)
-            con.execute("DELETE FROM margin WHERE date = ?", [d_str])
-            con.execute("INSERT INTO margin SELECT * FROM margin_df")
-            con.close()
-            written += 1
-            logger.info("  [%d/%d] %s 寫入 %d 筆", i, len(trade_days), d_str, len(margin_df))
-        except TWSEBlockedError as exc:
-            logger.error(
-                "  [%d/%d] %s 疑似被 TWSE 封鎖：%s，提早中止剩餘 %d 日",
-                i, len(trade_days), d_str, exc, len(trade_days) - i,
-            )
-            break
-        except Exception as exc:
-            logger.warning("  [%d/%d] %s 失敗: %s", i, len(trade_days), d_str, exc)
-        time.sleep(sleep_sec)
-
-    logger.info("融資補齊完成：成功寫入 %d 個交易日", written)
-    return written
-
-
-def backfill_institutional(
-    days: int = 60,
-    db_path: str = "data/screener.db",
-    sleep_sec: float = 0.8,
-    today: date = None,
-) -> int:
-    """
-    補齊過去 N 個工作日的 TWSE 三大法人資料（T86 API）。
-    已有資料的日期會跳過，只補缺漏。
-    回傳：成功寫入的交易日數。
-    """
-    from scrapers.chips import fetch_institutional, TWSEBlockedError
-    import duckdb
-
-    today = today or date.today()
-    start_date = today - timedelta(days=days)
-    trade_days = list(_iter_weekdays(start_date, today))
-
-    # 查詢 DB 中已有哪些日期
-    try:
-        con = duckdb.connect(db_path)
-        con.execute("""
-            CREATE TABLE IF NOT EXISTS institutional (
-                stock_id    VARCHAR,
-                date        DATE,
-                foreign_net BIGINT,
-                trust_net   BIGINT,
-                dealer_net  BIGINT,
-                total_net   BIGINT,
-                PRIMARY KEY (stock_id, date)
-            )
-        """)
-        existing_rows = con.execute("SELECT DISTINCT date FROM institutional").df()
-        con.close()
-        existing_dates = set(existing_rows["date"].astype(str).tolist()) if not existing_rows.empty else set()
-    except Exception as exc:
-        logger.warning("無法讀取現有法人資料: %s", exc)
-        existing_dates = set()
-
+    need = {
+        table: len([d for d in trade_days if d.isoformat() not in existing[table]])
+        for table, _ in sources
+    }
     logger.info(
-        "法人補齊：%s ~ %s（%d 工作日），已有 %d 日，需補 %d 日",
-        start_date.isoformat(), today.isoformat(),
-        len(trade_days), len(existing_dates),
-        len([d for d in trade_days if d.isoformat() not in existing_dates]),
+        "籌碼補齊：%s ~ %s（%d 交易日），需補 三大法人%d／融資融券%d／外資持股%%%d 日",
+        start_date.isoformat(), today.isoformat(), len(trade_days),
+        need["institutional"], need["margin"], need["foreign_holdings"],
     )
 
-    written = 0
+    written = {"institutional": 0, "margin": 0, "foreign_holdings": 0}
+    blocked: set = set()
     for i, trade_day in enumerate(trade_days, 1):
         d_str = trade_day.isoformat()
-        if d_str in existing_dates:
-            continue
-
-        try:
-            inst_df = fetch_institutional(trade_day)
-            if inst_df.empty:
-                logger.debug("  %s 無資料（非交易日或尚未發布），跳過", d_str)
-                time.sleep(sleep_sec)
+        for table, fetch_fn in sources:
+            if table in blocked or d_str in existing[table]:
                 continue
+            try:
+                df = fetch_fn(trade_day)
+                if df.empty:
+                    logger.debug("  %s %s 無資料（非交易日或尚未發布），跳過", table, d_str)
+                    time.sleep(sleep_sec)
+                    continue
+                con = duckdb.connect(db_path)
+                con.execute(f"DELETE FROM {table} WHERE date = ?", [d_str])
+                con.execute(f"INSERT INTO {table} SELECT * FROM df")
+                con.close()
+                written[table] += 1
+                logger.info("  [%d/%d] %s %s 寫入 %d 筆", i, len(trade_days), table, d_str, len(df))
+            except TWSEBlockedError as exc:
+                blocked.add(table)
+                logger.error(
+                    "  [%d/%d] %s %s 疑似被 TWSE 封鎖：%s，這個來源本輪剩餘天數中止（其他來源繼續）",
+                    i, len(trade_days), table, d_str, exc,
+                )
+            except Exception as exc:
+                logger.warning("  [%d/%d] %s %s 失敗: %s", i, len(trade_days), table, d_str, exc)
+            time.sleep(sleep_sec)
 
-            con = duckdb.connect(db_path)
-            con.execute("DELETE FROM institutional WHERE date = ?", [d_str])
-            con.execute("INSERT INTO institutional SELECT * FROM inst_df")
-            con.close()
-            written += 1
-            logger.info("  [%d/%d] %s 寫入 %d 筆", i, len(trade_days), d_str, len(inst_df))
-
-        except TWSEBlockedError as exc:
-            logger.error(
-                "  [%d/%d] %s 疑似被 TWSE 封鎖：%s，提早中止剩餘 %d 日",
-                i, len(trade_days), d_str, exc, len(trade_days) - i,
-            )
-            break
-        except Exception as exc:
-            logger.warning("  [%d/%d] %s 失敗: %s", i, len(trade_days), d_str, exc)
-
-        time.sleep(sleep_sec)
-
-    logger.info("法人補齊完成：成功寫入 %d 個交易日", written)
+    logger.info(
+        "籌碼補齊完成：三大法人%d／融資融券%d／外資持股%%%d 個交易日",
+        written["institutional"], written["margin"], written["foreign_holdings"],
+    )
     return written

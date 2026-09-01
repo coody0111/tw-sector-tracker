@@ -70,6 +70,31 @@ def test_parse_big5_page_maps_11_columns_and_skips_total():
     assert row["source"] == "mops_monthly_history"
 
 
+def test_parse_real_page_header_with_10_cells_and_spaced_label():
+    """2026-09-02 debug 複驗 Big5 修復時真實打 TWSE 2025-06 頁面才暴露的獨立bug：
+    真實表頭列只有10格（不是資料列的11格），且第一格文字是「公司 代號」（中間多一個
+    空格），原本的 len(texts)>=11 and texts[0]=="公司代號" 兩個條件都對不上，
+    header_seen 永遠False，990列合法資料全被判定失敗。"""
+    cells = [
+        "2330", "台積電", "1,000", "900", "800", "11.11", "25.00",
+        "1,000", "800", "25.00", "-",
+    ]
+    html = f"""<html><head><meta http-equiv="Content-Type" content="text/html;charset=big5"></head>
+    <body><h2>上市公司113年1月份營業收入統計表</h2>
+      <table><tr><td>產業別：半導體業</td><td>單位：千元</td></tr>
+        <tr><th>公司 代號</th><th>公司名稱</th><th>當月營收</th><th>上月營收</th>
+          <th>去年當月營收</th><th>上月比較增減(%)</th><th>去年同月增減(%)</th>
+          <th>當月累計營收</th><th>去年累計營收</th><th>前期比較增減(%)</th></tr>
+        <tr>{''.join(f'<td>{value}</td>' for value in cells)}</tr>
+        <tr><td>合計</td>{''.join('<td>0</td>' for _ in range(10))}</tr>
+      </table>
+    </body></html>""".encode("big5")
+
+    rows = parse_monthly_revenue_html(html, "TWSE", 2024, 1)
+    assert len(rows) == 1
+    assert rows[0]["stock_id"] == "2330"
+
+
 def test_tpex_title_sets_tpex_exchange():
     rows = parse_monthly_revenue_html(
         _page(exchange_title="上櫃公司"), "TPEx", 2024, 1,

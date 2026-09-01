@@ -3110,3 +3110,113 @@ reimport 完成：共 372163 筆
   會讓資料悄悄變 NULL 或整批失敗的問題**（早期 EPS 遺失、月營收 Big5 解碼在真實 2025 年
   資料就會炸），都是「不報錯但給錯/給不了結果」的類型，符合 CLAUDE.md 最在意的那種
   bug，建議在真正執行完整回填之前先修。
+
+---
+
+## [2026-09-02] 驗證 - Index 第二輪(抽屜/固定色階/導覽/TradingView K線) ＋ Index 桌面工作區精簡
+
+### 驗證方式
+- 這兩則交接的功能已經被同一個 master merge commit（`afbca8b`/`10d134c`）併成同一份
+  `export/index_generator.py`，兩份文件描述的區塊順序略有出入，照 Cody 指示**以這次
+  `git merge master` 後 repo 實際的程式碼/實跑輸出為準**，不糾結哪份文件「對」
+- `pytest tests/test_index_generator.py tests/test_processors.py -q --basetemp <可寫路徑>`：
+  155 項全過
+- **真實資料重新產生兩份 `docs/index.html`**（`data_mode="close"` 與 `"intraday"` 各一份，
+  用這台機器 `data/screener.db` 2026-08-25 的真實 42 族群資料，不是測試假資料），輸出到
+  scratchpad、程式化比對字串位置/正則抽取
+- **實際打一組惡意族群/個股名稱**（`<script>alert(1)</script>`／
+  `"><img src=x onerror=alert(2)>`）進 `universe_df`/`meta_perf`，跑真實 `generate()`，
+  逐一檢查輸出 HTML 裡每個插入點是否真的被跳脫
+- 這台機器沒有瀏覽器工具，視覺/實際互動（多寬度排版、TradingView 圖表真的畫出來、斷網
+  情境）如實回報跳過，程式碼邏輯面能查的都查了
+
+### 🔴 發現一個真的會 XSS 的跳脫漏洞（未回報，新發現，實測重現）
+- **族群搜尋下拉選單的 `onmousedown` 屬性只跳脫了單引號，沒有跳脫雙引號/HTML特殊字元，
+  惡意族群名稱可以跳脫屬性注入任意 HTML/事件**。`export/index_generator.py`
+  `searchStocks()` 內：
+  ```js
+  return `<div class="search-item" onmousedown="selectSearchMeta('${{m.name.replace(/'/g, "\\\\'")}}')">`
+    + `<span class="si-id si-meta-icon">族群</span><span class="si-name">${{escHtml(m.name)}}</span>`
+  ```
+  同一個 `m.name` 在同一行裡兩種待遇不一致：`<span class="si-name">` 的顯示文字有正確用
+  `escHtml()`，但緊鄰的 `onmousedown="..."` 屬性只對單引號做字串轉義（給 JS 字串上下文用），
+  完全沒有對雙引號/`<`/`>` 做 HTML 屬性層級的跳脫。用真實 `generate()` 實測：把
+  `meta_sector` 設成 `"><img src=x onerror=alert(2)>`，這個原始字串完整、未跳脫地出現在
+  輸出 HTML 裡（`STOCK_INDEX`/`META_INDEX` 這兩個 JS 常數本身沒問題，是合法 JSON 字串，
+  瀏覽器不會當 HTML 解析；問題是使用者在搜尋框打出對應族群、觸發 `searchStocks()`
+  在瀏覽器裡動態組出這段 `onmousedown` 屬性字串寫進 `innerHTML` 那一刻，字串裡的雙引號
+  會提前結束屬性、讓 `onmouseover=...` 這類新屬性被瀏覽器當成真的屬性解析）。同一支函式
+  裡 `selectSearchStock('${{s.id}}')`（股票代號版本）連單引號轉義都沒有，只是
+  `stock_id` 目前一定是數字代號，實務風險低，但寫法上是同一個洞。
+  對照組：`data-meta-name="..."` 那個走 dataset 讀值的路徑（熱區格 tile 的
+  `onclick="selectGroup(this.dataset.metaName,true)"`）跟 drawer 標題的
+  `safeName = escHtml(name)` 都是正確、安全的寫法，問題只出在搜尋下拉這一處。
+  位置：`export/index_generator.py`，`searchStocks()` 函式（`selectSearchMeta`/
+  `selectSearchStock` 的 `onmousedown` 屬性組字串那兩行）。
+  建議修法：跟 drawer 標題一樣改用 `escHtml()` 處理要塞進屬性的值（`escHtml` 通常會把
+  `"` 轉成 `&quot;`），或乾脆比照熱區格 tile 改用 `data-*` 屬性 + `addEventListener`
+  取代 inline `onmousedown="...('${{...}}')"` 字串拼接，從根本避免這類「值裡本身就有
+  引號」的注入手法。
+  嚴重度說明：目前族群/個股名稱資料源都是 `stock_universe.csv`（Cody/Developer 控管，
+  不是外部使用者輸入），現況下被真的利用的機率低；但 checklist 明確要求檢查「惡意族群/
+  個股名稱」，這類防禦性寫法不一致值得記錄，且如果之後名稱資料源改成任何形式的外部/
+  第三方資料，這個洞就會變成真的可利用。
+
+### ✅ 驗證通過（對照兩份交接合併後的 checklist，逐項用真實輸出驗證）
+- **頁面順序**：真實輸出程式化抽取確認為
+  「市場現況 → 族群Top10(含heatgrid) → 今日研究順序(值得研究/先觀察/避開) → 巨量換手」，
+  跟第2批文件描述一致，跟第3批文件描述（巨量換手在Top10前面）不一致——照指示以實際輸出
+  為準，這只是記錄兩份文件哪個跟目前程式碼吻合，不是 bug。
+- **固定色階**：`heat_bg()` 明確用 magnitude 分界 `>=4.0/>=2.0/>=1.0` 三個門檻對應
+  62%/46%/30%/18% 四級透明度，`max_abs_pct` 參數註明「刻意不參與計算」，同一 1.5% 永遠
+  對應同一透明度，不受當日最大漲跌幅影響；紅漲綠跌用同一組透明度數字、只換色相變數，
+  強度對稱。
+- **研究分類互斥＋衝突標記**：`build_research_buckets()` 用 if/elif/elif 結構，天生
+  互斥（一張卡最多進一個分類）；「短線異常跳升」對應 `is_live_anomaly`/`is_rank_jump`，
+  跟 `is_cooling`（週度退燒）同時成立時會被歸進「值得研究」但額外掛
+  `conflict_tags=["週度仍退燒"]`，符合 checklist 描述的情境；巨量換手（個股層級、
+  獨立資料結構）從未傳進這個函式，架構上就不可能進「避開」，不需要額外排除邏輯。
+- **抽屜寬度**：CSS 直接寫 `width:min(1180px,80vw)`，`@media(max-width:820px)` 覆寫成
+  `width:100vw`，跟 checklist 數字精確吻合。
+- **盤中/收盤標籤**：真實產生 `data_mode="intraday"` 版本，程式化確認輸出含「盤中資料，
+  尚未收盤確認」「疑似巨量換手」，且不含「收盤快照」字樣；`data_mode="close"`版本則反過來。
+- **localStorage 狀態持久化涵蓋範圍完整**：單一 `sectorView` 物件涵蓋
+  `showAll`/`bucket`/`name`/`sort`/`rankMode`/`advancedActive`/`tier`/`minVol`/
+  `minRank`/`foreign`/`trust`，剛好對應 checklist 提到的 Top10/全部、研究分類、名稱搜尋、
+  排序、進階條件全部項目，存讀都包 try/catch 防呆。
+- **TradingView 圖表載入/清理邏輯**：`ensureLightweightCharts()` 用單一
+  `_lightweightChartsPromise` 快取，`window.LightweightCharts` 已存在時直接複用、不重複
+  插入 script（對應「第二次不重複插入script」）；`destroyStockChart()` 正確
+  `disconnect()` ResizeObserver 並 `chart.remove()`、兩個模組級變數都歸零；`catch` 分支
+  正確顯示「K 線載入失敗，請重新開啟個股詳情。」（字句跟 checklist 幾乎逐字對應），且這個
+  錯誤處理只影響圖表狀態元素本身，不影響同一個 modal 裡已經渲染好的價格/量比/籌碼資訊；
+  蠟燭圖用 `color('--up')`/`color('--down')` 跟成交量長條 rgba 顏色都對應紅漲綠跌（跟
+  專案既有配色慣例一致）。
+- **14 欄表格/escHtml 一般字串跳脫**：`renderStockListItem()`／`stock-card-modal`／
+  drawer 標題都正確用 `escHtml()` 處理股票代號/名稱顯示文字（跟上面那個屬性注入漏洞的
+  「顯示文字」半邊完全沒問題，問題只在「inline 事件屬性」半邊）；實測注入
+  `<script>alert(1)</script>` 當 `stock_name`，確認輸出裡沒有原始未跳脫的
+  `<script>` 標籤（JSON 區塊裡的字面出現是安全的，見上方漏洞說明的對照）。
+- **媒體查詢斷點存在**：768px（`.detail-three-col`）／1180px／820px／520px 四個
+  `@media` 規則都在，`.sector-drawer`/`.heatgrid`/`.research-grid` 等關鍵版面元素在每個
+  斷點都有對應覆寫規則，結構上涵蓋 checklist 提到的寬度區間邊界；375px 沒有獨立斷點、
+  沿用 520px 那組規則（可能是刻意的行動裝置統一處理，也可能是遺漏，純記錄不下判斷，
+  因為沒瀏覽器無法看實際渲染結果判斷好不好看）。
+
+### 未能完成的驗證項（如實回報，這台機器沒有瀏覽器工具）
+- 1440／1180／820／520／375px 實際瀏覽器渲染有無重疊/溢位/loading雙倍高度——只確認了
+  CSS 規則存在，沒有真的用瀏覽器看過畫面
+- TradingView 圖表真的畫出來的視覺結果（K棒顏色、attribution 是否可見、日期順序）——
+  只驗證了程式邏輯，沒有真的執行 JS 讓圖表渲染
+- 斷網/阻擋 jsDelivr 時的實際使用者體驗——只確認 catch 分支的文字邏輯存在
+- 鍵盤 focus 順序、drawer 開關的 focus restoration、Esc/backdrop close 手感——需要真實
+  DOM 互動，這台機器做不到
+- 抽屜開合動畫是否造成 heatgrid reflow——需要真實瀏覽器 layout 才能觀察
+
+### 結論
+- [ ] 需要 Developer 修復後再確認 — 大部分邏輯性 checklist 項目（含頁面順序、固定色階、
+  研究分類互斥、抽屜寬度、盤中/收盤標籤、localStorage、TradingView載入/清理邏輯、一般
+  文字跳脫）都用真實資料重產+程式化驗證通過。但**抓到一個真的可重現的 XSS 屬性注入
+  漏洞**（族群搜尋下拉選單的 onmousedown 屬性跳脫不完整），符合 checklist 明確要求
+  檢查的「惡意族群/個股名稱」項目，建議修掉；視覺/互動類項目本機無法驗證，如實記錄
+  跳過，需要有瀏覽器工具的環境或 Cody 親自過一輪。

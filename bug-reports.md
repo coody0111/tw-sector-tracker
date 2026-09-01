@@ -2996,3 +2996,117 @@ reimport 完成：共 372163 筆
 ### 結論
 - [x] 可以繼續下一個任務 — 三個問題各自的修復都經過 code review + 正式 DB 驗證 + 對修復前
   行為的重現確認，metric 上也獨立複算出跟 commit 聲稱一致的金居 24.5% 數字，沒有發現新問題。
+
+---
+
+## [2026-09-02] 驗證 - MOPS 官方基本面歷史 Phase 2A＋2B
+
+### 驗證方式
+- `pytest tests/test_mops_xbrl.py tests/test_mops_monthly_revenue.py tests/test_fundamentals.py -v`：
+  27 項全過；`pytest tests/test_database.py tests/test_main.py -v`：37 項全過，無 regression
+- 深度 code review：`_archive_link_from_url()`/`_iter_zip_documents()`/`_numeric_value()`/
+  `_normalize_canonical_value()`/`_context_matches()`/`financial_fact_growth` view SQL/
+  `_upsert_monthly_revenue()` 逐項對照 checklist 的 12 個邏輯性項目
+- **實際對真實 MOPS 官方伺服器執行**（不是只看程式碼/測試）：`discover_ifrs_archives()` 抓到
+  55 筆真實 2013Q1~2026Q4 清單；完整下載並解析真實 `tifrs-2013Q1.zip`（39.7MB，1530 個
+  instance）與 `tifrs-2025Q4.zip`，抽查 2330／1101；另外實際打真實 MOPS 月營收靜態頁
+  （TWSE 2025-06）
+- 用合成 4-次全壞的 mock session 驗證下載重試耗盡後的錯誤訊息內容（debug-tasks.md 標
+  「Debugger以mock驗證」但既有測試檔沒有這個案例，補一支獨立腳本驗證，不是加進正式測試檔）
+
+### 🔴 數據問題（需立刻修，這次真實執行才抓到，靜態解析看不出來）
+
+- **問題一：EPS/稀釋EPS 在 2013 Q1（可能整個早期轉換期）100% 遺失，且是系統性、不是個案**。
+  用真實 `tifrs-2013Q1.zip` 抽查 2330／1101，兩者的 `canonical_facts` 都完全沒有
+  `eps`/`diluted_eps`（`revenue`/`net_income` 等其他 28 個 metric 都正常）。往下追到原始
+  XML：2330 的 `BasicEarningsLossPerShare` raw fact 值是 `1.53`（跟公開已知的台積電
+  2013Q1 EPS 完全吻合，代表原始資料本身正確），但 `unitRef="TWD"`——同一份文件裡其實有
+  正確定義好的 `<unit id="EarningsPerShare"><divide><unitNumerator>TWD</unitNumerator>
+  <unitDenominator>shares</unitDenominator></divide></unit>`，但這筆 fact 沒有引用它，
+  用的是純貨幣單位 `TWD`。`_normalize_canonical_value()`（`scrapers/mops_xbrl.py:624-627`）
+  要求 unit 字串同時含 `"twd"` 和 `"share"` 才接受為 eps，`TWD` 這個 unit 解析出來的字串
+  沒有 `"share"`，直接被拒絕、回 `None`，連帶讓 `_canonical_facts()` 第 671 行的
+  `fact["numeric_value"] is None` 檢查直接濾掉整筆——**值是對的，只是因為原始申報單位
+  標示不夠標準（早期轉換期常見的鬆散標法）就被整批丟棄**。掃了同一份 archive 前 300 筆
+  instance，**全部**「有 raw EPS fact」的公司都是這個下場（300/300）。對照組：真實
+  `tifrs-2025Q4.zip` 抽查 200 筆，**canonical eps 100% 正常**（200/200），確認這是
+  「早期資料的 unit 標示習慣」問題，不是全面性 regression，但確實會讓「從 2013 回填」
+  這個明確的任務需求在最前面幾年（至少 2013Q1，實際涵蓋範圍需要抓更多季度才能確定）
+  拿到的 EPS 是系統性空白，不會報錯、只會安靜地是 NULL。
+  位置：`scrapers/mops_xbrl.py:624-627`（`_normalize_canonical_value` 的 eps 分支）。
+  建議修法方向：unit 判斷放寬成「unitRef 對應到的 measure 是 TWD，且 concept 本身是
+  EPS 系列（`BasicEarningsLossPerShare`/`DilutedEarningsLossPerShare`）」時也接受
+  （不強制要求 unit 字串含 share，因為 concept 名稱本身已經消歧義），或至少對這個模式
+  發 warning 而不是靜默回 None，方便之後區分「真的缺資料」跟「單位標示不規範被誤濾」。
+
+- **問題二：月營收 Big5 靜態頁在真實資料上會直接整月失敗（已重現，不是理論案例）**。
+  實際打 `https://mopsov.twse.com.tw/nas/t21/sii/t21sc03_114_6_0.html`（TWSE 2025年6月，
+  HTTP 200、Content-Type 正確標 `charset=big5`）：前 500 bytes 用 Python `'big5'` codec
+  解沒問題，但解**整頁**（448,895 bytes）在 offset 184486 遇到 `\xa7\xbb\xf9\xd6` 這個
+  byte sequence 直接 `UnicodeDecodeError: 'big5' codec can't decode byte 0xf9`——這是
+  股票代號 **2353** 那一列公司名稱裡的字元，落在標準 Big5 字集外、但屬於台灣政府機關
+  常用的 Big5 擴充字集。改用 `'cp950'` 或 `'big5hkscs'` 這兩個 codec 都能完整解碼整頁
+  （438,592 字元，零錯誤）。目前 `parse_monthly_revenue_html()`
+  （`scrapers/mops_monthly_revenue.py` 約120行）用嚴格 `content.decode("big5")`，遇到
+  這種情況會讓**整個月、所有公司**的資料都抓不到（不是只有 2353 那一列受影響），且
+  `fetch_monthly_revenue_page()` 目前的容錯路徑（換月份補零重試）救不了這個——兩個
+  候選網址都會踩到同一個編碼問題。這不是邊界案例，是這次隨手驗證第一個真的打上真實
+  2025年資料就踩到的（不需要回到很久以前的歷史資料）。
+  位置：`scrapers/mops_monthly_revenue.py`（`parse_monthly_revenue_html` 的
+  `content.decode("big5")` 那行）。建議修法：改用 `cp950` 或 `big5hkscs`（兩者對這頁都
+  驗證過完整可解），這兩個是 `big5` 的相容超集，不會讓原本能解的頁面變得解不了。
+
+### ✅ 驗證通過（對照 checklist 逐項，含之前標「未驗證」的追加修正項目）
+- **只接受官方 IFRS ZIP**：`_archive_link_from_url()` 同時檢查 netloc（只認
+  `mopsov.twse.com.tw`）與檔名 regex（只認 `tifrs-YYYYQN.zip`），TW-GAAP／外站連結會被
+  正確濾掉，對應測試通過。
+- **decimals 不會被當倍率**：`_numeric_value()` 只用獨立的 `scale` 參數做
+  `10**int(scale)` 換算，`decimals` 全檔只在兩處被當成單純 metadata 存起來，從未參與
+  數值運算，程式碼掃過確認沒有任何地方把兩者混用。
+- **ZIP 巢狀解析安全**：`_iter_zip_documents()` 全程只用 `archive.read()` 在記憶體操作，
+  從頭到尾沒有呼叫過 `extractall()`，不可信的 entry 檔名不會被拿去當磁碟路徑寫檔，本質上
+  沒有 zip-slip 的攻擊面；深度限制 2 層＋`testzip()`先驗CRC。不支援的副檔名（非
+  `.xml/.xbrl/.xhtml/.html/.htm/.zip`）會被 `elif suffix in supported` 迴圈直接跳過，
+  不拋例外，符合「安全跳過而非整批誤判」（真實 2013Q1/2025Q4 archive 剛好都只含 `.xml`，
+  沒有機會實測到巢狀公司 ZIP 或非標準支援檔案，這部分是純程式碼保證，不是實測保證）。
+- **idempotent + 新版衝突不殘留舊值**（原本標「未驗證」，這次確認）：
+  `test_new_archive_conflict_does_not_leave_previous_canonical_projection` 直接驗證
+  「第一版乾淨值→第二版同一 concept 出現衝突」情境下，`xbrl_current_facts` 與
+  `financial_facts` 對該 metric 的筆數都是 0（不會殘留第一版的舊值），測試通過。
+- **`report_date` 對 XBRL 一律 NULL**：`scrapers/mops_xbrl.py` 兩處都寫死
+  `"reported_at": None`，跟 `retrieved_at`（抓取時間）完全獨立，不會混淆。
+- **Q2 累計值精確推回單季、缺前季回 NULL**：`financial_fact_growth` view 的
+  `single_quarter_value` CASE 對 Q1 直接用原值、Q2+ 用「本季YTD - 上季YTD」且上季值
+  `NULL` 時整個回 `NULL`，join 條件精確比對 `fiscal_year`/`quarter-1`，不是模糊比對。
+- **EPS 的單季/QoQ/單季YoY 為NULL、累計YoY 正常算**：三個 CASE 都對
+  `metric_key IN ('eps','diluted_eps')` 顯式回 NULL，唯獨累計 YoY（`calculated_ytd_yoy_pct`）
+  沒有這個排除、只看 `is_ytd`，SQL 邏輯完全符合規則（惟這條路徑目前吃到的 canonical eps
+  值本身在早期資料有上述問題一的缺口）。
+- **4 次下載全失敗的錯誤訊息內容**（原本標「未驗證」，這次確認）：合成 mock 讓 4 次都回
+  截斷內容，確認 `session.calls==4`，最終錯誤訊息含「共 4 次」、bytes 數、Content-Type、
+  Content-Length 四項全部到位。
+- **合計列不寫入、11欄對位、產業別正確**：`_STOCK_ID_RE=r"\d{4,6}"` 的 `fullmatch` 天然
+  排除「合計」這類非數字開頭列，不需要額外硬編關鍵字比對；11 欄用固定 dict key 對應，
+  缺產業別會直接拋錯而不是塞空值。
+- **HTTP 200擋頁／錯誤年月／無11欄不寫入空頁**：三種情況都在寫檔（磁碟快取）之前的
+  `parse_monthly_revenue_html()` 內被攔下並拋例外，寫檔動作只會在成功解析之後才執行。
+- **歷史頁NULL report_date不會覆蓋既有OpenAPI日期**：`_upsert_monthly_revenue()` 在
+  delete+insert 前，會先查 DB 裡已存在的非NULL `report_date`，把即將寫入的NULL列
+  換成保留舊值再寫入，跟 `backfill_mops_monthly_revenue()`
+  「先歷史頁（NULL）、最後OpenAPI（有日期）」的執行順序搭配，正確不互相覆蓋。
+
+### 未能完成的驗證項
+- **完整 2013→現在歷史回填**：只小範圍實跑了 2013Q1／2025Q4 兩個真實季度（如
+  debug-tasks.md 建議的「先小範圍驗證真實結構」），沒有跑完整歷史（本身就是`backfill`的
+  Cody 待辦，不是這次要做的）；問題一（EPS 遺失）目前只確認 2013Q1 全中、2025Q4 全過，
+  中間哪些季度受影響需要之後掃過才知道範圍。
+- **真實 XML support file 安全跳過**：兩個真實抽查的 archive 剛好都只含 `.xml`，沒有機會
+  實測「非標準支援檔」或「巢狀公司ZIP」這兩種結構，這部分只有程式碼保證（見上方 ✅），
+  沒有實測保證。
+
+### 結論
+- [ ] 需要 Developer 修復後再確認 — 邏輯性 checklist 項目（含原本標「未驗證」的3項）全部
+  review/實測通過，pytest 全綠、無 regression。但**這次拿真實 MOPS 資料實跑抓到兩個真的
+  會讓資料悄悄變 NULL 或整批失敗的問題**（早期 EPS 遺失、月營收 Big5 解碼在真實 2025 年
+  資料就會炸），都是「不報錯但給錯/給不了結果」的類型，符合 CLAUDE.md 最在意的那種
+  bug，建議在真正執行完整回填之前先修。

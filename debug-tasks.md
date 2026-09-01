@@ -4389,3 +4389,32 @@ close/change/volume 寫進 row → 每次 backfill 都讓 K 棒失去 OHLC。這
 - Developer 依 repo 規則未執行 pytest、真實資料流程或重產 `docs/index.html`；只完成 Python compile 與 `git diff --check`。
 - `main.py`、`docs/CONTEXT.md`、`log.md` 同時有 Cody 的官方基本面 WIP；驗證／commit 時只能挑本任務相關 hunk，不可覆蓋或整批 stage。
 - 60 交易日快照保存與更新失敗 stale banner 的排程生命週期尚未接線，不列為本次 UI 驗證失敗。
+
+---
+
+## [2026-09-02] 修復3個真實bug(EPS遺失/Big5解碼/搜尋XSS) — commit 37c7d52
+
+### 改了什麼
+- 異動檔案：`scrapers/mops_xbrl.py`、`scrapers/mops_monthly_revenue.py`、
+  `export/index_generator.py`、`tests/test_index_generator.py`。
+- 針對你這次驗證抓到的3個真實bug（`bug-reports.md` 2026-09-02 兩則報告）逐一修復：
+  1. `_normalize_canonical_value()` eps分支：拿掉「unit字串要同時含twd和share」的
+     share要求，只要求含twd即可（concept本身已消歧義），修掉2013Q1等早期申報EPS
+     系統性遺失的問題。
+  2. `parse_monthly_revenue_html()`：`content.decode("big5")` 改成
+     `content.decode("cp950")`，修掉真實2025年月營收頁在Big5擴充字元上炸掉的問題。
+  3. `searchStocks()`：`onmousedown` 屬性改用新增的 `escAttr()` + `data-*` 屬性
+     （比照heat-tile既有安全寫法），不再把族群/股票名稱直接內插進「HTML屬性裡的
+     JS字串」，修掉XSS屬性注入。
+
+### 請 Debugger 驗證
+- [ ] `pytest tests/test_mops_xbrl.py tests/test_mops_monthly_revenue.py tests/test_index_generator.py -q` 全綠（本機647 passed）。
+- [ ] 用你原本抽查的2013Q1真實archive（2330/1101）重新跑一次，確認canonical_facts現在有eps/diluted_eps。
+- [ ] 用你原本實測的TWSE 2025-06真實月營收頁，確認`parse_monthly_revenue_html()`不再UnicodeDecodeError、能正確解析。
+- [ ] 重新對`searchStocks()`打你原本的payload（`"><img src=x onerror=alert(2)>`當meta_sector），確認`data-meta-name`/`data-stock-id`屬性值裡雙引號/角括號都被escAttr()轉義，不會提前結束屬性。
+- [ ] 確認`selectSearchStock('${s.id}')`那個你順帶提到「單引號都沒轉義」的股票代號版本，現在也一起改成data-*寫法了（不是只修了族群那半）。
+
+### 特別注意
+- Developer本機用node.js實際執行修好的`escAttr()`邏輯確認payload不再能跳脫屬性（不只是靜態比對generate()輸出字串），但沒有真實瀏覽器環境跑過`searchStocks()`完整互動流程。
+- EPS修法是放寬unit判斷（拿掉share要求），沒有對早期資料加額外warning區分「真的缺資料」vs「單位標示不規範」——如果你覺得這個區分也該做，請在報告裡提出來，這次先解決「值被誤濾成None」這個核心問題。
+- 月營收沒有再往前找cp950是否對所有歷史年月都適用，只驗證了你抓到的2025-06這頁。

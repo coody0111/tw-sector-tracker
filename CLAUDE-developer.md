@@ -75,7 +75,10 @@ tw-sector-tracker/
 2. **主動同步到 debug worktree**：去 `../tw-sector-tracker-debug` 資料夾確認乾淨
    （沒有未 commit 的東西）後執行 `git merge master`，不用等 Cody 提醒。如果那邊
    有未 commit 的變更，先跟 Cody 確認怎麼處理，不要硬蓋過去。
-3. 更新 `debug-tasks.md`：
+3. 更新 `debug-tasks.md`：**一律 append 到檔案最後面，不要 prepend 到最上面**（2026-09-02
+   踩過的雷：曾有交接被插到檔案最上面，Debugger 自己認定「新的在最上面」只驗頂部幾則，
+   結果後來 append 在檔案最下面的交接被完全略過，拖了好幾天沒人驗到）。`bug-reports.md`
+   也是同一個規矩——append-only，兩份檔案永遠只從最下面找「還沒驗證/還沒處理」的交接。
 
 ```
 ## [YYYY-MM-DD] 任務名稱

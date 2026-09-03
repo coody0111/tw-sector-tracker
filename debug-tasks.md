@@ -4718,3 +4718,55 @@ Cody 依序執行兩次 `python main.py --backfill-chips 60`（正式`data/scree
 - 60天內其餘缺口（原本三大法人6天/融資融券21天/外資持股%27天）已全部補齊，只剩這
   1天3個來源是永久缺口。
 - 沒有新增/修改任何程式碼，純資料面確認，不需要pytest或code review。
+
+---
+
+## [2026-09-04] MOPS財報回填：單一XBRL案例文件解析失敗不再讓整季archive連坐失敗(commit 954cd11)
+
+### 改了什麼
+- 異動檔案：`scrapers/mops_xbrl.py`、`tests/test_mops_xbrl.py`
+- 邏輯說明：
+  - Cody跑`python main.py --backfill-fundamentals <year>`時，在2021Q3archive遇到
+    `MopsXbrlError: fact 引用不存在的 context：tifrs-fr1-m1-bd-cr-2855-2021Q3.html/
+    From20210101To20210331`，整個backfill中斷。
+  - 追查後確認**不是parser bug**：直接解Big5編碼、grep原始快取ZIP裡2855的申報檔案，
+    該公司申報本身就沒有定義`From20210101To20210331`/`AsOf20210331`這兩個context，
+    是MOPS官方申報資料本身的缺陷。
+  - 原本的問題在呼叫端：`iter_archive_instances()`讓單一案例文件的`parse_xbrl_instance()`
+    例外直接往上炸，導致`save_downloaded_archive()`整季（2021Q3那包近1800家公司）的
+    transaction rollback，`backfill_mops_xbrl()`也整個中斷，後面年度/季度都跑不到。
+  - 修法：`iter_archive_instances()`改成單一案例文件解析失敗只記`logger.warning`後
+    `continue`略過，其餘案例照常處理累積進同一個transaction。ZIP本身損毀（巢狀zip/
+    CRC錯誤，`_iter_zip_documents()`拋的那類）仍視為整個archive不可信、照樣往上拋出，
+    這塊行為完全沒動。
+  - `parse_xbrl_instance()`本身的邏輯**沒有放寬**——遇到fact引用不存在的context一樣硬性
+    拋`MopsXbrlError`，既有的`test_missing_context_reference_fails_the_instance`原封不動
+    通過，只是呼叫端不再讓它波及同一個archive裡的其他公司。
+
+### 資料來源相關（如有異動）
+- 上市/上櫃：不涉及，這是MOPS官方IFRS XBRL歷史回補（`--backfill-fundamentals`），
+  跟TWSE/TPEx每日流程、FinMind、yfinance都無關，是獨立的第三個資料來源。
+
+### 請 Debugger 驗證
+- [ ] `pytest tests/test_mops_xbrl.py` 應該15/15全過（含新增的
+      `test_one_broken_instance_does_not_fail_the_whole_archive`）。
+- [ ] Review `iter_archive_instances()`改動：確認`try/except MopsXbrlError`只包住
+      `parse_xbrl_instance()`那段，`_iter_zip_documents()`（巢狀zip/CRC錯誤那段）
+      沒有被誤包進去、仍然會正常往上拋出中斷整個archive。
+- [ ] 確認沒有靜默吞掉不該吞的例外——目前只catch `MopsXbrlError`，其他例外類型
+      （例如程式邏輯bug造成的`AttributeError`/`KeyError`等）應該還是會往上炸，
+      不會被誤當成「單一公司資料壞掉」略過。
+- [ ] 我用正式快取的`data/fundamentals/xbrl/2021/tifrs-2021Q3/*.zip`（`downloaded_archive`
+      直接指向真實檔案，`db_path`用假的沒有實際寫入DB）呼叫`iter_archive_instances()`
+      實跑驗證過，1818個案例文件全部處理完、只有2855被記警告略過，行為符合預期——
+      但我沒有真的對正式`data/screener.db`跑過`save_downloaded_archive()`或完整的
+      `--backfill-fundamentals`（依規則不自己跑資料寫正式DB），這塊麻煩Debugger或
+      Cody之後實跑時留意。
+
+### 特別注意
+- 這是Developer完全沒動`data/screener.db`（正式DB）的情況下做的修改，所有驗證都用
+  `tmp_path`暫時DB或唯讀方式跑真實快取ZIP。真正完整跑`--backfill-fundamentals`看能不能
+  跑過2021Q3並繼續後面季度，還是要Cody自己開terminal驗證。
+- 若之後又遇到其他季度/公司觸發同樣的`MopsXbrlError`略過警告，屬於預期行為（MOPS原始
+  資料缺陷），不用當成新bug回報；但如果警告數量異常多（例如同一季度大量公司都被略過），
+  可能代表parser邏輯本身有問題，值得留意log裡`案例文件解析失敗，略過`的出現頻率。

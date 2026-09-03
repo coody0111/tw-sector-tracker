@@ -355,6 +355,43 @@ def test_contextless_notes_fact_is_ignored_but_main_fact_still_parses():
     assert len(parsed.facts) == 6
 
 
+def test_one_broken_instance_does_not_fail_the_whole_archive(tmp_path, monkeypatch, caplog):
+    """真實案例（MOPS 2855 2021Q3）：單一公司申報缺 context 定義，
+    不該讓同一季 ZIP 裡其他上百家公司的資料連坐失敗。"""
+    from screener import database
+
+    db_path = tmp_path / "fundamentals.duckdb"
+    monkeypatch.setattr(database, "DB_PATH", str(db_path))
+    database.init_db()
+
+    good_xml = _xml_instance()
+    broken_xml = _xml_instance().replace(b'contextRef="YTD"', b'contextRef="MISSING"', 1)
+    archive_path = tmp_path / "mixed.zip"
+    with zipfile.ZipFile(archive_path, "w") as archive:
+        archive.writestr("reports/2330.xml", good_xml)
+        archive.writestr("reports/9999.xml", broken_xml)
+    downloaded = DownloadedArchive(
+        link=ArchiveLink(
+            year=2021, quarter=3, filename="tifrs-2021Q3.zip",
+            url="https://mopsov.twse.com.tw/server-java/FileDownLoad?fileName=tifrs-2021Q3.zip",
+        ),
+        sha256=hashlib.sha256(archive_path.read_bytes()).hexdigest(),
+        path=archive_path,
+        byte_size=archive_path.stat().st_size,
+        retrieved_at=datetime(2024, 8, 14),
+    )
+
+    with caplog.at_level("WARNING"):
+        counts = save_downloaded_archive(downloaded, db_path=str(db_path))
+
+    assert counts["archives"] == 1
+    assert counts["filings"] == 1
+    assert any("9999.xml" in record.message for record in caplog.records)
+    con = duckdb.connect(str(db_path))
+    assert con.execute("SELECT COUNT(*) FROM xbrl_filings").fetchone()[0] == 1
+    con.close()
+
+
 def test_save_is_idempotent_and_new_sha_updates_current_projection(tmp_path, monkeypatch):
     from screener import database
 

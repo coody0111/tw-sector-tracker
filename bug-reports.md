@@ -3371,3 +3371,50 @@ reimport 完成：共 372163 筆
   部分缺口案例、結果精確吻合預期，也驗證了 idempotent 重跑行為。真正要對正式 `data/
   screener.db` 執行 `--backfill-chips 60` 補齊完整60天歷史缺口，如 debug-tasks.md
   所述留給 Cody 自己決定時機執行——這次的複本驗證已經確認機制本身正確可信賴。
+
+## [2026-09-04] 驗證 - MOPS財報回填單一案例文件容錯（commit 954cd11）+ 60天回補結果確認
+
+### 驗證範圍
+1. `scrapers/mops_xbrl.py` `iter_archive_instances()` 改動（commit 954cd11）
+2. `[2026-09-04] 補充 - 60天歷史回補實跑結果，發現1個永久缺口（非bug）` 純資料面記錄
+
+### 🔴 數據問題（需立刻修）
+- 無
+
+### 🔴 程式問題（需立刻修）
+- 無
+
+### 🟡 建議改善
+- 無
+
+### ✅ 驗證通過
+- `pytest tests/test_mops_xbrl.py`：15/15 passed，含新增
+  `test_one_broken_instance_does_not_fail_the_whole_archive`（模擬同一 ZIP 一好一壞兩家
+  公司，斷言好的存進 `xbrl_filings`、壞的只進 `caplog` warning，測試設計真實對應
+  2855/2021Q3 案例）。
+- 全 repo `pytest -q`：**651 passed**，無既有已知限制殘留（這次這個 debug worktree 剛好
+  有 `data/screener.db`，之前卡住的 `test_scan_patterns_returns_list` 這次也過了）。
+- Review `iter_archive_instances()` diff：`try/except MopsXbrlError` 精準只包住
+  `parse_xbrl_instance(...)` 這一段呼叫；`_iter_zip_documents(archive)` 本身（巢狀
+  ZIP／CRC 錯誤／深度超限那幾個 `raise MopsXbrlError`）是在 `for` 迴圈的隱式
+  `__next__()` 呼叫時拋出，不在內層 try 範圍內，會照常往外傳、讓整個 archive 失敗——
+  跟 commit message／docstring 宣稱的行為一致，不是文件寫得比實際寬鬆。
+- 確認沒有誤吞不該吞的例外：整份 diff 只有一處 `except MopsXbrlError`，沒有裸
+  `except:` 或 `except Exception:`；`parse_xbrl_instance()` 內部除了明確
+  `raise MopsXbrlError(...)` 的幾個位置，沒有攔截其他例外類型，邏輯 bug
+  （`AttributeError`/`KeyError` 等）仍會正常往上炸，不會被誤判成「單一公司資料壞掉」。
+- 確認 `save_downloaded_archive()` 呼叫端：`iter_archive_instances()` 是在單一
+  transaction 迴圈內被消費，warning-skip 不影響 transaction、照常 commit；若
+  `_iter_zip_documents` 拋出未攔截例外，仍會讓整個 transaction rollback——跟改動前
+  「ZIP 損壞＝整包失敗」的行為完全一致，只有「單一案例文件解析失敗」這一種情況變成
+  略過。
+- 60天回補缺口記錄：純資料面確認、沒有程式碼異動，本身不需要 pytest／code review；
+  這個 debug worktree 的 `data/screener.db` 只有 2026-08-25~09-01 的小範圍測試資料，
+  無法用它複現 2026-07-10 三個來源均無資料的原始觀察，但 Cody 已用正式 DB 分兩次
+  （相隔約24小時、不同網路環境）重複確認一致結果，判斷合理，予以採信、不重複驗證。
+
+### 結論
+- [x] 可以繼續下一個任務 — MOPS XBRL 單一案例容錯修復邏輯正確、測試涵蓋真實案例、
+  全 repo 測試乾淨；60天回補的資料缺口記錄已採信歸檔，皆無需進一步動作。真正完整跑
+  `--backfill-fundamentals` 走過 2021Q3 並確認後續季度接著跑的部分，如交接所述留給
+  Cody 或下一輪實跑驗證。

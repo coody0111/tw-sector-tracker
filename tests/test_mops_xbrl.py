@@ -1,5 +1,6 @@
 import hashlib
 import io
+import logging
 import zipfile
 from datetime import datetime
 
@@ -96,6 +97,11 @@ def test_download_archive_retries_truncated_zip_before_caching(monkeypatch):
         def raise_for_status(self):
             return None
 
+        def iter_content(self, chunk_size=None):
+            size = chunk_size or len(self.content) or 1
+            for start in range(0, len(self.content), size):
+                yield self.content[start:start + size]
+
     class Session:
         def __init__(self):
             self.calls = 0
@@ -185,6 +191,29 @@ def test_inline_xbrl_accepts_html4_public_doctype_without_system_identifier():
     assert parsed.filing["stock_id"] == "1519"
     assert parsed.filing["content_format"] == "inline_xbrl"
     assert parsed.canonical_facts[0]["metric_key"] == "revenue"
+    assert parsed.canonical_facts[0]["value"] == 1250
+
+
+def test_inline_xbrl_recovers_ie_saved_unclosed_meta_tag():
+    inline = b'''<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0 Transitional//EN">
+    <HTML xmlns:ix="http://www.xbrl.org/2013/inlineXBRL"
+      xmlns:xbrli="http://www.xbrl.org/2003/instance"
+      xmlns:iso4217="http://www.xbrl.org/2003/iso4217"
+      xmlns:tifrs-ci="https://example.tw/taxonomy/ifrs/ci/2020-06-30">
+      <HEAD><META http-equiv="Content-Type" content="text/html"></HEAD>
+      <BODY>
+        <xbrli:context id="YTD"><xbrli:entity><xbrli:identifier scheme="twse">1519</xbrli:identifier></xbrli:entity><xbrli:period><xbrli:startdate>2021-01-01</xbrli:startdate><xbrli:enddate>2021-06-30</xbrli:enddate></xbrli:period></xbrli:context>
+        <xbrli:unit id="TWD"><xbrli:measure>iso4217:TWD</xbrli:measure></xbrli:unit>
+        <ix:nonfraction name="tifrs-ci:Revenue" contextref="YTD" unitref="TWD" decimals="-3">1250000</ix:nonfraction>
+      </BODY>
+    </HTML>'''
+
+    parsed = parse_xbrl_instance(
+        inline, "tifrs-fr1-m1-ci-cr-1519-2021Q2.html", 2021, 2,
+        "archive-sha", datetime(2021, 8, 14),
+    )
+
+    assert parsed is not None
     assert parsed.canonical_facts[0]["value"] == 1250
 
 
@@ -309,6 +338,23 @@ def test_missing_context_reference_fails_the_instance():
         )
 
 
+def test_contextless_notes_fact_is_ignored_but_main_fact_still_parses():
+    xml = _xml_instance().replace(
+        b'xmlns:tifrs-ci="https://example.tw/taxonomy/ifrs/ci/2020-06-30">',
+        b'xmlns:tifrs-ci="https://example.tw/taxonomy/ifrs/ci/2020-06-30" '
+        b'xmlns:notes="http://www.xbrl.org/tifrs/notes/2020-06-30">',
+    ).replace(
+            b'</xbrli:unit>',
+            b'</xbrli:unit><notes:Ratio contextRef="MISSING" unitRef="Pure">1</notes:Ratio>',
+    )
+    parsed = parse_xbrl_instance(
+        xml, "2855.xml", 2021, 3, "archive-sha", datetime(2021, 11, 14),
+    )
+    assert parsed is not None
+    assert parsed.filing["stock_id"] == "2330"
+    assert len(parsed.facts) == 6
+
+
 def test_save_is_idempotent_and_new_sha_updates_current_projection(tmp_path, monkeypatch):
     from screener import database
 
@@ -420,3 +466,130 @@ def test_growth_view_keeps_eps_cumulative_and_uses_exact_quarter_end(tmp_path, m
     con.close()
     assert eps == (None, None, None, 25.0)
     assert revenue_single == 150.0  # 6/30 必須精確找到 3/31，不可誤算成 3/30
+
+
+def _zip_bytes():
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("reports/2330.xml", _xml_instance())
+    return buffer.getvalue()
+
+
+class _StreamResponse:
+    """可控的串流回應：headers 可自訂，內容分塊吐出。"""
+
+    def __init__(self, content, content_length=None, chunks=None):
+        self.content = content
+        self._chunks = chunks
+        self.headers = {"Content-Type": "application/zip"}
+        if content_length is not None:
+            self.headers["Content-Length"] = str(content_length)
+
+    def raise_for_status(self):
+        return None
+
+    def iter_content(self, chunk_size=None):
+        if self._chunks is not None:
+            yield from self._chunks
+            return
+        size = chunk_size or len(self.content) or 1
+        for start in range(0, len(self.content), size):
+            yield self.content[start:start + size]
+
+
+def _link():
+    return ArchiveLink(
+        2022, 2, "tifrs-2022Q2.zip",
+        "https://mopsov.twse.com.tw/server-java/FileDownLoad?fileName=tifrs-2022Q2.zip",
+    )
+
+
+def test_download_detects_short_transfer_against_content_length(monkeypatch):
+    """回歸（2026-09-02 tifrs-2022Q2.zip）：官方宣告 Content-Length 但只吐一半就斷線。
+    以前要整包讀完、等 _validate_zip 才發現；現在收完立刻比對長度就判定失敗。"""
+    full = _zip_bytes()
+    truncated = full[: len(full) // 2]
+
+    class Session:
+        def __init__(self):
+            self.calls = 0
+
+        def get(self, *args, **kwargs):
+            assert kwargs["stream"] is True, "必須用串流下載，否則無法在讀取途中設限"
+            self.calls += 1
+            if self.calls == 1:
+                return _StreamResponse(truncated, content_length=len(full))
+            return _StreamResponse(full, content_length=len(full))
+
+    monkeypatch.setattr(mops_xbrl.time, "sleep", lambda seconds: None)
+    session = Session()
+    content, _response = mops_xbrl._download_validated_zip(_link(), session=session)
+
+    assert session.calls == 2, "短傳要觸發重試"
+    assert content == full
+
+
+def test_download_gives_up_when_exceeding_total_time_budget(monkeypatch):
+    """回歸：伺服器以極慢速率持續吐資料時，requests 的 timeout 永遠不觸發
+    （它只管兩次讀取之間的間隔），實際single次下載曾耗掉 3~8 小時。
+    總時長上限要讓它在預算內就放棄，而不是讀完才發現是壞檔。"""
+    clock = {"now": 0.0}
+    monkeypatch.setattr(mops_xbrl.time, "monotonic", lambda: clock["now"])
+    monkeypatch.setattr(mops_xbrl.time, "sleep", lambda seconds: None)
+
+    def slow_chunks():
+        for _ in range(100):
+            clock["now"] += 60.0        # 每塊耗一分鐘
+            yield b"x" * 1024
+
+    response = _StreamResponse(b"", content_length=None, chunks=slow_chunks())
+    with pytest.raises(mops_xbrl.MopsXbrlError) as excinfo:
+        mops_xbrl._read_streamed_body(response, "tifrs-2022Q2.zip")
+    assert "秒上限" in str(excinfo.value)
+    assert clock["now"] <= mops_xbrl._DOWNLOAD_MAX_SECONDS + 60.0
+
+
+def test_download_gives_up_when_stalled(monkeypatch):
+    """連線掛著但完全不吐資料時要放棄，不能無限等。"""
+    clock = {"now": 0.0}
+    monkeypatch.setattr(mops_xbrl.time, "monotonic", lambda: clock["now"])
+
+    def stalled_chunks():
+        yield b"x" * 1024
+        for _ in range(10):
+            clock["now"] += 30.0
+            yield b""                   # keep-alive，沒有實際資料
+
+    response = _StreamResponse(b"", content_length=None, chunks=stalled_chunks())
+    with pytest.raises(mops_xbrl.MopsXbrlError) as excinfo:
+        mops_xbrl._read_streamed_body(response, "tifrs-2022Q2.zip")
+    assert "停滯" in str(excinfo.value)
+
+
+def test_download_accepts_response_without_content_length():
+    """官方有時不給 Content-Length，這時不能因為少了 header 就判定失敗。"""
+    full = _zip_bytes()
+    response = _StreamResponse(full, content_length=None)
+    assert mops_xbrl._read_streamed_body(response, "tifrs-2022Q2.zip") == full
+
+
+def test_recover_mode_logs_fact_counts_and_lxml_errors(caplog):
+    """recover 模式必須留痕：記錄觸發檔案、contextRef 保留數與 lxml 錯誤，
+    否則下次真的丟了 facts 也沒人知道（全庫 34,318 份只有 1 份會走到這裡）。"""
+    malformed = (
+        b'<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN">'
+        b'<html xmlns:ifrs="http://www.ifrs.org/taxonomy">'
+        b"<head><META charset=\"utf-8\"></head>"
+        b"<body>"
+        b'<ifrs:Revenue contextRef="c1" unitRef="u1">100</ifrs:Revenue>'
+        b'<ifrs:ProfitLoss contextRef="c1" unitRef="u1">20</ifrs:ProfitLoss>'
+        b"</body></html>"
+    )
+    with caplog.at_level(logging.WARNING, logger="scrapers.mops_xbrl"):
+        root = mops_xbrl._xml_parse_content(malformed, "tifrs-fr1-m1-ci-cr-9999-2021Q2.html")
+
+    kept = sum(1 for el in root.iter() if mops_xbrl._attribute(el, "contextRef"))
+    assert kept == 2, "recover 後兩個 fact 都要留著"
+    messages = " ".join(record.getMessage() for record in caplog.records)
+    assert "recover 模式解析" in messages
+    assert "9999" in messages, "log 要指出是哪份文件"

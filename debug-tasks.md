@@ -4498,3 +4498,73 @@ close/change/volume 寫進 row → 每次 backfill 都讓 K 棒失去 OHLC。這
   如果之後想在Telegram通知裡分辨到底是哪個來源失敗，這個粒度會不夠，需要另外設計。
 - N=14天是跟Cody討論後的預設值，涵蓋長假或機器關機約2週的情況；如果覺得不夠或太多，
   這個常數目前寫死在`_update_chips_db()`呼叫處，之後要調整很好改。
+
+---
+
+## [2026-09-03] MOPS XBRL 回填流程稽核 + 修下載逾時／recover 留痕
+
+### 起因
+Cody 要求獨立 review MOPS IFRS XBRL 回填流程（不只看單元測試，要用真實 archive replay）。
+稽核結論與兩項修復如下；第三項待辦見「特別注意」。
+
+### 稽核做了什麼（可重現）
+- **全 archive 掃描**：18 個 archive、**34,318 份文件**，逐份測 strict XML parse 是否失敗
+- **深度 replay**：2021Q3 前 150 份跑完整 `parse_xbrl_instance`
+- **ground truth 比對**：用原始 bytes 的 `contextRef` 正則計數當基準，比對 parser 實際產出的
+  fact 數——這能直接偵測「parser 靜默吞掉 facts」
+- **cache 完整性**：18 個 cache zip 逐一 `testzip()` + 比對檔名 sha256 是否等於內容雜湊
+- **DB 半套檢查**：archive 有無孤兒、filing 有無缺 raw facts
+
+### 稽核結果（三個結論）
+1. **parser 容錯不會吃掉財報數字**——全庫只有 **1 份**文件觸發 recover
+   （2021Q2 的 `tifrs-fr1-m1-ci-cr-1519-2021Q2.html`），逐 fact 比對：原始 contextRef
+   1,120 個、解析後保留 **1,120 個、零丟失**；lxml 的 12 個錯誤全落在 META/BR/SPAN
+   等 HTML 排版標籤。`doctype 正規化`也只觸發這 1 次。
+2. **canonical 衝突不是官方資料品質問題**——31 筆衝突 **100% 是 `income/pretax_income`、
+   100% 是金融股**（2893 佔 15、2897 佔 10，另有 2838/2845/5848/5870/6030），
+   數值差 1.7%~20%（例 `[1333665, 1526011]`），不是浮點誤差。「略過」的取捨對
+   （缺值優於錯值），但這是 metric mapping 對金融業報表結構的系統性缺陷，可根治。
+3. **重跑不會留半套**——17 個 archive 每個都有 entries、0 個孤兒；34,736 份 filing
+   0 份缺 raw facts；18/18 cache zip CRC 全過且檔名 sha256 全部符合內容。
+   `2014Q1` 的 zip 完整但不在 DB＝rollback 後的正確狀態。
+
+### 改了什麼
+- 異動檔案：`scrapers/mops_xbrl.py`, `tests/test_mops_xbrl.py`
+
+**① 下載：單次可能耗 3~8 小時才發現是壞檔（最嚴重）**
+`tifrs-2022Q2.zip` 實際時間軸：13:04 開始 → 16:50 第1次失敗（3h46m）→ 01:10 第2次
+（8h20m）→ 03:27 第3次（2h17m），那一季前後花 **14 小時**才成功。
+root cause 不是 `5/20/60` 秒的重試間隔，而是 requests 的 `timeout` 只管「兩次 socket
+讀取之間的間隔」，官方伺服器每 119 秒吐一點就永遠不觸發；而 `response.content` 要
+整包讀完才輪到 `_validate_zip` 檢查。
+→ 改 `stream=True` 分塊讀（新增 `_read_streamed_body`）：總時長上限 1200s、停滯上限
+120s、有 `Content-Length` 就收完立刻比對。三者都拋 `MopsXbrlError`，沿用既有退避重試。
+
+**② recover 模式沒有留痕**
+→ 記錄觸發檔案、contextRef 原始/保留數（少了標「需人工複核」）、前 5 筆 `parser.error_log`。
+實跑真實的 1519 那份確認 log 正確輸出。
+
+### 資料來源相關
+- **不影響每日流程**（TWSE/TPEx 行情與籌碼完全沒動）。
+- 動到的是 MOPS 官方整批 IFRS ZIP 這條歷史回填路徑；**沒有改變任何解析語意或
+  canonical 選值邏輯**，只加了下載上限與 log。
+
+### 請 Debugger 驗證
+- [ ] `_read_streamed_body` 的三個上限值是否合理：`_DOWNLOAD_MAX_SECONDS=1200`
+      對最大的 124 MB 檔約當要求平均 100 KB/s——**這是我憑實測推的，不是官方保證**，
+      若 Cody 網路較慢可能誤殺正常下載，值得評估是否該改成「速率下限 + 無總時長上限」
+- [ ] `stream=True` 後 `response.headers` 的 ETag/Last-Modified 仍取得到（`download_archive`
+      有用），且連線有被正確釋放（失敗路徑呼叫 `response.close()`）
+- [ ] 新測試 `test_download_gives_up_when_stalled` 用 `yield b""` 模擬 keep-alive，
+      真實 requests 的 `iter_content` 是否真的會吐空 chunk？若不會，這個保護在真實情境
+      可能永遠不觸發（要靠 requests 自己的 read timeout）——**這點我沒有實證**
+- [ ] recover 的 log 是 WARNING 等級，全庫只會有 1 份觸發，確認不會洗版
+- [ ] 沒有影響其他模組（`pytest -q` 我這邊 650 passed）
+
+### 特別注意
+- **第三項未修**：金融業 `pretax_income` 映射。要先查 `xbrl_facts` 看 2893/2897 那兩個
+  同 rank 的 concept 到底是什麼（`ProfitLossBeforeTax` 等三個 alias 有不同 alias_priority，
+  所以衝突必然是**同一個 local_name 在同一份文件出現兩次、都沒有 dimension、值卻不同**）。
+  當時 DB 被另一個 python 進程（PID 13184，Cody 在跑回填）鎖住，查不了。
+- **建議但未做**：被跳過的附註 fact（135 次）目前只寫 log，事後無法稽核。
+  ADR 0005 的精神是「append-only、可重跑」，這些跳過的 fact 值得存成 anomaly 表。

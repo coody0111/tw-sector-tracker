@@ -842,10 +842,19 @@ def _iter_zip_documents(
 
 
 def iter_archive_instances(downloaded: DownloadedArchive) -> Iterator[ParsedInstance]:
-    """安全地從 ZIP 記憶體讀 entry；不將不可信路徑解壓到磁碟。"""
+    """安全地從 ZIP 記憶體讀 entry；不將不可信路徑解壓到磁碟。
+
+    單一案例文件本身壞掉（例如 MOPS 原始申報就缺 context 定義）不應該讓整個
+    季度 ZIP（數百家公司）連坐失敗；記警告後略過該檔，其餘案例照常處理。
+    `_iter_zip_documents` 的巢狀 ZIP／CRC 錯誤仍視為整個 archive 不可信，往上拋。
+    """
     try:
-        with zipfile.ZipFile(downloaded.path) as archive:
-            for entry_path, content in _iter_zip_documents(archive):
+        archive = zipfile.ZipFile(downloaded.path)
+    except zipfile.BadZipFile as exc:
+        raise MopsXbrlError(f"ZIP 損壞：{downloaded.path}") from exc
+    with archive:
+        for entry_path, content in _iter_zip_documents(archive):
+            try:
                 instance = parse_xbrl_instance(
                     content=content,
                     entry_path=entry_path,
@@ -854,10 +863,15 @@ def iter_archive_instances(downloaded: DownloadedArchive) -> Iterator[ParsedInst
                     archive_sha256=downloaded.sha256,
                     retrieved_at=downloaded.retrieved_at,
                 )
-                if instance is not None:
-                    yield instance
-    except zipfile.BadZipFile as exc:
-        raise MopsXbrlError(f"ZIP 損壞：{downloaded.path}") from exc
+            except MopsXbrlError as exc:
+                logger.warning(
+                    "MOPS XBRL %d Q%d 案例文件解析失敗，略過：%s/%s：%s",
+                    downloaded.link.year, downloaded.link.quarter,
+                    downloaded.link.filename, entry_path, exc,
+                )
+                continue
+            if instance is not None:
+                yield instance
 
 
 def _insert_dicts(con, table: str, registration: str, rows: list[dict[str, Any]], columns: list[str]) -> None:

@@ -1461,6 +1461,10 @@ def test_generate_renders_stock_list_items_with_click_to_open_card(tmp_path):
     assert "stock-card-backdrop" in html
     assert "stock-card-modal" in html
     assert "onclick=\"openStockCard(" in html
+    assert "tw-sector-watchlist-v1" in html
+    assert "data-watchlist-id" in html
+    assert "function toggleWatchlist" in html
+    assert 'href="watchlist.html"' in html
 
 
 def test_generate_renders_sortable_column_headers_not_dropdown(tmp_path):
@@ -1759,7 +1763,8 @@ def test_generate_embeds_weekly_returns_into_card_meta(tmp_path):
 
 
 def test_generate_renders_financing_and_short_columns_with_warning_badges(tmp_path):
-    """個股列表新增融資佔比/融資維持率(估)/融券餘額佔比/融券維持率(估)四欄，
+    """個股列表新增融資佔比/融資維持/融券佔比/融券維持四欄，
+    （表頭已於 bc67585 縮短，把寬度讓給第一欄避免代號+名稱折行，語意不變）
     低於130%時要有警示徽章，欄位都可點排序，且集保資料日期有顯示提示。"""
     output_path = tmp_path / "index.html"
     meta_perf = [{"meta_name": "族群A", "avg_change_pct": 2.0, "up_count": 1, "down_count": 0, "flat_count": 0}]
@@ -1782,9 +1787,9 @@ def test_generate_renders_financing_and_short_columns_with_warning_badges(tmp_pa
 
     html = output_path.read_text(encoding="utf-8")
     assert ">融資佔比</button>" in html
-    assert ">融資維持率(估)</button>" in html
-    assert ">融券餘額佔比</button>" in html
-    assert ">融券維持率(估)</button>" in html
+    assert ">融資維持</button>" in html
+    assert ">融券佔比</button>" in html
+    assert ">融券維持</button>" in html
     assert "onclick=\"sortStockList(this.parentElement,'financed')\"" in html
     assert "onclick=\"sortStockList(this.parentElement,'maint')\"" in html
     assert "onclick=\"sortStockList(this.parentElement,'shorted')\"" in html
@@ -1816,7 +1821,7 @@ def test_generate_passes_shareholder_df_through_to_stock_detail(tmp_path):
 
 
 def test_generate_renders_holder_pct_and_week_chg_columns(tmp_path):
-    """個股列表新增「大戶佔比」「大戶週變化」兩欄(11→13欄)，插在量比跟融資佔比之間，
+    """個股列表新增「大戶佔比」「大戶週變」兩欄(11→13欄)，插在量比跟融資佔比之間，
     可點排序，無資料時顯示「─」不是空白或crash。"""
     output_path = tmp_path / "index.html"
     meta_perf = [{"meta_name": "族群A", "avg_change_pct": 2.0, "up_count": 1, "down_count": 0, "flat_count": 0}]
@@ -1833,7 +1838,7 @@ def test_generate_renders_holder_pct_and_week_chg_columns(tmp_path):
 
     html = output_path.read_text(encoding="utf-8")
     assert ">大戶佔比</button>" in html
-    assert ">大戶週變化</button>" in html
+    assert ">大戶週變</button>" in html
     assert "onclick=\"sortStockList(this.parentElement,'holder')\"" in html
     assert "onclick=\"sortStockList(this.parentElement,'holderchg')\"" in html
     assert "function _holderPctTd" in html

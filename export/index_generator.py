@@ -743,6 +743,43 @@ def _chips_num(value) -> Optional[int]:
     return int(value)
 
 
+def _fund_val(value):
+    """基本面欄位轉成可 JSON 序列化的值。
+
+    可能是 float、文字標籤（「轉盈」/「轉虧」/「>999%」）、或 None——
+    _profit_growth() 刻意讓成長率在基期趨近 0 時回文字而不是六位數百分比，
+    所以這裡不能無腦 float()。
+    """
+    if value is None or isinstance(value, str):
+        return value
+    if pd.isna(value):
+        return None
+    return float(value)
+
+
+def _fund_entry(fund_map: pd.DataFrame, sid: str) -> Optional[Dict[str, Any]]:
+    """把 get_fundamentals_snapshot() 的一列轉成個股卡片要用的 dict；查無此股回 None。
+
+    revenue 單位是**千元**（官方申報單位，不在這裡換算，交給前端格式化），
+    period/available 一起帶出去是為了讓卡片標頭能同時標明季別與可得日——
+    「EPS 是累計、其餘是單季」這件事必須在版面上明講，不能讓讀者自己推斷。
+    """
+    if fund_map is None or fund_map.empty or sid not in fund_map.index:
+        return None
+    f = fund_map.loc[sid]
+    return {
+        "period": str(f["period_label"]),
+        "available": str(f["available_date"]),
+        "revenue": _fund_val(f["revenue"]),
+        "revenue_yoy": _fund_val(f["revenue_yoy"]),
+        "revenue_qoq": _fund_val(f["revenue_qoq"]),
+        "gross_margin": _fund_val(f["gross_margin"]),
+        "pretax_margin": _fund_val(f["pretax_margin"]),
+        "eps_ytd": _fund_val(f["eps_ytd"]),
+        "eps_yoy": _fund_val(f["eps_yoy"]),
+    }
+
+
 def build_stock_detail_data(
     universe_df: pd.DataFrame,
     prices_df: pd.DataFrame,
@@ -752,6 +789,7 @@ def build_stock_detail_data(
     total_shares_df: Optional[pd.DataFrame] = None,
     avg20_map: Optional[Dict[str, float]] = None,
     shareholder_df: Optional[pd.DataFrame] = None,
+    fundamentals_df: Optional[pd.DataFrame] = None,
 ) -> Dict[str, List[Dict[str, Any]]]:
     """
     個股點開面板資料（視覺 spec §「點開個股清單」）。全部 meta_sector 都要有 key（即使該族群
@@ -778,6 +816,11 @@ def build_stock_detail_data(
     lv12_15_pct/week_chg欄位），供個股表格「大戶佔比」「大戶週變化」兩欄。這支函式已經
     內建離群值防護(_MAX_VALID_HOLDER_PCT)並過濾掉異常值，這裡不用再重覆過濾——沒傳、或
     這支股票不在裡面(被防護排除、或還沒有集保資料)，兩欄都回None，前端顯示「—」。
+
+    fundamentals_df：screener/database.py::get_fundamentals_snapshot() 的輸出（每檔一列的
+    「最新一季已可見」季報快照）。沒傳、或這支股票沒有可見季，entry["fundamentals"] 就是
+    None，前端整個基本面區塊顯示成「—」。注意 revenue 是**單季**（千元）而 eps_ytd 是
+    **累計**（元）——兩者期間不同是資料本身的限制（累計 EPS 不能相減），前端必須標明。
 
     無行情的個股不再跳過——改成標記 no_data=True（比照舊版html_generator.py的「無行情」
     佔位符慣例），close/change_pct/pcts/dates/roll*/chips都是None/空，前端顯示成灰階佔位卡。
@@ -806,6 +849,13 @@ def build_stock_detail_data(
     if not shareholder.empty:
         shareholder["stock_id"] = shareholder["stock_id"].astype(str)
     shareholder_map = shareholder.set_index("stock_id") if not shareholder.empty else pd.DataFrame()
+    fundamentals = (
+        fundamentals_df.copy()
+        if fundamentals_df is not None and not fundamentals_df.empty else pd.DataFrame()
+    )
+    if not fundamentals.empty:
+        fundamentals["stock_id"] = fundamentals["stock_id"].astype(str)
+    fund_map = fundamentals.set_index("stock_id") if not fundamentals.empty else pd.DataFrame()
 
     result: Dict[str, List[Dict[str, Any]]] = {
         meta_name: [] for meta_name in universe["meta_sector"].dropna().unique()
@@ -893,6 +943,7 @@ def build_stock_detail_data(
             "total_shares_asof": total_shares_asof,
             "holder_pct": holder_pct,
             "holder_week_chg": holder_week_chg,
+            "fundamentals": _fund_entry(fund_map, sid),
         }
         result[meta_name].append(entry)
 
@@ -1039,7 +1090,7 @@ table.vt-table{width:100%;border-collapse:collapse}
 .cs-row.cs-week{width:100%;border-top:1px solid var(--border);padding-top:8px;margin-top:2px;gap:14px}
 .overflow-wrap{overflow-x:auto}
 table.stock-list-table{width:100%;border-collapse:collapse}
-.stock-list-table thead th{text-align:left;padding:0 12px 10px;border-bottom:1px solid var(--border-2)}
+.stock-list-table thead th{text-align:left;padding:0 12px 10px;border-bottom:1px solid var(--border-2);white-space:nowrap}
 .stock-list-table thead th.num{text-align:right}
 .stock-list-table .sort-button{display:inline-flex;align-items:center;gap:4px;background:none;border:0;
   padding:0;font-family:var(--mono);font-size:.74rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;
@@ -1055,6 +1106,11 @@ table.stock-list-table{width:100%;border-collapse:collapse}
 .stock-item.no-data{opacity:.5;cursor:default}
 .stock-item .si-id{font-family:var(--mono);color:var(--ink-3);font-size:.8rem;margin-right:8px}
 .stock-item .si-name{font-family:var(--sans);font-weight:650;color:var(--ink);font-size:.94rem}
+.watchlist-button{margin-left:8px;padding:3px 7px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--ink-3);font:700 .62rem var(--mono);cursor:pointer}
+.watchlist-button:hover,.watchlist-button.active{color:var(--accent);border-color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,transparent)}
+/* 代號+名稱同一列不折行：14 欄擠在 min-width:1120px 時，第一欄只分到約 80px，
+   連 4 字中文名都會被折成兩行。表頭縮短後把寬度讓給這一欄，這裡再鎖住不換行。 */
+.stock-list-table tbody td:first-child{white-space:nowrap}
 .stock-item td.num{font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:right}
 
 .stock-card-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:200;
@@ -1087,6 +1143,16 @@ table.stock-list-table{width:100%;border-collapse:collapse}
 .sc-roll{display:flex;gap:10px;margin-bottom:10px;font-family:var(--mono);font-size:.72rem;flex-wrap:wrap}
 .sc-roll-item .lbl{color:var(--ink-3);margin-right:3px}
 .sc-chips{display:flex;gap:10px;font-family:var(--mono);font-size:.72rem;flex-wrap:wrap;color:var(--ink-3)}
+/* 基本面區塊(spec §6)。沿用 modal 既有 token(--panel-2/--mono/.sc-roll 的 lbl 慣例)，
+   不新增視覺語言——這是刻意的，本輪只是在已定案的 modal 裡多一個區塊。 */
+.sc-fund{margin-top:12px;padding:10px 12px;background:var(--panel-2);border:1px solid var(--border);border-radius:5px}
+.sc-fund-head{display:flex;align-items:baseline;gap:8px;margin-bottom:8px;font-family:var(--mono);font-size:.66rem;color:var(--ink-3);flex-wrap:wrap}
+.sc-fund-head b{color:var(--ink);font-size:.72rem;font-weight:700}
+.sc-fund-row{display:flex;gap:14px;flex-wrap:wrap;font-family:var(--mono);font-size:.72rem}
+.sc-fund-row+.sc-fund-row{margin-top:6px}
+.sc-fund-item .lbl{color:var(--ink-3);margin-right:4px}
+.sc-fund-item em{font-style:normal;color:var(--ink-3);font-size:.6rem;margin-left:2px}
+.fund-label{color:var(--accent);font-weight:700}
 .detail-empty{color:var(--ink-3);font-size:.86rem;padding:20px 0;font-family:var(--serif)}
 
 .ht-top{display:flex;align-items:baseline;gap:8px}
@@ -1343,6 +1409,7 @@ def generate(
     total_shares_df: Optional[pd.DataFrame] = None,
     avg20_map: Optional[Dict[str, float]] = None,
     shareholder_df: Optional[pd.DataFrame] = None,
+    fundamentals_df: Optional[pd.DataFrame] = None,
     data_mode: str = "close",
     generated_at: Optional[datetime] = None,
     update_error: Optional[str] = None,
@@ -1392,7 +1459,7 @@ def generate(
         card["research_bucket"] = bucket_by_name.get(card["meta_name"], "")
     stock_detail = build_stock_detail_data(
         universe_df, prices_df, stock_sparklines, rolling_returns, chips_df,
-        total_shares_df, avg20_map, shareholder_df,
+        total_shares_df, avg20_map, shareholder_df, fundamentals_df,
     )
 
     stock_detail_js = json.dumps(stock_detail, ensure_ascii=False).replace("</", "<\\/")
@@ -1478,6 +1545,7 @@ def generate(
     <a class="nav-link" href="chips.html">籌碼分析</a>
     <a class="nav-link" href="patterns.html">形態掃描</a>
     <a class="nav-link" href="momentum.html">逆轟策略</a>
+   <a class="nav-link" href="watchlist.html">自選股</a>
   </nav>
 </header>
 <main id="main-content">
@@ -1672,6 +1740,7 @@ function activateAdvancedFilters() {{
   sectorView.foreign = document.getElementById('foreignFilter').checked;
   sectorView.trust = document.getElementById('trustFilter').checked;
   applySectorView();
+  syncWatchlistButtons();
 }}
 function clearAdvancedFilters() {{
   sectorView.advancedActive = false;
@@ -2023,15 +2092,16 @@ function _maintTd(v) {{
 
 function renderStockListItem(s) {{
   const sid = escHtml(s.stock_id);
+  const watchButton = `<button type="button" class="watchlist-button" data-watchlist-id="${{escAttr(s.stock_id)}}" onclick="toggleWatchlist(this,event)">＋自選</button>`;
   if (s.no_data) {{
-    return `<tr class="stock-item no-data"><td><span class="si-id">${{sid}}</span><span class="si-name">${{escHtml(s.stock_name)}}</span></td><td colspan="13">無行情</td></tr>`;
+    return `<tr class="stock-item no-data"><td><span class="si-id">${{sid}}</span><span class="si-name">${{escHtml(s.stock_name)}}</span>${{watchButton}}</td><td colspan="13">無行情</td></tr>`;
   }}
   const color = s.change_pct >= 0 ? 'var(--up)' : 'var(--down)';
   const sign = s.change_pct >= 0 ? '+' : '';
   const arrow = s.change_pct > 0 ? '▲' : (s.change_pct < 0 ? '▼' : '─');
   return `<tr class="stock-item" tabindex="0" onclick="openStockCard('${{sid}}')" `
     + `onkeydown="if(event.key==='Enter'||event.key===' '){{event.preventDefault();openStockCard('${{sid}}')}}">`
-    + `<td><span class="si-id">${{sid}}</span><span class="si-name">${{escHtml(s.stock_name)}}</span></td>`
+    + `<td><span class="si-id">${{sid}}</span><span class="si-name">${{escHtml(s.stock_name)}}</span>${{watchButton}}</td>`
     + `<td class="num tabular">${{fmtPrice(s.close)}}</td>`
     + `<td class="num tabular" style="color:${{color}}">${{arrow}} ${{sign}}${{s.change_pct.toFixed(2)}}%</td>`
     + `${{_volTd(s.vol_ratio)}}`
@@ -2042,6 +2112,77 @@ function renderStockListItem(s) {{
     + `${{_plainPctTd(s.shorted_pct)}}`
     + `${{_maintTd(s.short_maintenance_est)}}`
     + `${{_rollTd(s.roll5)}}${{_rollTd(s.roll7)}}${{_rollTd(s.roll10)}}${{_rollTd(s.roll14)}}</tr>`;
+}}
+
+const WATCHLIST_KEY = 'tw-sector-watchlist-v1';
+function readWatchlist() {{
+  try {{ const value = JSON.parse(localStorage.getItem(WATCHLIST_KEY) || '[]'); return Array.isArray(value) ? value.map(String) : []; }}
+  catch (_) {{ return []; }}
+}}
+function writeWatchlist(ids) {{ try {{ localStorage.setItem(WATCHLIST_KEY, JSON.stringify([...new Set(ids.map(String))])); }} catch (_) {{}} }}
+function toggleWatchlist(button, event) {{
+  event.stopPropagation();
+  const id = String(button.dataset.watchlistId), ids = readWatchlist();
+  writeWatchlist(ids.includes(id) ? ids.filter(item => item !== id) : [...ids, id]);
+  syncWatchlistButtons();
+}}
+function syncWatchlistButtons() {{
+  const ids = new Set(readWatchlist());
+  document.querySelectorAll('[data-watchlist-id]').forEach(button => {{
+    const active = ids.has(String(button.dataset.watchlistId));
+    button.textContent = active ? '★ 已在自選' : '＋自選';
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', String(active));
+  }});
+}}
+
+// 基本面區塊(spec §6)：最新一季快照，接在籌碼列之後。
+// ⚠️ 營收/毛利率/稅前淨利率是「單季」(累計相減)，但 EPS 是「累計」——累計 EPS 不能相減
+// (期間內股數會因增資/減資/庫藏股註銷而變動)，所以 EPS 那格必須把期間差異標在版面上，
+// 不能讓讀者以為跟其他欄位同期間。
+function _fundNum(v, suffix, digits) {{
+  if (v === null || v === undefined) return '<span class="tabular">─</span>';
+  return `<span class="tabular">${{v.toFixed(digits)}}${{suffix}}</span>`;
+}}
+
+// 成長率可能是數字，也可能是「轉盈」/「轉虧」/「>999%」文字：虧轉盈時基期趨近 0，
+// 成長率在數學上必然噴出六位數(實測 2026Q2 稅後淨利最大 +199,700%)——計算正確但
+// 沒有資訊量，還會把版面推爆，所以資料層就換成文字標籤了。
+function _fundGrowth(v) {{
+  if (v === null || v === undefined) return '<span class="tabular">─</span>';
+  if (typeof v === 'string') return `<span class="fund-label">${{escHtml(v)}}</span>`;
+  const c = v >= 0 ? 'var(--up)' : 'var(--down)';
+  return `<span class="tabular" style="color:${{c}}">${{v >= 0 ? '+' : ''}}${{v.toFixed(1)}}%</span>`;
+}}
+
+// 營收是官方申報單位「千元」，換算成億元顯示(1 億元 = 100,000 千元)。
+function _fundMoney(v) {{
+  if (v === null || v === undefined) return '<span class="tabular">─</span>';
+  return `<span class="tabular">${{(v / 100000).toLocaleString('en-US', {{maximumFractionDigits: 1}})}} 億</span>`;
+}}
+
+function _fundItem(lbl, valueHtml, note) {{
+  const em = note ? `<em>${{escHtml(note)}}</em>` : '';
+  return `<span class="sc-fund-item"><span class="lbl">${{escHtml(lbl)}}${{em}}</span>${{valueHtml}}</span>`;
+}}
+
+// 沒有可見季(新上市、未申報、還沒到法定可得日)就整個區塊不輸出——個股卡片其餘部分
+// 照常顯示，不影響行情/籌碼，也不會 crash。
+function _fundHtml(f) {{
+  if (!f) return '';
+  const row1 = _fundItem('營收', _fundMoney(f.revenue))
+    + _fundItem('YoY', _fundGrowth(f.revenue_yoy))
+    + _fundItem('QoQ', _fundGrowth(f.revenue_qoq));
+  const row2 = _fundItem('毛利率', _fundNum(f.gross_margin, '%', 1))
+    + _fundItem('稅前淨利率', _fundNum(f.pretax_margin, '%', 1));
+  const row3 = _fundItem('EPS', _fundNum(f.eps_ytd, ' 元', 2), '累計')
+    + _fundItem('YoY', _fundGrowth(f.eps_yoy));
+  return `<div class="sc-fund">
+      <div class="sc-fund-head">基本面 <b>${{escHtml(f.period)}} 單季</b><span>${{escHtml(f.available)}} 起可見</span></div>
+      <div class="sc-fund-row">${{row1}}</div>
+      <div class="sc-fund-row">${{row2}}</div>
+      <div class="sc-fund-row">${{row3}}</div>
+    </div>`;
 }}
 
 // 個股卡片：TradingView Lightweight Charts 日K+成交量、今日量價、近5/7/10/14日與籌碼，
@@ -2092,7 +2233,7 @@ function openStockCard(sid) {{
         <div id="stockTvChart" class="tv-chart" aria-label="${{escHtml(s.stock_name)}}日 K 與成交量"></div>
         <a class="tv-attribution" href="https://www.tradingview.com/" target="_blank" rel="noopener noreferrer">圖表技術由 TradingView 提供</a>
       </div>
-      ${{rollHtml}}${{chipsHtml}}
+      ${{rollHtml}}${{chipsHtml}}${{_fundHtml(s.fundamentals)}}
     </div>`;
   document.body.appendChild(backdrop);
   document.addEventListener('keydown', _stockCardEscHandler);
@@ -2235,11 +2376,11 @@ function selectGroup(name, toggle) {{
           <th class="num" aria-sort="descending"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'pct')">漲跌%</button></th>
           <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'vol')">量比</button></th>
           <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'holder')">大戶佔比</button></th>
-          <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'holderchg')">大戶週變化</button></th>
+          <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'holderchg')">大戶週變</button></th>
           <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'financed')">融資佔比</button></th>
-          <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'maint')">融資維持率(估)</button></th>
-          <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'shorted')">融券餘額佔比</button></th>
-          <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'shortmaint')">融券維持率(估)</button></th>
+          <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'maint')">融資維持</button></th>
+          <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'shorted')">融券佔比</button></th>
+          <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'shortmaint')">融券維持</button></th>
           <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'5')">5日</button></th>
           <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'7')">7日</button></th>
           <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'10')">10日</button></th>

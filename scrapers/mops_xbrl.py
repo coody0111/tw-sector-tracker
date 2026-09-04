@@ -49,8 +49,15 @@ _DOWNLOAD_RE = re.compile(
     r"(?:https?://[^\"'<>\s]+)?/?server-java/FileDownLoad\?[^\"'<>\s]+",
     re.IGNORECASE,
 )
+# recover 模式的健全性檢查用：直接數原始 bytes 裡的 contextRef，當作「應該有幾個 fact」的基準
+_CONTEXT_REF_RE = re.compile(rb"contextRef\s*=", re.IGNORECASE)
 _STOCK_ID_RE = re.compile(r"(?<!\d)(\d{4,6})(?!\d)")
 _DOWNLOAD_RETRY_DELAYS = (5.0, 20.0, 60.0)
+# 串流下載的上限。最大的官方 ZIP 約 124 MB，20 分鐘約當要求平均 100 KB/s；
+# 低於這個速率的連線在實測中最後都是給出截斷檔（見 _read_streamed_body）。
+_DOWNLOAD_MAX_SECONDS = 1200.0
+_DOWNLOAD_STALL_SECONDS = 120.0
+_DOWNLOAD_CHUNK_BYTES = 1 << 20
 _HTML4_PUBLIC_DOCTYPE_RE = re.compile(
     rb'(?i)(<!DOCTYPE\s+HTML\s+PUBLIC\s+"[^"]+")(\s*>)'
 )
@@ -116,7 +123,24 @@ def _xml_parse_content(content: bytes, entry_path: str) -> etree._Element:
         recovery_parser = etree.XMLParser(
             resolve_entities=False, no_network=True, recover=True, huge_tree=True,
         )
-        return etree.fromstring(parse_content, parser=recovery_parser)
+        root = etree.fromstring(parse_content, parser=recovery_parser)
+        # recover 模式會安靜地丟掉修不好的節點。全庫 34,318 份文件實測只有
+        # 2021Q2 的 1519 觸發過（1,120 個 contextRef 全數保留、零丟失），但沒有
+        # 紀錄就無從得知下次是不是同樣安全，所以把觸發檔案與 lxml 的實際錯誤
+        # 一併寫進 log：錯誤若只落在 HTML 排版標籤（META/BR/SPAN）代表 XBRL
+        # 內容未受影響，若出現 contextRef／facts 相關訊息就要人工複核。
+        recovered_facts = sum(1 for element in root.iter() if _attribute(element, "contextRef"))
+        source_refs = len(_CONTEXT_REF_RE.findall(parse_content))
+        logger.warning(
+            "MOPS XBRL %s 以 recover 模式解析：contextRef 原始 %d 個、解析後保留 %d 個%s；"
+            "lxml 回報 %d 個錯誤",
+            entry_path, source_refs, recovered_facts,
+            "" if recovered_facts >= source_refs else f"（少 {source_refs - recovered_facts} 個，需人工複核）",
+            len(recovery_parser.error_log),
+        )
+        for entry in list(recovery_parser.error_log)[:5]:
+            logger.warning("  recover 錯誤 %s:%s %s", entry_path, entry.line, entry.message)
+        return root
 
 
 def _period_end(year: int, quarter: int) -> date:
@@ -189,6 +213,52 @@ def _validate_zip(content: bytes, filename: str) -> None:
         raise MopsXbrlError(f"MOPS ZIP entry CRC 錯誤：{filename}/{bad_entry}")
 
 
+def _read_streamed_body(response: Any, filename: str) -> bytes:
+    """分塊讀取回應本體，套用總時長與停滯上限，並比對 Content-Length。
+
+    背景（2026-09-02 tifrs-2022Q2.zip）：官方伺服器會以極慢的速率持續吐資料，
+    最後給出截斷的 ZIP。requests 的 `timeout` 只管「兩次 socket 讀取之間的間隔」，
+    伺服器每 119 秒吐一點就永遠不會觸發，於是單次下載耗掉 3～8 小時，讀完才在
+    `_validate_zip()` 發現是壞的——那一季前後花了 14 小時才成功。
+
+    這裡改成串流讀取，讓失敗在分鐘級就浮現：
+      * 總時長超過 _DOWNLOAD_MAX_SECONDS 就放棄（對最大的 124 MB 檔約當要求 100 KB/s）
+      * 連續 _DOWNLOAD_STALL_SECONDS 沒有新資料就放棄
+      * 官方有給 Content-Length 時，收完立刻比對，短傳直接判定失敗
+    這三種都拋 MopsXbrlError，沿用既有的退避重試路徑。
+    """
+    header_length = str(response.headers.get("Content-Length", "")).strip()
+    expected_bytes = int(header_length) if header_length.isdigit() else None
+
+    chunks: list[bytes] = []
+    total = 0
+    started = last_progress = time.monotonic()
+    for chunk in response.iter_content(chunk_size=_DOWNLOAD_CHUNK_BYTES):
+        now = time.monotonic()
+        if chunk:
+            chunks.append(chunk)
+            total += len(chunk)
+            last_progress = now
+        elif now - last_progress > _DOWNLOAD_STALL_SECONDS:
+            raise MopsXbrlError(
+                f"MOPS ZIP 下載停滯超過 {_DOWNLOAD_STALL_SECONDS:.0f} 秒："
+                f"{filename}；已收 {total} bytes"
+            )
+        if now - started > _DOWNLOAD_MAX_SECONDS:
+            raise MopsXbrlError(
+                f"MOPS ZIP 下載超過 {_DOWNLOAD_MAX_SECONDS:.0f} 秒上限："
+                f"{filename}；已收 {total} bytes"
+                + (f" / 預期 {expected_bytes} bytes" if expected_bytes is not None else "")
+            )
+
+    content = b"".join(chunks)
+    if expected_bytes is not None and len(content) != expected_bytes:
+        raise MopsXbrlError(
+            f"MOPS ZIP 短傳：{filename}；Content-Length={expected_bytes}、實收 {len(content)} bytes"
+        )
+    return content
+
+
 def _download_validated_zip(
     link: ArchiveLink,
     timeout: int = 120,
@@ -207,9 +277,11 @@ def _download_validated_zip(
                     "Pragma": "no-cache",
                     "Connection": "close",
                 })
-            response = session.get(link.url, headers=request_headers, timeout=timeout)
+            response = session.get(
+                link.url, headers=request_headers, timeout=timeout, stream=True,
+            )
             response.raise_for_status()
-            content = response.content
+            content = _read_streamed_body(response, link.filename)
             _validate_zip(content, link.filename)
             return content, response
         except (requests.exceptions.RequestException, MopsXbrlError) as exc:
@@ -314,6 +386,10 @@ def _namespace_uri(qname: str | None) -> str:
     if qname and qname.startswith("{") and "}" in qname:
         return qname[1:].split("}", 1)[0]
     return ""
+
+
+def _is_notes_namespace(namespace_uri: str) -> bool:
+    return bool(re.search(r"(?:^|[/_-])notes?(?:$|[/_-])", namespace_uri.casefold()))
 
 
 def _date_text(value: str | None) -> date | None:
@@ -550,7 +626,7 @@ def _iter_fact_elements(root: etree._Element, content_format: str) -> Iterator[t
                     yield element, qname
         return
     for element in root.iter():
-        if element.get("contextRef"):
+        if _attribute(element, "contextRef"):
             yield element, element.tag
 
 
@@ -755,6 +831,12 @@ def parse_xbrl_instance(
         context_id = _attribute(element, "contextRef")
         context = contexts.get(context_id or "")
         if context is None:
+            if _is_notes_namespace(_namespace_uri(qname)):
+                logger.warning(
+                    "MOPS XBRL %s context 不存在，略過附註 fact：%s/%s",
+                    entry_path, qname, context_id,
+                )
+                continue
             raise MopsXbrlError(f"fact 引用不存在的 context：{entry_path}/{context_id}")
         raw_value = " ".join(text.strip() for text in element.itertext() if text.strip())
         is_nil = str(element.get(_XSI_NIL, "false")).lower() in ("true", "1")
@@ -780,7 +862,7 @@ def parse_xbrl_instance(
             "instant": context["instant"],
             "unit_id": unit_id,
             "unit": units.get(unit_id or ""),
-                "decimals": _attribute(element, "decimals"),
+            "decimals": _attribute(element, "decimals"),
             "dimensions_json": context["dimensions_json"],
             "raw_value": raw_value,
             "numeric_value": numeric,

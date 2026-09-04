@@ -133,7 +133,7 @@ table.vt-table{width:100%;border-collapse:collapse}
 .cs-row.cs-week{width:100%;border-top:1px solid var(--border);padding-top:8px;margin-top:2px;gap:14px}
 .overflow-wrap{overflow-x:auto}
 table.stock-list-table{width:100%;border-collapse:collapse}
-.stock-list-table thead th{text-align:left;padding:0 12px 10px;border-bottom:1px solid var(--border-2)}
+.stock-list-table thead th{text-align:left;padding:0 12px 10px;border-bottom:1px solid var(--border-2);white-space:nowrap}
 .stock-list-table thead th.num{text-align:right}
 .stock-list-table .sort-button{display:inline-flex;align-items:center;gap:4px;background:none;border:0;
   padding:0;font-family:var(--mono);font-size:.74rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;
@@ -149,6 +149,9 @@ table.stock-list-table{width:100%;border-collapse:collapse}
 .stock-item.no-data{opacity:.5;cursor:default}
 .stock-item .si-id{font-family:var(--mono);color:var(--ink-3);font-size:.8rem;margin-right:8px}
 .stock-item .si-name{font-family:var(--sans);font-weight:650;color:var(--ink);font-size:.94rem}
+/* 代號+名稱同一列不折行：14 欄擠在 min-width:1120px 時，第一欄只分到約 80px，
+   連 4 字中文名都會被折成兩行。表頭縮短後把寬度讓給這一欄，這裡再鎖住不換行。 */
+.stock-list-table tbody td:first-child{white-space:nowrap}
 .stock-item td.num{font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:right}
 
 .stock-card-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:200;
@@ -293,7 +296,7 @@ table.stock-list-table{width:100%;border-collapse:collapse}
       aria-label="搜尋股票代號、名稱或族群" oninput="searchStocks(this.value)" onblur="setTimeout(hideSearch,200)" autocomplete="off">
     <div id="search-dropdown" class="search-dropdown" hidden></div>
   </div>
-  <div class="updated"><strong>收盤快照</strong><span>2026-09-04（週五）15:01</span></div>
+  <div class="updated"><strong>收盤快照</strong><span>2026-09-04（週五）15:15</span></div>
   <nav class="nav-links" aria-label="主要功能">
     <a class="nav-link active" href="index.html" aria-current="page">族群績效</a>
     <a class="nav-link" href="chips.html">籌碼分析</a>
@@ -1064,11 +1067,11 @@ function selectGroup(name, toggle) {
           <th class="num" aria-sort="descending"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'pct')">漲跌%</button></th>
           <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'vol')">量比</button></th>
           <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'holder')">大戶佔比</button></th>
-          <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'holderchg')">大戶週變化</button></th>
+          <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'holderchg')">大戶週變</button></th>
           <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'financed')">融資佔比</button></th>
-          <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'maint')">融資維持率(估)</button></th>
-          <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'shorted')">融券餘額佔比</button></th>
-          <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'shortmaint')">融券維持率(估)</button></th>
+          <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'maint')">融資維持</button></th>
+          <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'shorted')">融券佔比</button></th>
+          <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'shortmaint')">融券維持</button></th>
           <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'5')">5日</button></th>
           <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'7')">7日</button></th>
           <th class="num" aria-sort="none"><button type="button" class="sort-button" onclick="sortStockList(this.parentElement,'10')">10日</button></th>

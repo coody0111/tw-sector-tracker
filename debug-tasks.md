@@ -4770,3 +4770,87 @@ Cody 依序執行兩次 `python main.py --backfill-chips 60`（正式`data/scree
 - 若之後又遇到其他季度/公司觸發同樣的`MopsXbrlError`略過警告，屬於預期行為（MOPS原始
   資料缺陷），不用當成新bug回報；但如果警告數量異常多（例如同一季度大量公司都被略過），
   可能代表parser邏輯本身有問題，值得留意log裡`案例文件解析失敗，略過`的出現頻率。
+
+---
+
+## [2026-09-04] 跨頁視覺系統拓展交接
+
+### 改了什麼
+
+- 異動檔案：`export/ui_theme.py`、`export/patterns_generator.py`、`export/chips_generator.py`、`export/momentum_generator.py`、`tests/test_patterns_generator.py`。
+- 新增共用 CSS token、summary、event badge、empty state 與 compact card 樣式；chips／momentum 載入共用視覺語言。
+- patterns 主要個股清單改為 compact card，保留交易所／文字篩選，展開顯示原本的交易計畫與證據。
+- patterns compact card 預留跳空欄位：`gap_direction`、`gap_pct`、`gap_volume_confirmed`、`gap_intraday_fill`、`gap_close_fill`；本輪未改 scanner 邏輯。
+
+### 請 Debugger 驗證
+
+- [ ] 跑 `tests/test_patterns_generator.py`、`tests/test_chips_generator.py`、`tests/test_momentum_generator.py`，確認既有輸出契約、tabs、篩選與安全 escaping 沒有退化。
+- [ ] 以含跳空欄位的 sample record 產生 patterns HTML，確認方向、百分比、量能確認與回補狀態正確顯示。
+- [ ] 桌面與手機瀏覽器確認 patterns card 不水平溢出，搜尋／上市上櫃篩選仍能作用於 card。
+- [ ] 確認 chips／momentum 的既有欄位、權限 banner、空狀態與 tab deep link 不受共用 CSS 影響。
+- [ ] 產生正式 `docs/*.html` 後做桌面／手機目視驗證；不要手動修改 generated HTML。
+
+### 特別注意
+
+- `pytest` 曾因 workspace 既有 basetemp／`.pytest_cache` 權限問題在 fixture／session cleanup 結束時失敗；單獨不依賴 `tmp_path` 的跳空 badge 測試已通過，完整測試需在 Debugger 可寫的 basetemp 執行。
+- working tree 原有 Oliver／watchlist／fundamentals 相關修改不屬於本任務，請不要回退或一併 stage。
+
+## [2026-09-04] Oliver structure analysis 交接
+
+- 新增 `processors/oliver_structure.py` 與 `tests/test_oliver_structure.py`，並接入 `main.py`／`export/watchlist_generator.py`。
+- 已驗證 129 passed；真實 DB 2026-09-04 的 1,036 檔分析成功，僅 1 檔 unknown；暫存 HTML 成功生成後已移除。
+- [x] 已用本機 2026-09-04 真實資料正式重產 `docs/watchlist.html`；未執行整套網路抓取或 push。
+- [ ] 瀏覽器以數檔 localStorage 自選驗證卡片顯示、備註保存、移除按鈕與手機版；抽查 `research`：4974、6275、2419、3499、6486、3023。
+- [ ] 對 extension/reversal/base-break 假陽性做人工 chart audit；目前數值門檻全部是待回測專案參數，禁止解讀為 Oliver 原文或自動交易訊號。
+
+---
+
+## [2026-09-04] 基本面卡片：近8季走勢圖 + 可展開季度明細 — commit b4410bd
+
+接續 `717b83a`。Cody 要求「財務數據應該要有更多的月月、季季」。
+
+### 改了什麼
+- 異動檔案：`screener/database.py`、`export/index_generator.py`、
+  `tests/test_fundamentals_snapshot.py`
+- **季**：資料現成（universe 1,028 檔裡 958 檔近 12 季齊全），本次做完。
+  `build_fundamentals_snapshot()` 新增 `quarters`（預設 8）與 `history` 欄位。
+- **月**：`monthly_revenue` 仍是 0 筆，本次**未做**。見下方「特別注意」。
+- 卡片預設維持原本緊湊度：三個單季指標各配一條 68×18px 的 SVG 迷你走勢線，
+  點「展開近 8 季」才顯示 8 列明細表。
+
+### 資料來源相關
+- 無新增資料來源。仍只讀 `financial_facts`（`source='mops_xbrl'`）。
+- 抓取年份範圍由 `as_of.year - 2` 放寬為 `- 4`（要蓋住 8 季歷史 + 最舊那季的
+  相減基期 + YoY 基期）。查詢仍是單次 read-only，行數十萬量級。
+
+### 請 Debugger 驗證
+- [ ] **history 不得含尚未可見的季別**（我加了測試，但這是前視偏誤的直接入口，
+      請獨立複核 `build_fundamentals_snapshot()` 的 `range(seq-quarters+1, seq+1)`
+      邊界）
+- [ ] history 的 revenue 是**單季**不是累計（2330 的 2026Q2 應為 12,704 億）
+- [ ] 缺季被略過而非補 None 佔位（走勢圖不該出現假斷點）
+- [ ] 展開／收合 toggle 的 `aria-expanded` 與按鈕文字同步切換
+- [ ] `.sc-fund-table` 在窄螢幕（<820px）能水平捲動而不撐破卡片
+- [ ] 沒有影響其他模組（166 passed，完整套件仍請你跑）
+
+### 特別注意
+
+- **EPS 刻意不畫走勢圖**。累計 EPS 逐季會呈鋸齒（每年 Q1 歸零重算，實測 2330
+  由 2025Q4 的 66.26 掉到 2026Q1 的 22.08），畫成折線看起來像每個 Q1 都崩盤。
+  改成只在展開表格列數字並加註說明。**如果你認為鋸齒圖其實可接受、或應該改成
+  「同季比較」的四點折線，請回報**——這是我自己判斷的取捨，沒問過 Cody。
+
+- **表格排序方向與走勢圖相反是刻意的**：走勢圖舊→新（看趨勢方向），表格新→舊
+  （先看到最新一季）。若你覺得同一區塊兩種方向會混淆，請回報。
+
+- **🚩 月營收（「月月」）本次沒做，因為表是空的**。`monthly_revenue` 0 筆。
+  但官方 OpenAPI 每一列自帶 `previous_month_revenue` / `previous_year_revenue` /
+  `reported_mom_pct` / `reported_yoy_pct`，所以 **Cody 只要跑一次
+  `python main.py --update-fundamentals`（只抓最新一期，很快），最新月營收＋MoM＋YoY
+  就有了**，不需要跑幾小時的 `--backfill-fundamentals`。歷史多月走勢才需要後者。
+  資料進來後我再接卡片。**請 Debugger 在驗證時順帶確認 `--update-fundamentals`
+  真的能把 `monthly_revenue` 寫進去**（Phase 1 至今從未被驗證過，spec 狀態一直
+  停在「已實作，待 Debugger／真實資料驗證」）。
+
+- **前一則交接的 🟡「稅前淨利率 > 毛利率」（58/1,026 檔）仍未解**，這次沒有動到
+  `pretax_income` 的取值邏輯，狀態不變。

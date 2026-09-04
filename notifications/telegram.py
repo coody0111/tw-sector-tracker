@@ -5,11 +5,18 @@ Telegram Bot 訊息發送。
 """
 import logging
 import os
+from pathlib import Path
 
 import requests
 from dotenv import load_dotenv
 
-load_dotenv()
+# load_dotenv() 沒指定路徑時只會從「目前工作目錄」往上找 .env，手動在終端機測試時
+# 如果沒有先 cd 進專案根目錄（例如忘記 cd、或從另一個視窗執行）就會完全找不到，
+# 安靜地當作 TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID 未設定（2026-09-04 實測重現：同一段
+# 程式在專案根目錄執行讀得到、在 C:\Users\Cody 執行完全讀不到）。改成明確指到專案根目錄
+# 的 .env，不管從哪個目錄執行這支模組都抓得到——排程本身用 -WorkingDirectory 已經沒事，
+# 這個修法主要是保護手動測試的情境。
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 logger = logging.getLogger(__name__)
 

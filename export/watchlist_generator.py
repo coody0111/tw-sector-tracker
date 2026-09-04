@@ -24,6 +24,7 @@ def build_watchlist_rows(
     selected_ids: Iterable[str] = (),
     rolling_returns: Optional[dict] = None,
     chips_df: Optional[pd.DataFrame] = None,
+    oliver_analysis: Optional[dict] = None,
 ) -> list[dict[str, Any]]:
     """Build only the user-selected rows; keep missing selections visible."""
     selected = [str(stock_id) for stock_id in selected_ids]
@@ -44,6 +45,7 @@ def build_watchlist_rows(
         chips["stock_id"] = chips["stock_id"].astype(str)
     chips_map = chips.set_index("stock_id").to_dict("index") if not chips.empty else {}
     rolling = rolling_returns or {}
+    analyses = oliver_analysis or {}
 
     rows = []
     for stock_id in selected:
@@ -62,6 +64,18 @@ def build_watchlist_rows(
             "foreign_net": chip.get("foreign_net"),
             "trust_net": chip.get("trust_net"),
             "dealer_net": chip.get("dealer_net"),
+            "oliver": analyses.get(stock_id) or {
+                "weekly_structure": {"state": "unknown", "summary": "週線資料不足", "close_vs_10w_ema_pct": None},
+                "daily_cycle": {"state": "unknown", "summary": "日線資料不足"},
+                "extension_state": "normal",
+                "reversal_state": "none",
+                "pivotal_point": {"status": "none", "trigger": None, "invalidation": None, "risk_pct": None},
+                "risk_state": "unknown",
+                "action_state": "unknown",
+                "evidence": [],
+                "uncertainty": ["尚未取得足夠 OHLCV 資料"],
+                "parameter_status": "unverified-project-parameters",
+            },
         }
         for period in (5, 7, 10, 14):
             row[f"roll{period}"] = (rolling.get(stock_id) or {}).get(period)
@@ -85,6 +99,7 @@ def generate(
     prices_df: pd.DataFrame,
     rolling_returns: Optional[dict] = None,
     chips_df: Optional[pd.DataFrame] = None,
+    oliver_analysis: Optional[dict] = None,
     output_path: str = "docs/watchlist.html",
 ) -> None:
     """Generate a static page; the browser supplies the user's local selection."""
@@ -97,7 +112,12 @@ def generate(
                 "meta_sector": _clean(row.get("meta_sector")) or "",
             })
     market_rows = build_watchlist_rows(
-        universe_df, prices_df, [row["stock_id"] for row in catalog], rolling_returns, chips_df
+        universe_df,
+        prices_df,
+        [row["stock_id"] for row in catalog],
+        rolling_returns,
+        chips_df,
+        oliver_analysis,
     )
     market_map = {row["stock_id"]: row for row in market_rows}
     catalog_js = _json(catalog)
@@ -120,7 +140,7 @@ main{{max-width:1400px;margin:0 auto;padding:24px}}.intro{{display:flex;align-it
 .card-head{{display:flex;align-items:baseline;gap:8px}}.id{{color:var(--muted);font:700 .75rem monospace}}.name{{font-size:1.05rem;font-weight:700;flex:1}}.meta{{margin:5px 0 14px;color:var(--muted);font-size:.72rem}}
 .price{{font:700 1.15rem monospace}}.pct{{margin-left:9px;font:700 .85rem monospace}}.positive{{color:var(--up)}}.negative{{color:var(--down)}}.muted{{color:var(--muted)}}
 .metrics{{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin:15px 0}}.metric{{padding:8px;background:var(--panel-2);border-radius:4px}}.metric label{{display:block;color:var(--muted);font: .62rem monospace}}.metric strong{{display:block;margin-top:4px;font:700 .8rem monospace}}
-.analysis{{border-top:1px solid var(--border);padding-top:12px;color:var(--muted);font-size:.75rem;line-height:1.6}}.analysis b{{color:var(--ink)}}.note{{width:100%;margin-top:12px;min-height:56px;padding:8px;border:1px solid var(--border);border-radius:4px;background:var(--panel-2);color:var(--ink);font: .78rem Arial}}
+.analysis{{border-top:1px solid var(--border);padding-top:12px;color:var(--muted);font-size:.75rem;line-height:1.6}}.analysis b{{color:var(--ink)}}.analysis-row{{margin:3px 0}}.state{{display:inline-flex;margin-left:7px;padding:1px 6px;border:1px solid var(--border);border-radius:3px;color:var(--accent);font:700 .65rem monospace}}.evidence{{margin:8px 0 0;padding-left:18px}}.uncertainty{{margin-top:7px;color:#c5a66a}}.note{{width:100%;margin-top:12px;min-height:56px;padding:8px;border:1px solid var(--border);border-radius:4px;background:var(--panel-2);color:var(--ink);font: .78rem Arial}}
 .card-actions{{display:flex;gap:8px;margin-top:10px}}.empty{{padding:48px 20px;text-align:center;border:1px dashed var(--border);border-radius:7px;color:var(--muted)}}
 @media(max-width:600px){{main{{padding:14px}}.topbar{{padding:14px}}.metrics{{grid-template-columns:repeat(2,1fr)}}}}
 </style></head><body>
@@ -140,14 +160,21 @@ function readNote(id) {{ try {{ return localStorage.getItem(noteKey(id)) || ''; 
 function writeNote(id, value) {{ try {{ localStorage.setItem(noteKey(id), value); }} catch (_) {{}} }}
 function pct(v) {{ return v === null || v === undefined || !Number.isFinite(Number(v)) ? '—' : (Number(v)>=0?'+':'') + Number(v).toFixed(2) + '%'; }}
 function metric(label, value) {{ return `<div class="metric"><label>${{label}}</label><strong>${{esc(pct(value))}}</strong></div>`; }}
+function attr(s) {{ return esc(s).replaceAll('"','&quot;').replaceAll("'",'&#39;'); }}
+const STATE_LABELS={{bullish:'多頭趨勢',bearish:'空頭趨勢',correction:'修正',base:'築底／整理',extended:'延伸',transition:'轉換中',unknown:'未知','reversal-extension-confirmed':'反轉延伸已確認','reversal-extension-watch':'反轉延伸觀察','reversal-extension-failed':'反轉失效','exhaustion-extension':'耗竭延伸','exhaustion-reversal-warning':'耗竭反轉警訊','wedge-pop':'Wedge Pop','wedge-drop':'Wedge Drop','base-n-break-bullish':'Base N’ Break 向上','base-n-break-bearish':'Base N’ Break 向下','no-clear-cycle':'無清楚週期',normal:'正常',risk:'風險',extreme:'極端',none:'無',watch:'觀察',confirmed:'確認',failed:'失效','defined-risk':'風險已定義','avoid-chasing':'避免追價','deterioration-warning':'惡化警訊',research:'研究','wait-for-confirmation':'等待確認','reduce-risk':'降低風險'}};
+function stateLabel(value) {{ return STATE_LABELS[value] || value || '未知'; }}
+function pivotText(pivot) {{ if (!pivot || pivot.status!=='defined') return '尚無明確 Pivotal Point'; return `觸發 ${{Number(pivot.trigger).toFixed(2)}}／失效 ${{Number(pivot.invalidation).toFixed(2)}}／距離 ${{pct(pivot.risk_pct)}}`; }}
+function analysisHtml(o) {{ const weekly=o.weekly_structure||{{}}, daily=o.daily_cycle||{{}}, evidence=Array.isArray(o.evidence)?o.evidence:[], uncertainty=Array.isArray(o.uncertainty)?o.uncertainty:[]; return `<div class="analysis-row"><b>Weekly</b><span class="state">${{esc(stateLabel(weekly.state))}}</span> ${{esc(weekly.summary||'')}}</div><div class="analysis-row"><b>Daily</b><span class="state">${{esc(stateLabel(daily.state))}}</span> ${{esc(daily.summary||'')}}</div><div class="analysis-row"><b>Extension / Reversal</b> ${{esc(stateLabel(o.extension_state))}} / ${{esc(stateLabel(o.reversal_state))}}</div><div class="analysis-row"><b>Pivotal Point</b> ${{esc(pivotText(o.pivotal_point))}}</div><div class="analysis-row"><b>Risk / Action</b><span class="state">${{esc(stateLabel(o.risk_state))}}</span> → ${{esc(stateLabel(o.action_state))}}</div>${{evidence.length?`<ul class="evidence">${{evidence.slice(0,3).map(item=>`<li>${{esc(item)}}</li>`).join('')}}</ul>`:''}}${{uncertainty.length?`<div class="uncertainty">不確定性：${{esc(uncertainty[0])}}</div>`:''}}`; }}
 function render() {{
   const ids=readList(), wrap=document.getElementById('watchlist');
   document.getElementById('count').textContent=`${{ids.length}} 檔自選`;
   if (!ids.length) {{ wrap.innerHTML='<div class="empty">目前還沒有自選股。請從族群總覽的個股明細加入。</div>'; return; }}
   wrap.innerHTML=ids.map(id=>{{ const s=MARKET_DATA[id] || {{stock_id:id,stock_name:'未知股票',data_status:'unknown-stock'}}; const ch=s.change_pct; const cls=ch>0?'positive':(ch<0?'negative':'muted');
     const status=s.data_status==='ok'?'目前資料':(s.data_status==='no-data'?'目前無行情':'找不到此股票');
-    return `<article class="card"><div class="card-head"><span class="id">${{esc(s.stock_id)}}</span><span class="name">${{esc(s.stock_name)}}</span><button class="button" type="button" onclick="removeStock('${{esc(s.stock_id)}}')">移除</button></div><div class="meta">${{esc(s.meta_sector||'')}} · ${{esc(status)}} · ${{esc(s.date||'')}}</div><div><span class="price">${{s.close==null?'—':Number(s.close).toFixed(2)}}</span><span class="pct ${{cls}}">${{esc(pct(ch))}}</span></div><div class="metrics">${{metric('近5日',s.roll5)}}${{metric('近7日',s.roll7)}}${{metric('近10日',s.roll10)}}${{metric('近14日',s.roll14)}}</div><div class="analysis"><div><b>Weekly：</b>待建立週線 Market Structure</div><div><b>Daily：</b>待建立 Price Cycle 判斷</div><div><b>Pivotal Point：</b>待人工標註</div><div><b>Risk：</b>先觀察資料，不自動產生買賣指令</div></div><textarea class="note" aria-label="${{esc(s.stock_id)}} 個人備註" placeholder="寫下你為什麼放進自選…" oninput="writeNote('${{esc(s.stock_id)}}',this.value)">${{esc(readNote(s.stock_id))}}</textarea></article>`;
+    return `<article class="card"><div class="card-head"><span class="id">${{esc(s.stock_id)}}</span><span class="name">${{esc(s.stock_name)}}</span><button class="button" type="button" data-remove-id="${{attr(s.stock_id)}}">移除</button></div><div class="meta">${{esc(s.meta_sector||'')}} · ${{esc(status)}} · ${{esc(s.date||'')}}</div><div><span class="price">${{s.close==null?'—':Number(s.close).toFixed(2)}}</span><span class="pct ${{cls}}">${{esc(pct(ch))}}</span></div><div class="metrics">${{metric('近5日',s.roll5)}}${{metric('近7日',s.roll7)}}${{metric('近10日',s.roll10)}}${{metric('近14日',s.roll14)}}</div><div class="analysis">${{analysisHtml(s.oliver||{{}})}}</div><textarea class="note" data-note-id="${{attr(s.stock_id)}}" aria-label="${{attr(s.stock_id)}} 個人備註" placeholder="寫下你為什麼放進自選…">${{esc(readNote(s.stock_id))}}</textarea></article>`;
   }}).join('');
+  wrap.querySelectorAll('[data-remove-id]').forEach(button=>button.addEventListener('click',()=>removeStock(button.dataset.removeId)));
+  wrap.querySelectorAll('[data-note-id]').forEach(note=>note.addEventListener('input',()=>writeNote(note.dataset.noteId,note.value)));
 }}
 function removeStock(id) {{ writeList(readList().filter(x=>x!==String(id))); render(); }}
 window.addEventListener('storage', render); render();

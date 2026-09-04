@@ -1106,6 +1106,8 @@ table.stock-list-table{width:100%;border-collapse:collapse}
 .stock-item.no-data{opacity:.5;cursor:default}
 .stock-item .si-id{font-family:var(--mono);color:var(--ink-3);font-size:.8rem;margin-right:8px}
 .stock-item .si-name{font-family:var(--sans);font-weight:650;color:var(--ink);font-size:.94rem}
+.watchlist-button{margin-left:8px;padding:3px 7px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--ink-3);font:700 .62rem var(--mono);cursor:pointer}
+.watchlist-button:hover,.watchlist-button.active{color:var(--accent);border-color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,transparent)}
 /* 代號+名稱同一列不折行：14 欄擠在 min-width:1120px 時，第一欄只分到約 80px，
    連 4 字中文名都會被折成兩行。表頭縮短後把寬度讓給這一欄，這裡再鎖住不換行。 */
 .stock-list-table tbody td:first-child{white-space:nowrap}
@@ -1543,6 +1545,7 @@ def generate(
     <a class="nav-link" href="chips.html">籌碼分析</a>
     <a class="nav-link" href="patterns.html">形態掃描</a>
     <a class="nav-link" href="momentum.html">逆轟策略</a>
+   <a class="nav-link" href="watchlist.html">自選股</a>
   </nav>
 </header>
 <main id="main-content">
@@ -1737,6 +1740,7 @@ function activateAdvancedFilters() {{
   sectorView.foreign = document.getElementById('foreignFilter').checked;
   sectorView.trust = document.getElementById('trustFilter').checked;
   applySectorView();
+  syncWatchlistButtons();
 }}
 function clearAdvancedFilters() {{
   sectorView.advancedActive = false;
@@ -2088,15 +2092,16 @@ function _maintTd(v) {{
 
 function renderStockListItem(s) {{
   const sid = escHtml(s.stock_id);
+  const watchButton = `<button type="button" class="watchlist-button" data-watchlist-id="${{escAttr(s.stock_id)}}" onclick="toggleWatchlist(this,event)">＋自選</button>`;
   if (s.no_data) {{
-    return `<tr class="stock-item no-data"><td><span class="si-id">${{sid}}</span><span class="si-name">${{escHtml(s.stock_name)}}</span></td><td colspan="13">無行情</td></tr>`;
+    return `<tr class="stock-item no-data"><td><span class="si-id">${{sid}}</span><span class="si-name">${{escHtml(s.stock_name)}}</span>${{watchButton}}</td><td colspan="13">無行情</td></tr>`;
   }}
   const color = s.change_pct >= 0 ? 'var(--up)' : 'var(--down)';
   const sign = s.change_pct >= 0 ? '+' : '';
   const arrow = s.change_pct > 0 ? '▲' : (s.change_pct < 0 ? '▼' : '─');
   return `<tr class="stock-item" tabindex="0" onclick="openStockCard('${{sid}}')" `
     + `onkeydown="if(event.key==='Enter'||event.key===' '){{event.preventDefault();openStockCard('${{sid}}')}}">`
-    + `<td><span class="si-id">${{sid}}</span><span class="si-name">${{escHtml(s.stock_name)}}</span></td>`
+    + `<td><span class="si-id">${{sid}}</span><span class="si-name">${{escHtml(s.stock_name)}}</span>${{watchButton}}</td>`
     + `<td class="num tabular">${{fmtPrice(s.close)}}</td>`
     + `<td class="num tabular" style="color:${{color}}">${{arrow}} ${{sign}}${{s.change_pct.toFixed(2)}}%</td>`
     + `${{_volTd(s.vol_ratio)}}`
@@ -2107,6 +2112,28 @@ function renderStockListItem(s) {{
     + `${{_plainPctTd(s.shorted_pct)}}`
     + `${{_maintTd(s.short_maintenance_est)}}`
     + `${{_rollTd(s.roll5)}}${{_rollTd(s.roll7)}}${{_rollTd(s.roll10)}}${{_rollTd(s.roll14)}}</tr>`;
+}}
+
+const WATCHLIST_KEY = 'tw-sector-watchlist-v1';
+function readWatchlist() {{
+  try {{ const value = JSON.parse(localStorage.getItem(WATCHLIST_KEY) || '[]'); return Array.isArray(value) ? value.map(String) : []; }}
+  catch (_) {{ return []; }}
+}}
+function writeWatchlist(ids) {{ try {{ localStorage.setItem(WATCHLIST_KEY, JSON.stringify([...new Set(ids.map(String))])); }} catch (_) {{}} }}
+function toggleWatchlist(button, event) {{
+  event.stopPropagation();
+  const id = String(button.dataset.watchlistId), ids = readWatchlist();
+  writeWatchlist(ids.includes(id) ? ids.filter(item => item !== id) : [...ids, id]);
+  syncWatchlistButtons();
+}}
+function syncWatchlistButtons() {{
+  const ids = new Set(readWatchlist());
+  document.querySelectorAll('[data-watchlist-id]').forEach(button => {{
+    const active = ids.has(String(button.dataset.watchlistId));
+    button.textContent = active ? '★ 已在自選' : '＋自選';
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', String(active));
+  }});
 }}
 
 // 基本面區塊(spec §6)：最新一季快照，接在籌碼列之後。

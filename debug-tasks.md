@@ -4683,6 +4683,14 @@ ADR ：`docs/adr/0007-fundamentals-availability-uses-statutory-deadline.md`
   若你認為盤中模式（`--realtime`）下兩者可能不同而有影響，請回報。
 
 - **🚩 working tree 出現不是我建立的檔案**：`docs/superpowers/specs/2026-09-04-
-  personal-watchlist-design.md` 與 `tests/test_watchlist_generator.py`（皆未追蹤）。
-  應該是 codex session 的產出。我 commit 時用**明確檔名逐一 stage**，沒有 `git add .`，
-  所以沒有把它們帶走——但請 Cody 留意兩個 session 同時在同一個 working tree 工作。
+personal-watchlist-design.md` 與 `tests/test_watchlist_generator.py`（皆未追蹤）。
+應該是 codex session 的產出。我 commit 時用**明確檔名逐一 stage**，沒有 `git add .`，
+所以沒有把它們帶走——但請 Cody 留意兩個 session 同時在同一個 working tree 工作。
+
+## [2026-09-04] Personal watchlist MVP 交接
+
+- 需求：使用者手動挑選幾支股票建立 watchlist；scanner 不自動加入，watchlist 與 sector／持倉分離。
+- 變更：新增 `export/watchlist_generator.py`、`tests/test_watchlist_generator.py`、設計 spec；首頁加入 localStorage 自選按鈕，新增 `docs/watchlist.html` 產出與部署納入。
+- 已驗證：index generator + watchlist tests 共 104 passed；`py_compile`、`git diff --check` 通過。
+- Debugger 後續驗證：用真實資料跑 `python main.py --no-push` 後確認 `docs/watchlist.html` 產生；瀏覽器確認首頁加入／移除、備註保存、重新整理後仍存在、未知／無行情項目保留；確認原 index 點擊個股仍會開 modal。
+- 後續功能：依 Oliver Kell 講義補上 weekly Market Structure、daily Price Cycle、Pivotal Point 與 risk plan 的人工／規則標註；本輪頁面目前以「待建立」狀態呈現，沒有自動買賣訊號。

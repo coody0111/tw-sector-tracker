@@ -676,6 +676,15 @@ scrapers（twse / tpex / moneydj / finmind / chips）
 - 靜態驗證：`compile()` 通過 `export/index_generator.py`、`tests/test_index_generator.py`、`main.py`；`git diff --check` 無 whitespace error。
 - 未在 Developer session 執行 pytest、真實 `main.py` 或重產 `docs/index.html`；已寫入 `debug-tasks.md` 交由 Debugger 用可寫 basetemp 與瀏覽器驗證。
 - 尚未實作排程層的 60 交易日快照保存／更新失敗時重寫 stale banner；本輪 generator 已預留 `update_error` 顯示能力，排程生命週期依 plan 拆開處理。
+
+## 2026-09-04：Oliver Kell 個人自選股 MVP
+
+- 依 `docs/superpowers/specs/2026-09-04-personal-watchlist-design.md` 實作個人自選股：scanner 只提供候選，使用者從首頁手動加入，資料以 `tw-sector-watchlist-v1` 存在瀏覽器 localStorage。
+- 新增 `export/watchlist_generator.py` 與 `docs/watchlist.html` 產出流程；保留未知／暫無行情的自選股，顯示最新價格、漲跌、5/7/10/14 日報酬、法人淨買賣與 Oliver 欄位預留狀態。
+- `export/index_generator.py` 加入「＋自選／★ 已在自選」按鈕；`main.py::_push_html()` 納入 `docs/watchlist.html`。
+- 新增自選股 generator 測試，並更新 index generator 契約測試確認按鈕、localStorage key 與導覽連結存在。
+- 驗證：`pytest -q tests/test_index_generator.py tests/test_watchlist_generator.py --basetemp .pytest-basetemp-watchlist`，104 passed；`py_compile` 與 `git diff --check` 通過。
+- 尚未以真實資料重產 `docs/*.html`，也尚未實作 Oliver 的實際週線 Market Structure／日線 Price Cycle 判斷；本輪只建立可承接這些判斷的 watchlist 介面。
 ## 2026-09-01 Index 第二輪視覺與個股 K 線調整（開工）
 
 - 需求來源：Cody 檢視 `python main.py` 產生並發布的新版 Index 後提出五項修正。

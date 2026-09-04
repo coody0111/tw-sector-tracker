@@ -1461,6 +1461,10 @@ def test_generate_renders_stock_list_items_with_click_to_open_card(tmp_path):
     assert "stock-card-backdrop" in html
     assert "stock-card-modal" in html
     assert "onclick=\"openStockCard(" in html
+    assert "tw-sector-watchlist-v1" in html
+    assert "data-watchlist-id" in html
+    assert "function toggleWatchlist" in html
+    assert 'href="watchlist.html"' in html
 
 
 def test_generate_renders_sortable_column_headers_not_dropdown(tmp_path):

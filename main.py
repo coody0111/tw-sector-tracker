@@ -19,6 +19,7 @@ from processors.changes import detect_changes
 from processors.performance import calc_sector_performance, calc_meta_performance, calc_universe_performance, calc_cumulative_meta, calc_meta_signals, calc_meta_chips_signals, get_stock_chips_ranking, get_margin_divergence, calc_market_breadth, calc_capital_concentration, classify_market_regime, calc_meta_heatgrid_windows, calc_stock_sparklines, calc_meta_rank_history, calc_avg20_close
 from storage.csv_writer import CsvWriter
 from export.index_generator import generate as generate_index_html
+from export.watchlist_generator import generate as generate_watchlist_html
 from export.chips_generator import generate as generate_chips_html
 from export.momentum_generator import (
     market_permission, classify_sector_state, build_sector_priority,
@@ -259,6 +260,8 @@ def _push_html(trade_date: date) -> bool:
             files_to_add.append("docs/patterns.html")
         if os.path.exists("docs/momentum.html"):
             files_to_add.append("docs/momentum.html")
+        if os.path.exists("docs/watchlist.html"):
+            files_to_add.append("docs/watchlist.html")
         subprocess.run(["git", "add"] + files_to_add, check=True)
         # 只看這幾個產出檔有沒有變動（限定範圍，不受其他 staged 變更影響判斷）
         result = subprocess.run(["git", "diff", "--cached", "--quiet", "--"] + files_to_add)
@@ -899,6 +902,17 @@ def run(trade_date: date = None, realtime: bool = False, push: bool = True, summ
                                  fundamentals_df=index_fundamentals_df,
                                  data_mode="intraday" if realtime else "close")
             logger.info("HTML generated → docs/index.html")
+            try:
+                generate_watchlist_html(
+                    trade_date,
+                    universe_df,
+                    prices_df if prices_df is not None else pd.DataFrame(),
+                    rolling_returns=rolling_returns,
+                    chips_df=index_chips_df,
+                )
+                logger.info("HTML generated → docs/watchlist.html")
+            except Exception as exc:
+                logger.warning("自選股頁產生失敗: %s", exc)
         else:
             logger.warning("universe_df 未載入（data/stock_universe.csv 不存在），本次不產生 docs/index.html")
 

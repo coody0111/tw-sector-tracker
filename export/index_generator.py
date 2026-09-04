@@ -743,6 +743,43 @@ def _chips_num(value) -> Optional[int]:
     return int(value)
 
 
+def _fund_val(value):
+    """基本面欄位轉成可 JSON 序列化的值。
+
+    可能是 float、文字標籤（「轉盈」/「轉虧」/「>999%」）、或 None——
+    _profit_growth() 刻意讓成長率在基期趨近 0 時回文字而不是六位數百分比，
+    所以這裡不能無腦 float()。
+    """
+    if value is None or isinstance(value, str):
+        return value
+    if pd.isna(value):
+        return None
+    return float(value)
+
+
+def _fund_entry(fund_map: pd.DataFrame, sid: str) -> Optional[Dict[str, Any]]:
+    """把 get_fundamentals_snapshot() 的一列轉成個股卡片要用的 dict；查無此股回 None。
+
+    revenue 單位是**千元**（官方申報單位，不在這裡換算，交給前端格式化），
+    period/available 一起帶出去是為了讓卡片標頭能同時標明季別與可得日——
+    「EPS 是累計、其餘是單季」這件事必須在版面上明講，不能讓讀者自己推斷。
+    """
+    if fund_map is None or fund_map.empty or sid not in fund_map.index:
+        return None
+    f = fund_map.loc[sid]
+    return {
+        "period": str(f["period_label"]),
+        "available": str(f["available_date"]),
+        "revenue": _fund_val(f["revenue"]),
+        "revenue_yoy": _fund_val(f["revenue_yoy"]),
+        "revenue_qoq": _fund_val(f["revenue_qoq"]),
+        "gross_margin": _fund_val(f["gross_margin"]),
+        "pretax_margin": _fund_val(f["pretax_margin"]),
+        "eps_ytd": _fund_val(f["eps_ytd"]),
+        "eps_yoy": _fund_val(f["eps_yoy"]),
+    }
+
+
 def build_stock_detail_data(
     universe_df: pd.DataFrame,
     prices_df: pd.DataFrame,
@@ -752,6 +789,7 @@ def build_stock_detail_data(
     total_shares_df: Optional[pd.DataFrame] = None,
     avg20_map: Optional[Dict[str, float]] = None,
     shareholder_df: Optional[pd.DataFrame] = None,
+    fundamentals_df: Optional[pd.DataFrame] = None,
 ) -> Dict[str, List[Dict[str, Any]]]:
     """
     個股點開面板資料（視覺 spec §「點開個股清單」）。全部 meta_sector 都要有 key（即使該族群
@@ -778,6 +816,11 @@ def build_stock_detail_data(
     lv12_15_pct/week_chg欄位），供個股表格「大戶佔比」「大戶週變化」兩欄。這支函式已經
     內建離群值防護(_MAX_VALID_HOLDER_PCT)並過濾掉異常值，這裡不用再重覆過濾——沒傳、或
     這支股票不在裡面(被防護排除、或還沒有集保資料)，兩欄都回None，前端顯示「—」。
+
+    fundamentals_df：screener/database.py::get_fundamentals_snapshot() 的輸出（每檔一列的
+    「最新一季已可見」季報快照）。沒傳、或這支股票沒有可見季，entry["fundamentals"] 就是
+    None，前端整個基本面區塊顯示成「—」。注意 revenue 是**單季**（千元）而 eps_ytd 是
+    **累計**（元）——兩者期間不同是資料本身的限制（累計 EPS 不能相減），前端必須標明。
 
     無行情的個股不再跳過——改成標記 no_data=True（比照舊版html_generator.py的「無行情」
     佔位符慣例），close/change_pct/pcts/dates/roll*/chips都是None/空，前端顯示成灰階佔位卡。
@@ -806,6 +849,13 @@ def build_stock_detail_data(
     if not shareholder.empty:
         shareholder["stock_id"] = shareholder["stock_id"].astype(str)
     shareholder_map = shareholder.set_index("stock_id") if not shareholder.empty else pd.DataFrame()
+    fundamentals = (
+        fundamentals_df.copy()
+        if fundamentals_df is not None and not fundamentals_df.empty else pd.DataFrame()
+    )
+    if not fundamentals.empty:
+        fundamentals["stock_id"] = fundamentals["stock_id"].astype(str)
+    fund_map = fundamentals.set_index("stock_id") if not fundamentals.empty else pd.DataFrame()
 
     result: Dict[str, List[Dict[str, Any]]] = {
         meta_name: [] for meta_name in universe["meta_sector"].dropna().unique()
@@ -893,6 +943,7 @@ def build_stock_detail_data(
             "total_shares_asof": total_shares_asof,
             "holder_pct": holder_pct,
             "holder_week_chg": holder_week_chg,
+            "fundamentals": _fund_entry(fund_map, sid),
         }
         result[meta_name].append(entry)
 
@@ -1090,6 +1141,16 @@ table.stock-list-table{width:100%;border-collapse:collapse}
 .sc-roll{display:flex;gap:10px;margin-bottom:10px;font-family:var(--mono);font-size:.72rem;flex-wrap:wrap}
 .sc-roll-item .lbl{color:var(--ink-3);margin-right:3px}
 .sc-chips{display:flex;gap:10px;font-family:var(--mono);font-size:.72rem;flex-wrap:wrap;color:var(--ink-3)}
+/* 基本面區塊(spec §6)。沿用 modal 既有 token(--panel-2/--mono/.sc-roll 的 lbl 慣例)，
+   不新增視覺語言——這是刻意的，本輪只是在已定案的 modal 裡多一個區塊。 */
+.sc-fund{margin-top:12px;padding:10px 12px;background:var(--panel-2);border:1px solid var(--border);border-radius:5px}
+.sc-fund-head{display:flex;align-items:baseline;gap:8px;margin-bottom:8px;font-family:var(--mono);font-size:.66rem;color:var(--ink-3);flex-wrap:wrap}
+.sc-fund-head b{color:var(--ink);font-size:.72rem;font-weight:700}
+.sc-fund-row{display:flex;gap:14px;flex-wrap:wrap;font-family:var(--mono);font-size:.72rem}
+.sc-fund-row+.sc-fund-row{margin-top:6px}
+.sc-fund-item .lbl{color:var(--ink-3);margin-right:4px}
+.sc-fund-item em{font-style:normal;color:var(--ink-3);font-size:.6rem;margin-left:2px}
+.fund-label{color:var(--accent);font-weight:700}
 .detail-empty{color:var(--ink-3);font-size:.86rem;padding:20px 0;font-family:var(--serif)}
 
 .ht-top{display:flex;align-items:baseline;gap:8px}
@@ -1346,6 +1407,7 @@ def generate(
     total_shares_df: Optional[pd.DataFrame] = None,
     avg20_map: Optional[Dict[str, float]] = None,
     shareholder_df: Optional[pd.DataFrame] = None,
+    fundamentals_df: Optional[pd.DataFrame] = None,
     data_mode: str = "close",
     generated_at: Optional[datetime] = None,
     update_error: Optional[str] = None,
@@ -1395,7 +1457,7 @@ def generate(
         card["research_bucket"] = bucket_by_name.get(card["meta_name"], "")
     stock_detail = build_stock_detail_data(
         universe_df, prices_df, stock_sparklines, rolling_returns, chips_df,
-        total_shares_df, avg20_map, shareholder_df,
+        total_shares_df, avg20_map, shareholder_df, fundamentals_df,
     )
 
     stock_detail_js = json.dumps(stock_detail, ensure_ascii=False).replace("</", "<\\/")
@@ -2047,6 +2109,55 @@ function renderStockListItem(s) {{
     + `${{_rollTd(s.roll5)}}${{_rollTd(s.roll7)}}${{_rollTd(s.roll10)}}${{_rollTd(s.roll14)}}</tr>`;
 }}
 
+// 基本面區塊(spec §6)：最新一季快照，接在籌碼列之後。
+// ⚠️ 營收/毛利率/稅前淨利率是「單季」(累計相減)，但 EPS 是「累計」——累計 EPS 不能相減
+// (期間內股數會因增資/減資/庫藏股註銷而變動)，所以 EPS 那格必須把期間差異標在版面上，
+// 不能讓讀者以為跟其他欄位同期間。
+function _fundNum(v, suffix, digits) {{
+  if (v === null || v === undefined) return '<span class="tabular">─</span>';
+  return `<span class="tabular">${{v.toFixed(digits)}}${{suffix}}</span>`;
+}}
+
+// 成長率可能是數字，也可能是「轉盈」/「轉虧」/「>999%」文字：虧轉盈時基期趨近 0，
+// 成長率在數學上必然噴出六位數(實測 2026Q2 稅後淨利最大 +199,700%)——計算正確但
+// 沒有資訊量，還會把版面推爆，所以資料層就換成文字標籤了。
+function _fundGrowth(v) {{
+  if (v === null || v === undefined) return '<span class="tabular">─</span>';
+  if (typeof v === 'string') return `<span class="fund-label">${{escHtml(v)}}</span>`;
+  const c = v >= 0 ? 'var(--up)' : 'var(--down)';
+  return `<span class="tabular" style="color:${{c}}">${{v >= 0 ? '+' : ''}}${{v.toFixed(1)}}%</span>`;
+}}
+
+// 營收是官方申報單位「千元」，換算成億元顯示(1 億元 = 100,000 千元)。
+function _fundMoney(v) {{
+  if (v === null || v === undefined) return '<span class="tabular">─</span>';
+  return `<span class="tabular">${{(v / 100000).toLocaleString('en-US', {{maximumFractionDigits: 1}})}} 億</span>`;
+}}
+
+function _fundItem(lbl, valueHtml, note) {{
+  const em = note ? `<em>${{escHtml(note)}}</em>` : '';
+  return `<span class="sc-fund-item"><span class="lbl">${{escHtml(lbl)}}${{em}}</span>${{valueHtml}}</span>`;
+}}
+
+// 沒有可見季(新上市、未申報、還沒到法定可得日)就整個區塊不輸出——個股卡片其餘部分
+// 照常顯示，不影響行情/籌碼，也不會 crash。
+function _fundHtml(f) {{
+  if (!f) return '';
+  const row1 = _fundItem('營收', _fundMoney(f.revenue))
+    + _fundItem('YoY', _fundGrowth(f.revenue_yoy))
+    + _fundItem('QoQ', _fundGrowth(f.revenue_qoq));
+  const row2 = _fundItem('毛利率', _fundNum(f.gross_margin, '%', 1))
+    + _fundItem('稅前淨利率', _fundNum(f.pretax_margin, '%', 1));
+  const row3 = _fundItem('EPS', _fundNum(f.eps_ytd, ' 元', 2), '累計')
+    + _fundItem('YoY', _fundGrowth(f.eps_yoy));
+  return `<div class="sc-fund">
+      <div class="sc-fund-head">基本面 <b>${{escHtml(f.period)}} 單季</b><span>${{escHtml(f.available)}} 起可見</span></div>
+      <div class="sc-fund-row">${{row1}}</div>
+      <div class="sc-fund-row">${{row2}}</div>
+      <div class="sc-fund-row">${{row3}}</div>
+    </div>`;
+}}
+
 // 個股卡片：TradingView Lightweight Charts 日K+成交量、今日量價、近5/7/10/14日與籌碼，
 // 點列表項目才彈出，跟舊版html_generator.py::openStockModal()同樣的「列表→點選→詳細卡片」
 // 兩層式互動，不是永遠顯示在列表格子上。
@@ -2095,7 +2206,7 @@ function openStockCard(sid) {{
         <div id="stockTvChart" class="tv-chart" aria-label="${{escHtml(s.stock_name)}}日 K 與成交量"></div>
         <a class="tv-attribution" href="https://www.tradingview.com/" target="_blank" rel="noopener noreferrer">圖表技術由 TradingView 提供</a>
       </div>
-      ${{rollHtml}}${{chipsHtml}}
+      ${{rollHtml}}${{chipsHtml}}${{_fundHtml(s.fundamentals)}}
     </div>`;
   document.body.appendChild(backdrop);
   document.addEventListener('keydown', _stockCardEscHandler);

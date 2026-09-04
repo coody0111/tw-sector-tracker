@@ -865,6 +865,16 @@ def run(trade_date: date = None, realtime: bool = False, push: bool = True, summ
             index_shareholder_df = pd.DataFrame()
 
         try:
+            from screener.database import get_fundamentals_snapshot
+            # as_of 傳 trade_date（本次資料的交易日），跟 get_latest_total_shares() /
+            # get_chips_today() 同一個基準——頁面上所有數字對齊同一條時間軸，不用
+            # date.today()（週末/連假產頁會出現「行情停在週五、基本面用週日判斷」）。
+            index_fundamentals_df = get_fundamentals_snapshot(trade_date.isoformat())
+        except Exception as exc:
+            logger.warning("季報基本面快照計算失敗，index.html個股卡片本次不顯示基本面: %s", exc)
+            index_fundamentals_df = pd.DataFrame()
+
+        try:
             vol_turnover_signals = scan_volume_turnover(trade_date.isoformat()) if universe_df is not None else []
         except Exception as exc:
             logger.warning("巨量換手訊號計算失敗，index.html本次不顯示: %s", exc)
@@ -886,6 +896,7 @@ def run(trade_date: date = None, realtime: bool = False, push: bool = True, summ
                                  total_shares_df=total_shares_df,
                                  avg20_map=avg20_map,
                                  shareholder_df=index_shareholder_df,
+                                 fundamentals_df=index_fundamentals_df,
                                  data_mode="intraday" if realtime else "close")
             logger.info("HTML generated → docs/index.html")
         else:

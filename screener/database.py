@@ -7,8 +7,9 @@ import logging
 import re
 import duckdb
 import pandas as pd
+from datetime import date, datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Union
 
 from screener.data_integrity import window_is_reliable
 
@@ -887,3 +888,211 @@ def get_all_stocks_latest(min_days: int = 10) -> pd.DataFrame:
     """, [min_days]).df()
     con.close()
     return df
+
+
+# ---------------------------------------------------------------------------
+# 季報基本面快照
+# spec: docs/superpowers/specs/2026-09-04-fundamentals-display-design.md
+# ADR : docs/adr/0007-fundamentals-availability-uses-statutory-deadline.md
+# ---------------------------------------------------------------------------
+
+# 法定申報期限。DB 裡完全沒有真實申報日（financial_facts.report_date 填了 0/1,735,031、
+# xbrl_filings.reported_at 填了 0/65,182），所以可得日一律假設公司拖到最後一天才申報：
+# 只會晚看到、不會早看到，任何情況下都不可能製造前視偏誤。Q4(年報)是「隔年」3/31。
+_STATUTORY_DEADLINE = {1: (5, 15), 2: (8, 14), 3: (11, 14), 4: (3, 31)}
+
+# 成長率/比率的離群上限，依 2026Q2 對正式 DB 的實測分佈訂定（spec §8.2）：
+# 單季營收 YoY 1016 檔裡只有 2 檔 >999%（所以營收不設限），但稅後淨利 573 檔裡有 45 檔
+# (7.9%) >999%，最大 +199,700%——那不是髒值，是去年同季虧損、基期趨近 0 的數學結果。
+_MAX_ABS_GROWTH_PCT = 999.0
+_MAX_ABS_RATIO_PCT = 999.0
+
+_FUNDAMENTALS_METRICS = ("revenue", "gross_profit", "pretax_income", "eps")
+
+_FUNDAMENTALS_COLUMNS = [
+    "stock_id", "fiscal_year", "quarter", "period_label", "available_date",
+    "revenue", "revenue_yoy", "revenue_qoq",
+    "gross_margin", "pretax_margin", "eps_ytd", "eps_yoy",
+]
+
+
+def _statutory_available_date(fiscal_year: int, quarter: int) -> date:
+    """某一季的財報最早哪一天算「市場已經看得到」。
+
+    Q1→當年 5/15、Q2→當年 8/14、Q3→當年 11/14、Q4(年報)→**隔年** 3/31。
+    純函式、無 I/O：同一份資料在桌電與筆電必定得到相同答案。這是刻意的——
+    `data/` 被 gitignore、兩台機器各一份 DB，用 first_seen_at 會讓同一天產出的頁面
+    在兩台機器上不一樣（詳見 ADR 0007）。
+    """
+    if quarter not in _STATUTORY_DEADLINE:
+        raise ValueError(f"quarter 必須是 1~4，收到 {quarter!r}")
+    month, day = _STATUTORY_DEADLINE[quarter]
+    return date(int(fiscal_year) + 1 if quarter == 4 else int(fiscal_year), month, day)
+
+
+def _single_quarter(cur_ytd: Optional[float], prev_ytd: Optional[float],
+                    quarter: int) -> Optional[float]:
+    """把累計數換算成單季數。
+
+    損益表 100% 都是累計值（is_ytd=true，DB 裡沒有任何一筆單季原始損益值），所以
+    Q2~Q4 必須「本期累計 − 前一期累計」。Q1 的累計本身就是單季。
+    前一期累計缺漏時回 None——不猜、不補 0，缺值優於錯值。
+    """
+    if cur_ytd is None:
+        return None
+    if quarter == 1:
+        return float(cur_ytd)
+    if prev_ytd is None:
+        return None
+    return float(cur_ytd) - float(prev_ytd)
+
+
+def _revenue_growth(cur: Optional[float], base: Optional[float]) -> Optional[float]:
+    """營收成長率(%)，**不設離群上限**。
+
+    實測 2026Q2 單季營收 YoY：1016 檔裡只有 2 檔超過 999%，防護幾乎沒有作用，
+    加了反而會把兩個真實的高成長案例藏起來。基期 <= 0 回 None（營收非正數本身就是
+    異常資料，算不出有意義的成長率）。
+    """
+    if cur is None or base is None or base <= 0:
+        return None
+    return (cur / base - 1) * 100
+
+
+def _profit_growth(cur: Optional[float], base: Optional[float]) -> Union[float, str, None]:
+    """獲利類成長率。回傳 float(%)、文字標籤、或 None——呼叫端要用 isinstance 分辨。
+
+    虧轉盈時基期趨近 0，成長率在數學上必然噴出六位數（實測 2026Q2 稅後淨利最大
+    +199,700%）。那個數字計算正確但沒有資訊量，還會撐爆版面，所以改回文字：
+
+    - 基期虧損、本期獲利 → 「轉盈」
+    - 基期獲利、本期虧損 → 「轉虧」
+    - 兩期都虧損         → None（成長率無意義，不硬算）
+    - 兩期都獲利但成長 >999% → 「>999%」，**不是**「轉盈」
+      （它本來就在賺錢，標成「轉盈」會是錯的描述）
+    """
+    if cur is None or base is None:
+        return None
+    if base <= 0 and cur > 0:
+        return "轉盈"
+    if base > 0 and cur <= 0:
+        return "轉虧"
+    if base <= 0:
+        return None
+    pct = (cur / base - 1) * 100
+    # base>0 且 cur>0 時 pct 恆 > -100，所以只可能從上方越界
+    return f">{int(_MAX_ABS_GROWTH_PCT)}%" if pct > _MAX_ABS_GROWTH_PCT else pct
+
+
+def _margin_ratio(numerator: Optional[float], revenue: Optional[float]) -> Optional[float]:
+    """利潤率(%)。超出 ±999% 一律回 None。
+
+    毛利率本質上不該超過 100%，出現三位數以上必定是單位或 metric 映射出錯——
+    這種情況缺值優於錯值，跟成長率的「轉盈/轉虧」處理方式刻意不同。
+    """
+    if numerator is None or revenue is None or revenue <= 0:
+        return None
+    pct = numerator / revenue * 100
+    return None if abs(pct) > _MAX_ABS_RATIO_PCT else pct
+
+
+def build_fundamentals_snapshot(facts: pd.DataFrame, as_of) -> pd.DataFrame:
+    """把 financial_facts 的累計損益列，換算成每檔一列的「最新可見季」快照。
+
+    純函式（不碰 DB），方便 pytest 用合成資料直接測。facts 需要
+    stock_id / fiscal_year / quarter / metric_key / value 五欄。
+
+    as_of：判斷「哪一季已經可見」的基準日，應該傳 daily_prices 的最新交易日而不是
+    date.today()——頁面上收盤、籌碼、近N日全部對齊最新交易日，用 today() 會讓週末或
+    連假產頁時出現「行情停在週五、基本面用週日判斷」的時間軸不一致。
+
+    回傳欄位裡 revenue 是**單季**（千元）、eps_ytd 是**累計**（元）。兩者期間不同是
+    資料本身的限制（累計 EPS 不能相減，期間內股數會因增資/減資/庫藏股而變動），
+    呈現時必須在版面上標明，不能讓讀者以為同期間。
+
+    revenue_yoy / revenue_qoq 恆為 float 或 None；eps_yoy 可能是 float、
+    「轉盈」/「轉虧」/「>999%」字串、或 None。
+    """
+    as_of_date = as_of if isinstance(as_of, date) else \
+        datetime.strptime(str(as_of)[:10], "%Y-%m-%d").date()
+
+    if facts is None or facts.empty:
+        return pd.DataFrame(columns=_FUNDAMENTALS_COLUMNS)
+
+    # seq = fiscal_year*4 + quarter-1。用連續序號當 key，「上一季」就是 seq-1、
+    # 「去年同季」就是 seq-4，跨年(Q1 的上一季是去年 Q4)完全不用特判。
+    by_key: dict = {}
+    seqs_by_stock: dict = {}
+    for r in facts.itertuples(index=False):
+        if pd.isna(r.value):
+            continue
+        sid = str(r.stock_id)
+        seq = int(r.fiscal_year) * 4 + int(r.quarter) - 1
+        by_key.setdefault((sid, seq), {})[str(r.metric_key)] = float(r.value)
+        seqs_by_stock.setdefault(sid, set()).add(seq)
+
+    def _ytd(sid: str, seq: int, metric: str) -> Optional[float]:
+        return by_key.get((sid, seq), {}).get(metric)
+
+    def _sq(sid: str, seq: int, metric: str) -> Optional[float]:
+        return _single_quarter(_ytd(sid, seq, metric), _ytd(sid, seq - 1, metric),
+                               seq % 4 + 1)
+
+    rows = []
+    for sid, seqs in seqs_by_stock.items():
+        # 只考慮已經過了法定申報期限的期別；比較基期(seq-1 / seq-4)一定更早，
+        # 而期限隨 seq 單調遞增，所以基期必然也已可見，不用再檢查一次。
+        visible = [s for s in seqs
+                   if _statutory_available_date(s // 4, s % 4 + 1) <= as_of_date]
+        if not visible:
+            continue
+        seq = max(visible)
+        fy, q = seq // 4, seq % 4 + 1
+
+        revenue = _sq(sid, seq, "revenue")
+        rows.append({
+            "stock_id": sid,
+            "fiscal_year": fy,
+            "quarter": q,
+            "period_label": f"{fy}Q{q}",
+            "available_date": _statutory_available_date(fy, q),
+            "revenue": revenue,
+            "revenue_yoy": _revenue_growth(revenue, _sq(sid, seq - 4, "revenue")),
+            "revenue_qoq": _revenue_growth(revenue, _sq(sid, seq - 1, "revenue")),
+            "gross_margin": _margin_ratio(_sq(sid, seq, "gross_profit"), revenue),
+            "pretax_margin": _margin_ratio(_sq(sid, seq, "pretax_income"), revenue),
+            # EPS 只取累計、絕不相減：期間內股數會變動，累計 EPS 相減在數學上不成立
+            "eps_ytd": _ytd(sid, seq, "eps"),
+            "eps_yoy": _profit_growth(_ytd(sid, seq, "eps"), _ytd(sid, seq - 4, "eps")),
+        })
+
+    return pd.DataFrame(rows, columns=_FUNDAMENTALS_COLUMNS)
+
+
+def get_fundamentals_snapshot(as_of: str) -> pd.DataFrame:
+    """每檔股票「最新一季已可見」的季報基本面快照，供 index.html 個股 modal 使用。
+
+    as_of: 'YYYY-MM-DD'，應傳 daily_prices 的最新交易日（見 build_fundamentals_snapshot）。
+
+    ⚠️ sector_stocks 是 4,762 筆 / 1,039 檔——**一檔股票會屬於多個族群**，直接 join
+    會把結果放大約 4.6 倍，所以這裡先 SELECT DISTINCT 收成 universe 再 join。
+    """
+    as_of_date = as_of if isinstance(as_of, date) else \
+        datetime.strptime(str(as_of)[:10], "%Y-%m-%d").date()
+    # 只需回看兩年：YoY 要去年同季，Q1 的 QoQ 要去年 Q4(而它的單季又要去年 Q3 累計)。
+    min_year = as_of_date.year - 2
+    metric_list = ", ".join(f"'{m}'" for m in _FUNDAMENTALS_METRICS)
+
+    con = get_conn()
+    facts = con.execute(f"""
+        WITH universe AS (SELECT DISTINCT stock_id FROM sector_stocks)
+        SELECT f.stock_id, f.fiscal_year, f.quarter, f.metric_key, f.value
+        FROM financial_facts f
+        JOIN universe u ON u.stock_id = f.stock_id
+        WHERE f.statement_type = 'income'
+          AND f.is_ytd
+          AND f.metric_key IN ({metric_list})
+          AND f.fiscal_year >= ?
+    """, [min_year]).df()
+    con.close()
+    return build_fundamentals_snapshot(facts, as_of_date)

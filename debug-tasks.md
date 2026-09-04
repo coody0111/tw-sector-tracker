@@ -4568,3 +4568,42 @@ root cause 不是 `5/20/60` 秒的重試間隔，而是 requests 的 `timeout` �
   當時 DB 被另一個 python 進程（PID 13184，Cody 在跑回填）鎖住，查不了。
 - **建議但未做**：被跳過的附註 fact（135 次）目前只寫 log，事後無法稽核。
   ADR 0005 的精神是「append-only、可重跑」，這些跳過的 fact 值得存成 anomaly 表。
+
+---
+
+## [2026-09-04] 族群展開個股表：代號+名稱折行修復 — commit bc67585
+
+### 改了什麼
+- 異動檔案：`export/index_generator.py`（僅 CSS 與 4 個表頭字串，無邏輯異動）
+- 邏輯說明：族群抽屜展開的 `.stock-list-table` 有 14 欄、`min-width:1120px`，而
+  `.sector-drawer` 寬 `min(1180px,80vw)` 扣 padding 後可用約 1140px → 第一欄
+  （代號+名稱）只分到約 80px。該欄需要「代號 34px + 間距 8px + 4字名 60px +
+  padding 24px = 126px」，不足即折行。查 DB：1039 檔中 707 檔名稱 2 字、185 檔 3 字、
+  80 檔 4 字，5 字以上僅 67 檔（6.4%），最長為 `91APP*-KY`(9) 與 `奧義賽博-KY創`(8)
+  ——所以問題不是名稱過長，是欄寬被壓縮。
+- 修法（不加總寬、不橫捲、不截字）：
+  1. `.stock-list-table thead th` 加 `white-space:nowrap`
+  2. 新增 `.stock-list-table tbody td:first-child{white-space:nowrap}`
+  3. 縮短四個過長表頭讓出寬度（語意不變）：
+     `大戶週變化`→`大戶週變`、`融資維持率(估)`→`融資維持`、
+     `融券餘額佔比`→`融券佔比`、`融券維持率(估)`→`融券維持`
+     省約 135px（11 中文字 × 12.3px @0.74rem mono），第一欄只需 +46px。
+- 註：搜尋下拉的 `.search-item .si-name`(:964) 本來就有 nowrap+ellipsis，
+  表格這版一直漏掉，等於同一個東西兩套規則，這次補齊。
+
+### 資料來源相關（如有異動）
+- 無。純前端 CSS/文字，未觸及任何 scraper、DB 查詢或資料流。
+
+### 請 Debugger 驗證
+- [ ] 族群抽屜展開後，個股表第一欄（代號+名稱）在 1440p / 1080p 都不折行
+- [ ] 四個改名的表頭排序功能仍正常（`sortStockList` 的 key 參數未動：
+      `holderchg` / `maint` / `shorted` / `shortmaint`）
+- [ ] 表格未因此產生橫向捲動（`.overflow-wrap` 不應出現捲軸）
+- [ ] `@media (max-width:820px)` 手機版沒有被影響
+- [ ] 沒有影響其他模組（本次未動 Python 邏輯，`python -m py_compile` 已通過）
+
+### 特別注意
+- 表頭字串改了，若有測試或腳本用「融資維持率(估)」等字串比對 HTML 會失敗——
+  我 grep 過 `export/index_generator.py` 內只有 `<th>` 這 4 處是顯示字串，
+  其餘同名出現都在註解/docstring；但 `tests/` 底下請 Debugger 再確認一次。
+- 指標說明對話框（`#indicatorDialog`）沒有引用這四個名稱，不需同步修改。

@@ -777,6 +777,18 @@ def _fund_entry(fund_map: pd.DataFrame, sid: str) -> Optional[Dict[str, Any]]:
         "pretax_margin": _fund_val(f["pretax_margin"]),
         "eps_ytd": _fund_val(f["eps_ytd"]),
         "eps_yoy": _fund_val(f["eps_yoy"]),
+        # 近 8 季趨勢（舊→新）。完全沒資料的季別在資料層就被略過了，這裡不補佔位——
+        # 補 None 會讓走勢圖出現假的斷點。
+        "history": [
+            {
+                "period": str(h["period"]),
+                "revenue": _fund_val(h["revenue"]),
+                "gross_margin": _fund_val(h["gross_margin"]),
+                "pretax_margin": _fund_val(h["pretax_margin"]),
+                "eps_ytd": _fund_val(h["eps_ytd"]),
+            }
+            for h in (f["history"] if isinstance(f["history"], list) else [])
+        ],
     }
 
 
@@ -1153,6 +1165,16 @@ table.stock-list-table{width:100%;border-collapse:collapse}
 .sc-fund-item .lbl{color:var(--ink-3);margin-right:4px}
 .sc-fund-item em{font-style:normal;color:var(--ink-3);font-size:.6rem;margin-left:2px}
 .fund-label{color:var(--accent);font-weight:700}
+.sc-fund-item .fund-spark{width:68px;height:18px;margin-left:5px;vertical-align:middle;opacity:.85}
+.sc-fund-toggle{margin-top:9px;padding:3px 9px;border:1px solid var(--border);border-radius:3px;background:var(--panel);color:var(--ink-3);font-family:var(--mono);font-size:.64rem;cursor:pointer}
+.sc-fund-toggle:hover{color:var(--ink);border-color:var(--ink-3)}
+.sc-fund-table[hidden]{display:none}
+.sc-fund-table{margin-top:8px;overflow-x:auto}
+.sc-fund-table table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:.68rem}
+.sc-fund-table th{text-align:left;padding:4px 8px;color:var(--ink-3);border-bottom:1px solid var(--border-2);white-space:nowrap;font-weight:500}
+.sc-fund-table th.num,.sc-fund-table td.num{text-align:right}
+.sc-fund-table td{padding:4px 8px;border-bottom:1px solid var(--border);color:var(--ink-2);white-space:nowrap}
+.sc-fund-note{margin:6px 0 0;font-size:.62rem;color:var(--ink-3);line-height:1.55}
 .detail-empty{color:var(--ink-3);font-size:.86rem;padding:20px 0;font-family:var(--serif)}
 
 .ht-top{display:flex;align-items:baseline;gap:8px}
@@ -2161,27 +2183,87 @@ function _fundMoney(v) {{
   return `<span class="tabular">${{(v / 100000).toLocaleString('en-US', {{maximumFractionDigits: 1}})}} 億</span>`;
 }}
 
-function _fundItem(lbl, valueHtml, note) {{
+function _fundItem(lbl, valueHtml, note, sparkHtml) {{
   const em = note ? `<em>${{escHtml(note)}}</em>` : '';
-  return `<span class="sc-fund-item"><span class="lbl">${{escHtml(lbl)}}${{em}}</span>${{valueHtml}}</span>`;
+  return `<span class="sc-fund-item"><span class="lbl">${{escHtml(lbl)}}${{em}}</span>${{valueHtml}}${{sparkHtml || ''}}</span>`;
+}}
+
+// 純文字版格式化，給展開表格的儲存格用（不包 <span>，表格自己控制對齊與顏色）。
+function _fundTxtNum(v, digits, suffix) {{
+  return (v === null || v === undefined) ? '─' : v.toFixed(digits) + suffix;
+}}
+function _fundTxtMoney(v) {{
+  if (v === null || v === undefined) return '─';
+  return (v / 100000).toLocaleString('en-US', {{maximumFractionDigits: 1}}) + ' 億';
+}}
+
+// 迷你走勢圖：近 8 季單一指標，純 SVG polyline。刻意不載入圖表庫——卡片裡已經有
+// TradingView 的 K 線，為了三條 18px 高的線再拉第二套繪圖工具不划算。
+// 少於 2 個點就不畫（一個點連不成線，畫出來只會誤導成「持平」）。
+function _fundSpark(values) {{
+  const pts = (values || []).filter(v => v !== null && v !== undefined);
+  if (pts.length < 2) return '';
+  const w = 68, h = 18;
+  const min = Math.min(...pts), max = Math.max(...pts);
+  const span = (max - min) || 1;
+  const step = w / (pts.length - 1);
+  const d = pts.map((v, i) => `${{(i * step).toFixed(1)}},${{(h - (v - min) / span * h).toFixed(1)}}`).join(' ');
+  const c = pts[pts.length - 1] >= pts[0] ? 'var(--up)' : 'var(--down)';
+  return `<svg class="fund-spark" viewBox="0 0 ${{w}} ${{h}}" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">`
+    + `<polyline points="${{d}}" fill="none" stroke="${{c}}" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
+}}
+
+// 展開的近 8 季明細表。新到舊排序（跟走勢圖的舊到新方向相反是刻意的：圖要看趨勢方向，
+// 表要先看到最新一季）。
+function _fundTable(history) {{
+  if (!history || history.length < 2) return '';
+  const rows = history.slice().reverse().map(h =>
+    `<tr><td>${{escHtml(h.period)}}</td>`
+    + `<td class="num">${{_fundTxtMoney(h.revenue)}}</td>`
+    + `<td class="num">${{_fundTxtNum(h.gross_margin, 1, '%')}}</td>`
+    + `<td class="num">${{_fundTxtNum(h.pretax_margin, 1, '%')}}</td>`
+    + `<td class="num">${{_fundTxtNum(h.eps_ytd, 2, '')}}</td></tr>`).join('');
+  return `<div class="sc-fund-table" hidden>
+      <table><thead><tr><th>季別</th><th class="num">營收(單季)</th><th class="num">毛利率</th>`
+    + `<th class="num">稅前淨利率</th><th class="num">EPS(累計)</th></tr></thead>`
+    + `<tbody>${{rows}}</tbody></table>`
+    + `<p class="sc-fund-note">EPS 是當年度累計值，每年 Q1 重新起算，逐季看會呈鋸齒狀——那是累計數的正常樣貌，不是資料異常。其餘三欄都是單季值。</p>`
+    + `</div>`;
+}}
+
+function toggleFundTable(btn) {{
+  const box = btn.closest('.sc-fund').querySelector('.sc-fund-table');
+  if (!box) return;
+  const opening = box.hidden;
+  box.hidden = !opening;
+  btn.textContent = opening ? '收合季度明細' : '展開近 8 季';
+  btn.setAttribute('aria-expanded', opening ? 'true' : 'false');
 }}
 
 // 沒有可見季(新上市、未申報、還沒到法定可得日)就整個區塊不輸出——個股卡片其餘部分
 // 照常顯示，不影響行情/籌碼，也不會 crash。
+// 走勢圖只畫營收/毛利率/稅前淨利率三個「單季」指標。EPS 是累計值，逐季畫會變成
+// 每年重置一次的鋸齒，看起來像每個 Q1 都崩盤，所以 EPS 只給數字、不畫線。
 function _fundHtml(f) {{
   if (!f) return '';
-  const row1 = _fundItem('營收', _fundMoney(f.revenue))
+  const hist = f.history || [];
+  const row1 = _fundItem('營收', _fundMoney(f.revenue), null, _fundSpark(hist.map(h => h.revenue)))
     + _fundItem('YoY', _fundGrowth(f.revenue_yoy))
     + _fundItem('QoQ', _fundGrowth(f.revenue_qoq));
-  const row2 = _fundItem('毛利率', _fundNum(f.gross_margin, '%', 1))
-    + _fundItem('稅前淨利率', _fundNum(f.pretax_margin, '%', 1));
+  const row2 = _fundItem('毛利率', _fundNum(f.gross_margin, '%', 1), null, _fundSpark(hist.map(h => h.gross_margin)))
+    + _fundItem('稅前淨利率', _fundNum(f.pretax_margin, '%', 1), null, _fundSpark(hist.map(h => h.pretax_margin)));
   const row3 = _fundItem('EPS', _fundNum(f.eps_ytd, ' 元', 2), '累計')
     + _fundItem('YoY', _fundGrowth(f.eps_yoy));
+  const table = _fundTable(hist);
+  const toggle = table
+    ? `<button type="button" class="sc-fund-toggle" aria-expanded="false" onclick="toggleFundTable(this)">展開近 8 季</button>`
+    : '';
   return `<div class="sc-fund">
       <div class="sc-fund-head">基本面 <b>${{escHtml(f.period)}} 單季</b><span>${{escHtml(f.available)}} 起可見</span></div>
       <div class="sc-fund-row">${{row1}}</div>
       <div class="sc-fund-row">${{row2}}</div>
       <div class="sc-fund-row">${{row3}}</div>
+      ${{toggle}}${{table}}
     </div>`;
 }}
 

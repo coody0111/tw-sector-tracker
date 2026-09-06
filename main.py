@@ -829,7 +829,7 @@ def run(trade_date: date = None, realtime: bool = False, push: bool = True, summ
             rank_history = {}
 
         try:
-            stock_sparklines = calc_stock_sparklines(universe_df) if universe_df is not None else {}
+            stock_sparklines = calc_stock_sparklines(universe_df, lookback=60) if universe_df is not None else {}
         except Exception as exc:
             logger.warning("個股走勢計算失敗，index.html個股卡片本次不顯示sparkline: %s", exc)
             stock_sparklines = {}

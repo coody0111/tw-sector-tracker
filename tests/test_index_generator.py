@@ -1931,7 +1931,7 @@ def test_generate_embeds_persistent_filters_and_accessible_drawer_contract(tmp_p
     assert 'id="sectorDrawer"' in html and 'aria-hidden="true"' in html
     assert "if (event.key !== 'Escape'" in html
     assert "_drawerReturnFocus.focus()" in html
-    assert "width:min(1180px,80vw)" in html
+    assert "width:min(1400px,92vw)" in html
     assert ".sector-drawer{position:fixed" in html and "font-family:var(--sans)" in html
     assert "max-width:920px" in html
 

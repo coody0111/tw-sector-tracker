@@ -1,6 +1,6 @@
 from datetime import date
 
-from export.chips_generator import _build_section2, _build_section4, _build_section6, _build_section8, _calc_trend_svg, _composite_sort, _coverage_flag, _esc, _evidence_card, _evidence_banner, _holder_card_html, _holder_column_html, _insider_holdings_table, _inst_streak_table, _margin_alert_table, _meta_link, _percentile_ranks, _shareholder_table, _stock_rank_table, generate
+from export.chips_generator import _build_holder_weekly_summary, _build_section2, _build_section4, _build_section6, _build_section8, _calc_trend_svg, _composite_sort, _coverage_flag, _esc, _evidence_card, _evidence_banner, _holder_card_html, _holder_column_html, _insider_holdings_table, _inst_streak_table, _margin_alert_table, _meta_link, _percentile_ranks, _shareholder_table, _stock_rank_table, generate
 
 
 def test_esc_escapes_html_special_characters():
@@ -673,6 +673,55 @@ def test_build_section8_uses_card_rendering_not_old_table():
     assert "holder-grid" in s8_html
     assert "holder-card" in s8_html
     assert "大戶連增倉" in s8_html
+
+
+def _sh_row(stock_id, week_chg, streak=1, date="2026-08-28"):
+    return {"stock_id": stock_id, "stock_name": f"股{stock_id}", "meta_sector": "測試",
+            "close": 100.0, "change_pct": 0.5, "lv12_15_pct": 50.0, "week_chg": week_chg,
+            "streak": streak, "share_chg": 1000, "lv15_pct": 20.0, "date": date, "trend": []}
+
+
+def test_build_holder_weekly_summary_ranks_by_week_chg_not_streak():
+    """2026-09-07需求：本週增減摘要要純依week_chg排序，不像Section8先比連續週數——
+    刻意讓「連續週數低但這週單週暴增」的股票排在「連續多週但這週變動小」的股票前面，
+    驗證排序邏輯真的沒有被streak污染。"""
+    shareholder_data = [
+        _sh_row("1001", week_chg=0.5, streak=8),   # 連8週但這週只變動0.5
+        _sh_row("1002", week_chg=21.3, streak=1),  # 只連1週但這週暴增21.3
+        _sh_row("1003", week_chg=-15.0, streak=-1),
+        _sh_row("1004", week_chg=-0.2, streak=-6),
+    ]
+    html = _build_holder_weekly_summary(shareholder_data)
+
+    up_idx = html.index("1002")
+    up_idx_low = html.index("1001")
+    assert up_idx < up_idx_low, "week_chg最大的1002應該排在1001前面，不受streak影響"
+
+    down_idx = html.index("1003")
+    down_idx_low = html.index("1004")
+    assert down_idx < down_idx_low, "week_chg最負的1003應該排在1004前面"
+
+
+def test_build_holder_weekly_summary_limits_to_top_10_each_direction():
+    shareholder_data = [_sh_row(f"{2000+i}", week_chg=float(i)) for i in range(15)]
+    shareholder_data += [_sh_row(f"{3000+i}", week_chg=float(-i)) for i in range(15)]
+    html = _build_holder_weekly_summary(shareholder_data)
+
+    assert html.count("holder-card") == 20  # 增10 + 減10
+
+
+def test_build_holder_weekly_summary_empty_when_no_week_chg_data():
+    shareholder_data = [{"stock_id": "9999", "stock_name": "無資料", "week_chg": None}]
+    assert _build_holder_weekly_summary(shareholder_data) == ""
+
+
+def test_build_holder_weekly_summary_shows_data_date_and_description():
+    shareholder_data = [_sh_row("1001", week_chg=5.0, date="2026-08-28")]
+    html = _build_holder_weekly_summary(shareholder_data)
+
+    assert "本週大戶增減摘要" in html
+    assert "2026-08-28" in html
+    assert "cs-description" in html
 
 
 def test_build_section8_titles_have_methodology_description():

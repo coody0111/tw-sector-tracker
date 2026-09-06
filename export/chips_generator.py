@@ -1234,6 +1234,39 @@ def _build_section7(margin_divergence: dict) -> str:
 </div>"""
 
 
+def _build_holder_weekly_summary(shareholder_data: list) -> str:
+    """本週大戶增減摘要：純粹依「本週實際變動幅度」(week_chg) 排序 Top10 增/Top10 減，
+    不像Section8的連增/連減倉排行是先比連續週數、同週數才比幅度——這個摘要只要當週單一
+    快照的增減幅度最大的股票，供Cody每週參考（2026-09-07需求：以後每週(TDCC集保週更)
+    在大戶籌碼tab頂部常駐顯示，不特判週五，資料本身就是週更、看到的永遠是最新一週）。"""
+    rows = [r for r in shareholder_data if r.get("week_chg") is not None]
+    if not rows:
+        return ""
+    # 只取「真的增加/減少」的列，不是單純全體排序取頭尾10筆——若本週實際上升的股票不到10支，
+    # 全體排序取頭10筆會把「其實是下降、只是降幅最小」的股票錯誤地混進「增加最多」榜單。
+    increasing = [r for r in rows if (r.get("week_chg") or 0) > 0]
+    decreasing = [r for r in rows if (r.get("week_chg") or 0) < 0]
+    top_up = sorted(increasing, key=lambda r: -(r.get("week_chg") or 0))[:10]
+    top_down = sorted(decreasing, key=lambda r: (r.get("week_chg") or 0))[:10]
+    sh_date = shareholder_data[0].get("date", "") if shareholder_data else ""
+    return f"""
+<div class="chips-section">
+  <div class="cs-title">本週大戶增減摘要（資料日 {_esc(sh_date)}）</div>
+  <p class="cs-description">純依本週實際變動幅度排序，跟下方連增/連減倉排行（先比連續週數）是不同排序邏輯，
+  適合每週快速掃一次「這週誰變動最大」。</p>
+</div>
+<div class="chips-grid">
+  <div class="chips-section-half">
+    <div class="cs-title">大戶增加最多 Top 10</div>
+    {_holder_column_html(top_up, direction="inc")}
+  </div>
+  <div class="chips-section-half">
+    <div class="cs-title">大戶減少最多 Top 10</div>
+    {_holder_column_html(top_down, direction="dec")}
+  </div>
+</div>"""
+
+
 def _build_section8(shareholder_data: list, insider_data: list | None = None) -> tuple[str, str, str]:
     """Section 8: 大戶籌碼（集保 TDCC ≥400張）+ 董監持股。回傳 (大戶籌碼html, 資料日期note, 董監持股html)——
     兩者是不同資料源（TDCC 集保 vs 公開觀測站董監申報），拆成獨立 tab（見 chips.html 改版）。
@@ -1328,6 +1361,7 @@ def generate(
     s6a_html, s6_foreign_html, s6_trust_html = _build_section6(inst_scan)
     s7_html = _build_section7(margin_divergence)
     s8_html, s8_note, s_insider_html = _build_section8(shareholder_data, insider_data)
+    s8_weekly_summary_html = _build_holder_weekly_summary(shareholder_data)
 
     evid_signal = _evidence_card("evid-observe", "觀察用",
         "訊號日 <b>61</b>．筆數 <b>377</b>　勝率 <b>43-44%</b>　平均超額 <b>+1.55%</b>",
@@ -1465,6 +1499,7 @@ def generate(
 
       <div class="tab-panel" id="tab-holder" role="tabpanel" aria-labelledby="tab-btn-holder">
         {evid_holder}
+        {s8_weekly_summary_html}
         {s8_note}
         {s8_html}
       </div>

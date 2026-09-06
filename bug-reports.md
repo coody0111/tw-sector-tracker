@@ -3418,3 +3418,119 @@ reimport 完成：共 372163 筆
   全 repo 測試乾淨；60天回補的資料缺口記錄已採信歸檔，皆無需進一步動作。真正完整跑
   `--backfill-fundamentals` 走過 2021Q3 並確認後續季度接著跑的部分，如交接所述留給
   Cody 或下一輪實跑驗證。
+
+## [2026-09-06] 驗證 - 4則待驗交接：MOPS下載/recover修復、族群表折行、季報基本面卡片、自選股MVP
+
+### 驗證範圍
+1. `[2026-09-03] MOPS XBRL 回填流程稽核 + 修下載逾時／recover 留痕`（commit 99fba2a）
+2. `[2026-09-04] 族群展開個股表：代號+名稱折行修復`（commit bc67585）
+3. `[2026-09-04] 季報基本面接進個股卡片`（commit 717b83a）
+4. `[2026-09-04] Personal watchlist MVP 交接`（commit 55a8df6）
+
+### 🔴 程式問題（需立刻修）
+- **`export/watchlist_generator.py` 重現 2026-09-02 才修好的同一類 XSS**（位置：
+  `generate()` 內嵌前端腳本，約在 `esc(s.stock_id)` 三處用法）：
+  - `onclick="removeStock('${esc(s.stock_id)}')"`
+  - `oninput="writeNote('${esc(s.stock_id)}',this.value)"`
+  - `aria-label="${esc(s.stock_id)} 個人備註"`
+  這支 `esc()` 是「`textContent`→`innerHTML`往返」的寫法（只跳脫文字節點需要的
+  `&`/`<`/`>`），跟 `export/index_generator.py` 裡 `escHtml()` 完全同款——而
+  `index_generator.py` 自己在 `escAttr()` 的註解裡明講：這款函式塞進 HTML 屬性值
+  或 inline 事件處理常式的字串字面值會被引號提前結束、注入任意屬性/事件，
+  「2026-09-02 debug 驗證在 `searchStocks()` 的 `onmousedown` 抓到這個真實可重現
+  的XSS」——`escAttr()` 就是當時為了修那個洞才新增的。兩天後的這支新檔案
+  (`watchlist_generator.py`) 在同一個屬性/inline-handler 情境又用回不安全的
+  `esc()`，沒有沿用剛修好的 `escAttr()`。
+  - **具體可觸發路徑**：watchlist.html 的「未知/暫無行情項目保留」是規格要求的
+    功能（`const s=MARKET_DATA[id] || {stock_id:id,stock_name:'未知股票',
+    data_status:'unknown-stock'}`）——當 `id`（原始取自
+    `localStorage['tw-sector-watchlist-v1']`，未經任何白名單/格式檢查）不在
+    `MARKET_DATA` 裡時，會直接把這個未經驗證的原始字串塞進上述三個不安全的
+    sink。目前正常操作下 `stock_id` 只會是官方股票代號（純數字/英數，不含引號），
+    所以現在不會被觸發，但這是「資料剛好長得安全」而不是「程式碼本身安全」——
+    跟被修掉的 `searchStocks()` 那個洞是同一種模式，建議直接把 `escAttr()`
+    複製/移到 `watchlist_generator.py` 用在這三處，或比照 `index.html`
+    `toggleWatchlist` 按鈕已經改用的 `data-*` 屬性 + `addEventListener` 寫法
+    （該處是用 `escAttr()`，沒有這個問題）。
+  - 已寫的測試 `test_generate_escapes_stock_names_and_includes_watchlist_contract`
+    只驗證 Python 端 `_json()` 的 `</script>` 逃逸（那個是安全的），沒有涵蓋這個
+    瀏覽器端 `esc()` 用在屬性情境的問題——這條攻擊路徑目前完全沒有測試涵蓋到。
+
+### 🟡 建議改善
+- **`_read_streamed_body()` 的「停滯」分支可能在真實環境永遠不會觸發**
+  （`scrapers/mops_xbrl.py`）：`elif now - last_progress > _DOWNLOAD_STALL_SECONDS`
+  只在 `chunk` 是 falsy（空 bytes）時才會走到；但真實 `requests`/`urllib3` 的
+  `iter_content()` 在連線卡住時通常是「阻塞直到資料到達或底層 socket read
+  timeout 觸發」，不會主動吐出 `b""` 當 keep-alive——新測試
+  `test_download_gives_up_when_stalled` 用 `yield b""` 模擬，這是測試自己造的
+  情境，不代表真實伺服器行為（交接文件裡開發者自己也標注「這點我沒有實證」）。
+  不過這不影響原始回報的 bug（tifrs-2022Q2.zip 每 119 秒吐一點、卡在
+  120 秒 timeout 邊緣拖 14 小時）——那個情境下每次 `read()` 都成功拿到（哪怕
+  很小的）資料，`_DOWNLOAD_MAX_SECONDS`（1200秒總時長上限）才是真正接住這個
+  案例的防護，已用 `test_download_gives_up_when_exceeding_total_time_budget`
+  驗證正確。建議：這條「停滯」分支在文件上誠實標註「防禦性寫法，真實觸發條件
+  不確定」，或考慮拿掉改成純粹依賴總時長上限+既有 socket timeout。
+- **`_download_validated_zip()` 重試耗盡時的最終失敗路徑沒有 `response.close()`**
+  （`scrapers/mops_xbrl.py:293-297` vs `:304-306`）：迴圈裡「還有下一次重試」的
+  分支有呼叫 `response.close()` 再 `sleep`，但「重試全部用完、直接 raise」的
+  最後一個分支沒有呼叫，兩條路徑處理不對稱。目前全部呼叫點都用預設
+  `session=requests`（模組層級捷徑，每次呼叫都是用完即丟的臨時 Session，
+  不是全域共用的持久連線池），所以不會累積跨多次下載的連線池耗盡問題，
+  影響有限；但為了跟重試路徑一致、讓 socket 盡快釋放而不是等 GC，建議補上。
+
+### ✅ 驗證通過
+**MOPS 下載/recover 修復（99fba2a）**
+- `pytest tests/test_mops_xbrl.py`：15/15 passed（含5個新增測試）。
+- recover log 確認是 `logger.warning`、全庫只會有1份文件觸發，不會洗版。
+- `stream=True` 後 `response.headers` 的 `ETag`/`Last-Modified` 讀取邏輯未變、
+  仍在 `download_archive()` 正常使用（第344-345行）。
+
+**族群展開個股表折行修復（bc67585）**
+- CSS-only 改動，`sortStockList` 的四個 key 參數（`holderchg`/`maint`/
+  `shorted`/`shortmaint`）確認未變。
+- grep 全 repo 確認沒有測試用改名前的表頭字串（`大戶週變化`/`融資維持率(估)`/
+  `融券餘額佔比`/`融券維持率(估)`）做斷言比對；`tests/test_index_generator.py`
+  裡僅存的同名字串是計算公式的中文說明註解，不是 HTML 斷言。
+- 正式 `docs/index.html` 確認已是縮短後的新表頭。
+
+**季報基本面接進個股卡片（717b83a）**
+- 用合成資料直接呼叫 `build_fundamentals_snapshot()` 獨立複核公式（不只看測試
+  過不過）：可得日邊界精準（2026Q2 deadline 08-14 當天可見、08-13 不可見）；
+  跨年 Q4→Q1 銜接正確（2027-03-30 落回 2026Q3、2027-03-31 才顯示 2026Q4）；
+  單季換算正確（Q2=250-100=150）；EPS 確認取累計值、沒有被相減。
+- `_profit_growth()` 四分支獨立測試：虧→盈＝「轉盈」、盈→虧＝「轉虧」、
+  虧→虧＝`None`、盈→盈>999%＝「>999%」（不是「轉盈」），皆符合設計說明。
+- `_margin_ratio()`／`_revenue_growth()` 離群規則行為符合文件描述。
+- `pytest tests/test_fundamentals_snapshot.py tests/test_index_generator.py
+  tests/test_database.py tests/test_main.py`：161 passed。
+- Modal 端 `_fund_entry()`/`_fundHtml()` 確認「查無可見季回 None／空字串」，
+  不影響卡片其餘區塊；文字標籤（轉盈/轉虧/>999%）皆有經過 `escHtml()`。
+- ⚠️ **這個 debug worktree 的 `data/screener.db` 完全沒有 `financial_facts` 資料
+  （0 筆）**，無法查證真實 2330 數字（2,404,483,690 − 1,134,103,440 =
+  1,270,380,250 這組減法本身算式正確，但無法確認這兩個原始累計數是否真的是
+  官方申報值）、也無法查證「`sector_stocks` distinct 後回 1,033 列」的實際
+  數字，以及交接裡開發者自己標注不確定的「TSMC 稅前淨利率 67.89% vs 毛利率
+  67.72%，只差0.17個百分點，`pretax_income` concept 映射是否正確」——這幾項
+  都需要正式 DB（桌電）才能查證，跟上一輪 MOPS 稽核裡「金融業 `pretax_income`
+  映射待查」是同一個未解的根源問題，建議 Cody 或下一輪在正式 DB 上確認。
+
+**Personal watchlist MVP（55a8df6）**
+- `docs/watchlist.html` 確認已用真實資料產出並納入 `docs/index.html` 導覽列與
+  `main.py::_push_html()`。
+- `MARKET_DATA`/`STOCK_CATALOG` 走 `json.dumps(...).replace("</","<\/")`
+  安全內嵌 `<script>`，`stock_name`/`meta_sector` 沒有前述屬性情境的問題
+  （只出現在文字節點）。
+- 未知/暫無行情分支（`data_status`: `ok`/`no-data`/`unknown-stock`）邏輯確認
+  正確；備註走 `localStorage` 個別 key 持久化，設計上會在重新整理後留存；
+  `index.html` 的「＋自選」按鈕已正確用 `escAttr()`、`event.stopPropagation()`
+  避免誤觸 `openStockCard`，不影響原本點列表開 modal 的行為。
+- `pytest -q`（全 repo）：**684 passed**。
+- ⚠️ 沒有瀏覽器可用，無法實際操作「加入/移除/備註保存」互動與手機版排版，
+  這塊如交接所述仍需 Cody 或有瀏覽器工具的 session 補做。
+
+### 結論
+- [ ] 需要修改後再確認 — `export/watchlist_generator.py` 的 XSS 沿用問題建議在
+  下一輪處理掉（複製 `escAttr()` 或改用 `data-*`+`addEventListener`）；兩個 🟡
+  屬於可自行判斷是否處理的次要項目。MOPS下載修復、族群表折行、季報基本面公式
+  邏輯本身都驗證通過，可以繼續，但季報基本面有幾項數字需要正式 DB 才能徹底
+  查證（已列在上方 ⚠️）。

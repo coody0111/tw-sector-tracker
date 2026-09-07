@@ -134,6 +134,53 @@ python main.py --backfill-yf 20 --workers 3
 
 ---
 
+## 📊 定期確認資料是否正常（2026-09-07 建立）
+
+Cody 或 Debugger 要確認「資料庫現在到底新不新、有沒有洞」時，跑這段（read-only，不會動 DB）：
+
+```python
+import duckdb, pandas as pd
+con = duckdb.connect('data/screener.db', read_only=True)
+for tbl, date_col in [
+    ("daily_prices", "date"), ("institutional", "date"), ("margin", "date"),
+    ("foreign_holdings", "date"), ("shareholder", "date"),
+    ("insider_holdings", "report_date"), ("monthly_revenue", "revenue_month"),
+]:
+    latest = con.execute(f"SELECT max({date_col}) FROM {tbl}").fetchone()[0]
+    print(tbl, "->", latest)
+con.close()
+```
+
+### 各資料源預期更新頻率、現在是不是自動的
+
+| 資料源 | 表 | 頻率 | 2026-09-07 起是否自動補洞 |
+|---|---|---|---|
+| 行情 | `daily_prices` | 每交易日 | 每日流程本來就會抓，缺洞要手動 `--backfill-yf`（見上一節） |
+| 三大法人/融資融券/外資持股% | `institutional`/`margin`/`foreign_holdings` | 每交易日 | ✅ 自動（`backfill_chips(days=14)`，每次 `python main.py` 都會跑） |
+| 集保大戶 | `shareholder` | 每週（通常週五） | ✅ 自動（`_backfill_shareholder(weeks=4)`，只在收盤模式跑） |
+| 官方月營收/季報 | `monthly_revenue`/`financial_facts` | 月營收月更、季報季更 | ✅ 自動（`_update_fundamentals_db`，只在收盤模式跑，成本低每天都跑） |
+| 董監持股 | `insider_holdings` | 月更 | ✅ 自動（`_update_insider_holdings_db`，只在收盤模式跑，內部有「本月已有資料就跳過」的 gate，避免每天觸發那個 17 分鐘起跳的逐股查詢） |
+
+**判斷「這個資料是不是缺很久」的粗略基準**：跟今天日期比，行情/籌碼三表落後 > 3 個交易日、
+集保落後 > 2 週、月營收/季報/董監落後 > 1 個月，就該懷疑排程沒正常跑（先查
+`logs/run.log`／`Get-ScheduledTaskInfo -TaskName "TW-Sector-*"` 的 `LastRunTime`/
+`LastTaskResult`，`LastTaskResult` 不是 `0` 就代表那次執行有問題）。
+
+### 交叉驗證數據正確性的方法（不是只信程式跑出來的結果）
+
+- **跟獨立算過一次的結果比對**：像 2026-09-06 驗證「本週大戶增減摘要」時，用同一批 DB 資料
+  各自跑一次目標函式輸出跟手動 pandas 排序，逐筆比對股號是否完全一致，而不是只看程式沒
+  crash 就當作對。
+- **抽查具體個股手算**：像季報基本面上線時，拿 2330 的單季營收公式手算對過官方數字。
+- **邊界案例故意測**：例如故意讓「本週實際上升不到 10 支」的情況去測 Top10 排序，才抓到
+  「用全體排序取頭尾 10 筆會把降幅最小的股票誤標成增加最多」這個真實 bug（見
+  `export/chips_generator.py::_build_holder_weekly_summary()` 的 commit 說明）。
+- **不要只看「有沒有資料」，要看「這批資料是不是這一輪真的抓到的」**：例如 TPEx 三大法人
+  沒有日期參數，只回傳「當下」，資料日期可能落後 TWSE 端一天，`_update_chips_db()`
+  裡有專門的比對 log（"TPEx 三大法人目前是 X（跟預期交易日 Y 不同天）"）可以查。
+
+---
+
 ## 其他注意事項
 
 - **config.py 很大**，改動前先確認影響範圍

@@ -27,20 +27,23 @@ $IntradayAction = New-ScheduledTaskAction -Execute $PythonPath `
 # 觸發（-Once 本質上就是單次時間觸發，Repetition 只套用在那一次觸發的區間內）。
 # -Daily/-Weekly trigger 又直接拒絕 -RepetitionInterval/-RepetitionDuration 參數，
 # 所以先建一個會每天重複觸發的 -Weekly trigger，再把 -Once trigger 產生的 Repetition
-# 物件接到它身上，讓「每天 09:00 開始、每15分鐘重複4小時45分」變成每個交易日都會發生。
+# 物件接到它身上，讓「每天 09:00 開始、每15分鐘重複6小時」變成每個交易日都會發生。
+# 2026-09-07：重複時長從4h45m(09:00-13:45)拉長到6h(09:00-15:00)，配合
+# run_scheduled.py::is_market_hours()同步拉長的視窗，13:30 TWSE正式收盤後到15:00
+# 收盤摘要之間不再是空窗期，多一層監控緩衝（intraday模式冪等，訊號沒變不會重複通知）。
 $IntradayTrigger = New-ScheduledTaskTrigger -Weekly `
     -DaysOfWeek Monday,Tuesday,Wednesday,Thursday,Friday -At "09:00"
 $rep = (New-ScheduledTaskTrigger -Once -At "09:00" `
     -RepetitionInterval (New-TimeSpan -Minutes 15) `
-    -RepetitionDuration (New-TimeSpan -Hours 4 -Minutes 45)).Repetition
+    -RepetitionDuration (New-TimeSpan -Hours 6)).Repetition
 $IntradayTrigger.Repetition = $rep
 
 $IntradaySettings = New-ScheduledTaskSettingsSet `
-    -MultipleInstances IgnoreNew -StartWhenAvailable
+    -MultipleInstances IgnoreNew -StartWhenAvailable -WakeToRun
 
 Register-ScheduledTask -TaskName "TW-Sector-Intraday" `
     -Action $IntradayAction -Trigger $IntradayTrigger -Settings $IntradaySettings `
-    -Description "台股盤中籌碼監控，每15分鐘執行一次（09:00-13:45）" -Force
+    -Description "台股盤中籌碼監控，每15分鐘執行一次（09:00-15:00）" -Force
 
 Write-Host "已建立 TW-Sector-Intraday"
 
@@ -52,7 +55,7 @@ $CloseTrigger = New-ScheduledTaskTrigger -Weekly `
     -DaysOfWeek Monday,Tuesday,Wednesday,Thursday,Friday -At "15:00"
 
 $CloseSettings = New-ScheduledTaskSettingsSet `
-    -MultipleInstances IgnoreNew -StartWhenAvailable
+    -MultipleInstances IgnoreNew -StartWhenAvailable -WakeToRun
 
 Register-ScheduledTask -TaskName "TW-Sector-DailyClose" `
     -Action $CloseAction -Trigger $CloseTrigger -Settings $CloseSettings `

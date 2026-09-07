@@ -43,7 +43,11 @@ logger = logging.getLogger(__name__)
 from notifications.telegram import send_telegram_message, TelegramConfigError  # noqa: E402
 
 _MARKET_OPEN = dt_time(9, 0)
-_MARKET_CLOSE = dt_time(13, 30)
+_MARKET_CLOSE = dt_time(13, 30)  # TWSE 正式收盤時間，僅供參考語意，不直接拿來判斷排程窗口
+# 2026-09-07 需求：13:30 收盤後到 15:00 收盤摘要之間原本完全沒有監控動作，改成盤中排程
+# 一路輪詢到 15:00（intraday模式本身冪等、當天沒有新訊號時is_market_hours()通過但實際
+# 資料不變，should_notify_intraday()看signal hash沒變就不會重複通知，多跑幾次無副作用）。
+_INTRADAY_POLL_END = dt_time(15, 0)
 
 
 def is_trading_day(d: date) -> bool:
@@ -54,10 +58,11 @@ def is_trading_day(d: date) -> bool:
 
 
 def is_market_hours(now: datetime) -> bool:
-    """週一至週五 09:00-13:30（含端點）。"""
+    """週一至週五 09:00-15:00（含端點）——盤中排程的執行窗口，比TWSE正式收盤(13:30)
+    晚，多覆蓋13:30~15:00這段緩衝，讓收盤摘要前也有監控動作，不是「真的還在交易」的意思。"""
     if not is_trading_day(now.date()):
         return False
-    return _MARKET_OPEN <= now.time() <= _MARKET_CLOSE
+    return _MARKET_OPEN <= now.time() <= _INTRADAY_POLL_END
 
 
 class ExecutionLock:

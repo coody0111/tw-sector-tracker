@@ -263,3 +263,31 @@ def test_history_never_includes_quarters_after_the_snapshot():
     out = build_fundamentals_snapshot(facts, "2026-05-15")   # 2026Q2 還看不到
     periods = [h["period"] for h in out.loc[0, "history"]]
     assert periods == ["2026Q1"]
+
+
+def test_industry_schema_beats_generic_xbrl_on_disagreement():
+    """同一格有 XBRL 通用映射與官方產業別兩種來源時，取產業別的值。
+
+    實測 5,875 格重疊裡有 8 格不一致（全是券商 bd 的「收益」科目層級差異）。
+    先前是「後寫的蓋掉先寫的」，結果取決於 SQL 回傳順序——不確定。
+    """
+    # 用 Q1（累計即單季）才能直接看到取值結果，不會被相減邏輯干擾
+    facts = pd.DataFrame(
+        [("6015", 2026, 1, "revenue", 1961499.0, "xbrl"),
+         ("6015", 2026, 1, "revenue", 2396012.0, "bd")],
+        columns=["stock_id", "fiscal_year", "quarter", "metric_key", "value",
+                 "industry_schema"],
+    )
+    out = build_fundamentals_snapshot(facts, "2026-05-15")
+    assert out.loc[0, "revenue"] == 2396012.0
+
+    # 順序顛倒也要得到同一個答案（先前是「後寫的蓋掉先寫的」，會翻盤）
+    out2 = build_fundamentals_snapshot(facts.iloc[::-1].reset_index(drop=True), "2026-05-15")
+    assert out2.loc[0, "revenue"] == 2396012.0
+
+
+def test_missing_industry_schema_column_still_works():
+    """合成資料沒有 industry_schema 欄位時行為不變（純函式測試用）。"""
+    facts = _facts([("2330", 2026, 1, "revenue", 100.0)])
+    out = build_fundamentals_snapshot(facts, "2026-05-15")
+    assert out.loc[0, "revenue"] == 100.0

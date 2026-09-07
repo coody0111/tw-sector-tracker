@@ -1033,6 +1033,15 @@ def build_fundamentals_snapshot(facts: pd.DataFrame, as_of,
 
     # seq = fiscal_year*4 + quarter-1。用連續序號當 key，「上一季」就是 seq-1、
     # 「去年同季」就是 seq-4，跨年(Q1 的上一季是去年 Q4)完全不用特判。
+    #
+    # ⚠️ 同一格可能有兩筆來源：MOPS XBRL 歷史回填（industry_schema='xbrl'，不分產業的
+    # 通用映射）與官方 OpenAPI 最新一期（industry_schema 是實際產業別）。實測 5,875 格
+    # 重疊中 5,867 格數值完全相同（等於兩個獨立來源互相驗證），但有 8 格不一致，全部
+    # 集中在券商（bd）——券商損益表的「收益」在兩套映射下指涉的科目層級不同。
+    # 因此這裡用明確優先序而不是「後寫的蓋掉先寫的」：產業別 schema 優先於通用 'xbrl'，
+    # 因為 bd/basi/fh/ins 是官方為該產業量身定義的表格，欄位語意比通用映射精確。
+    # 沒有 industry_schema 欄位時（純函式測試用的合成資料）一律同優先序，行為不變。
+    has_schema = facts is not None and "industry_schema" in facts.columns
     by_key: dict = {}
     seqs_by_stock: dict = {}
     for r in facts.itertuples(index=False):
@@ -1040,11 +1049,16 @@ def build_fundamentals_snapshot(facts: pd.DataFrame, as_of,
             continue
         sid = str(r.stock_id)
         seq = int(r.fiscal_year) * 4 + int(r.quarter) - 1
-        by_key.setdefault((sid, seq), {})[str(r.metric_key)] = float(r.value)
+        priority = 0 if (has_schema and str(r.industry_schema) == "xbrl") else 1
+        slot = by_key.setdefault((sid, seq), {})
+        previous = slot.get(str(r.metric_key))
+        if previous is None or priority > previous[1]:
+            slot[str(r.metric_key)] = (float(r.value), priority)
         seqs_by_stock.setdefault(sid, set()).add(seq)
 
     def _ytd(sid: str, seq: int, metric: str) -> Optional[float]:
-        return by_key.get((sid, seq), {}).get(metric)
+        entry = by_key.get((sid, seq), {}).get(metric)
+        return None if entry is None else entry[0]
 
     def _sq(sid: str, seq: int, metric: str) -> Optional[float]:
         return _single_quarter(_ytd(sid, seq, metric), _ytd(sid, seq - 1, metric),
@@ -1114,7 +1128,7 @@ def get_fundamentals_snapshot(as_of: str) -> pd.DataFrame:
     con = get_conn()
     facts = con.execute(f"""
         WITH universe AS (SELECT DISTINCT stock_id FROM sector_stocks)
-        SELECT f.stock_id, f.fiscal_year, f.quarter, f.metric_key, f.value
+        SELECT f.stock_id, f.fiscal_year, f.quarter, f.metric_key, f.value, f.industry_schema
         FROM financial_facts f
         JOIN universe u ON u.stock_id = f.stock_id
         WHERE f.statement_type = 'income'

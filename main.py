@@ -209,6 +209,23 @@ def _update_chips_db(trade_date: date, stock_ids: list, warnings: list | None = 
         logger.warning("TPEx 外資持股%% 寫入失敗: %s", exc)
 
 
+def _update_shareholder_db(realtime: bool, warnings: list | None = None) -> None:
+    """集保大戶資料回補：TDCC 週更（通常週五），跟籌碼三表一樣容易「忘記跑就永久缺口」
+    （2026-09-07 實測發現，缺口比籌碼還嚴重——完全沒有自動流程時曾經缺了3週）。
+
+    只在收盤模式跑（not realtime）：_backfill_shareholder() 遇到真的缺週時單週要抓
+    1036支股票、耗時20-30分鐘，放進每15分鐘一次的盤中流程會嚴重拖慢intraday節奏；
+    沒有缺週時它會立刻查完DB返回，幾乎零成本，收盤模式每天跑一次不會有負擔。"""
+    if realtime:
+        return
+    try:
+        _backfill_shareholder(weeks=4)
+    except Exception as exc:
+        logger.warning("集保大戶資料回補失敗: %s", exc)
+        if warnings is not None:
+            warnings.append("集保大戶資料回補失敗")
+
+
 def _build_run_summary(
     trade_date: date,
     realtime: bool,
@@ -734,6 +751,10 @@ def run(trade_date: date = None, realtime: bool = False, push: bool = True, summ
 
     # 6. 籌碼資料寫入 DuckDB
     _update_chips_db(trade_date, unique_ids, warnings=_run_warnings)
+
+    # 6.2 集保大戶資料回補：跟籌碼三表一樣容易「忘記跑就永久缺口」，只在收盤模式跑
+    # （盤中每15分鐘一次的節奏跑不起單週20-30分鐘的回補，見_update_shareholder_db()）。
+    _update_shareholder_db(realtime, warnings=_run_warnings)
 
     # 6.5 行情連續性體檢：daily_prices 缺交易日時，所有「近N日」指標都會跨過那些洞、
     # 算出偏大的漲跌幅（2026-08-28 金居 8358 顯示「5日 +100%」實為近一個月）。

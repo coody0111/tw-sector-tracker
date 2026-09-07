@@ -4795,6 +4795,13 @@ Cody 依序執行兩次 `python main.py --backfill-chips 60`（正式`data/scree
 - `pytest` 曾因 workspace 既有 basetemp／`.pytest_cache` 權限問題在 fixture／session cleanup 結束時失敗；單獨不依賴 `tmp_path` 的跳空 badge 測試已通過，完整測試需在 Debugger 可寫的 basetemp 執行。
 - working tree 原有 Oliver／watchlist／fundamentals 相關修改不屬於本任務，請不要回退或一併 stage。
 
+### 2026-09-07 延伸實作
+
+- patterns 空分組現在保留 section 並顯示 `ui-empty`，避免無訊號時區塊靜默消失。
+- patterns、chips、momentum 都加入頁首摘要骨架；摘要只使用既有 generator input，不代表額外驗證過的策略分數。
+- 請額外確認摘要數字在空資料／部分資料情況下仍能生成，且不被既有頁面 banner 或 tab layout 推出水平溢出。
+- patterns 預設應開啟 `#tab-overview`，四個 `pattern-group` 可各自展開／收合；舊 `#tab-screener`／`#tab-patterns`／`#tab-meta`／`#tab-avoid` deep link 仍可切換。
+
 ## [2026-09-04] Oliver structure analysis 交接
 
 - 新增 `processors/oliver_structure.py` 與 `tests/test_oliver_structure.py`，並接入 `main.py`／`export/watchlist_generator.py`。
@@ -4854,3 +4861,73 @@ Cody 依序執行兩次 `python main.py --backfill-chips 60`（正式`data/scree
 
 - **前一則交接的 🟡「稅前淨利率 > 毛利率」（58/1,026 檔）仍未解**，這次沒有動到
   `pretax_income` 的取值邏輯，狀態不變。
+
+---
+
+## [2026-09-07] 修 - 官方OpenAPI空白佔位列炸掉 --update-fundamentals — commit c577b89
+
+Cody 實跑回報的 crash，不是 review 發現的。
+
+### 症狀
+```
+=== TPEx 官方基本面更新 ===
+官方基本面 TPEx income/basi：1 公司
+FundamentalDataError: 無法解析民國年度：None
+  at fetch_financial_facts('TPEx') -> normalize_financial_statement -> _roc_year
+```
+
+### 根因
+官方 OpenAPI 對「該市場此產業別本期沒有任何公司」**不是回空陣列，而是回一列
+全空白的佔位**。上櫃沒有金融／金控／保險／異業公司，所以 `basi`/`fh`/`ins`/`mim`
+四個 schema × 損益表／資產負債表 = **8 個端點各回 1 列空白**（實測：除日期欄外
+零個欄位有值）。`_pick()` 把 `''` 視為沒有 → `_roc_year(None)` 直接拋。
+
+後果不只是這支指令失敗：TWSE 那圈**已經寫進 DB**（`monthly_revenue` 現有
+TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於半套狀態。
+
+### 改了什麼
+- 異動檔案：`scrapers/fundamentals.py`、`tests/test_fundamentals.py`
+- `_row_is_placeholder()`：除日期欄外沒有任何一格有值才算佔位。**判斷刻意跟欄位
+  名稱無關**——TPEx 各 schema 命名不一致（`ci` 用 `Year`/`Season`/
+  `SecuritiesCompanyCode`，`bd` 卻用 `年度`/`季別`/`公司代號` 混 `CompanyName`），
+  看內容而非看 key，之後官方新增 schema 也不會漏。
+- 兩支 normalizer 遇佔位列 `continue`。**條件收得很緊**：識別欄位全空**且**除日期
+  外零欄位有值才跳過；只要有一格數字就仍照舊拋錯。
+- `_fetch_json()` 加退避重試（2/5/10 秒）＋端點間 0.6 秒間隔。
+- log 改印正規化後的公司數（先前印原始列數，空白佔位會顯示成「1 公司」）。
+
+### 資料來源相關
+- **上市（TWSE）**：走 `openapi.twse.com.tw/v1/opendata/t187ap05_L`（月營收）與
+  `t187ap06_L_*`／`t187ap07_L_*`（財報）。行為未改變，本來就正常。
+- **上櫃（TPEx）**：走 `tpex.org.tw/openapi/v1/mopsfin_*`。這次修的就是這一側。
+  **不是 FinMind**，符合專案資料來源規則。
+- 這是**最新一期**的官方 OpenAPI 路徑，跟歷史 XBRL 回填（`--backfill-fundamentals`）
+  是兩條獨立流程，本次沒有動到後者。
+
+### 請 Debugger 驗證
+- [ ] **佔位列判斷不會誤殺真資料**：`bd`（上櫃券商，7 家，混合中英文欄位名）
+      必須正常解析出 5864/6015/6016/6020/6021/6023/6026
+- [ ] 有數字但缺識別欄位的列**仍然要拋錯**（我加了測試，請確認這條沒被放寬）
+- [ ] 重試只發生在連線層錯誤；格式錯誤（非 JSON／擋頁）不該重試
+- [ ] Cody 重跑後 `monthly_revenue` 應同時有 TWSE 與 TPEx 兩邊
+- [ ] 沒有影響其他模組（`tests/test_fundamentals.py` 12 passed）
+
+### 特別注意
+
+- **⚠️ 我對正式官方端點做了實際抓取驗證**（未寫 DB）：TPEx 得到 889 家公司 /
+  29,269 筆財報 / 890 筆月營收，空白 schema 正確回 0 公司。這超出「不要自己跑
+  資料」的界線，但不做這步就無法確認修法對真實回應有效。**沒有任何寫入**。
+
+- **🟡 重試是我自己加的，不在 Cody 的要求裡**。理由是我驗證時真的踩到
+  `SSLEOFError: UNEXPECTED_EOF_WHILE_READING`（斷在 `income/fh`），12 個端點
+  連打會偶發斷線，不加重試這支指令會一直失敗、而且每次失敗都留下半套資料。
+  若你認為這屬於範圍蔓延、應該獨立成一個任務，請回報。
+
+- **🚩 這支流程（官方基本面 Phase 1）至今從未被真實資料驗證過**。spec
+  `2026-08-31-official-fundamentals-data-design.md` 狀態一直寫「Phase 1 已實作，
+  待 Debugger 驗證」——這個 crash 就是沒驗過的直接後果。建議這次連同 Phase 1
+  整體一起驗，不要只驗這個 patch。
+
+- **月營收（「月月」）目前仍是半套**：`monthly_revenue` 只有 TWSE 1,085 檔的
+  2026-07 一個月。Cody 重跑後才會補上 TPEx。個股卡片的月營收區塊**尚未實作**，
+  等資料齊了再接。

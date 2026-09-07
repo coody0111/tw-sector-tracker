@@ -6,7 +6,7 @@ from datetime import date
 import pytest
 
 import main
-from main import _retry_fetch, _update_chips_db
+from main import _retry_fetch, _update_chips_db, _update_shareholder_db
 
 
 class _CustomError(Exception):
@@ -277,3 +277,41 @@ def test_update_chips_db_warnings_stays_none_safe_when_not_passed(monkeypatch):
     _stub_all_chips_fetches(monkeypatch, pd.DataFrame())
 
     _update_chips_db(date(2026, 8, 26), [])  # 不傳 warnings，僅確認不 raise TypeError
+
+
+def test_update_shareholder_db_skips_when_realtime(monkeypatch):
+    """2026-09-07需求：集保回補只在收盤模式跑，盤中每15分鐘一次的節奏跑不起單週
+    20-30分鐘的回補——realtime=True時完全不該呼叫_backfill_shareholder()。"""
+    calls = []
+    monkeypatch.setattr(main, "_backfill_shareholder", lambda **k: calls.append(k))
+
+    _update_shareholder_db(realtime=True)
+
+    assert calls == []
+
+
+def test_update_shareholder_db_calls_backfill_when_not_realtime(monkeypatch):
+    calls = []
+    monkeypatch.setattr(main, "_backfill_shareholder", lambda **k: calls.append(k))
+
+    _update_shareholder_db(realtime=False)
+
+    assert calls == [{"weeks": 4}]
+
+
+def test_update_shareholder_db_appends_failure_to_warnings(monkeypatch):
+    def _boom(**k):
+        raise RuntimeError("集保回補炸了")
+
+    monkeypatch.setattr(main, "_backfill_shareholder", _boom)
+    warnings: list = []
+
+    _update_shareholder_db(realtime=False, warnings=warnings)
+
+    assert "集保大戶資料回補失敗" in warnings
+
+
+def test_update_shareholder_db_warnings_stays_none_safe_when_not_passed(monkeypatch):
+    monkeypatch.setattr(main, "_backfill_shareholder", lambda **k: None)
+
+    _update_shareholder_db(realtime=False)  # 不傳warnings，僅確認不raise TypeError

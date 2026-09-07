@@ -211,3 +211,83 @@ def test_one_row_per_stock_even_with_many_periods():
     out = build_fundamentals_snapshot(facts, "2026-05-15")
     assert len(out) == 2
     assert set(out["stock_id"]) == {"1111", "2222"}
+
+
+# --------------------------------------------------------------------------
+# 近 N 季趨勢（history）
+# --------------------------------------------------------------------------
+
+def test_history_is_oldest_to_newest_and_capped():
+    facts = _facts([("1111", 2024 + (q - 1) // 4, (q - 1) % 4 + 1, "revenue", 100.0 * q)
+                    for q in range(1, 13)])
+    out = build_fundamentals_snapshot(facts, "2026-11-14", quarters=8)
+    hist = out.loc[0, "history"]
+    assert len(hist) == 8
+    periods = [h["period"] for h in hist]
+    assert periods == sorted(periods)            # 舊 → 新
+    assert periods[-1] == out.loc[0, "period_label"]  # 最後一筆就是快照那一季
+
+
+def test_history_revenue_is_single_quarter():
+    facts = _facts([("2330", 2026, 1, "revenue", 40.0),
+                    ("2330", 2026, 2, "revenue", 100.0)])
+    out = build_fundamentals_snapshot(facts, "2026-08-14")
+    hist = out.loc[0, "history"]
+    assert hist[-1]["period"] == "2026Q2"
+    assert hist[-1]["revenue"] == 60.0           # 單季，不是累計 100
+
+
+def test_history_skips_missing_quarters_without_placeholders():
+    """完全沒資料的季別直接略過——補 None 佔位會讓走勢圖出現假的斷點。"""
+    facts = _facts([("3333", 2025, 1, "revenue", 10.0),
+                    # 2025Q2 整季缺席
+                    ("3333", 2025, 3, "revenue", 30.0),
+                    ("3333", 2025, 4, "revenue", 40.0)])
+    out = build_fundamentals_snapshot(facts, "2026-03-31")
+    periods = [h["period"] for h in out.loc[0, "history"]]
+    assert "2025Q2" not in periods
+    assert periods == ["2025Q1", "2025Q3", "2025Q4"]
+
+
+def test_history_shorter_than_window_does_not_crash():
+    """新上市股歷史不足 8 季 → 回實際筆數，不補齊。"""
+    facts = _facts([("7777", 2026, 2, "revenue", 100.0)])
+    out = build_fundamentals_snapshot(facts, "2026-08-14")
+    assert len(out.loc[0, "history"]) == 1
+
+
+def test_history_never_includes_quarters_after_the_snapshot():
+    """尚未可見的季別不能偷渡進趨勢裡（那就是前視偏誤）。"""
+    facts = _facts([("8888", 2026, 1, "revenue", 40.0),
+                    ("8888", 2026, 2, "revenue", 100.0)])
+    out = build_fundamentals_snapshot(facts, "2026-05-15")   # 2026Q2 還看不到
+    periods = [h["period"] for h in out.loc[0, "history"]]
+    assert periods == ["2026Q1"]
+
+
+def test_industry_schema_beats_generic_xbrl_on_disagreement():
+    """同一格有 XBRL 通用映射與官方產業別兩種來源時，取產業別的值。
+
+    實測 5,875 格重疊裡有 8 格不一致（全是券商 bd 的「收益」科目層級差異）。
+    先前是「後寫的蓋掉先寫的」，結果取決於 SQL 回傳順序——不確定。
+    """
+    # 用 Q1（累計即單季）才能直接看到取值結果，不會被相減邏輯干擾
+    facts = pd.DataFrame(
+        [("6015", 2026, 1, "revenue", 1961499.0, "xbrl"),
+         ("6015", 2026, 1, "revenue", 2396012.0, "bd")],
+        columns=["stock_id", "fiscal_year", "quarter", "metric_key", "value",
+                 "industry_schema"],
+    )
+    out = build_fundamentals_snapshot(facts, "2026-05-15")
+    assert out.loc[0, "revenue"] == 2396012.0
+
+    # 順序顛倒也要得到同一個答案（先前是「後寫的蓋掉先寫的」，會翻盤）
+    out2 = build_fundamentals_snapshot(facts.iloc[::-1].reset_index(drop=True), "2026-05-15")
+    assert out2.loc[0, "revenue"] == 2396012.0
+
+
+def test_missing_industry_schema_column_still_works():
+    """合成資料沒有 industry_schema 欄位時行為不變（純函式測試用）。"""
+    facts = _facts([("2330", 2026, 1, "revenue", 100.0)])
+    out = build_fundamentals_snapshot(facts, "2026-05-15")
+    assert out.loc[0, "revenue"] == 100.0

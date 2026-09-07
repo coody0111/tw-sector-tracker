@@ -17,6 +17,7 @@ from scrapers.taiex import fetch_taiex_index
 from scrapers.backfill import backfill_twse_monthly, backfill_chips, backfill_yfinance
 from processors.changes import detect_changes
 from processors.performance import calc_sector_performance, calc_meta_performance, calc_universe_performance, calc_cumulative_meta, calc_meta_signals, calc_meta_chips_signals, get_stock_chips_ranking, get_margin_divergence, calc_market_breadth, calc_capital_concentration, classify_market_regime, calc_meta_heatgrid_windows, calc_stock_sparklines, calc_meta_rank_history, calc_avg20_close
+from processors.oliver_structure import calc_oliver_market_structure
 from storage.csv_writer import CsvWriter
 from export.index_generator import generate as generate_index_html
 from export.watchlist_generator import generate as generate_watchlist_html
@@ -903,6 +904,15 @@ def run(trade_date: date = None, realtime: bool = False, push: bool = True, summ
             stock_sparklines = {}
 
         try:
+            oliver_analysis = (
+                calc_oliver_market_structure(universe_df, as_of=trade_date)
+                if universe_df is not None else {}
+            )
+        except Exception as exc:
+            logger.warning("Oliver 週線／日線結構計算失敗，自選股頁顯示 unknown: %s", exc)
+            oliver_analysis = {}
+
+        try:
             from screener.database import get_rolling_returns
             rolling_returns = get_rolling_returns((5, 7, 10, 14))
         except Exception as exc:
@@ -977,6 +987,7 @@ def run(trade_date: date = None, realtime: bool = False, push: bool = True, summ
                     prices_df if prices_df is not None else pd.DataFrame(),
                     rolling_returns=rolling_returns,
                     chips_df=index_chips_df,
+                    oliver_analysis=oliver_analysis,
                 )
                 logger.info("HTML generated → docs/watchlist.html")
             except Exception as exc:

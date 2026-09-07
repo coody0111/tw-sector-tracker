@@ -909,10 +909,14 @@ _MAX_ABS_RATIO_PCT = 999.0
 
 _FUNDAMENTALS_METRICS = ("revenue", "gross_profit", "pretax_income", "eps")
 
+# 近 N 季趨勢。8 季 = 兩年，剛好能看出「今年 vs 去年同季」的節奏又不會讓表格太長；
+# universe 1,028 檔裡有 958 檔近 12 季都有資料，所以 8 季幾乎不會被截斷。
+_FUNDAMENTALS_HISTORY_QUARTERS = 8
+
 _FUNDAMENTALS_COLUMNS = [
     "stock_id", "fiscal_year", "quarter", "period_label", "available_date",
     "revenue", "revenue_yoy", "revenue_qoq",
-    "gross_margin", "pretax_margin", "eps_ytd", "eps_yoy",
+    "gross_margin", "pretax_margin", "eps_ytd", "eps_yoy", "history",
 ]
 
 
@@ -996,7 +1000,8 @@ def _margin_ratio(numerator: Optional[float], revenue: Optional[float]) -> Optio
     return None if abs(pct) > _MAX_ABS_RATIO_PCT else pct
 
 
-def build_fundamentals_snapshot(facts: pd.DataFrame, as_of) -> pd.DataFrame:
+def build_fundamentals_snapshot(facts: pd.DataFrame, as_of,
+                                quarters: int = _FUNDAMENTALS_HISTORY_QUARTERS) -> pd.DataFrame:
     """把 financial_facts 的累計損益列，換算成每檔一列的「最新可見季」快照。
 
     純函式（不碰 DB），方便 pytest 用合成資料直接測。facts 需要
@@ -1012,6 +1017,13 @@ def build_fundamentals_snapshot(facts: pd.DataFrame, as_of) -> pd.DataFrame:
 
     revenue_yoy / revenue_qoq 恆為 float 或 None；eps_yoy 可能是 float、
     「轉盈」/「轉虧」/「>999%」字串、或 None。
+
+    history：近 quarters 季的趨勢，舊→新排序，供卡片畫迷你走勢圖與展開表格。
+    完全沒有該季資料的期別直接略過（不補 None 佔位，否則走勢圖會出現假的斷點）；
+    有該季但個別指標缺漏則保留該季、該欄為 None。實際筆數可能少於 quarters
+    （新上市股），不強制補齊。
+    ⚠️ history 裡的 eps_ytd 是**累計**值，逐季看會呈鋸齒狀（Q4 之後 Q1 歸零重算），
+    那是累計數的正常樣貌、不是資料錯誤——所以 EPS 不畫走勢圖，只在展開表格裡列出。
     """
     as_of_date = as_of if isinstance(as_of, date) else \
         datetime.strptime(str(as_of)[:10], "%Y-%m-%d").date()
@@ -1021,6 +1033,15 @@ def build_fundamentals_snapshot(facts: pd.DataFrame, as_of) -> pd.DataFrame:
 
     # seq = fiscal_year*4 + quarter-1。用連續序號當 key，「上一季」就是 seq-1、
     # 「去年同季」就是 seq-4，跨年(Q1 的上一季是去年 Q4)完全不用特判。
+    #
+    # ⚠️ 同一格可能有兩筆來源：MOPS XBRL 歷史回填（industry_schema='xbrl'，不分產業的
+    # 通用映射）與官方 OpenAPI 最新一期（industry_schema 是實際產業別）。實測 5,875 格
+    # 重疊中 5,867 格數值完全相同（等於兩個獨立來源互相驗證），但有 8 格不一致，全部
+    # 集中在券商（bd）——券商損益表的「收益」在兩套映射下指涉的科目層級不同。
+    # 因此這裡用明確優先序而不是「後寫的蓋掉先寫的」：產業別 schema 優先於通用 'xbrl'，
+    # 因為 bd/basi/fh/ins 是官方為該產業量身定義的表格，欄位語意比通用映射精確。
+    # 沒有 industry_schema 欄位時（純函式測試用的合成資料）一律同優先序，行為不變。
+    has_schema = facts is not None and "industry_schema" in facts.columns
     by_key: dict = {}
     seqs_by_stock: dict = {}
     for r in facts.itertuples(index=False):
@@ -1028,11 +1049,16 @@ def build_fundamentals_snapshot(facts: pd.DataFrame, as_of) -> pd.DataFrame:
             continue
         sid = str(r.stock_id)
         seq = int(r.fiscal_year) * 4 + int(r.quarter) - 1
-        by_key.setdefault((sid, seq), {})[str(r.metric_key)] = float(r.value)
+        priority = 0 if (has_schema and str(r.industry_schema) == "xbrl") else 1
+        slot = by_key.setdefault((sid, seq), {})
+        previous = slot.get(str(r.metric_key))
+        if previous is None or priority > previous[1]:
+            slot[str(r.metric_key)] = (float(r.value), priority)
         seqs_by_stock.setdefault(sid, set()).add(seq)
 
     def _ytd(sid: str, seq: int, metric: str) -> Optional[float]:
-        return by_key.get((sid, seq), {}).get(metric)
+        entry = by_key.get((sid, seq), {}).get(metric)
+        return None if entry is None else entry[0]
 
     def _sq(sid: str, seq: int, metric: str) -> Optional[float]:
         return _single_quarter(_ytd(sid, seq, metric), _ytd(sid, seq - 1, metric),
@@ -1050,6 +1076,20 @@ def build_fundamentals_snapshot(facts: pd.DataFrame, as_of) -> pd.DataFrame:
         fy, q = seq // 4, seq % 4 + 1
 
         revenue = _sq(sid, seq, "revenue")
+
+        history = []
+        for h in range(seq - quarters + 1, seq + 1):
+            if (sid, h) not in by_key:
+                continue
+            h_rev = _sq(sid, h, "revenue")
+            history.append({
+                "period": f"{h // 4}Q{h % 4 + 1}",
+                "revenue": h_rev,
+                "gross_margin": _margin_ratio(_sq(sid, h, "gross_profit"), h_rev),
+                "pretax_margin": _margin_ratio(_sq(sid, h, "pretax_income"), h_rev),
+                "eps_ytd": _ytd(sid, h, "eps"),
+            })
+
         rows.append({
             "stock_id": sid,
             "fiscal_year": fy,
@@ -1064,6 +1104,7 @@ def build_fundamentals_snapshot(facts: pd.DataFrame, as_of) -> pd.DataFrame:
             # EPS 只取累計、絕不相減：期間內股數會變動，累計 EPS 相減在數學上不成立
             "eps_ytd": _ytd(sid, seq, "eps"),
             "eps_yoy": _profit_growth(_ytd(sid, seq, "eps"), _ytd(sid, seq - 4, "eps")),
+            "history": history,
         })
 
     return pd.DataFrame(rows, columns=_FUNDAMENTALS_COLUMNS)
@@ -1079,14 +1120,15 @@ def get_fundamentals_snapshot(as_of: str) -> pd.DataFrame:
     """
     as_of_date = as_of if isinstance(as_of, date) else \
         datetime.strptime(str(as_of)[:10], "%Y-%m-%d").date()
-    # 只需回看兩年：YoY 要去年同季，Q1 的 QoQ 要去年 Q4(而它的單季又要去年 Q3 累計)。
-    min_year = as_of_date.year - 2
+    # 需要蓋住：8 季歷史(2年) + 最舊那季的單季相減要再前一期 + YoY 基期再前一年。
+    # 抓 4 年是留餘裕，行數仍只有十萬量級。
+    min_year = as_of_date.year - 4
     metric_list = ", ".join(f"'{m}'" for m in _FUNDAMENTALS_METRICS)
 
     con = get_conn()
     facts = con.execute(f"""
         WITH universe AS (SELECT DISTINCT stock_id FROM sector_stocks)
-        SELECT f.stock_id, f.fiscal_year, f.quarter, f.metric_key, f.value
+        SELECT f.stock_id, f.fiscal_year, f.quarter, f.metric_key, f.value, f.industry_schema
         FROM financial_facts f
         JOIN universe u ON u.stock_id = f.stock_id
         WHERE f.statement_type = 'income'

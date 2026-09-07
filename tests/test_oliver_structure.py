@@ -3,7 +3,12 @@ from __future__ import annotations
 import pandas as pd
 import duckdb
 
-from processors.oliver_structure import analyze_price_history, calc_oliver_market_structure
+from processors.oliver_structure import (
+    analyze_market_history,
+    analyze_price_history,
+    apply_market_context,
+    calc_oliver_market_structure,
+)
 
 
 def _history(closes: list[float], *, volumes: list[int] | None = None) -> pd.DataFrame:
@@ -30,6 +35,48 @@ def test_analyze_price_history_reports_bullish_weekly_structure():
     assert result["weekly_structure"]["close_vs_10w_ema_pct"] > 0
     assert result["action_state"] in {"research", "watch"}
     assert result["parameter_status"] == "unverified-project-parameters"
+
+
+def test_analyze_market_history_maps_bullish_weekly_index_to_leading():
+    history = _history([20_000 + index * 24 for index in range(70)])[["date", "close"]]
+
+    result = analyze_market_history(history)
+
+    assert result["weekly_structure"]["state"] == "bullish"
+    assert result["market_phase"] == "leading"
+    assert result["market_action"] == "normal-research"
+    assert result["as_of"] == "2026-04-10"
+
+
+def test_apply_market_context_caps_research_during_defensive_market():
+    stock = {
+        "action_state": "research",
+        "risk_state": "defined-risk",
+        "evidence": ["個股突破且風險已定義"],
+    }
+    market = {
+        "market_phase": "correcting",
+        "market_action": "defensive",
+        "weekly_structure": {"state": "bearish"},
+    }
+
+    result = apply_market_context(stock, market)
+
+    assert result["stock_action_state"] == "research"
+    assert result["action_state"] == "wait-for-confirmation"
+    assert result["market_context"] == market
+    assert result["evidence"][-1] == "大盤週線 defensive：個股 research 降為等待確認"
+    assert stock["action_state"] == "research"
+
+
+def test_analyze_market_history_maps_base_bearish_and_insufficient_contexts():
+    base = analyze_market_history(_history([20_000.0] * 70)[["date", "close"]])
+    bearish = analyze_market_history(_history([22_000 - index * 24 for index in range(70)])[["date", "close"]])
+    unknown = analyze_market_history(_history([20_000.0] * 10)[["date", "close"]])
+
+    assert (base["market_phase"], base["market_action"]) == ("transitioning", "wait-for-confirmation")
+    assert (bearish["market_phase"], bearish["market_action"]) == ("correcting", "defensive")
+    assert (unknown["market_phase"], unknown["market_action"]) == ("unknown", "unknown")
 
 
 def test_analyze_price_history_reports_flat_weekly_base_separately():
@@ -122,6 +169,41 @@ def test_analyze_price_history_defines_pivotal_point_for_confirmed_base_break():
     assert result["action_state"] == "research"
 
 
+def test_analyze_price_history_detects_first_bullish_ema_crossback_after_wedge_pop():
+    closes = (
+        [100.0] * 35
+        + [98.0, 95.0, 92.0, 89.0, 86.0]
+        + [92.0, 96.0, 100.0, 103.0, 105.0, 107.0, 108.0, 109.0, 110.0, 108.0]
+    )
+    history = _history(closes)
+    last = history.index[-1]
+    history.loc[last, ["open", "high", "low", "close", "volume"]] = [107.0, 109.0, 103.0, 108.0, 1_100]
+
+    result = analyze_price_history(history)
+
+    assert result["daily_cycle"]["state"] == "ema-crossback-bullish"
+    assert result["pivotal_point"]["status"] == "defined"
+    assert result["pivotal_point"]["trigger"] == 109.0
+    assert result["pivotal_point"]["invalidation"] == 103.0
+
+
+def test_analyze_price_history_detects_first_bearish_ema_crossback_as_risk_warning():
+    closes = (
+        [100.0] * 35
+        + [102.0, 105.0, 108.0, 112.0, 116.0]
+        + [110.0, 105.0, 100.0, 97.0, 95.0, 93.0, 92.0, 91.0, 90.0, 93.0]
+    )
+    history = _history(closes)
+    last = history.index[-1]
+    history.loc[last, ["open", "high", "low", "close", "volume"]] = [92.0, 97.0, 91.0, 93.0, 1_100]
+
+    result = analyze_price_history(history)
+
+    assert result["daily_cycle"]["state"] == "ema-crossback-bearish"
+    assert result["risk_state"] == "deterioration-warning"
+    assert result["action_state"] == "reduce-risk"
+
+
 def test_calc_oliver_market_structure_returns_analysis_for_entire_universe(tmp_path):
     db_path = tmp_path / "prices.db"
     con = duckdb.connect(str(db_path))
@@ -137,8 +219,19 @@ def test_calc_oliver_market_structure_returns_analysis_for_entire_universe(tmp_p
         {"stock_id": "2000", "stock_name": "沒資料"},
     ])
 
-    result = calc_oliver_market_structure(universe, db_path=str(db_path), as_of=history["date"].iloc[-1])
+    market = {
+        "market_phase": "leading",
+        "market_action": "normal-research",
+        "weekly_structure": {"state": "bullish"},
+    }
+    result = calc_oliver_market_structure(
+        universe,
+        db_path=str(db_path),
+        as_of=history["date"].iloc[-1],
+        market_context=market,
+    )
 
     assert set(result) == {"1000", "2000"}
     assert result["1000"]["weekly_structure"]["state"] == "bullish"
+    assert result["1000"]["market_context"] == market
     assert result["2000"]["weekly_structure"]["state"] == "unknown"

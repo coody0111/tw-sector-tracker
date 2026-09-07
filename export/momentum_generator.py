@@ -12,6 +12,8 @@
 不要混用。
 """
 from html import escape as _html_escape
+
+from export.ui_theme import SHARED_CSS
 from datetime import date
 from pathlib import Path
 
@@ -362,7 +364,7 @@ def build_streak_cards(limit_up_results: list) -> list:
     ]
 
 
-_CSS = """
+_CSS = SHARED_CSS + """
 :root{--bg:#080B12;--panel:#0F1420;--panel-2:#161D2C;--border:#293346;
   --ink:#DADFE8;--ink-2:#98A0B4;--ink-3:#636B80;--up:#E6432F;--down:#37B25C;
   --accent:#F0BB55;--tier-super:#F0BB55;--tier-strong:#4FC46A;--tier-mid:#8B94AC;
@@ -400,6 +402,7 @@ a{color:inherit}
 table.decision-table{width:100%;border-collapse:collapse;margin:0 24px;max-width:calc(100% - 48px)}
 .decision-table th,.decision-table td{padding:8px 10px;border-bottom:1px solid var(--border);text-align:left;font-size:.82rem}
 .decision-table th{color:var(--ink-3);font-weight:600;font-size:.72rem;text-transform:uppercase}
+.decision-table tbody tr{background:var(--panel);box-shadow:inset 2px 0 0 transparent}.decision-table tbody tr:hover{background:var(--panel-2);box-shadow:inset 2px 0 0 var(--accent)}
 .tier-badge{padding:2px 8px;border-radius:4px;font-size:.72rem;font-weight:600}
 .tier-badge[data-tier="超強"]{color:var(--tier-super)}
 .tier-badge[data-tier="強"]{color:var(--tier-strong)}
@@ -619,6 +622,14 @@ def generate(
     freshness_text = "　·　".join(freshness_bits) if freshness_bits else date_str
 
     risk_zone_html = _risk_zone_html(risk_zone) if permission == "defensive" else ""
+    risk_count = len(risk_zone.get("resilient", [])) + len(risk_zone.get("limit_down", []))
+    page_summary = (
+        '<div class="ui-page-summary" aria-label="逆轟策略摘要">'
+        f'<div class="ui-summary-item"><span class="ui-summary-label">候選總量</span><span class="ui-summary-value">{len(decision_table)}</span><span class="ui-summary-note">依狀態分組</span></div>'
+        f'<div class="ui-summary-item"><span class="ui-summary-label">進場候選</span><span class="ui-summary-value">{sum(1 for r in decision_table if r.get("final_label") == "進場候選")}</span><span class="ui-summary-note">今日新訊號優先</span></div>'
+        f'<div class="ui-summary-item"><span class="ui-summary-label">風險項目</span><span class="ui-summary-value">{risk_count}</span><span class="ui-summary-note">市場防禦模式時檢視</span></div>'
+        '</div>'
+    )
 
     html = f"""<!doctype html>
 <html lang="zh-Hant"><head><meta charset="utf-8">
@@ -641,6 +652,7 @@ def generate(
 </header>
 <div class="notice">本頁為全市場動能掃描與決策支援，不是自動交易或個人化投資建議。所有分數與門檻標記為實驗性，尚未回測校準。</div>
 <main id="main-content">
+{page_summary}
 <div class="permission-banner" data-permission="{permission}">
   <h2>市場操作許可：{tier_text}</h2>
   {f'<p>{divergence_text}</p>' if divergence_text else ''}

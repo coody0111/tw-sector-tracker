@@ -13,11 +13,11 @@ from scrapers.moneydj import scrape_industry_sectors
 from scrapers.daily_prices import fetch_prices_for_stocks
 from scrapers.realtime import fetch_realtime_prices
 from scrapers.chips import fetch_institutional_tpex, fetch_margin_all_tpex, fetch_foreign_holding_tpex, TWSEBlockedError
-from scrapers.taiex import fetch_taiex_index
+from scrapers.taiex import fetch_taiex_history, fetch_taiex_index
 from scrapers.backfill import backfill_twse_monthly, backfill_chips, backfill_yfinance
 from processors.changes import detect_changes
 from processors.performance import calc_sector_performance, calc_meta_performance, calc_universe_performance, calc_cumulative_meta, calc_meta_signals, calc_meta_chips_signals, get_stock_chips_ranking, get_margin_divergence, calc_market_breadth, calc_capital_concentration, classify_market_regime, calc_meta_heatgrid_windows, calc_stock_sparklines, calc_meta_rank_history, calc_avg20_close
-from processors.oliver_structure import calc_oliver_market_structure
+from processors.oliver_structure import analyze_market_history, calc_oliver_market_structure
 from storage.csv_writer import CsvWriter
 from export.index_generator import generate as generate_index_html
 from export.watchlist_generator import generate as generate_watchlist_html
@@ -832,11 +832,27 @@ def run(trade_date: date = None, realtime: bool = False, push: bool = True, summ
         except Exception:
             chips_df = pd.DataFrame()
 
+        # Oliver 週線大盤 context：正常情況下四個月 history 的最後一筆也供既有單日 regime 使用，
+        # 避免重複抓本月 FMTQIK。歷史抓取失敗時，下面仍退回原本的單日 API。
+        market_context = analyze_market_history(pd.DataFrame(), as_of=trade_date)
+        taiex = None
+        try:
+            taiex_history = fetch_taiex_history(trade_date, months=4)
+            market_context = analyze_market_history(pd.DataFrame(taiex_history), as_of=trade_date)
+            taiex = taiex_history[-1] if taiex_history else None
+            logger.info(
+                "Oliver 大盤週線：%s / %s（截至 %s）",
+                market_context["market_phase"], market_context["market_action"], market_context["as_of"],
+            )
+        except Exception as exc:
+            logger.warning("TAIEX 週線歷史抓取失敗，自選股頁顯示 unknown: %s", exc)
+
         # 大盤分級儀表板：五級方向 + 資金集中度診斷（TAIEX 抓取失敗時整塊不顯示，不擋每日流程）
         market_regime = None
         try:
             from config import TAIEX_HEAVYWEIGHTS
-            taiex = fetch_taiex_index(trade_date)
+            if taiex is None:
+                taiex = fetch_taiex_index(trade_date)
             breadth = calc_market_breadth(prices_df) if prices_df is not None else {}
             conc = calc_capital_concentration(prices_df, TAIEX_HEAVYWEIGHTS) if prices_df is not None else {}
             regime = classify_market_regime(
@@ -905,7 +921,11 @@ def run(trade_date: date = None, realtime: bool = False, push: bool = True, summ
 
         try:
             oliver_analysis = (
-                calc_oliver_market_structure(universe_df, as_of=trade_date)
+                calc_oliver_market_structure(
+                    universe_df,
+                    as_of=trade_date,
+                    market_context=market_context,
+                )
                 if universe_df is not None else {}
             )
         except Exception as exc:
@@ -988,6 +1008,7 @@ def run(trade_date: date = None, realtime: bool = False, push: bool = True, summ
                     rolling_returns=rolling_returns,
                     chips_df=index_chips_df,
                     oliver_analysis=oliver_analysis,
+                    market_context=market_context,
                 )
                 logger.info("HTML generated → docs/watchlist.html")
             except Exception as exc:

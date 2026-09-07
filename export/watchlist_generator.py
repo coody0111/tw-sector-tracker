@@ -100,6 +100,7 @@ def generate(
     rolling_returns: Optional[dict] = None,
     chips_df: Optional[pd.DataFrame] = None,
     oliver_analysis: Optional[dict] = None,
+    market_context: Optional[dict] = None,
     output_path: str = "docs/watchlist.html",
 ) -> None:
     """Generate a static page; the browser supplies the user's local selection."""
@@ -122,6 +123,12 @@ def generate(
     market_map = {row["stock_id"]: row for row in market_rows}
     catalog_js = _json(catalog)
     market_js = _json(market_map)
+    market_context_js = _json(market_context or {
+        "weekly_structure": {"state": "unknown", "summary": "TAIEX 週線資料不足", "close_vs_10w_ema_pct": None},
+        "market_phase": "unknown",
+        "market_action": "unknown",
+        "as_of": None,
+    })
     generated = trade_date.isoformat()
 
     html = f"""<!doctype html>
@@ -136,22 +143,25 @@ def generate(
 nav{{display:flex;gap:8px}}nav a,.button{{display:inline-flex;align-items:center;min-height:40px;padding:0 12px;border:1px solid var(--border);border-radius:5px;background:var(--panel-2);color:var(--ink);text-decoration:none;font-size:.78rem;cursor:pointer}}
 main{{max-width:1400px;margin:0 auto;padding:24px}}.intro{{display:flex;align-items:end;justify-content:space-between;gap:16px;margin-bottom:18px;flex-wrap:wrap}}
 .intro h2{{margin:5px 0;font-size:1.45rem}}.intro p{{margin:0;color:var(--muted);font-size:.82rem}}.count{{color:var(--accent);font:700 .75rem monospace}}
+.market-context{{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;margin-bottom:18px;border:1px solid var(--border);border-radius:7px;overflow:hidden;background:var(--border)}}.market-cell{{padding:12px 14px;background:var(--panel)}}.market-cell label{{display:block;margin-bottom:5px;color:var(--muted);font:.62rem monospace;letter-spacing:.08em}}.market-cell strong{{font-size:.9rem}}.market-detail{{display:block;margin-top:4px;color:var(--muted);font-size:.7rem}}
 .grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:12px}}.card{{background:var(--panel);border:1px solid var(--border);border-radius:7px;padding:16px}}
 .card-head{{display:flex;align-items:baseline;gap:8px}}.id{{color:var(--muted);font:700 .75rem monospace}}.name{{font-size:1.05rem;font-weight:700;flex:1}}.meta{{margin:5px 0 14px;color:var(--muted);font-size:.72rem}}
 .price{{font:700 1.15rem monospace}}.pct{{margin-left:9px;font:700 .85rem monospace}}.positive{{color:var(--up)}}.negative{{color:var(--down)}}.muted{{color:var(--muted)}}
 .metrics{{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin:15px 0}}.metric{{padding:8px;background:var(--panel-2);border-radius:4px}}.metric label{{display:block;color:var(--muted);font: .62rem monospace}}.metric strong{{display:block;margin-top:4px;font:700 .8rem monospace}}
 .analysis{{border-top:1px solid var(--border);padding-top:12px;color:var(--muted);font-size:.75rem;line-height:1.6}}.analysis b{{color:var(--ink)}}.analysis-row{{margin:3px 0}}.state{{display:inline-flex;margin-left:7px;padding:1px 6px;border:1px solid var(--border);border-radius:3px;color:var(--accent);font:700 .65rem monospace}}.evidence{{margin:8px 0 0;padding-left:18px}}.uncertainty{{margin-top:7px;color:#c5a66a}}.note{{width:100%;margin-top:12px;min-height:56px;padding:8px;border:1px solid var(--border);border-radius:4px;background:var(--panel-2);color:var(--ink);font: .78rem Arial}}
 .card-actions{{display:flex;gap:8px;margin-top:10px}}.empty{{padding:48px 20px;text-align:center;border:1px dashed var(--border);border-radius:7px;color:var(--muted)}}
-@media(max-width:600px){{main{{padding:14px}}.topbar{{padding:14px}}.metrics{{grid-template-columns:repeat(2,1fr)}}}}
+@media(max-width:600px){{main{{padding:14px}}.topbar{{padding:14px}}.metrics{{grid-template-columns:repeat(2,1fr)}}.market-context{{grid-template-columns:1fr}}}}
 </style></head><body>
 <header class="topbar"><div class="brand"><div class="eyebrow">PERSONAL WORKSPACE</div><h1>我的自選股</h1></div>
 <nav aria-label="主要功能"><a href="index.html">族群總覽</a><a href="watchlist.html" aria-current="page">自選股</a><a href="patterns.html">形態掃描</a></nav></header>
 <main><div class="intro"><div><div class="eyebrow">OLIVER-INSPIRED WATCHLIST</div><h2>只看你挑選的股票</h2><p>週線看背景，日線看週期；資料不足時保留不確定性。</p></div><span class="count" id="count"></span></div>
+<section id="market-context" class="market-context" aria-label="大盤週線 Market Context"></section>
 <section id="watchlist" class="grid" aria-live="polite"></section></main>
 <script>
 const WATCHLIST_KEY = {json.dumps(WATCHLIST_KEY)};
 const STOCK_CATALOG = {catalog_js};
 const MARKET_DATA = {market_js};
+const MARKET_CONTEXT = {market_context_js};
 function esc(s) {{ const d=document.createElement('div'); d.textContent=String(s ?? ''); return d.innerHTML; }}
 function readList() {{ try {{ const v=JSON.parse(localStorage.getItem(WATCHLIST_KEY)||'[]'); return Array.isArray(v)?v.map(String):[]; }} catch (_) {{ return []; }} }}
 function writeList(ids) {{ try {{ localStorage.setItem(WATCHLIST_KEY, JSON.stringify([...new Set(ids)])); }} catch (_) {{}} }}
@@ -161,9 +171,10 @@ function writeNote(id, value) {{ try {{ localStorage.setItem(noteKey(id), value)
 function pct(v) {{ return v === null || v === undefined || !Number.isFinite(Number(v)) ? '—' : (Number(v)>=0?'+':'') + Number(v).toFixed(2) + '%'; }}
 function metric(label, value) {{ return `<div class="metric"><label>${{label}}</label><strong>${{esc(pct(value))}}</strong></div>`; }}
 function attr(s) {{ return esc(s).replaceAll('"','&quot;').replaceAll("'",'&#39;'); }}
-const STATE_LABELS={{bullish:'多頭趨勢',bearish:'空頭趨勢',correction:'修正',base:'築底／整理',extended:'延伸',transition:'轉換中',unknown:'未知','reversal-extension-confirmed':'反轉延伸已確認','reversal-extension-watch':'反轉延伸觀察','reversal-extension-failed':'反轉失效','exhaustion-extension':'耗竭延伸','exhaustion-reversal-warning':'耗竭反轉警訊','wedge-pop':'Wedge Pop','wedge-drop':'Wedge Drop','base-n-break-bullish':'Base N’ Break 向上','base-n-break-bearish':'Base N’ Break 向下','no-clear-cycle':'無清楚週期',normal:'正常',risk:'風險',extreme:'極端',none:'無',watch:'觀察',confirmed:'確認',failed:'失效','defined-risk':'風險已定義','avoid-chasing':'避免追價','deterioration-warning':'惡化警訊',research:'研究','wait-for-confirmation':'等待確認','reduce-risk':'降低風險'}};
+const STATE_LABELS={{bullish:'多頭趨勢',bearish:'空頭趨勢',correction:'修正',base:'築底／整理',extended:'延伸',transition:'轉換中',unknown:'未知',leading:'領先',correcting:'修正中',transitioning:'轉換中','leading-extended':'領先但延伸','normal-research':'正常研究','avoid-chasing':'避免追價',selective:'選擇性研究',defensive:'防禦／降風險','reversal-extension-confirmed':'反轉延伸已確認','reversal-extension-watch':'反轉延伸觀察','reversal-extension-failed':'反轉失效','exhaustion-extension':'耗竭延伸','exhaustion-reversal-warning':'耗竭反轉警訊','wedge-pop':'Wedge Pop','wedge-drop':'Wedge Drop','ema-crossback-bullish':'EMA Crossback 向上','ema-crossback-bearish':'EMA Crossback 向下警訊','base-n-break-bullish':'Base N’ Break 向上','base-n-break-bearish':'Base N’ Break 向下','no-clear-cycle':'無清楚週期',normal:'正常',risk:'風險',extreme:'極端',none:'無',watch:'觀察',confirmed:'確認',failed:'失效','defined-risk':'風險已定義','deterioration-warning':'惡化警訊',research:'研究','wait-for-confirmation':'等待確認','reduce-risk':'降低風險'}};
 function stateLabel(value) {{ return STATE_LABELS[value] || value || '未知'; }}
 function pivotText(pivot) {{ if (!pivot || pivot.status!=='defined') return '尚無明確 Pivotal Point'; return `觸發 ${{Number(pivot.trigger).toFixed(2)}}／失效 ${{Number(pivot.invalidation).toFixed(2)}}／距離 ${{pct(pivot.risk_pct)}}`; }}
+function renderMarketContext() {{ const m=MARKET_CONTEXT||{{}}, weekly=m.weekly_structure||{{}}, distance=weekly.close_vs_10w_ema_pct; document.getElementById('market-context').innerHTML=`<div class="market-cell"><label>MARKET PHASE</label><strong>${{esc(stateLabel(m.market_phase))}}</strong><span class="market-detail">截至 ${{esc(m.as_of||'資料不足')}}</span></div><div class="market-cell"><label>TAIEX WEEKLY</label><strong>${{esc(stateLabel(weekly.state))}}</strong><span class="market-detail">${{esc(weekly.summary||'')}}${{distance==null?'':` · 距 10W EMA ${{pct(distance)}}`}}</span></div><div class="market-cell"><label>NEXT ACTION</label><strong>${{esc(stateLabel(m.market_action))}}</strong><span class="market-detail">大盤只限制研究強度，不產生買賣指令</span></div>`; }}
 function analysisHtml(o) {{ const weekly=o.weekly_structure||{{}}, daily=o.daily_cycle||{{}}, evidence=Array.isArray(o.evidence)?o.evidence:[], uncertainty=Array.isArray(o.uncertainty)?o.uncertainty:[]; return `<div class="analysis-row"><b>Weekly</b><span class="state">${{esc(stateLabel(weekly.state))}}</span> ${{esc(weekly.summary||'')}}</div><div class="analysis-row"><b>Daily</b><span class="state">${{esc(stateLabel(daily.state))}}</span> ${{esc(daily.summary||'')}}</div><div class="analysis-row"><b>Extension / Reversal</b> ${{esc(stateLabel(o.extension_state))}} / ${{esc(stateLabel(o.reversal_state))}}</div><div class="analysis-row"><b>Pivotal Point</b> ${{esc(pivotText(o.pivotal_point))}}</div><div class="analysis-row"><b>Risk / Action</b><span class="state">${{esc(stateLabel(o.risk_state))}}</span> → ${{esc(stateLabel(o.action_state))}}</div>${{evidence.length?`<ul class="evidence">${{evidence.slice(0,3).map(item=>`<li>${{esc(item)}}</li>`).join('')}}</ul>`:''}}${{uncertainty.length?`<div class="uncertainty">不確定性：${{esc(uncertainty[0])}}</div>`:''}}`; }}
 function render() {{
   const ids=readList(), wrap=document.getElementById('watchlist');
@@ -177,7 +188,7 @@ function render() {{
   wrap.querySelectorAll('[data-note-id]').forEach(note=>note.addEventListener('input',()=>writeNote(note.dataset.noteId,note.value)));
 }}
 function removeStock(id) {{ writeList(readList().filter(x=>x!==String(id))); render(); }}
-window.addEventListener('storage', render); render();
+window.addEventListener('storage', render); renderMarketContext(); render();
 </script></body></html>"""
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     Path(output_path).write_text(html, encoding="utf-8")

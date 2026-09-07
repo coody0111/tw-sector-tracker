@@ -8,6 +8,8 @@ from pathlib import Path
 from urllib.parse import quote
 import json
 
+from export.ui_theme import SHARED_CSS
+
 _CUM_THRESHOLD = 15
 
 
@@ -687,7 +689,7 @@ def _chg_cell(pct) -> str:
             f"{sign}{pct:.2f}%</span></td>")
 
 
-_CSS = """
+_CSS = SHARED_CSS + """
   :root{--bg:#080B12;--surface:#0F1420;--surface-2:#161D2C;--surface-3:#1E2738;--border:#293346;--border-strong:#37435C;--text:#DADFE8;--muted:#98A0B4;--subtle:#636B80;--accent:#F0BB55;--accent-soft:rgba(240,187,85,.16);--caution:#6E8CB0;--caution-soft:rgba(110,140,176,.16);--focus:#F0BB55;--up:#E6432F;--down:#37B25C;--radius:8px}
   *{box-sizing:border-box}
   html{background:var(--bg);overflow-x:hidden}
@@ -748,6 +750,8 @@ _CSS = """
   .chips-section,.chips-section-half{min-width:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:13px 14px;overflow:hidden}
   .chips-section{margin-bottom:14px}
   .cs-title{font-size:.8125rem;font-weight:780;color:var(--text);margin-bottom:8px}
+  .chips-section-half{box-shadow:inset 0 2px 0 rgba(240,187,85,.32)}
+  .chips-section-half:nth-child(2){box-shadow:inset 0 2px 0 rgba(55,178,92,.28)}
   .cs-description,.data-note{margin:0 0 11px;color:var(--muted);font-size:.75rem;max-width:90ch}
   .cs-date{color:var(--subtle);font-weight:600}.coverage-flag{display:inline-block;margin-left:5px;padding:1px 5px;border:1px solid #b77935;border-radius:4px;color:#ffc37d;font-size:.625rem;font-weight:750;cursor:help}
   .table-shell{max-width:100%;overflow-x:auto;overscroll-behavior-x:contain;border:1px solid var(--border);border-radius:6px;scrollbar-width:thin;scrollbar-color:var(--border-strong) transparent}
@@ -1363,6 +1367,17 @@ def generate(
     s8_html, s8_note, s_insider_html = _build_section8(shareholder_data, insider_data)
     s8_weekly_summary_html = _build_holder_weekly_summary(shareholder_data)
 
+    foreign_events = sum(1 for d in meta_chips.values() if d.get("foreign_streak", 0))
+    trust_events = sum(1 for d in meta_chips.values() if d.get("trust_streak", 0))
+    margin_events = len(stock_chips.get("margin_alerts", []))
+    page_summary = (
+        "<div class='ui-page-summary' aria-label='籌碼分析摘要'>"
+        f"<div class='ui-summary-item'><span class='ui-summary-label'>籌碼族群</span><span class='ui-summary-value'>{len(meta_chips)}</span><span class='ui-summary-note'>今日有資料</span></div>"
+        f"<div class='ui-summary-item'><span class='ui-summary-label'>法人事件</span><span class='ui-summary-value'>{foreign_events + trust_events}</span><span class='ui-summary-note'>外資 {foreign_events} · 投信 {trust_events}</span></div>"
+        f"<div class='ui-summary-item'><span class='ui-summary-label'>融資警示</span><span class='ui-summary-value'>{margin_events}</span><span class='ui-summary-note'>個股事件</span></div>"
+        "</div>"
+    )
+
     evid_signal = _evidence_card("evid-observe", "觀察用",
         "訊號日 <b>61</b>．筆數 <b>377</b>　勝率 <b>43-44%</b>　平均超額 <b>+1.55%</b>",
         "中位數-2.58%(均值被少數大贏家拉正)，非穩定訊號，僅供觀察")
@@ -1457,6 +1472,7 @@ def generate(
     </aside>
     <main id="main-content" class="main-content" tabindex="-1">
       {exch_filter_btns}
+      {page_summary}
 
       <div class="tab-panel" id="tab-signal" role="tabpanel" aria-labelledby="tab-btn-signal">
         {evid_signal}

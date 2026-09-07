@@ -6,6 +6,7 @@ The output is research context and never an automated trade instruction.
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any, Optional
 
 import pandas as pd
@@ -23,6 +24,9 @@ DAILY_EXTENSION_EXTREME_PCT = 15.0
 BASE_RANGE_PCT = 12.0
 BREAKOUT_VOLUME_RATIO = 1.5
 DEFINED_RISK_PCT = 8.0
+EMA_CROSSBACK_LOOKBACK = 30
+EMA_CROSSBACK_EXTENSION_LOOKBACK = 15
+EMA_ZONE_TOLERANCE = 0.01
 
 
 def _unknown_result(reason: str) -> dict[str, Any]:
@@ -95,6 +99,69 @@ def _weekly_structure(frame: pd.DataFrame) -> dict[str, Any]:
         "summary": summary,
         "close_vs_10w_ema_pct": round(distance, 2),
     }
+
+
+def _is_first_ema_crossback(work: pd.DataFrame, direction: str) -> bool:
+    """Detect extension -> 10/20 EMA cross -> first retest on the latest bar."""
+    if len(work) < MIN_DAILY_BARS + 2:
+        return False
+    latest = work.iloc[-1]
+    latest_ema_high = max(float(latest["ema10"]), float(latest["ema20"]))
+    latest_ema_low = min(float(latest["ema10"]), float(latest["ema20"]))
+    start = max(1, len(work) - EMA_CROSSBACK_LOOKBACK - 1)
+
+    for position in range(len(work) - 2, start - 1, -1):
+        bar = work.iloc[position]
+        prior = work.iloc[position - 1]
+        prior_extension = work["extension_pct"].iloc[
+            max(0, position - EMA_CROSSBACK_EXTENSION_LOOKBACK):position
+        ].dropna()
+        between = work.iloc[position + 1:-1]
+
+        if direction == "bullish":
+            crossed = (
+                not (
+                    float(prior["close"]) > float(prior["ema10"])
+                    and float(prior["close"]) > float(prior["ema20"])
+                )
+                and float(bar["close"]) > float(bar["ema10"])
+                and float(bar["close"]) > float(bar["ema20"])
+            )
+            had_extension = not prior_extension.empty and prior_extension.min() <= -DAILY_EXTENSION_RISK_PCT
+            latest_retest = (
+                float(latest["close"]) > latest_ema_high
+                and float(latest["low"]) <= latest_ema_high * (1.0 + EMA_ZONE_TOLERANCE)
+                and float(latest["low"]) >= latest_ema_low * (1.0 - EMA_ZONE_TOLERANCE * 3)
+            )
+            no_earlier_retest = all(
+                float(row["close"]) > max(float(row["ema10"]), float(row["ema20"]))
+                and float(row["low"]) > max(float(row["ema10"]), float(row["ema20"])) * (1.0 + EMA_ZONE_TOLERANCE)
+                for _, row in between.iterrows()
+            )
+        else:
+            crossed = (
+                not (
+                    float(prior["close"]) < float(prior["ema10"])
+                    and float(prior["close"]) < float(prior["ema20"])
+                )
+                and float(bar["close"]) < float(bar["ema10"])
+                and float(bar["close"]) < float(bar["ema20"])
+            )
+            had_extension = not prior_extension.empty and prior_extension.max() >= DAILY_EXTENSION_RISK_PCT
+            latest_retest = (
+                float(latest["close"]) < latest_ema_low
+                and float(latest["high"]) >= latest_ema_low * (1.0 - EMA_ZONE_TOLERANCE)
+                and float(latest["high"]) <= latest_ema_high * (1.0 + EMA_ZONE_TOLERANCE * 3)
+            )
+            no_earlier_retest = all(
+                float(row["close"]) < min(float(row["ema10"]), float(row["ema20"]))
+                and float(row["high"]) < min(float(row["ema10"]), float(row["ema20"])) * (1.0 - EMA_ZONE_TOLERANCE)
+                for _, row in between.iterrows()
+            )
+
+        if crossed and had_extension and latest_retest and no_earlier_retest:
+            return True
+    return False
 
 
 def _daily_cycle(frame: pd.DataFrame) -> dict[str, Any]:
@@ -179,6 +246,8 @@ def _daily_cycle(frame: pd.DataFrame) -> dict[str, Any]:
     below_emas = close < float(latest["ema10"]) and close < float(latest["ema20"])
     prior_above = float(previous["close"]) > float(previous["ema10"]) and float(previous["close"]) > float(previous["ema20"])
     prior_below = float(previous["close"]) < float(previous["ema10"]) and float(previous["close"]) < float(previous["ema20"])
+    bullish_crossback = _is_first_ema_crossback(work, "bullish")
+    bearish_crossback = _is_first_ema_crossback(work, "bearish")
 
     state = "no-clear-cycle"
     summary = "日線尚無清楚的 Oliver price-cycle 事件"
@@ -214,6 +283,20 @@ def _daily_cycle(frame: pd.DataFrame) -> dict[str, Any]:
     elif recent_upside and below_emas and not prior_below:
         state = "wedge-drop"
         summary = "上行延伸後首次跌破 10/20 EMA，屬風險警訊"
+    elif bullish_crossback:
+        state = "ema-crossback-bullish"
+        summary = "Wedge Pop 後第一次回測 10/20 EMA 區並守住"
+        trigger = float(latest["high"])
+        invalidation = float(latest["low"])
+        pivotal = {
+            "status": "defined",
+            "trigger": round(trigger, 2),
+            "invalidation": round(invalidation, 2),
+            "risk_pct": round((trigger - invalidation) / trigger * 100.0, 2),
+        }
+    elif bearish_crossback:
+        state = "ema-crossback-bearish"
+        summary = "Wedge Drop 後第一次反彈回測 10/20 EMA 區，屬惡化警訊"
     elif prior_high is not None and close > prior_high and volume_ratio is not None and volume_ratio >= BREAKOUT_VOLUME_RATIO:
         state = "base-n-break-bullish"
         summary = "突破近 20 日高點且成交量確認"
@@ -277,7 +360,7 @@ def analyze_price_history(history: pd.DataFrame, as_of: Optional[Any] = None) ->
     elif weekly["state"] == "extended" or daily_state in {"exhaustion-extension", "exhaustion-reversal-warning"}:
         result["risk_state"] = "avoid-chasing"
         result["action_state"] = "reduce-risk"
-    elif weekly["state"] == "bearish" or daily_state in {"wedge-drop", "base-n-break-bearish", "reversal-extension-failed"}:
+    elif weekly["state"] == "bearish" or daily_state in {"wedge-drop", "ema-crossback-bearish", "base-n-break-bearish", "reversal-extension-failed"}:
         result["risk_state"] = "deterioration-warning"
         result["action_state"] = "reduce-risk"
     elif pivotal["status"] == "defined" and pivotal_risk is not None and pivotal_risk <= DEFINED_RISK_PCT:
@@ -293,16 +376,64 @@ def analyze_price_history(history: pd.DataFrame, as_of: Optional[Any] = None) ->
     return result
 
 
+_MARKET_PHASES = {
+    "bullish": ("leading", "normal-research"),
+    "extended": ("leading-extended", "avoid-chasing"),
+    "correction": ("correcting", "selective"),
+    "bearish": ("correcting", "defensive"),
+    "base": ("transitioning", "wait-for-confirmation"),
+    "transition": ("transitioning", "wait-for-confirmation"),
+    "unknown": ("unknown", "unknown"),
+}
+
+
+def analyze_market_history(history: pd.DataFrame, as_of: Optional[Any] = None) -> dict[str, Any]:
+    """Classify point-in-time TAIEX weekly context before stock analysis."""
+    frame = _prepare_history(history, as_of)
+    weekly = _weekly_structure(frame) if not frame.empty else _unknown_result("缺少 TAIEX 歷史")["weekly_structure"]
+    phase, action = _MARKET_PHASES[weekly["state"]]
+    return {
+        "weekly_structure": weekly,
+        "market_phase": phase,
+        "market_action": action,
+        "as_of": frame["date"].iloc[-1].date().isoformat() if not frame.empty else None,
+        "evidence": [weekly["summary"]] if weekly["state"] != "unknown" else [],
+        "uncertainty": ["大盤數值門檻是待回測的專案參數，不是 Oliver 原文規則"],
+        "parameter_status": PARAMETER_STATUS,
+    }
+
+
+def apply_market_context(stock_analysis: dict[str, Any], market_context: dict[str, Any]) -> dict[str, Any]:
+    """Attach index context and conservatively gate a stock research action."""
+    result = deepcopy(stock_analysis)
+    market = deepcopy(market_context)
+    stock_action = result.get("action_state", "unknown")
+    market_action = market.get("market_action", "unknown")
+    result["stock_action_state"] = stock_action
+    result["market_context"] = market
+
+    if stock_action == "research" and market_action != "normal-research":
+        result["action_state"] = "wait-for-confirmation"
+        evidence = list(result.get("evidence") or [])
+        evidence.append(f"大盤週線 {market_action}：個股 research 降為等待確認")
+        result["evidence"] = evidence
+    return result
+
+
 def calc_oliver_market_structure(
     universe_df: pd.DataFrame,
     db_path: str = "data/screener.db",
     as_of: Optional[Any] = None,
     lookback: int = 90,
+    market_context: Optional[dict[str, Any]] = None,
 ) -> dict[str, dict[str, Any]]:
     """Load one point-in-time OHLCV window and analyze every universe stock."""
     if universe_df is None or universe_df.empty or "stock_id" not in universe_df.columns:
         return {}
     stock_ids = list(dict.fromkeys(universe_df["stock_id"].astype(str).tolist()))
+
+    def with_market(analysis: dict[str, Any]) -> dict[str, Any]:
+        return apply_market_context(analysis, market_context) if market_context is not None else analysis
 
     try:
         import duckdb
@@ -320,7 +451,7 @@ def calc_oliver_market_structure(
                     [pd.Timestamp(as_of).date(), lookback],
                 ).fetchall()
             if not dates:
-                return {stock_id: _unknown_result("資料庫沒有可用行情") for stock_id in stock_ids}
+                return {stock_id: with_market(_unknown_result("資料庫沒有可用行情")) for stock_id in stock_ids}
             oldest = min(row[0] for row in dates)
             if as_of is None:
                 history = con.execute(
@@ -336,13 +467,13 @@ def calc_oliver_market_structure(
             con.close()
     except Exception as exc:
         reason = f"Oliver 行情載入失敗：{type(exc).__name__}"
-        return {stock_id: _unknown_result(reason) for stock_id in stock_ids}
+        return {stock_id: with_market(_unknown_result(reason)) for stock_id in stock_ids}
 
     if history.empty:
-        return {stock_id: _unknown_result("所選期間沒有個股行情") for stock_id in stock_ids}
+        return {stock_id: with_market(_unknown_result("所選期間沒有個股行情")) for stock_id in stock_ids}
     history["stock_id"] = history["stock_id"].astype(str)
     grouped = {stock_id: frame for stock_id, frame in history.groupby("stock_id", sort=False)}
     return {
-        stock_id: analyze_price_history(grouped.get(stock_id, pd.DataFrame()), as_of=as_of)
+        stock_id: with_market(analyze_price_history(grouped.get(stock_id, pd.DataFrame()), as_of=as_of))
         for stock_id in stock_ids
     }

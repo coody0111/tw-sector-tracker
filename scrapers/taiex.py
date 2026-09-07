@@ -102,6 +102,35 @@ def _parse_taiex_response(raw, content_type: str) -> list[dict]:
     return out
 
 
+def _fetch_taiex_month(month_date: date) -> list[dict]:
+    resp = requests.get(
+        TAIEX_URL,
+        params={"response": "json", "date": month_date.strftime("%Y%m%d")},
+        headers=_HEADERS,
+        timeout=30,
+        verify=False,
+    )
+    resp.raise_for_status()
+    return _parse_taiex_response(resp.text, resp.headers.get("Content-Type", ""))
+
+
+def _month_start_offset(end_date: date, offset: int) -> date:
+    month_index = end_date.year * 12 + end_date.month - 1 - offset
+    return date(month_index // 12, month_index % 12 + 1, 1)
+
+
+def fetch_taiex_history(end_date: date, months: int = 4) -> list[dict]:
+    """Fetch official monthly TAIEX closes through ``end_date`` in ascending order."""
+    if months < 1:
+        raise ValueError("months must be at least 1")
+    by_date = {}
+    for offset in range(months):
+        for row in _fetch_taiex_month(_month_start_offset(end_date, offset)):
+            if row["date"] <= end_date:
+                by_date[row["date"]] = row
+    return [by_date[trade_day] for trade_day in sorted(by_date)]
+
+
 def fetch_taiex_index(trade_date: date) -> dict:
     """抓 trade_date 當天的大盤加權指數，回傳 {date, close, change, change_pct}。
 
@@ -110,17 +139,7 @@ def fetch_taiex_index(trade_date: date) -> dict:
     呼叫端不必自己處理『今天還沒公布』的情況。當月完全沒有 <= trade_date 的資料
     時（例如月初第一個交易日資料還沒出）拋 ValueError。
     """
-    date_str = trade_date.strftime("%Y%m%d")
-    resp = requests.get(
-        TAIEX_URL,
-        params={"response": "json", "date": date_str},
-        headers=_HEADERS,
-        timeout=30,
-        verify=False,
-    )
-    resp.raise_for_status()
-    ctype = resp.headers.get("Content-Type", "")
-    rows = _parse_taiex_response(resp.text, ctype)
+    rows = _fetch_taiex_month(trade_date)
 
     candidates = [r for r in rows if r["date"] <= trade_date]
     if not candidates:

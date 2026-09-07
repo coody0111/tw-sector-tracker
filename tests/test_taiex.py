@@ -5,6 +5,7 @@ from unittest.mock import patch, MagicMock
 import pytest
 
 from scrapers.taiex import (
+    fetch_taiex_history,
     fetch_taiex_index,
     _parse_taiex_response,
     _roc_to_date,
@@ -130,3 +131,37 @@ def test_fetch_taiex_index_raises_twse_blocked_on_html():
         mock_get.return_value = mock_resp
         with pytest.raises(TWSEBlockedError):
             fetch_taiex_index(date(2026, 7, 2))
+
+
+def test_fetch_taiex_history_merges_months_sorts_and_filters_future_rows():
+    june = {
+        **MOCK_RESPONSE,
+        "data": [
+            ["115/06/30", "1", "1", "1", "46,125.91", "100.00"],
+        ],
+    }
+    july = {
+        **MOCK_RESPONSE,
+        "data": MOCK_RESPONSE["data"] + [
+            ["115/07/03", "1", "1", "1", "47,000.00", "255.84"],
+        ],
+    }
+
+    def fake_get(*_args, **kwargs):
+        month = kwargs["params"]["date"][:6]
+        response = june if month == "202606" else july
+        mock_resp = MagicMock()
+        mock_resp.text = json.dumps(response)
+        mock_resp.headers = {"Content-Type": "application/json"}
+        mock_resp.raise_for_status.return_value = None
+        return mock_resp
+
+    with patch("scrapers.taiex.requests.get", side_effect=fake_get) as mock_get:
+        rows = fetch_taiex_history(date(2026, 7, 2), months=2)
+
+    assert [row["date"] for row in rows] == [
+        date(2026, 6, 30),
+        date(2026, 7, 1),
+        date(2026, 7, 2),
+    ]
+    assert mock_get.call_count == 2

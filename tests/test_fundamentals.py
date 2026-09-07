@@ -187,3 +187,72 @@ def test_combined_save_rolls_back_monthly_when_financial_write_fails(tmp_path, m
     count = con.execute("SELECT COUNT(*) FROM monthly_revenue").fetchone()[0]
     con.close()
     assert count == 0
+
+
+# ---------------------------------------------------------------------------
+# 官方 OpenAPI 的「本期無資料」佔位列（2026-09-07 實跑 crash 後補）
+# ---------------------------------------------------------------------------
+
+_TPEX_BLANK_STATEMENT_ROW = {
+    "Date": "1150906",
+    "Year": "",
+    "Season": "",
+    "SecuritiesCompanyCode": "",
+    "CompanyName": "",
+    "利息淨收益": "",
+    "營業費用": "",
+    "繼續營業單位稅前淨利（淨損）": "",
+}
+
+_TPEX_REAL_STATEMENT_ROW = {
+    "Date": "1150906",
+    "年度": "115",
+    "季別": "2",
+    "公司代號": "5864",
+    "CompanyName": "致和證",
+    "收益": "5225386.00",
+    "稅前淨利（淨損）": "120000.00",
+}
+
+
+def test_blank_placeholder_statement_row_is_skipped_not_fatal():
+    """上櫃沒有金融/金控/保險/異業公司，官方 basi/fh/ins/mim 各回一列全空白佔位。
+
+    2026-09-07 實跑 `--update-fundamentals` 就是在 TPEx income/basi 這一列
+    炸掉（無法解析民國年度：None），TWSE 那圈已寫入的資料因此沒能接上 TPEx。
+    """
+    facts = normalize_financial_statement(
+        [_TPEX_BLANK_STATEMENT_ROW], exchange="TPEx",
+        statement_type="income", industry_schema="basi",
+    )
+    assert facts == []
+
+
+def test_mixed_chinese_english_field_names_still_parse():
+    """TPEx 各 schema 命名不一致：ci 用 Year/Season/SecuritiesCompanyCode，
+    bd 卻用 年度/季別/公司代號 混 CompanyName。兩種都必須能解析。"""
+    facts = normalize_financial_statement(
+        [_TPEX_REAL_STATEMENT_ROW], exchange="TPEx",
+        statement_type="income", industry_schema="bd",
+    )
+    assert facts, "混合中英文欄位名的真實資料不該被當成佔位列跳過"
+    assert facts[0]["stock_id"] == "5864"
+    assert facts[0]["fiscal_year"] == 2026
+    assert facts[0]["quarter"] == 2
+
+
+def test_row_with_data_but_missing_identity_still_raises():
+    """只要有一格數字就不算佔位列——真的資料異常仍要拋錯，不能被靜靜吞掉。"""
+    broken = dict(_TPEX_BLANK_STATEMENT_ROW)
+    broken["利息淨收益"] = "12345.00"
+    with pytest.raises(FundamentalDataError):
+        normalize_financial_statement(
+            [broken], exchange="TPEx",
+            statement_type="income", industry_schema="basi",
+        )
+
+
+def test_blank_placeholder_monthly_row_is_skipped():
+    blank = {"出表日期": "1150906", "公司代號": "", "公司名稱": "",
+             "資料年月": "", "營業收入-當月營收": ""}
+    assert normalize_monthly_revenue([blank], exchange="TPEx") == []

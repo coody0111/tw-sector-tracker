@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any, Iterable
@@ -91,6 +92,21 @@ def _pick(row: dict[str, Any], *names: str) -> Any:
     return None
 
 
+# 官方 OpenAPI 對「本期無資料」會回一列全空白，而不是空陣列。只有日期欄有值的列
+# 才算佔位——判斷刻意跟欄位名稱無關（TPEx 各 schema 命名不一致：ci 用 Year/Season/
+# SecuritiesCompanyCode，bd 卻用 年度/季別/公司代號 混 CompanyName），只看「除了日期
+# 之外還有沒有任何一格有值」，這樣新增 schema 也不會漏。
+_DATE_FIELDS = ("Date", "出表日期", "資料年月")
+
+
+def _row_is_placeholder(row: dict[str, Any]) -> bool:
+    return not any(
+        _clean_text(value) is not None
+        for name, value in row.items()
+        if name not in _DATE_FIELDS
+    )
+
+
 def _clean_text(value: Any) -> str | None:
     if value is None:
         return None
@@ -147,9 +163,31 @@ def _period_end(year: int, quarter: int) -> date:
     return date(year, quarter * 3, (31, 30, 30, 31)[quarter - 1])
 
 
+# 一次更新要連打 12 個端點（損益表/資產負債表 × 6 個產業 schema），TPEx 對這種
+# 連續請求會偶發性斷線（實測 SSLEOFError: UNEXPECTED_EOF_WHILE_READING）。
+# 退避重試 + 端點之間留間隔，避免整支指令因為一次連線抖動就前功盡棄——
+# TWSE 那圈已經寫進 DB 的資料會留著，但 TPEx 整批會全部沒進去。
+_FETCH_RETRY_DELAYS = (2, 5, 10)
+_FETCH_GAP_SECONDS = 0.6
+
+
 def _fetch_json(url: str, timeout: int = 30) -> list[dict[str, Any]]:
-    response = requests.get(url, headers=_HEADERS, timeout=timeout)
-    response.raise_for_status()
+    last_error: Exception | None = None
+    for attempt, delay in enumerate((0, *_FETCH_RETRY_DELAYS)):
+        if delay:
+            time.sleep(delay)
+        try:
+            response = requests.get(url, headers=_HEADERS, timeout=timeout)
+            response.raise_for_status()
+            break
+        except requests.RequestException as exc:
+            # 只對連線層錯誤重試。格式錯誤（非 JSON、擋頁）重試也不會變好，
+            # 而且會把「官方改版」這種需要人介入的問題拖成慢速失敗。
+            last_error = exc
+            logger.warning("官方基本面端點第 %d 次請求失敗，%s：%s",
+                           attempt + 1, url, str(exc)[:120])
+    else:
+        raise FundamentalDataError(f"官方基本面端點連線失敗（已重試 {len(_FETCH_RETRY_DELAYS)} 次）：{url}") from last_error
     try:
         payload = response.json()
     except ValueError as exc:
@@ -174,6 +212,10 @@ def normalize_monthly_revenue(
     for row in rows:
         stock_id = _clean_text(_pick(row, "公司代號", "SecuritiesCompanyCode"))
         stock_name = _clean_text(_pick(row, "公司名稱", "CompanyName"))
+        if not stock_id and not stock_name and _row_is_placeholder(row):
+            # 同財報：官方用一列全空白表示「本期無資料」。月營收目前實測沒有出現過，
+            # 但兩支端點同一套慣例，先一起擋住比之後再炸一次好。
+            continue
         if not stock_id or not stock_name:
             raise FundamentalDataError(f"月營收缺少公司識別欄位：{row!r}")
         revenue = _to_int(_pick(row, "營業收入-當月營收", "CurrentMonthRevenue"))
@@ -233,6 +275,14 @@ def normalize_financial_statement(
     for row in rows:
         stock_id = _clean_text(_pick(row, "公司代號", "SecuritiesCompanyCode"))
         stock_name = _clean_text(_pick(row, "公司名稱", "CompanyName"))
+        if not stock_id and not stock_name and _row_is_placeholder(row):
+            # 官方對「該市場此產業別本期沒有任何公司」會回**一列全空白**的佔位列，
+            # 而不是空陣列。實測上櫃的 basi/fh/ins/mim 四個 schema（損益表與資產負債表
+            # 各一列，共 8 個端點）都是這樣——上櫃沒有金融／金控／保險／異業公司。
+            # 這不是錯誤，跳過即可。⚠️ 條件刻意收得很緊：必須「識別欄位全空」**且**
+            # 除日期外沒有任何欄位有值才算佔位；只要有一格數字，就仍然照舊拋錯，
+            # 否則真的資料異常會被靜靜吞掉。
+            continue
         year = _roc_year(_pick(row, "年度", "Year"))
         quarter_number = _to_int(_pick(row, "季別", "Season"))
         if not stock_id or not stock_name or quarter_number is None:
@@ -303,14 +353,23 @@ def _statement_url(exchange: str, statement_type: str, industry_schema: str) -> 
 def fetch_financial_facts(exchange: str) -> list[dict[str, Any]]:
     facts: list[dict[str, Any]] = []
     fetched_at = datetime.now()
+    first = True
     for statement_type in ("income", "balance"):
         for industry_schema in _INDUSTRY_SCHEMAS:
+            if not first:
+                time.sleep(_FETCH_GAP_SECONDS)   # 不連續轟炸官方端點
+            first = False
             url = _statement_url(exchange, statement_type, industry_schema)
             rows = _fetch_json(url)
-            logger.info("官方基本面 %s %s/%s：%d 公司", exchange, statement_type, industry_schema, len(rows))
-            facts.extend(normalize_financial_statement(
+            parsed = normalize_financial_statement(
                 rows, exchange, statement_type, industry_schema, fetched_at=fetched_at,
-            ))
+            )
+            # 印正規化後的公司數，不印原始列數——原始列數會把「本期無資料」的空白
+            # 佔位列算成 1 家公司（先前的 log「TPEx income/basi：1 公司」就是這樣來的，
+            # 看起來像有資料，其實整列是空的）。
+            logger.info("官方基本面 %s %s/%s：%d 公司", exchange, statement_type,
+                        industry_schema, len({f["stock_id"] for f in parsed}))
+            facts.extend(parsed)
     return _dedupe_rows(
         facts,
         ("stock_id", "period_end", "statement_type", "metric_key", "industry_schema"),

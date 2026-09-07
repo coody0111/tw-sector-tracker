@@ -6,7 +6,10 @@ from datetime import date
 import pytest
 
 import main
-from main import _retry_fetch, _update_chips_db, _update_shareholder_db
+from main import (
+    _retry_fetch, _update_chips_db, _update_shareholder_db,
+    _update_fundamentals_db, _update_insider_holdings_db,
+)
 
 
 class _CustomError(Exception):
@@ -315,3 +318,108 @@ def test_update_shareholder_db_warnings_stays_none_safe_when_not_passed(monkeypa
     monkeypatch.setattr(main, "_backfill_shareholder", lambda **k: None)
 
     _update_shareholder_db(realtime=False)  # 不傳warnings，僅確認不raise TypeError
+
+
+def test_update_fundamentals_db_skips_when_realtime(monkeypatch):
+    calls = []
+    monkeypatch.setattr(main, "_update_fundamentals", lambda: calls.append(1))
+
+    _update_fundamentals_db(realtime=True)
+
+    assert calls == []
+
+
+def test_update_fundamentals_db_calls_update_when_not_realtime(monkeypatch):
+    calls = []
+    monkeypatch.setattr(main, "_update_fundamentals", lambda: calls.append(1))
+
+    _update_fundamentals_db(realtime=False)
+
+    assert calls == [1]
+
+
+def test_update_fundamentals_db_appends_failure_to_warnings(monkeypatch):
+    def _boom():
+        raise RuntimeError("基本面更新炸了")
+
+    monkeypatch.setattr(main, "_update_fundamentals", _boom)
+    warnings: list = []
+
+    _update_fundamentals_db(realtime=False, warnings=warnings)
+
+    assert "官方基本面（月營收/季報）更新失敗" in warnings
+
+
+class _FakeConn:
+    """模擬screener.database.get_conn()回傳值，只支援_update_insider_holdings_db()
+    用到的單一MAX(report_date)查詢。"""
+
+    def __init__(self, latest_report_date):
+        self._latest = latest_report_date
+
+    def execute(self, *a, **k):
+        return self
+
+    def fetchone(self):
+        return (self._latest,)
+
+
+def test_update_insider_holdings_db_skips_when_realtime(monkeypatch):
+    calls = []
+    monkeypatch.setattr(main, "_update_insider_holdings", lambda: calls.append(1))
+
+    _update_insider_holdings_db(realtime=True)
+
+    assert calls == []
+
+
+def test_update_insider_holdings_db_skips_when_this_month_already_has_data(monkeypatch):
+    """董監持股逐股查詢成本高(17分鐘起跳)，本月已經有資料時不該再觸發一次。"""
+    today = date.today()
+    monkeypatch.setattr(
+        "screener.database.get_conn",
+        lambda: _FakeConn(date(today.year, today.month, 1)),
+    )
+    calls = []
+    monkeypatch.setattr(main, "_update_insider_holdings", lambda: calls.append(1))
+
+    _update_insider_holdings_db(realtime=False)
+
+    assert calls == []
+
+
+def test_update_insider_holdings_db_updates_when_data_is_stale(monkeypatch):
+    monkeypatch.setattr(
+        "screener.database.get_conn",
+        lambda: _FakeConn(date(2020, 1, 1)),
+    )
+    calls = []
+    monkeypatch.setattr(main, "_update_insider_holdings", lambda: calls.append(1))
+
+    _update_insider_holdings_db(realtime=False)
+
+    assert calls == [1]
+
+
+def test_update_insider_holdings_db_updates_when_no_existing_data(monkeypatch):
+    monkeypatch.setattr("screener.database.get_conn", lambda: _FakeConn(None))
+    calls = []
+    monkeypatch.setattr(main, "_update_insider_holdings", lambda: calls.append(1))
+
+    _update_insider_holdings_db(realtime=False)
+
+    assert calls == [1]
+
+
+def test_update_insider_holdings_db_appends_failure_to_warnings(monkeypatch):
+    monkeypatch.setattr("screener.database.get_conn", lambda: _FakeConn(None))
+
+    def _boom():
+        raise RuntimeError("董監持股炸了")
+
+    monkeypatch.setattr(main, "_update_insider_holdings", _boom)
+    warnings: list = []
+
+    _update_insider_holdings_db(realtime=False, warnings=warnings)
+
+    assert "董監持股更新失敗" in warnings

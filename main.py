@@ -434,6 +434,46 @@ def _update_fundamentals() -> None:
     )
 
 
+def _update_fundamentals_db(realtime: bool, warnings: list | None = None) -> None:
+    """官方月營收/季報：TWSE/TPEx bulk API(兩個交易所各一次官方彙總呼叫，不是逐股)，
+    成本低，收盤模式每天跑一次沒負擔，直接更新到「目前最新」，不需要額外的月度/
+    季度gate（2026-09-07比照集保大戶接進每日流程，同一批問題：忘記手動跑就永久缺口）。"""
+    if realtime:
+        return
+    try:
+        _update_fundamentals()
+    except Exception as exc:
+        logger.warning("官方基本面更新失敗: %s", exc)
+        if warnings is not None:
+            warnings.append("官方基本面（月營收/季報）更新失敗")
+
+
+def _update_insider_holdings_db(realtime: bool, warnings: list | None = None) -> None:
+    """董監持股：MOPS逐股查詢(1036支×1秒delay起跳，17分鐘以上，還容易被限流擋掉)，
+    但資料本身是月更——不像籌碼/集保那樣適合塞進每天的收盤流程（今天16:38已經實測過
+    收盤流程被電腦睡眠中斷一次，不該再加重這條路徑的負擔）。改成「這個月還沒抓過
+    才抓」：查DB裡insider_holdings目前最新report_date是不是已經是這個月，是的話
+    直接跳過，不夠新才觸發那個17分鐘起跳的逐股查詢。"""
+    if realtime:
+        return
+    try:
+        from screener.database import get_conn
+        con = get_conn()
+        latest = con.execute("SELECT MAX(report_date) FROM insider_holdings").fetchone()[0]
+        today = date.today()
+        if latest is not None and latest.year == today.year and latest.month == today.month:
+            logger.info("董監持股本月（%s）已有資料，跳過", today.strftime("%Y-%m"))
+            return
+    except Exception as exc:
+        logger.warning("董監持股月份檢查失敗，改直接嘗試更新: %s", exc)
+    try:
+        _update_insider_holdings()
+    except Exception as exc:
+        logger.warning("董監持股更新失敗: %s", exc)
+        if warnings is not None:
+            warnings.append("董監持股更新失敗")
+
+
 def _backfill_fundamentals(start_year: int = 2013) -> None:
     """從 MOPS 官方來源回填 IFRS 季報與上市／上櫃月營收歷史。"""
     from scrapers.mops_xbrl import backfill_mops_xbrl
@@ -755,6 +795,13 @@ def run(trade_date: date = None, realtime: bool = False, push: bool = True, summ
     # 6.2 集保大戶資料回補：跟籌碼三表一樣容易「忘記跑就永久缺口」，只在收盤模式跑
     # （盤中每15分鐘一次的節奏跑不起單週20-30分鐘的回補，見_update_shareholder_db()）。
     _update_shareholder_db(realtime, warnings=_run_warnings)
+
+    # 6.3 官方基本面（月營收/季報）：bulk API成本低，收盤模式每天跑一次。
+    _update_fundamentals_db(realtime, warnings=_run_warnings)
+
+    # 6.4 董監持股：逐股查詢成本高(17分鐘起跳)，資料本身月更，內部有「本月已有資料
+    # 就跳過」的gate，收盤模式呼叫是安全的。
+    _update_insider_holdings_db(realtime, warnings=_run_warnings)
 
     # 6.5 行情連續性體檢：daily_prices 缺交易日時，所有「近N日」指標都會跨過那些洞、
     # 算出偏大的漲跌幅（2026-08-28 金居 8358 顯示「5日 +100%」實為近一個月）。

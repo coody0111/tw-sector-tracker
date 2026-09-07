@@ -28,14 +28,18 @@ def test_is_trading_day_false_for_weekend():
 
 
 def test_is_market_hours_true_within_window():
+    """2026-09-07窗口拉長到15:00：13:30 TWSE正式收盤後到15:00收盤摘要之間，
+    盤中排程改成繼續輪詢當保險緩衝，不再是空窗期。"""
     assert is_market_hours(datetime(2026, 8, 26, 10, 30)) is True
     assert is_market_hours(datetime(2026, 8, 26, 9, 0)) is True
     assert is_market_hours(datetime(2026, 8, 26, 13, 30)) is True
+    assert is_market_hours(datetime(2026, 8, 26, 14, 0)) is True
+    assert is_market_hours(datetime(2026, 8, 26, 15, 0)) is True
 
 
 def test_is_market_hours_false_outside_window():
     assert is_market_hours(datetime(2026, 8, 26, 8, 59)) is False
-    assert is_market_hours(datetime(2026, 8, 26, 13, 31)) is False
+    assert is_market_hours(datetime(2026, 8, 26, 15, 1)) is False
     assert is_market_hours(datetime(2026, 8, 29, 10, 30)) is False  # 週六
 
 

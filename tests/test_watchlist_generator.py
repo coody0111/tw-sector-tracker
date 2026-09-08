@@ -67,6 +67,16 @@ def test_generate_escapes_stock_names_and_includes_watchlist_contract(tmp_path):
                 "parameter_status": "unverified-project-parameters",
             }
         },
+        market_context={
+            "weekly_structure": {
+                "state": "bullish",
+                "summary": "TAIEX 週線位於上升 10-week EMA 上方",
+                "close_vs_10w_ema_pct": 3.2,
+            },
+            "market_phase": "leading",
+            "market_action": "normal-research",
+            "as_of": "2026-09-04",
+        },
         output_path=str(output),
     )
     html = output.read_text(encoding="utf-8")
@@ -78,4 +88,9 @@ def test_generate_escapes_stock_names_and_includes_watchlist_contract(tmp_path):
     assert "reversal_state" in html
     assert "Pivotal Point" in html
     assert "action_state" in html
+    assert 'id="market-context"' in html
+    assert "MARKET_CONTEXT" in html
+    assert "normal-research" in html
+    assert "EMA Crossback 向上" in html
+    assert "EMA Crossback 向下警訊" in html
     assert "</script>" not in html.replace("</script></body></html>", "")

@@ -26,6 +26,7 @@ Replace the watchlist placeholders with conservative, inspectable weekly structu
 - Base/tight range: at most 12% over the comparison window.
 - Break confirmation volume: at least 1.5× the preceding 20-session average.
 - Defined-risk pivotal point: trigger-to-invalidation distance at most 8%.
+- EMA Crossback sequence lookback: 30 sessions; the latest bar must be the first retest after crossing both 10/20 EMA, with a 1% EMA-zone touch tolerance.
 
 Every generated result must identify these as project parameters, not Oliver's quoted numeric rules.
 
@@ -33,6 +34,7 @@ Every generated result must identify these as project parameters, not Oliver's q
 
 - `weekly_structure`: `bullish`, `bearish`, `correction`, `base`, `extended`, `transition`, or `unknown`.
 - `daily_cycle`: an explicit cycle label or `no-clear-cycle` / `unknown`.
+- `ema-crossback-bullish` requires prior downside extension, a later cross above both EMAs, and the first pullback into the EMA zone while closing above it. The bearish form mirrors this sequence after upside extension and a cross below both EMAs.
 - `extension_state`: `normal`, `risk`, or `extreme`, kept separate from reversal confirmation.
 - `reversal_state`: `none`, `watch`, `confirmed`, or `failed`; do not collapse clues and confirmations.
 - `pivotal_point`: `defined` only when both trigger and invalidation are present and ordered coherently; otherwise `none`.

@@ -6,6 +6,8 @@ from datetime import date
 from pathlib import Path
 from urllib.parse import quote as _q
 
+from export.ui_theme import SHARED_CSS
+
 _BULLISH = {"雙底", "頭肩底", "收斂三角", "上升三角", "下降楔型", "多頭拐點", "VCP突破"}
 _BEARISH = {"雙頂", "三角跌破"}
 _NEUTRAL = {"箱型整理"}
@@ -28,6 +30,21 @@ _WIN_RATE = {
     "雙底": ("D+10", "43%", "-1.1%"),
     "雙頂": ("D+10", "60%", "+4.3%"),  # 做空方向
 }
+
+
+def _gap_badge(r: dict) -> str:
+    """Render future gap-scanner data without changing the legacy score."""
+    direction = r.get("gap_direction")
+    gap_pct = r.get("gap_pct")
+    if not direction or gap_pct is None:
+        return ""
+    label = "向上跳空" if direction == "up" else "向下跳空"
+    volume = r.get("gap_volume_confirmed")
+    volume_text = "量能確認" if volume is True else ("量能不足" if volume is False else "")
+    fill = r.get("gap_close_fill") or r.get("gap_intraday_fill")
+    detail = " · " + fill if fill else ""
+    return (f"<span class='ui-event-badge' data-direction='{direction}' title='跳空幅度 {gap_pct:.2f}%'>"
+            f"{label} {gap_pct:.2f}%{(' · ' + volume_text) if volume_text else ''}{detail}</span>")
 
 
 def _sparkline_svg(closes: list, width: int = 64, height: int = 22) -> str:
@@ -165,21 +182,16 @@ def _stock_row(r: dict) -> str:
     )
     price = r.get("close_price", "")
     price_str = f"{price:.2f}" if isinstance(price, (int, float)) else ""
+    gap = _gap_badge(r)
     return (
-        f"<tr data-exchange='{exch}' data-search='{r['stock_id']} {r['stock_name']} {r['meta_sector']}'>"
-        f"<td style='color:#DADFE8;font-weight:700'>{r['stock_id']}{exch_badge}</td>"
-        f"<td style='color:#DADFE8'>{r['stock_name']}</td>"
-        f"<td style='color:#98A0B4;font-size:.72rem'>{r['meta_sector']}</td>"
-        f"<td style='color:#DADFE8'>{price_str}</td>"
-        f"<td>{_pct(r['change_pct'])}</td>"
-        f"<td style='color:#98A0B4'>{r['vol_ratio']:.1f}x</td>"
-        f"<td>{_composite_badge(comp)}</td>"
-        f"<td>{spark}</td>"
-        f"<td style='white-space:normal'>{_pattern_badges(r['patterns'])}</td>"
-        f"<td style='white-space:nowrap'>{_signal_info_cell(r)}</td>"
-        f"<td>{_holder_cell(lv_pct, sh_streak)}</td>"
-        f"<td>{_inst_label(r['inst_streak_foreign'], r['inst_streak_trust'])}</td>"
-        f"</tr>"
+        f"<article class='ui-compact-card pattern-card' data-exchange='{exch}' data-search='{r['stock_id']} {r['stock_name']} {r['meta_sector']}'>"
+        f"<div class='ui-card-head'><span class='ui-card-name'>{r['stock_name']}</span><span class='ui-card-id'>{r['stock_id']}{exch_badge}</span></div>"
+        f"<div class='ui-card-meta'>{r['meta_sector']} · 收盤 <strong>{price_str or '─'}</strong> {_pct(r['change_pct'])}</div>"
+        f"<div class='ui-card-stats'><span>量 {r['vol_ratio']:.1f}x</span>{_composite_badge(comp)} {spark}</div>"
+        f"<div class='ui-card-stats'><span>{_pattern_badges(r['patterns'])}</span>{gap}</div>"
+        f"<details class='pattern-detail'><summary>展開證據與交易計畫</summary>"
+        f"<div class='ui-card-detail'>訊號 {_signal_info_cell(r)} · 大戶 {_holder_cell(lv_pct, sh_streak)} · 法人 {_inst_label(r['inst_streak_foreign'], r['inst_streak_trust'])}</div>"
+        f"</details></article>"
     )
 
 
@@ -191,20 +203,15 @@ def _table_header() -> str:
 
 
 def _section(title: str, rows: list[dict], subtitle: str = "") -> str:
-    if not rows:
-        return ""
     sub = f"<p style='color:#37435C;font-size:.75rem;margin:2px 0 10px'>{subtitle}</p>" if subtitle else ""
-    body = "".join(_stock_row(r) for r in rows)
+    body = ("".join(_stock_row(r) for r in rows) if rows else
+            "<div class='ui-empty'><strong>目前沒有符合的標的</strong>資料不足或今日沒有命中訊號</div>")
     return (
         f"<section style='margin-bottom:32px'>"
         f"<h2 style='color:#98A0B4;font-size:.8rem;font-weight:600;letter-spacing:.1em;"
         f"text-transform:uppercase;margin:0 0 6px'>{title}</h2>"
         f"{sub}"
-        f"<div style='overflow-x:auto'>"
-        f"<table style='width:100%;min-width:760px;border-collapse:collapse'>"
-        f"{_table_header()}"
-        f"<tbody style='font-size:.8rem'>{body}</tbody>"
-        f"</table></div></section>"
+        f"<div class='ui-card-grid'>{body}</div></section>"
     )
 
 
@@ -338,7 +345,7 @@ _BACKTEST_NOTE = (
     "</div>"
 )
 
-_CSS = """
+_CSS = SHARED_CSS + """
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:#080B12;color:#DADFE8;font-family:system-ui,sans-serif;padding:12px 20px}
 a{color:#F0BB55}
@@ -366,6 +373,8 @@ tbody td{padding:5px 10px;border-bottom:1px solid #293346;vertical-align:middle;
 .pt td{padding:7px 10px;border-bottom:1px solid #080B12}
 .pt tr:last-child td{border-bottom:none}
 .pt tr:hover td{background:#161D2C}
+.pattern-card .pattern-detail summary{cursor:pointer;color:#98A0B4;font-size:.7rem}.pattern-card .pattern-detail[open] summary{color:#F0BB55}
+.pattern-overview{display:grid;gap:10px}.pattern-group{background:#0F1420;border:1px solid #293346;border-radius:6px;padding:12px 14px}.pattern-group>summary{cursor:pointer;list-style:none;color:#DADFE8;font-size:.78rem;font-weight:700;letter-spacing:.04em}.pattern-group>summary::-webkit-details-marker{display:none}.pattern-group>summary::before{content:'＋';display:inline-block;width:18px;color:#F0BB55}.pattern-group[open]>summary{margin-bottom:12px}.pattern-group[open]>summary::before{content:'−'}.pattern-group .ui-card-grid{margin-top:0}
 @media(max-width:540px){body{padding:10px}.tab-btn{padding:8px 10px;font-size:.72rem}}
 """
 
@@ -378,7 +387,7 @@ function switchTab(id){
   document.getElementById(id).classList.add('active');
   history.replaceState(null,'','#'+id);
 }
-const _tabs=['tab-screener','tab-patterns','tab-meta','tab-avoid'];
+const _tabs=['tab-overview','tab-screener','tab-patterns','tab-meta','tab-avoid'];
 const _h=location.hash.slice(1);
 switchTab(_tabs.includes(_h)?_h:'tab-screener');
 let _exch='';
@@ -389,10 +398,10 @@ function applyFilters(btn){
     _exch=btn.dataset.exch;
   }
   const q=(document.getElementById('s-search').value||'').trim().toLowerCase();
-  document.querySelectorAll('tbody tr[data-exchange]').forEach(tr=>{
-    const exchOk=!_exch||tr.dataset.exchange===_exch;
-    const srchOk=!q||(tr.dataset.search||'').toLowerCase().includes(q);
-    tr.style.display=(exchOk&&srchOk)?'':'none';
+  document.querySelectorAll('[data-exchange][data-search]').forEach(row=>{
+    const exchOk=!_exch||row.dataset.exchange===_exch;
+    const srchOk=!q||(row.dataset.search||'').toLowerCase().includes(q);
+    row.style.display=(exchOk&&srchOk)?'':'none';
   });
 }
 </script>
@@ -422,6 +431,14 @@ def generate(trade_date: date, results: list[dict], output_path: str) -> None:
     s_vcp  = [r for r in bullish if "VCP突破"   in r["patterns"] and r["score"] >= 2]
     s_avoid = [r for r in bearish if r["score"] <= -2]
     s_box  = sorted(neutral, key=lambda x: abs(x["score"]), reverse=True)
+    gap_count = sum(1 for r in results if r.get("gap_direction") and r.get("gap_pct") is not None)
+    summary = (
+        "<div class='ui-page-summary' aria-label='形態掃描摘要'>"
+        f"<div class='ui-summary-item'><span class='ui-summary-label'>訊號總量</span><span class='ui-summary-value'>{len(results)}</span><span class='ui-summary-note'>今日掃描結果</span></div>"
+        f"<div class='ui-summary-item'><span class='ui-summary-label'>偏多／偏空</span><span class='ui-summary-value'>{len(bullish)} / {len(bearish)}</span><span class='ui-summary-note'>方向分類</span></div>"
+        f"<div class='ui-summary-item'><span class='ui-summary-label'>跳空事件</span><span class='ui-summary-value'>{gap_count}</span><span class='ui-summary-note'>接入資料後顯示</span></div>"
+        "</div>"
+    )
 
     # Tab panels
     tab1 = _section("做多候選 Screener", screener,
@@ -443,6 +460,15 @@ def generate(trade_date: date, results: list[dict], output_path: str) -> None:
         "<div style='height:16px'></div>",
         _BACKTEST_NOTE,
     ])
+    meta_overview = tab3 or "<div class='ui-empty'>目前沒有族群型態命中資料</div>"
+    overview = (
+        "<div class='pattern-overview' aria-label='型態研究總覽'>"
+        f"<details class='pattern-group' open><summary>值得研究 · 即日證據優先</summary>{tab1}</details>"
+        f"<details class='pattern-group' open><summary>型態分區 · 結構型態與事件 badge</summary>{tab2}</details>"
+        f"<details class='pattern-group'><summary>META 熱區 · 族群命中分布</summary>{meta_overview}</details>"
+        f"<details class='pattern-group'><summary>避開／觀察 · 方向相反或尚未突破</summary>{tab4}</details>"
+        "</div>"
+    )
 
     html = f"""<!DOCTYPE html>
 <html lang="zh-Hant">
@@ -474,11 +500,17 @@ def generate(trade_date: date, results: list[dict], output_path: str) -> None:
   <button class="exch-btn" data-exch="TPEx" onclick="applyFilters(this)">上櫃</button>
   <input id="s-search" class="s-search" type="text" placeholder="搜尋股號 / 名稱 / 族群…" oninput="applyFilters()">
 </div>
+{summary}
 <div class="tab-bar">
+  <button class="tab-btn" data-tab="tab-overview" onclick="switchTab('tab-overview')">研究總覽</button>
   <button class="tab-btn" data-tab="tab-screener" onclick="switchTab('tab-screener')">做多候選</button>
   <button class="tab-btn" data-tab="tab-patterns" onclick="switchTab('tab-patterns')">形態分區</button>
   <button class="tab-btn" data-tab="tab-meta"     onclick="switchTab('tab-meta')">META 熱區</button>
   <button class="tab-btn" data-tab="tab-avoid"    onclick="switchTab('tab-avoid')">避開 / 觀察</button>
+</div>
+
+<div class="tab-panel" id="tab-overview">
+  {overview}
 </div>
 
 <div class="tab-panel" id="tab-screener">

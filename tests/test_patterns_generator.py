@@ -1,6 +1,6 @@
 # tests/test_patterns_generator.py
 from datetime import date
-from export.patterns_generator import generate
+from export.patterns_generator import _gap_badge, generate
 
 _SAMPLE = [
     {
@@ -48,3 +48,15 @@ def test_generate_screener_only_shows_bullish(tmp_path):
     # Screener tab div should contain 台積電 (bullish, score 6)
     screener_section = html.split('id="tab-screener"')[1].split('id="tab-patterns"')[0]
     assert "2330" in screener_section
+
+
+def test_gap_badge_renders_percent_volume_and_fill_state():
+    html = _gap_badge({
+        "gap_direction": "up",
+        "gap_pct": 3.25,
+        "gap_volume_confirmed": True,
+        "gap_intraday_fill": "盤中未回補",
+    })
+    assert "向上跳空 3.25%" in html
+    assert "量能確認" in html
+    assert "盤中未回補" in html

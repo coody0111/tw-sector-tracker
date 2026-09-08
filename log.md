@@ -685,6 +685,14 @@ scrapers（twse / tpex / moneydj / finmind / chips）
 - 新增自選股 generator 測試，並更新 index generator 契約測試確認按鈕、localStorage key 與導覽連結存在。
 - 驗證：`pytest -q tests/test_index_generator.py tests/test_watchlist_generator.py --basetemp .pytest-basetemp-watchlist`，104 passed；`py_compile` 與 `git diff --check` 通過。
 - 尚未以真實資料重產 `docs/*.html`，也尚未實作 Oliver 的實際週線 Market Structure／日線 Price Cycle 判斷；本輪只建立可承接這些判斷的 watchlist 介面。
+
+## 2026-09-04：Oliver 週線／日線結構分析（開工）
+
+- 需求來源：使用者在自選股 MVP 後要求繼續實作 Oliver Kell 分析。
+- 開發依據：`docs/superpowers/specs/2026-09-04-oliver-structure-analysis-design.md`。
+- 公開測試 seam：單股 point-in-time OHLCV → 完整分析 record；全市場 DB adapter → stock id map；watchlist generator → 安全呈現。
+- 來源概念與專案參數分離：10-week EMA、週線優先、daily price cycle、Pivotal Point 與風險語意來自講義框架；8%／15% extension、12% base、1.5× volume、8% defined-risk 均是待回測的專案參數。
+- 初步風險：目前 index sparkline 只有 11 日，不足週線判讀；本功能另讀約 90 個交易日，不改大頁面既有 payload。資料不足時必須輸出 unknown，不以短樣本硬猜。
 ## 2026-09-01 Index 第二輪視覺與個股 K 線調整（開工）
 
 - 需求來源：Cody 檢視 `python main.py` 產生並發布的新版 Index 後提出五項修正。
@@ -711,3 +719,48 @@ scrapers（twse / tpex / moneydj / finmind / chips）
 - 測試契約已更新固定色階、ISO 日期、資訊順序、drawer 尺寸、CDN 鎖版、量價 series 與清理生命週期。
 - 靜態驗證通過：以暫存 pycache 執行 7 個異動 Python 檔 `py_compile`，`git diff --check` 無錯誤。
 - 依 repo 規則未跑 pytest、`main.py`、真實資料或重產／發布 `docs/*.html`；Debugger 清單已追加至 `debug-tasks.md`。
+@@
+# 2026-09-04：跨頁視覺系統拓展（開工）
+
+- 需求來源：使用者核准 grilling 訪談結論，將 index 視覺延伸至 chips、形態與逆轟頁。
+- 開發依據：`docs/superpowers/specs/2026-09-04-cross-page-visual-system-design.md`。
+- 預計範圍：共用 CSS／topbar／nav／card／badge／展開互動；chips 資金流向卡片；patterns compact card 與跳空 UI；momentum 頁面層級統一。
+- 明確保留：既有資料邏輯、逆轟權限與市場環境 banner、chips 證據分級、index 產物由 generator 生成。
+- 主要風險：三頁目前 generator 的 CSS 與 DOM 差異大；需避免抽共用樣式時破壞既有 tab、deep link、篩選與手機版行為。
+- 驗證計畫：先執行聚焦 generator／pattern 測試，再做 `py_compile`、`git diff --check`，最後重產 HTML 並檢查桌面／手機版。
+
+## 2026-09-04：跨頁視覺系統拓展（第一輪實作）
+
+- 新增 `export/ui_theme.py`，集中跨頁 token、summary、event badge、empty state 與 compact card 樣式。
+- `patterns_generator.py` 的主要個股清單改為 compact card，保留搜尋／交易所篩選，展開後顯示訊號、交易計畫、大戶與法人證據。
+- patterns compact card 預留 `gap_direction`、`gap_pct`、`gap_volume_confirmed`、`gap_intraday_fill`、`gap_close_fill`，可接後續跳空 scanner；目前不改既有 scanner 輸出。
+- chips／momentum generator 載入同一套視覺 token，保留既有資料區塊與互動契約，先統一外觀層級。
+
+### 驗證
+
+- `python -m py_compile export/ui_theme.py export/patterns_generator.py export/chips_generator.py export/momentum_generator.py`：通過。
+- `git diff --check`：通過。
+- 新增跳空 badge 契約測試，涵蓋方向、百分比、量能確認與回補狀態。
+- 第二輪補上三頁頁首摘要與 patterns 空狀態；摘要只讀既有輸入資料，不新增資料判斷。
+- 第三輪新增 patterns「研究總覽」預設面板，四個研究分組同頁可收合；保留舊 tabs 供深度瀏覽與 deep link 相容。
+- 修正總覽面板 META 空狀態 fallback 的 f-string 引號問題；重新 `py_compile` 與 `git diff --check` 均通過。
+- `pytest` 聚焦測試的測試執行遭 workspace 既有 pytest basetemp 權限阻擋；錯誤發生在 `tmp_path` fixture／session cleanup，非 assertion 失敗。已保留未驗證項目，未刪除任何既有暫存目錄。
+
+## 2026-09-07：Oliver 大盤週線 Market Context（開工）
+
+- 需求來源：使用者確認繼續實作上一輪列出的剩餘項目，優先做大盤週線 Market Structure。
+- 開發依據：`docs/superpowers/specs/2026-09-07-oliver-market-context-design.md`。
+- 測試 seam：官方 FMTQIK 多月資料合併、TAIEX close history → point-in-time market context、market context → 個股 action gate、watchlist 呈現。
+- 現況：既有 `classify_market_regime()` 只有單日 TAIEX 漲跌與當日廣度，不等於 Oliver 週線 context；FMTQIK 未保存歷史，本輪先抓四個月份並 fail-soft，不混用電子股 universe 等權資料冒充 TAIEX。
+- 平行工作保護：worktree 仍有跨頁視覺系統未提交變更，本輪不修改／不 stage `ui_theme.py`、chips、momentum、patterns 相關檔案。
+
+## 2026-09-04：Oliver 週線／日線結構分析（完成）
+
+- 新增 `processors/oliver_structure.py`：point-in-time 清洗、10-week EMA 週線結構、10/20 EMA 日線週期、extension normal/risk/extreme、reversal watch/confirmed/failed、Pivotal Point、risk/action state。
+- 週線是 higher-timeframe gate：日線反轉確認若週線仍 bearish，action 仍為 `reduce-risk`；bearish 訊號只代表惡化／降風險警訊，不自動做空。
+- `calc_oliver_market_structure()` 一次讀取最近 90 個交易日並 fail-soft 回傳全 universe map；`main.py` 以 `trade_date` 作為 `as_of` 傳入 watchlist generator。
+- watchlist 卡片顯示 Weekly、Daily、Extension/Reversal、Pivotal Point、Risk/Action、證據與不確定性；移除 inline localStorage id handler，改用安全的 `data-*` event binding。
+- 測試：`tests/test_oliver_structure.py`、watchlist、index、main 相關回歸共 129 passed；AST parse 與 `git diff --check` 通過。
+- 真實資料 smoke check：2026-09-04 共 1,036 檔，僅 1 檔 unknown；週線 extended 57、base 147、bullish 285、bearish 511、transition 15、correction 20；action reduce-risk 604、watch 425、research 6、unknown 1。
+- 真實預覽先在暫存路徑成功生成（約 1.13 MB）後移除；正式 `docs/watchlist.html` 初次受權限限制，取得正式檔案寫入權限後已用 2026-09-04 的 1,036 檔資料成功重產。
+- 所有 2%／0.5%／8%／12%／15%／1.5× 門檻均標記為未驗證專案參數；仍需 historical replay、out-of-sample 與人工 chart audit，不能宣稱具有 edge。

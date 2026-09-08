@@ -12,6 +12,16 @@ $ErrorActionPreference = "Stop"
 
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $PythonPath = (Get-Command python).Source
+# 2026-09-08：改用同資料夾的 pythonw.exe（無主控台視窗版本）取代 python.exe，
+# 排程每15分鐘觸發一次、6小時內共24次，用一般python.exe每次都會跳出一個終端機
+# 視窗，非常擾人（Cody反映過）。這兩支排程模式(intraday/close)全程只用logging
+# 寫檔(logs/scheduler.log)，沒有print()到stdout（test-notify那個互動用的例外，
+# 但那支是Cody自己在終端機手動打指令執行，不受這裡影響），改pythonw.exe安全。
+$PythonwPath = Join-Path (Split-Path -Parent $PythonPath) "pythonw.exe"
+if (-not (Test-Path $PythonwPath)) {
+    Write-Warning "找不到 $PythonwPath，退回用 python.exe（排程觸發時會跳出終端機視窗）"
+    $PythonwPath = $PythonPath
+}
 $RunnerPath = Join-Path $ProjectRoot "scripts\run_scheduled.py"
 
 if (-not (Test-Path $RunnerPath)) {
@@ -20,7 +30,7 @@ if (-not (Test-Path $RunnerPath)) {
 }
 
 # ── 盤中監控 ──────────────────────────────────────────────
-$IntradayAction = New-ScheduledTaskAction -Execute $PythonPath `
+$IntradayAction = New-ScheduledTaskAction -Execute $PythonwPath `
     -Argument "`"$RunnerPath`" intraday" -WorkingDirectory $ProjectRoot
 
 # New-ScheduledTaskTrigger -Once + -Repetition* 只會在建立當天重複觸發，之後永遠不再
@@ -48,7 +58,7 @@ Register-ScheduledTask -TaskName "TW-Sector-Intraday" `
 Write-Host "已建立 TW-Sector-Intraday"
 
 # ── 收盤更新 ──────────────────────────────────────────────
-$CloseAction = New-ScheduledTaskAction -Execute $PythonPath `
+$CloseAction = New-ScheduledTaskAction -Execute $PythonwPath `
     -Argument "`"$RunnerPath`" close" -WorkingDirectory $ProjectRoot
 
 $CloseTrigger = New-ScheduledTaskTrigger -Weekly `

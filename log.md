@@ -764,3 +764,69 @@ scrapers（twse / tpex / moneydj / finmind / chips）
 - 真實資料 smoke check：2026-09-04 共 1,036 檔，僅 1 檔 unknown；週線 extended 57、base 147、bullish 285、bearish 511、transition 15、correction 20；action reduce-risk 604、watch 425、research 6、unknown 1。
 - 真實預覽先在暫存路徑成功生成（約 1.13 MB）後移除；正式 `docs/watchlist.html` 初次受權限限制，取得正式檔案寫入權限後已用 2026-09-04 的 1,036 檔資料成功重產。
 - 所有 2%／0.5%／8%／12%／15%／1.5× 門檻均標記為未驗證專案參數；仍需 historical replay、out-of-sample 與人工 chart audit，不能宣稱具有 edge。
+
+---
+
+## 2026-09-02～09-08：3個真實bug修復 + 籌碼/集保/基本面每日自動化 + Telegram排程上線
+
+大範圍收尾工作，橫跨這一週的多次 session，commit `37c7d52`→`2e26b89`。
+
+### 修復 Debugger 驗證抓到的 3 個真實 bug（都是拿真實資料/真實伺服器測出來的，不是靜態解析猜的）
+- **EPS/稀釋EPS 2013Q1系統性遺失**：`scrapers/mops_xbrl.py::_normalize_canonical_value()` 的
+  eps分支原本要求unit字串同時含"twd"和"share"，早期申報常用純TWD當unitRef，值是對的只是
+  單位標示不規範就被整批濾成None（實測300/300案例全中）。改成只要求含"twd"。
+- **月營收Big5解碼在真實2025年資料會炸**：`content.decode("big5")`遇到股票代號2353公司名的
+  Big5擴充字元直接UnicodeDecodeError，導致整月資料抓不到。改用`cp950`。連帶發現並修復
+  一個被前者擋住、這次才第一次真的跑到才暴露的獨立bug：表頭偵測`len(texts)>=11 and
+  texts[0]=="公司代號"`在真實頁面上（表頭只有10格、文字是「公司 代號」多一格空白）永遠
+  對不上，改成只看去空白後的第一格文字。
+- **Index搜尋下拉選單XSS屬性注入**：`searchStocks()`的`onmousedown`屬性只轉義單引號，沒轉義
+  雙引號/角括號，惡意族群名稱能跳脫屬性注入任意HTML事件。新增`escAttr()`+`data-*`屬性取代
+  inline字串拼接，比照heat-tile既有安全寫法。
+
+### 籌碼/集保/基本面資料每日自動化（根因：以前都要Cody手動記得跑，忘記就永久缺口）
+- **`backfill_chips(days=14)`**（`scrapers/backfill.py`）取代`backfill_institutional()`/
+  `backfill_margin()`：單一迴圈跑過去N個交易日，三大法人/融資融券/外資持股%(TWSE)三個
+  來源各自獨立判斷缺不缺、只補真的缺的（同一天可能只有其中幾個來源缺資料，實測發現過）。
+  `_update_chips_db()`開頭直接呼叫，每次`python main.py`都會自動補洞，不特判星期幾。
+- **`_update_shareholder_db()`**：集保大戶`_backfill_shareholder(weeks=4)`接進收盤模式
+  （只在`not realtime`跑，盤中15分鐘節奏跑不起單週20-30分鐘的TDCC回補）。
+- **`_update_fundamentals_db()`**：官方月營收/季報bulk API成本低，收盤模式每天跑。
+- **`_update_insider_holdings_db()`**：董監持股逐股查詢成本高（17分鐘起跳），內部有「本月
+  已有資料就跳過」的gate，避免每天觸發昂貴查詢。
+- CLI從`--backfill-institutional`/`--backfill-margin`兩個指令整合成一個`--backfill-chips DAYS`。
+
+### chips.html 新功能：本週大戶增減摘要
+- `_build_holder_weekly_summary()`：純依本週實際變動幅度(week_chg)排序增加/減少Top10各10支，
+  常駐在「大戶籌碼」tab頂部，跟Section8既有的連增/連減倉排行（先比連續週數）是不同排序邏輯。
+- TDD過程中抓到真實bug：原本對全體排序取頭尾10筆，若本週實際上升不到10支會把「其實在下降、
+  只是降幅最小」的股票誤標成增加最多——改成先依正負號分組再各自排序。用正式DB兩批不同週
+  資料（08-28、09-04）都交叉驗證過輸出跟獨立pandas查詢完全一致。
+
+### Telegram 排程從頭跑通上線
+- `.env`補齊`TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID`/`SITE_URL`；修`notifications/telegram.py`
+  的`load_dotenv()`改用專案根目錄絕對路徑，不再受執行時cwd影響（原本沒cd進專案目錄就會
+  安靜地讀不到設定，跟log裡「未設定」的錯誤一致）。
+- `scripts/install_scheduler.ps1`建立`TW-Sector-Intraday`（盤中09:00起每15分鐘）／
+  `TW-Sector-DailyClose`（收盤15:00）兩個Windows排程工作，手機測試收得到通知。
+- **實測抓到排程會被電腦睡眠中斷**：13:17盤中正常跑完，之後電腦睡眠超過3小時，16:38
+  Windows補跑收盤時執行到一半被中止（進程終止碼3221225786），沒有HTML更新/push/通知。
+  修法：兩個工作都加`-WakeToRun`（時間到自動喚醒睡眠中的電腦）；盤中監控重複時長從
+  4h45m(09:00-13:45)拉長到6h(09:00-15:00)，`run_scheduled.py::is_market_hours()`同步
+  拉長視窗，13:30 TWSE正式收盤後到15:00收盤摘要前不再是空窗期。
+- **排程改用`pythonw.exe`**取代`python.exe`：每15分鐘觸發一次會跳出一個終端機視窗，
+  intraday/close這兩支模式全程只用logging寫檔沒有print到stdout，改用無視窗版本安全。
+
+### 其他
+- `docs/superpowers/`清理：刪除3份已放棄/被取代的spec+plan（React前端重寫、逆轟策略頁v1）、
+  27個被後續Wave1/2重設計繞過的舊`index-v1`~`v27` mockup。
+- `NEXT.md`（自稱「單一最新的接下來做什麼」但停在07-14嚴重過期）整份刪除，待辦追蹤統一
+  用`debug-tasks.md`（append-only，從最下面找）。
+- Index頁：個股列表自選按鈕移到股號左邊；K線從11天拉長到60天（配合之後想加MA50）；
+  族群抽屜從`min(1180px,80vw)`拓寬到`min(1400px,92vw)`，避免14欄橫向捲動。
+- `CLAUDE-developer.md`新增「📊 定期確認資料是否正常」章節：一段可複製貼上的DuckDB查詢列出
+  7個資料源最新日期、各資料源更新頻率對照表、判斷「缺很久該懷疑排程壞了」的基準、交叉驗證
+  數據正確性的具體方法。
+- 過程中兩度撞到`main.py`自動push的`git pull --rebase`衝突（都是generated `docs/*.html`
+  或「同內容已在origin、重放舊commit對不上context」這種模式，不是真的邏輯打架），照既有
+  慣例解掉：generated檔案取origin較新版本、內容重複的commit確認一致後保留HEAD版本。

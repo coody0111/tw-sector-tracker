@@ -1645,6 +1645,11 @@ def test_generate_renders_lazy_lightweight_chart_with_project_ohlc_data(tmp_path
     assert "mountStockChart(s);" in html
     assert "function buildCandlestick" not in html
     assert "圖表技術由 TradingView 提供" in html
+    # 回歸（2026-09-17）：opens/highs/lows/closes 某天缺OHLC只有收盤價時是null，
+    # Number(null)===0 且 Number.isFinite(0)===true，直接Number()轉型會把缺值誤判成
+    # 0元的假K棒。toPrice()要先把null/undefined轉NaN，isFinite才濾得掉。
+    assert "const toPrice = v => (v === null || v === undefined) ? NaN : Number(v);" in html
+    assert "open: toPrice(s.opens[index])" in html
 
 
 def test_generate_cleans_up_stock_chart_and_resize_observer_on_close(tmp_path):

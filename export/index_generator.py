@@ -1895,14 +1895,19 @@ async function mountStockChart(s) {{
   const status = document.getElementById('stockTvChartStatus');
   if (!container || !status) return;
 
+  // opens/highs/lows/closes 某天可能是 null（該檔那天官方OHLC沒抓到，只有收盤價），
+  // 但 Number(null)===0 而 Number.isFinite(0)===true——直接 Number() 轉型會讓「缺值」
+  // 變成一根 open/high/low 都是0元的假K棒，把整張圖的價格軸壓爆。要先把 null/undefined
+  // 轉成 NaN 才能讓 isFinite 正確濾掉這天。
+  const toPrice = v => (v === null || v === undefined) ? NaN : Number(v);
   const times = s.iso_dates || [];
   const points = times.map((time, index) => ({{
     time,
     index,
-    open: Number(s.opens[index]),
-    high: Number(s.highs[index]),
-    low: Number(s.lows[index]),
-    close: Number(s.closes[index]),
+    open: toPrice(s.opens[index]),
+    high: toPrice(s.highs[index]),
+    low: toPrice(s.lows[index]),
+    close: toPrice(s.closes[index]),
   }})).filter(point => point.time && Number.isFinite(point.open) && Number.isFinite(point.high)
     && Number.isFinite(point.low) && Number.isFinite(point.close));
 

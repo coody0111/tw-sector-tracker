@@ -166,7 +166,11 @@ def find_rank_crossings(rank_history: Dict[str, Dict[str, Any]]) -> Dict[str, Li
     資料(例如舊格式rank_history)時視為不通過閘門，不列入任一份清單。
 
     rank_history: calc_meta_rank_history()的輸出。weekly_ranks長度<2(沒有『上週』可比較)
-    的族群不參與判定。
+    的族群不參與判定。weekly_ranks裡的單一週次也可能是None(該meta那週5日窗口內有交易日
+    資料不完整，calc_meta_rank_history()當週排名算不出來)——prev_rank/cur_rank任一為None
+    時視為不通過(資料不足，不列入任一份清單)，跟上面「沒有weekly_returns資料」的處理原則
+    一致(2026-09-17 production crash: 'AI'相關族群本週排名為None，這裡少了防呆直接
+    None<=10 炸掉，見bug-reports.md)。
 
     Returns
     -------
@@ -182,6 +186,8 @@ def find_rank_crossings(rank_history: Dict[str, Dict[str, Any]]) -> Dict[str, Li
         if len(ranks) < 2:
             continue
         prev_rank, cur_rank = ranks[-2], ranks[-1]
+        if prev_rank is None or cur_rank is None:
+            continue
         cur_return = returns[-1] if returns else None
         prev_in = prev_rank <= 10
         cur_in = cur_rank <= 10

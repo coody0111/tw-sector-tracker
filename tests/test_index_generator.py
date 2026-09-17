@@ -157,6 +157,26 @@ def test_find_rank_crossings_skips_when_fewer_than_two_weeks_of_data():
     assert result["just_out"] == []
 
 
+def test_find_rank_crossings_skips_when_rank_is_none():
+    """回歸（2026-09-17 production crash）：weekly_ranks裡的某一週可能是None
+    (calc_meta_rank_history()那個meta當週5日窗口資料不完整算不出排名)，
+    不能直接 None<=10 炸掉——比照「沒有weekly_returns」的處理原則，None就跳過
+    不列入任一份清單。"""
+    rank_history = {
+        "本週算不出排名": {"weekly_ranks": [14, None], "weekly_returns": [0.5, 0.3],
+                          "in_top10_this_week": False,
+                          "consecutive_weeks_in_top10": 0, "last_top10_week_index": None, "last_top10_rank": None},
+        "上週算不出排名": {"weekly_ranks": [None, 3], "weekly_returns": [None, 1.0],
+                          "in_top10_this_week": True,
+                          "consecutive_weeks_in_top10": 1, "last_top10_week_index": None, "last_top10_rank": None},
+    }
+
+    result = find_rank_crossings(rank_history)
+
+    assert result["just_in"] == []
+    assert result["just_out"] == []
+
+
 def test_find_rank_crossings_sorts_by_magnitude_of_change():
     """剛進榜/剛掉出榜清單依變動幅度排序，變動最大的排最前面。"""
     rank_history = {

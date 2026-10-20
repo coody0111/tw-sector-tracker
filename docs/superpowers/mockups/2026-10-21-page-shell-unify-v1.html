@@ -1,0 +1,218 @@
+<title>頁面骨架統一對照</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;600;700;800&family=Noto+Sans+TC:wght@400;500;700&display=swap">
+<style>
+/* Layout: spec sheet on top, then one row per page — "現在" frame beside "統一後" frame. Single dark theme, same palette as the live site. */
+:root{
+  color-scheme:dark;
+  --bg:#080B12;--panel:#0F1420;--panel-2:#161D2C;--border:#293346;--border-strong:#37435C;
+  --ink:#DADFE8;--ink-2:#98A0B4;--ink-3:#636B80;--up:#E6432F;--down:#37B25C;--accent:#F0BB55;
+  --sans:"Public Sans","Noto Sans TC",-apple-system,"PingFang TC","Microsoft JhengHei","Segoe UI",sans-serif;
+  --sys:system-ui,sans-serif;
+  --mono:ui-monospace,"Cascadia Mono",Consolas,monospace;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.55;padding-inline:24px;padding-block:28px 80px}
+.doc{max-width:1500px;margin:0 auto;display:grid;gap:36px}
+.doc-head h1{margin:0 0 6px;font-size:1.5rem;font-weight:800;text-wrap:balance}
+.doc-head p{margin:0;color:var(--ink-2);max-width:68ch}
+.eyebrow{color:var(--accent);font-size:.7rem;font-weight:700;letter-spacing:.08em}
+
+.spec-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:6px}
+.spec{width:100%;border-collapse:collapse;font-size:.82rem;min-width:820px}
+.spec th,.spec td{padding:9px 12px;border-bottom:1px solid var(--border);text-align:left;vertical-align:top}
+.spec thead th{background:var(--panel);color:var(--ink-3);font-size:.7rem;letter-spacing:.06em;font-weight:700}
+.spec td.new{color:var(--ink);background:rgba(240,187,85,.06)}
+.spec td.old{color:var(--ink-2)}
+.spec tbody tr:last-child td{border-bottom:0}
+.spec code{font-family:var(--mono);font-size:.76rem;color:var(--accent)}
+
+.page-row{display:grid;gap:10px}
+.page-row h2{margin:0;font-size:1.05rem;font-weight:700}
+.page-row .why{margin:0;color:var(--ink-2);font-size:.82rem;max-width:80ch}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:1000px){.pair{grid-template-columns:1fr}}
+.frame{border:1px solid var(--border);border-radius:6px;overflow:hidden;background:var(--bg)}
+.frame-label{display:flex;justify-content:space-between;padding:6px 10px;background:var(--panel-2);font-size:.7rem;font-weight:700;letter-spacing:.06em;color:var(--ink-3);border-bottom:1px solid var(--border)}
+.frame-label.after{color:var(--accent)}
+.viewport{height:330px;overflow:hidden;position:relative}
+
+/* ---------- mini-page shared bits ---------- */
+.nav{display:flex;gap:6px;white-space:nowrap}
+.nav a{padding:3px 9px;border:1px solid var(--border);border-radius:5px;color:var(--ink-2);font-size:.72rem;text-decoration:none}
+.nav a.on{color:var(--accent);border-color:rgba(240,187,85,.5);background:rgba(240,187,85,.08)}
+.sum{display:flex;gap:8px;flex-wrap:wrap}
+.sum div{min-width:110px;padding:8px 11px;background:var(--panel);border:1px solid var(--border);border-radius:6px}
+.sum small{display:block;color:var(--ink-3);font-size:.6rem;letter-spacing:.06em}
+.sum b{display:block;font-size:.95rem;font-variant-numeric:tabular-nums}
+.rows{display:grid;gap:5px}
+.rows div{height:26px;background:var(--panel);border:1px solid var(--border);border-radius:4px}
+
+/* ---------- BEFORE: momentum ---------- */
+.b-mom{font-family:var(--sans);font-size:14px}
+.b-mom .top{display:flex;align-items:baseline;gap:16px;padding:18px 24px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+.b-mom .top h3{margin:0;font-size:1.2rem;font-weight:700}
+.b-mom .top .sub{font-size:.72rem;color:var(--ink-3)}
+.b-mom .top .nav{margin-left:auto}
+.b-mom .notice{margin:16px 24px;padding:10px 16px;border:1px solid var(--border);border-radius:8px;color:var(--ink-2);font-size:.8rem}
+.b-mom .body{padding:0 24px;display:grid;gap:14px}
+.b-mom h4{margin:6px 0 0;font-size:1rem}
+
+/* ---------- BEFORE: chips ---------- */
+.b-chips{font-family:var(--sys);font-size:14px}
+.b-chips .top{display:flex;align-items:center;gap:28px;min-height:64px;padding:0 24px;border-bottom:1px solid var(--border);background:rgba(8,11,18,.92)}
+.b-chips .brand{display:flex;align-items:baseline;gap:12px}
+.b-chips .brand h3{margin:0;font-size:1rem;font-weight:760}
+.b-chips .brand span{color:var(--accent);font-size:.8rem;font-weight:700}
+.b-chips .status{margin-left:auto;font-size:.7rem;color:var(--ink-3)}
+.b-chips .status b{color:var(--ink);font-size:.8rem}
+.b-chips .ws{display:grid;grid-template-columns:150px 1fr}
+.b-chips aside{border-right:1px solid var(--border);padding:14px;display:grid;gap:6px;align-content:start}
+.b-chips aside div{height:22px;border-radius:4px;background:var(--panel)}
+.b-chips aside div:first-child{background:rgba(240,187,85,.14)}
+.b-chips main{padding:18px 22px;display:grid;gap:12px}
+.b-chips h4{margin:0;font-size:.92rem}
+
+/* ---------- BEFORE: patterns ---------- */
+.b-pat{font-family:var(--sys);font-size:14px;padding:12px 20px}
+.b-pat .head{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap}
+.b-pat .title{color:var(--ink-2);font-size:1rem;font-weight:600}
+.b-pat .title span{color:var(--border-strong);font-size:.78rem;font-weight:400;margin-left:8px}
+.b-pat .head .nav{margin-left:auto}
+.b-pat .filter{display:flex;gap:6px;margin-top:14px}
+.b-pat .filter i{padding:3px 10px;border:1px solid var(--border);border-radius:5px;font-style:normal;font-size:.72rem;color:var(--ink-2)}
+.b-pat .sum{margin:14px 0}
+.b-pat .tabs{display:flex;gap:2px;border-bottom:1px solid var(--border)}
+.b-pat .tabs i{padding:6px 12px;font-style:normal;font-size:.76rem;color:var(--ink-2)}
+.b-pat .tabs i:first-child{color:var(--accent);border-bottom:2px solid var(--accent)}
+
+/* ---------- AFTER: unified shell (the proposed SHARED shell) ---------- */
+.u{font-family:var(--sans);font-size:14px}
+.u .top{display:flex;align-items:center;gap:14px 20px;min-height:56px;padding:0 24px;border-bottom:1px solid var(--border);background:rgba(8,11,18,.92);flex-wrap:wrap}
+.u .top h3{margin:0;font-size:1.125rem;font-weight:740}
+.u .date{font-size:.7rem;color:var(--ink-3);font-variant-numeric:tabular-nums}
+.u .date b{color:var(--ink-2);font-weight:600}
+.u .top .nav{margin-left:auto}
+.u .main{padding:20px 24px 0;display:grid;gap:18px}
+.u .sec{display:grid;gap:8px}
+.u .sec h4{margin:0;font-size:1rem;font-weight:700}
+.u .sec p{margin:0;color:var(--ink-3);font-size:.76rem}
+.u .notice{padding:9px 14px;border:1px solid var(--border);border-radius:6px;color:var(--ink-2);font-size:.78rem}
+.u .ws{display:grid;grid-template-columns:150px 1fr}
+.u .ws aside{border-right:1px solid var(--border);padding:16px 14px;display:grid;gap:6px;align-content:start}
+.u .ws aside div{height:22px;border-radius:4px;background:var(--panel)}
+.u .ws aside div:first-child{background:rgba(240,187,85,.14)}
+.u .ws .main{padding-left:22px}
+.u .tabs{display:flex;gap:2px;border-bottom:1px solid var(--border)}
+.u .tabs i{padding:6px 12px;font-style:normal;font-size:.76rem;color:var(--ink-2)}
+.u .tabs i:first-child{color:var(--accent);border-bottom:2px solid var(--accent)}
+.u .filter{display:flex;gap:6px}
+.u .filter i{padding:3px 10px;border:1px solid var(--border);border-radius:5px;font-style:normal;font-size:.72rem;color:var(--ink-2)}
+
+.notes{display:grid;gap:6px;margin:0;padding-left:18px;color:var(--ink-2);font-size:.85rem;max-width:90ch}
+.notes b{color:var(--ink)}
+</style>
+
+<div class="doc">
+  <header class="doc-head">
+    <div class="eyebrow">MOCKUP v1 · 2026-10-21</div>
+    <h1>三頁共用同一套頁面骨架</h1>
+    <p>動能策略、籌碼分析、形態掃描各頁的內容不動，只統一頁首、標題、左右留白、內容寬度、字型與區塊間距。左邊是現在的樣子，右邊是統一後。</p>
+  </header>
+
+  <section>
+    <div class="spec-wrap">
+      <table class="spec">
+        <thead><tr><th>項目</th><th>逆轟動能（現在）</th><th>籌碼分析（現在）</th><th>形態掃描（現在）</th><th>統一後</th></tr></thead>
+        <tbody>
+          <tr><td>頁首</td><td class="old">一般頁首，上下 18px</td><td class="old">固定頂端，高 64px</td><td class="old">沒有頁首</td><td class="new">三頁都<b>固定頂端</b>，高 56px，底線分隔</td></tr>
+          <tr><td>頁名</td><td class="old">h1 · 1.2rem 白字</td><td class="old">h1 是站名 1rem，頁名是小金字</td><td class="old">不是 h1，灰字 1rem</td><td class="new">h1 = <b>頁名</b>，1.125rem 粗體白字</td></tr>
+          <tr><td>資料日期</td><td class="old">標題旁一行小灰字</td><td class="old">右側「資料日期」</td><td class="old">標題旁深灰字</td><td class="new">標題右邊一行小字，等寬數字</td></tr>
+          <tr><td>左右留白</td><td class="old">24px</td><td class="old">24px + 216px 目錄欄</td><td class="old">20px（手機 10px）</td><td class="new"><b>24px</b>，手機 14px；籌碼頁保留目錄欄</td></tr>
+          <tr><td>內容寬度</td><td class="old">撐滿</td><td class="old">最寬 1840px 置中</td><td class="old">撐滿</td><td class="new">最寬 <b>1600px</b> 置中（籌碼頁含目錄欄）</td></tr>
+          <tr><td>字型</td><td class="old">Public Sans + 正黑體</td><td class="old">system-ui + Noto Sans TC</td><td class="old">system-ui</td><td class="new">Public Sans + 正黑體 / Noto Sans TC</td></tr>
+          <tr><td>區塊間距</td><td class="old">各區塊自訂 margin</td><td class="old">各區塊自訂</td><td class="old">各區塊自訂</td><td class="new">內容區用 <code>gap</code>：區塊之間 28px、區塊內 8px</td></tr>
+          <tr><td>顏色</td><td class="old"><code>--panel</code> 一套</td><td class="old"><code>--surface</code> 一套</td><td class="old">色碼寫死</td><td class="new">全用 <code>ui_theme.py</code> 的 <code>--ui-*</code>（數值不變）</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ===== momentum ===== -->
+  <section class="page-row">
+    <h2>逆轟動能策略</h2>
+    <p class="why">變化最小。頁首改成固定頂端、略矮；提醒文字跟摘要放進同一個內容區，左右對齊同一條線。</p>
+    <div class="pair">
+      <div class="frame"><div class="frame-label">現在</div><div class="viewport b-mom">
+        <div class="top"><h3>逆轟動能策略</h3><span class="sub">指數 2026-10-19 · 個股行情 2026-10-20 · 籌碼 2026-10-20</span>
+          <nav class="nav"><a>族群總覽</a><a>籌碼分析</a><a>形態掃描</a><a class="on">逆轟動能</a></nav></div>
+        <div class="notice">本頁為全市場動能掃描與決策支援，不是自動交易或個人化投資建議。</div>
+        <div class="body"><div class="sum"><div><small>候選總量</small><b>1030</b></div><div><small>可做候選</small><b>0</b></div><div><small>風險提示</small><b>0</b></div></div>
+        <h4>主流族群 Top 5</h4><div class="rows"><div></div><div></div><div></div></div></div>
+      </div></div>
+      <div class="frame"><div class="frame-label after">統一後</div><div class="viewport u">
+        <div class="top"><h3>逆轟動能策略</h3><span class="date">個股行情 <b>2026-10-20</b> · 籌碼 <b>2026-10-20</b></span>
+          <nav class="nav"><a>族群總覽</a><a>籌碼分析</a><a>形態掃描</a><a class="on">逆轟動能</a></nav></div>
+        <div class="main">
+          <div class="notice">本頁為全市場動能掃描與決策支援，不是自動交易或個人化投資建議。</div>
+          <div class="sum"><div><small>候選總量</small><b>1030</b></div><div><small>可做候選</small><b>0</b></div><div><small>風險提示</small><b>0</b></div></div>
+          <div class="sec"><h4>主流族群 Top 5</h4><p>觀察族群動能分數，用於決定優先展開順序。</p><div class="rows"><div></div><div></div><div></div></div></div>
+        </div>
+      </div></div>
+    </div>
+  </section>
+
+  <!-- ===== chips ===== -->
+  <section class="page-row">
+    <h2>籌碼分析</h2>
+    <p class="why">頁首原本放的是站名「台股電子半導體族群追蹤」，頁名反而是旁邊的小字。統一後改成頁名當 h1，跟其他頁一致；左側目錄欄保留，頁首高度和字型跟另外兩頁對齊。</p>
+    <div class="pair">
+      <div class="frame"><div class="frame-label">現在</div><div class="viewport b-chips">
+        <div class="top"><div class="brand"><h3>台股電子半導體族群追蹤</h3><span>籌碼分析</span></div>
+          <div class="status">資料日期 <b>2026-10-19（週一）</b></div>
+          <nav class="nav"><a>族群總覽</a><a class="on">籌碼分析</a><a>形態掃描</a><a>逆轟動能</a></nav></div>
+        <div class="ws"><aside><div></div><div></div><div></div><div></div><div></div></aside>
+          <main><h4>融資警示</h4><div class="sum"><div><small>上榜</small><b>12</b></div><div><small>新進</small><b>3</b></div></div><div class="rows"><div></div><div></div><div></div><div></div></div></main></div>
+      </div></div>
+      <div class="frame"><div class="frame-label after">統一後</div><div class="viewport u">
+        <div class="top"><h3>籌碼分析</h3><span class="date">籌碼資料 <b>2026-10-19（週一）</b></span>
+          <nav class="nav"><a>族群總覽</a><a class="on">籌碼分析</a><a>形態掃描</a><a>逆轟動能</a></nav></div>
+        <div class="ws"><aside><div></div><div></div><div></div><div></div><div></div></aside>
+          <div class="main"><div class="sec"><h4>融資警示</h4><div class="sum"><div><small>上榜</small><b>12</b></div><div><small>新進</small><b>3</b></div></div><div class="rows"><div></div><div></div><div></div></div></div></div></div>
+      </div></div>
+    </div>
+  </section>
+
+  <!-- ===== patterns ===== -->
+  <section class="page-row">
+    <h2>形態掃描</h2>
+    <p class="why">變化最大。現在沒有頁首，頁名是一行灰字，看起來像次要資訊。統一後補上同款頁首，篩選列和分頁籤移進內容區。</p>
+    <div class="pair">
+      <div class="frame"><div class="frame-label">現在</div><div class="viewport b-pat">
+        <div class="head"><div class="title">形態掃描<span>2026-10-20</span></div>
+          <nav class="nav"><a>族群總覽</a><a>籌碼分析</a><a class="on">形態掃描</a><a>逆轟動能</a></nav></div>
+        <div class="filter"><i>全部</i><i>上市</i><i>上櫃</i></div>
+        <div class="sum"><div><small>訊號總量</small><b>38</b></div><div><small>多層候選</small><b>16 / 22</b></div><div><small>失效事件</small><b>0</b></div></div>
+        <div class="tabs"><i>研究總覽</i><i>多層候選</i><i>形態明細</i><i>方法說明</i></div>
+      </div></div>
+      <div class="frame"><div class="frame-label after">統一後</div><div class="viewport u">
+        <div class="top"><h3>形態掃描</h3><span class="date">個股行情 <b>2026-10-20</b></span>
+          <nav class="nav"><a>族群總覽</a><a>籌碼分析</a><a class="on">形態掃描</a><a>逆轟動能</a></nav></div>
+        <div class="main">
+          <div class="filter"><i>全部</i><i>上市</i><i>上櫃</i></div>
+          <div class="sum"><div><small>訊號總量</small><b>38</b></div><div><small>多層候選</small><b>16 / 22</b></div><div><small>失效事件</small><b>0</b></div></div>
+          <div class="tabs"><i>研究總覽</i><i>多層候選</i><i>形態明細</i><i>方法說明</i></div>
+        </div>
+      </div></div>
+    </div>
+  </section>
+
+  <section class="page-row">
+    <h2>需要你決定的三件事</h2>
+    <ol class="notes">
+      <li><b>頁首要不要固定在頂端？</b>這份稿是三頁都固定（籌碼頁現在就是）。長表格往下捲時，切頁和資料日期一直看得到；代價是手機上少 56px 可視高度。手機版預設改回不固定。</li>
+      <li><b>籌碼頁的站名「台股電子半導體族群追蹤」要放哪？</b>稿裡直接拿掉，讓 h1 都是頁名。也可以三頁都在頁名前加一個小站名。</li>
+      <li><b>族群總覽（index.html）要一起統一嗎？</b>這次只畫了你提到的三頁。index 也有自己的頁首，要不要一起處理？</li>
+    </ol>
+  </section>
+</div>

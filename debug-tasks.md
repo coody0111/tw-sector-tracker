@@ -5007,3 +5007,31 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 - [ ] 1920 寬：頁名左緣跟內容左緣對齊（逆轟/形態 = 內容左緣；籌碼 = 目錄欄左緣 +24）
 - [ ] 三頁切頁按鈕都有 5 個（含自選股），自選股連結可用
 - [ ] 上一則 sticky clip 修正一起驗
+
+## [2026-10-21] 修：收盤排程逾時導致頁面停更（Debugger 回報 🔴，Cody 選方案 A）
+
+### 改了什麼
+- 異動檔案：main.py, scripts/run_scheduled.py, tests/test_main.py, CLAUDE-developer.md
+- 邏輯說明：
+  - `_update_insider_holdings_db()` gate：`report_date` 是資料所屬月份，最新只會到上個月。改成 DB 最新
+    `report_date` ≥ 上個月（月初第一天比較 year/month）就跳過。舊版跟「這個月」比，永遠不成立。
+    新增兩個測試：上個月資料 → 跳過；兩個月前 → 重抓（1 月往前跨年由 `_first_of_month_shift` 處理）。
+  - `run()`：`_update_shareholder_db()`、`_update_insider_holdings_db()` 從 step 6.2/6.4 移到 step 8
+    （`_push_html()` 之後、寫 summary 之前）。月營收/季報（6.3，便宜）留在原位。
+  - `run_scheduled.py`：收盤模式 `timeout` 900 → 5400 秒（`_CLOSE_TIMEOUT_SEC`），盤中維持 900。
+    原因：集保一週 20-35 分、董監 38 分以上，只搬位置但維持 900 秒的話，這兩步每次都被砍、資料永遠存不進去，還會天天發逾時通知。
+    （這點超出我原本跟 Cody 講的方案 A 範圍，已向 Cody 說明。）
+
+### 資料來源相關（如有異動）
+- 無來源變更。注意新集保週、新董監月的資料要「下一次」收盤才會出現在頁面上（當次是先推頁面才抓）。
+
+### 請 Debugger 驗證
+- [ ] `pytest tests/test_main.py` 與全 repo 全綠
+- [ ] gate 邊界：今天 10 月 → DB 最新 09-01 跳過、08-01 重抓；1 月時上個月是去年 12 月
+- [ ] `run()` 順序：收盤模式下 HTML 產生與 `_push_html()` 在集保／董監之前；盤中模式兩個函式都直接 return
+- [ ] 慢步驟失敗（例外）時有進 `_run_warnings`，summary 照常寫出
+- [ ] `run_scheduled.py`：close 用 5400、intraday 用 900；`ExecutionLock` 在收盤長跑期間不會讓盤中模式重疊（盤中本來就只跑到 15:00）
+- [ ] 若可以，查 `logs/run.log` 近期收盤紀錄，確認逾時確實都卡在集保／董監這兩步，沒有第三個慢步驟
+
+### 特別注意
+- 已知限制：每月月初到 MOPS 公布上個月董監資料前，DB 最新是「兩個月前」→ 每天收盤都會重抓一次（38 分，現在排在 push 之後、有 90 分上限，不影響頁面）。

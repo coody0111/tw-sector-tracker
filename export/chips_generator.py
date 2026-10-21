@@ -692,8 +692,9 @@ def _chg_cell(pct) -> str:
 _CSS = SHARED_CSS + """
   :root{--bg:#080B12;--surface:#0F1420;--surface-2:#161D2C;--surface-3:#1E2738;--border:#293346;--border-strong:#37435C;--text:#DADFE8;--muted:#98A0B4;--subtle:#636B80;--accent:#F0BB55;--accent-soft:rgba(240,187,85,.16);--caution:#6E8CB0;--caution-soft:rgba(110,140,176,.16);--focus:#F0BB55;--up:#E6432F;--down:#37B25C;--radius:8px}
   *{box-sizing:border-box}
-  html{background:var(--bg);overflow-x:hidden}
-  body{min-width:320px;overflow-x:hidden}
+  /* 用 clip 不用 hidden：html/body 設 overflow-x:hidden 會讓 body 變成捲動容器，頁首/目錄/工具列的 sticky 全部失效 */
+  html{background:var(--bg);overflow-x:clip}
+  body{min-width:320px;overflow-x:clip}
   button,input{font:inherit}button{touch-action:manipulation}
   a:focus-visible,button:focus-visible,input:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
   .skip-link{position:fixed;left:12px;top:8px;z-index:1000;transform:translateY(-160%);padding:9px 13px;background:var(--text);color:var(--bg);border-radius:6px;font-weight:750}
@@ -766,7 +767,7 @@ _CSS = SHARED_CSS + """
     .workspace{display:block}.section-nav{position:sticky;top:var(--ui-topbar-h);z-index:15;padding:8px 16px;border-right:0;border-bottom:1px solid var(--border)}
     .section-nav-inner{position:static}.section-nav-label,.section-nav-note,.tab-group-label{display:none}.tab-groups{flex-direction:row;gap:4px;overflow-x:auto;scrollbar-width:thin}.tab-group{flex-direction:row;gap:4px}.tab-bar{flex-direction:row;gap:4px}
     .tab-btn{flex:0 0 auto;width:auto;padding:8px 13px;border-left:0;border-bottom:2px solid transparent;border-radius:6px 6px 0 0;text-align:center;white-space:nowrap}
-    .tab-btn.active{border-left-color:transparent;border-bottom-color:var(--accent)}.chips-toolbar{top:calc(var(--ui-topbar-h) + 60px)}
+    .tab-btn.active{border-left-color:transparent;border-bottom-color:var(--accent)}.chips-toolbar{top:calc(var(--ui-topbar-h) + 71px)}
   }
   @media(max-width:760px){
     .section-nav{position:static}.main-content{padding:12px var(--ui-gutter) 60px}

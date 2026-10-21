@@ -4,7 +4,7 @@
 方式：
   1. backfill_twse_monthly()     — TWSE STOCK_DAY + TPEx st43 逐股月別（完整覆蓋上市+上櫃）
   2. backfill_yfinance()         — Yahoo Finance 逐股月別（不需 token，雙市場都支援）
-  3. backfill_chips()            — TWSE 三大法人/融資融券/外資持股% 逐日補齊（每日各一次 API）
+  3. backfill_chips()            — 上市（TWSE）＋上櫃（TPEx 官網報表）三大法人/融資融券/外資持股% 逐日補齊
 
 建議流程：
   跑 backfill_twse_monthly（TWSE 先抓，non-TWSE 自動轉 TPEx，約 2~3 小時）；
@@ -609,97 +609,132 @@ _CHIPS_TABLE_SCHEMAS = {
 }
 
 
+_CHIPS_EXISTING_MIN_ROWS = 20  # 某市場某天至少有這麼多「股票池內該市場股票」的列，才算那天該市場已有資料
+
+
+def _load_exchange_ids(universe_path: str) -> dict:
+    """{"TWSE": set, "TPEx": set}，用股票池的 exchange 欄判斷市場別（籌碼表沒有市場欄）。"""
+    universe = pd.read_csv(universe_path, dtype=str, encoding="utf-8-sig")
+    return {
+        exch: set(universe.loc[universe["exchange"] == exch, "stock_id"])
+        for exch in ("TWSE", "TPEx")
+    }
+
+
+def _existing_chips_dates(con, table: str, ids: set) -> set:
+    """某市場已有資料的日期：當天該市場（股票池內）股票列數 ≥ 門檻。
+    分市場判斷，是因為每日流程常出現「同一天只寫了上市或只寫了上櫃」的半套日子，
+    舊版只看整張表有沒有那天，半套的那一邊會被永久跳過。"""
+    if not ids:
+        return set()
+    ids_df = pd.DataFrame({"stock_id": sorted(ids)})  # noqa: F841  DuckDB 以變數名參照
+    threshold = min(_CHIPS_EXISTING_MIN_ROWS, len(ids))
+    rows = con.execute(
+        f"SELECT date FROM {table} WHERE stock_id IN (SELECT stock_id FROM ids_df) "
+        "GROUP BY date HAVING count(*) >= ?",
+        [threshold],
+    ).df()
+    return set(rows["date"].astype(str).tolist()) if not rows.empty else set()
+
+
+def _write_chips(db_path: str, table: str, df: pd.DataFrame, d_str: str) -> None:
+    """只刪「這批股票」當天的舊資料再寫入，不誤刪同一天另一個市場已寫好的資料。"""
+    import duckdb
+    df = df.drop_duplicates(subset=["stock_id", "date"], keep="last")
+    con = duckdb.connect(db_path)
+    try:
+        con.execute(
+            f"DELETE FROM {table} WHERE date = ? AND stock_id IN (SELECT stock_id FROM df)", [d_str]
+        )
+        con.execute(f"INSERT INTO {table} SELECT * FROM df")
+    finally:
+        con.close()
+
+
 def backfill_chips(
     days: int = 14,
     db_path: str = "data/screener.db",
     sleep_sec: float = 0.8,
     today: date = None,
+    universe_path: str = "data/stock_universe.csv",
 ) -> dict:
     """
-    補齊過去 N 個交易日的三大法人(T86)/融資融券(MI_MARGN)/外資持股%(MI_QFIIS)——
-    TWSE 三支獨立官方 API，同一天可能只有其中幾個有資料(2026-09-02 實測發現同一天
-    institutional 有寫入、margin/foreign_holdings 卻沒有的情況並不少見)，所以同一輪
-    迴圈裡對每個交易日、每個來源各自獨立判斷缺不缺、各自補，不會因為其中一個來源當天
-    已有資料就連帶跳過其他來源。已有的(來源,日期)組合會跳過。
+    補齊過去 days 個「日曆天」內所有交易日的三大法人／融資融券／外資持股%，上市＋上櫃：
+      上市：TWSE T86 / MI_MARGN / MI_QFIIS
+      上櫃：TPEx 官網報表（fetch_*_tpex_hist，可指定歷史日期；口徑與每日流程 OpenAPI 一致）
+    每個（資料表, 市場, 日期）各自判斷缺不缺、各自補——同一天常只有其中幾個來源有資料
+    （2026-09-02 實測），也常只寫了上市或上櫃其中一邊。封鎖只中止該（資料表, 市場）本輪剩餘天數。
 
-    TPEx 對應的三個來源(fetch_institutional_tpex/fetch_margin_all_tpex/
-    fetch_foreign_holding_tpex)沒有日期參數、只回傳「當下」，無法回溯，不在這支
-    函式範圍內，仍由每日流程單獨處理。
-
-    回傳 {"institutional": 補了幾天, "margin": 補了幾天, "foreign_holdings": 補了幾天}。
+    回傳 {"institutional": n, "margin": n, "foreign_holdings": n}，n＝寫入的（市場, 日期）組數。
     """
     from scrapers.chips import (
-        fetch_institutional,
-        fetch_margin_all_twse,
-        fetch_foreign_holding_twse,
+        TPExBlockedError,
         TWSEBlockedError,
+        fetch_foreign_holding_tpex_hist,
+        fetch_foreign_holding_twse,
+        fetch_institutional,
+        fetch_institutional_tpex_hist,
+        fetch_margin_all_twse,
+        fetch_margin_tpex_hist,
     )
     import duckdb
 
     today = today or date.today()
     start_date = today - timedelta(days=days)
     trade_days = list(_iter_weekdays(start_date, today))
-
     sources = [
-        ("institutional", fetch_institutional),
-        ("margin", fetch_margin_all_twse),
-        ("foreign_holdings", fetch_foreign_holding_twse),
+        ("institutional", "TWSE", fetch_institutional),
+        ("margin", "TWSE", fetch_margin_all_twse),
+        ("foreign_holdings", "TWSE", fetch_foreign_holding_twse),
+        ("institutional", "TPEx", fetch_institutional_tpex_hist),
+        ("margin", "TPEx", fetch_margin_tpex_hist),
+        ("foreign_holdings", "TPEx", fetch_foreign_holding_tpex_hist),
     ]
 
-    existing: dict[str, set] = {}
+    exchange_ids = _load_exchange_ids(universe_path)
+    existing: dict = {}
     try:
         con = duckdb.connect(db_path)
-        for table, _ in sources:
+        for table, _, _ in sources:
             con.execute(_CHIPS_TABLE_SCHEMAS[table])
-        for table, _ in sources:
-            rows = con.execute(f"SELECT DISTINCT date FROM {table}").df()
-            existing[table] = set(rows["date"].astype(str).tolist()) if not rows.empty else set()
+        for table, exch, _ in sources:
+            existing[(table, exch)] = _existing_chips_dates(con, table, exchange_ids[exch])
         con.close()
     except Exception as exc:
         logger.warning("無法讀取現有籌碼資料: %s", exc)
-        existing = {table: set() for table, _ in sources}
+        existing = {(table, exch): set() for table, exch, _ in sources}
 
     need = {
-        table: len([d for d in trade_days if d.isoformat() not in existing[table]])
-        for table, _ in sources
+        f"{table}/{exch}": sum(d.isoformat() not in existing[(table, exch)] for d in trade_days)
+        for table, exch, _ in sources
     }
-    logger.info(
-        "籌碼補齊：%s ~ %s（%d 交易日），需補 三大法人%d／融資融券%d／外資持股%%%d 日",
-        start_date.isoformat(), today.isoformat(), len(trade_days),
-        need["institutional"], need["margin"], need["foreign_holdings"],
-    )
+    logger.info("籌碼補齊：%s ~ %s（%d 交易日），各來源需補天數 %s",
+                start_date.isoformat(), today.isoformat(), len(trade_days), need)
 
     written = {"institutional": 0, "margin": 0, "foreign_holdings": 0}
     blocked: set = set()
     for i, trade_day in enumerate(trade_days, 1):
         d_str = trade_day.isoformat()
-        for table, fetch_fn in sources:
-            if table in blocked or d_str in existing[table]:
+        for table, exch, fetch_fn in sources:
+            key = (table, exch)
+            if key in blocked or d_str in existing[key]:
                 continue
             try:
                 df = fetch_fn(trade_day)
                 if df.empty:
-                    logger.debug("  %s %s 無資料（非交易日或尚未發布），跳過", table, d_str)
-                    time.sleep(sleep_sec)
-                    continue
-                con = duckdb.connect(db_path)
-                con.execute(f"DELETE FROM {table} WHERE date = ?", [d_str])
-                con.execute(f"INSERT INTO {table} SELECT * FROM df")
-                con.close()
-                written[table] += 1
-                logger.info("  [%d/%d] %s %s 寫入 %d 筆", i, len(trade_days), table, d_str, len(df))
-            except TWSEBlockedError as exc:
-                blocked.add(table)
-                logger.error(
-                    "  [%d/%d] %s %s 疑似被 TWSE 封鎖：%s，這個來源本輪剩餘天數中止（其他來源繼續）",
-                    i, len(trade_days), table, d_str, exc,
-                )
+                    logger.debug("  %s/%s %s 無資料（非交易日或尚未發布），跳過", table, exch, d_str)
+                else:
+                    _write_chips(db_path, table, df, d_str)
+                    written[table] += 1
+                    logger.info("  [%d/%d] %s/%s %s 寫入 %d 筆", i, len(trade_days), table, exch, d_str, len(df))
+            except (TWSEBlockedError, TPExBlockedError) as exc:
+                blocked.add(key)
+                logger.error("  [%d/%d] %s/%s %s 疑似被封鎖：%s，這個來源本輪剩餘天數中止（其他來源繼續）",
+                             i, len(trade_days), table, exch, d_str, exc)
             except Exception as exc:
-                logger.warning("  [%d/%d] %s %s 失敗: %s", i, len(trade_days), table, d_str, exc)
+                logger.warning("  [%d/%d] %s/%s %s 失敗: %s", i, len(trade_days), table, exch, d_str, exc)
             time.sleep(sleep_sec)
 
-    logger.info(
-        "籌碼補齊完成：三大法人%d／融資融券%d／外資持股%%%d 個交易日",
-        written["institutional"], written["margin"], written["foreign_holdings"],
-    )
+    logger.info("籌碼補齊完成：三大法人%d／融資融券%d／外資持股%%%d 組（市場×日期）",
+                written["institutional"], written["margin"], written["foreign_holdings"])
     return written

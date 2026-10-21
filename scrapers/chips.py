@@ -157,7 +157,9 @@ def fetch_institutional_tpex() -> pd.DataFrame:
             "date":        _roc_date_to_iso(date_str),
             "foreign_net": foreign_ex_dealer,
             "trust_net":   _parse_num(row.get(_TPEX_TRUST)),
-            "dealer_net":  _parse_num(row.get(_TPEX_DEALER_SELF)),  # 不含外資自營商，對齊 TWSE row[11]
+            # 不含外資自營商，對齊 TWSE row[11]；注意 Dealers-Difference 實為自營商「合計」（自行＋避險），
+            # 變數名 _DEALER_SELF 是歷史命名，2026-10-22 驗算確認（見 fetch_institutional_tpex_hist）
+            "dealer_net":  _parse_num(row.get(_TPEX_DEALER_SELF)),
             "total_net":   _parse_num(row.get(_TPEX_TOTAL)),
         })
 
@@ -341,3 +343,142 @@ def fetch_foreign_holding_tpex() -> pd.DataFrame:
         })
 
     return pd.DataFrame(rows)
+
+
+# ── TPEx 官網報表（可指定歷史日期）──────────────────────────────────────────────
+# 上面三支 OpenAPI 只回傳「當下」，歷史回補改用官網報表 JSON（2026-10-22 實測可查 2025 年
+# 任意交易日）。欄位用位置取，所以每次都做數字自我驗算，格式一變就報錯，不靜默取錯欄。
+_TPEX_WEB_3INSTI_URL = "https://www.tpex.org.tw/www/zh-tw/insti/dailyTrade"
+_TPEX_WEB_MARGIN_URL = "https://www.tpex.org.tw/www/zh-tw/margin/balance"
+_TPEX_WEB_QFII_URL = "https://www.tpex.org.tw/www/zh-tw/insti/qfii"
+_TPEX_LAYOUT_MIN_OK = 0.95  # 自我驗算通過比例低於此值，視為欄位格式變動
+
+
+class TPExBlockedError(RuntimeError):
+    """TPEx 官網回傳非 JSON（擋頁／限流），不是合法的『當天沒資料』。"""
+
+
+def _get_tpex_web_table(url: str, trade_date: date, extra_params: dict | None = None) -> list | None:
+    """抓 TPEx 官網報表，回傳第一張表的 data 列；非交易日（回應日期跟查詢日不同或無資料）回 None。"""
+    params = {"date": trade_date.strftime("%Y/%m/%d"), "response": "json", **(extra_params or {})}
+    resp = requests.get(url, params=params, headers=_HEADERS_TPEX, timeout=30, verify=False)
+    ctype = resp.headers.get("Content-Type", "")
+    if resp.status_code != 200 or "json" not in ctype.lower():
+        raise TPExBlockedError(f"TPEx 疑似封鎖（status={resp.status_code}, content-type={ctype!r}）")
+    data = resp.json()
+    if str(data.get("stat", "")).lower() != "ok":
+        return None
+    # 查非交易日時官網可能回最近一個交易日的資料，日期對不上就當作沒資料，避免寫錯日期
+    if str(data.get("date", "")) != trade_date.strftime("%Y%m%d"):
+        return None
+    tables = data.get("tables") or []
+    if not tables or not tables[0].get("data"):
+        return None
+    return tables[0]["data"]
+
+
+def _check_tpex_layout(ok_flags: list, what: str, trade_date: date) -> None:
+    if ok_flags and sum(ok_flags) / len(ok_flags) < _TPEX_LAYOUT_MIN_OK:
+        raise ValueError(
+            f"TPEx {what} {trade_date} 自我驗算只有 {sum(ok_flags)}/{len(ok_flags)} 列通過，疑似欄位格式變動"
+        )
+
+
+def fetch_institutional_tpex_hist(trade_date: date) -> pd.DataFrame:
+    """
+    TPEx 上櫃三大法人（官網報表，可查歷史日期）。欄位與口徑跟 fetch_institutional_tpex() 完全一致：
+      foreign_net = 外資及陸資（不含外資自營商）買賣超      → 欄 4
+      trust_net   = 投信買賣超                              → 欄 13
+      dealer_net  = 自營商買賣超「合計」（自行買賣＋避險）    → 欄 22
+      total_net   = 三大法人買賣超合計                       → 欄 23
+    dealer_net 用合計是因為每日流程的 OpenAPI「Dealers-Difference」與 TWSE T86 row[11] 實際上都是
+    自營商合計（2026-10-22 用 OpenAPI 原始資料驗算：外資+投信+Dealers-Difference == TotalDifference）。
+    自我驗算：外資(不含自營商) 欄4 + 外資自營商 欄7 + 投信 欄13 + 自營商合計 欄22 == 合計 欄23。
+    非交易日回空 DataFrame。
+    """
+    data = _get_tpex_web_table(_TPEX_WEB_3INSTI_URL, trade_date, {"type": "Daily", "sect": "EW"})
+    if data is None:
+        return pd.DataFrame(columns=["stock_id", "date", "foreign_net", "trust_net", "dealer_net", "total_net"])
+    rows, ok_flags = [], []
+    for row in data:
+        if len(row) < 24:
+            continue
+        sid = str(row[0]).strip()
+        if not sid:
+            continue
+        foreign, foreign_dealer = _parse_num(row[4]), _parse_num(row[7])
+        trust, dealer_all, total = _parse_num(row[13]), _parse_num(row[22]), _parse_num(row[23])
+        ok_flags.append(foreign + foreign_dealer + trust + dealer_all == total)
+        rows.append({
+            "stock_id":    sid,
+            "date":        trade_date.isoformat(),
+            "foreign_net": foreign,
+            "trust_net":   trust,
+            "dealer_net":  dealer_all,
+            "total_net":   total,
+        })
+    _check_tpex_layout(ok_flags, "三大法人", trade_date)
+    return pd.DataFrame(rows)
+
+
+def fetch_margin_tpex_hist(trade_date: date) -> pd.DataFrame:
+    """
+    TPEx 上櫃融資融券餘額（官網報表，可查歷史日期）。欄位跟 fetch_margin_all_tpex() 一致，單位「張」：
+      前資餘額 欄2、資餘額 欄6、前券餘額 欄10、券餘額 欄14
+    自我驗算：前資餘額 + 資買 欄3 − 資賣 欄4 − 現償 欄5 == 資餘額。非交易日回空 DataFrame。
+    """
+    data = _get_tpex_web_table(_TPEX_WEB_MARGIN_URL, trade_date)
+    cols = ["stock_id", "date", "margin_balance", "margin_change", "short_balance", "short_change"]
+    if data is None:
+        return pd.DataFrame(columns=cols)
+    rows, ok_flags = [], []
+    for row in data:
+        if len(row) < 15:
+            continue
+        sid = str(row[0]).strip()
+        if not sid:
+            continue
+        prev_margin, buy, sell, repay, margin_bal = (_parse_num_opt(row[i]) for i in (2, 3, 4, 5, 6))
+        prev_short, short_bal = _parse_num_opt(row[10]), _parse_num_opt(row[14])
+        # 餘額欄任一解析失敗就跳列，不用 0 相減造假訊號（同 OpenAPI 版）
+        if None in (prev_margin, margin_bal, prev_short, short_bal):
+            continue
+        if None not in (buy, sell, repay):
+            ok_flags.append(prev_margin + buy - sell - repay == margin_bal)
+        rows.append({
+            "stock_id":       sid,
+            "date":           trade_date.isoformat(),
+            "margin_balance": margin_bal,
+            "margin_change":  margin_bal - prev_margin,
+            "short_balance":  short_bal,
+            "short_change":   short_bal - prev_short,
+        })
+    _check_tpex_layout(ok_flags, "融資融券", trade_date)
+    return pd.DataFrame(rows, columns=cols)
+
+
+def fetch_foreign_holding_tpex_hist(trade_date: date) -> pd.DataFrame:
+    """
+    TPEx 上櫃僑外資及陸資持股比例（官網報表，可查歷史日期）。欄位跟 fetch_foreign_holding_tpex() 一致：
+      代號 欄1、僑外資及陸資持股比率(E=C/A) 欄7
+    注意：官網報表列出的檔數（實測約 850）比 OpenAPI 排行表（約 290）多，歷史資料覆蓋率會比每日流程高。
+    自我驗算：持有股數 欄5 ÷ 發行股數 欄3 ≈ 持股比率（誤差 0.02 個百分點內）。非交易日回空 DataFrame。
+    """
+    data = _get_tpex_web_table(_TPEX_WEB_QFII_URL, trade_date)
+    cols = ["stock_id", "date", "foreign_pct"]
+    if data is None:
+        return pd.DataFrame(columns=cols)
+    rows, ok_flags = [], []
+    for row in data:
+        if len(row) < 8:
+            continue
+        sid = str(row[1]).strip()
+        pct = _parse_pct(row[7])
+        if not sid or pct is None:
+            continue
+        issued, held = _parse_num_opt(row[3]), _parse_num_opt(row[5])
+        if issued:
+            ok_flags.append(abs(held / issued * 100 - pct) <= 0.02 if held is not None else False)
+        rows.append({"stock_id": sid, "date": trade_date.isoformat(), "foreign_pct": pct})
+    _check_tpex_layout(ok_flags, "外資持股", trade_date)
+    return pd.DataFrame(rows, columns=cols)

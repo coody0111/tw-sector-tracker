@@ -370,8 +370,8 @@ def backfill_yf(months: int = 19, workers: int = 3) -> None:
 
 
 def backfill_chips_cli(days: int = 14) -> None:
-    """補齊過去 N 個交易日的三大法人/融資融券/外資持股%（TWSE 官方三支 API）"""
-    logger.info("=== 籌碼資料補齊（往前 %d 個交易日）===", days)
+    """補齊過去 N 個日曆天內的三大法人/融資融券/外資持股%（上市 TWSE ＋ 上櫃 TPEx 官網報表）"""
+    logger.info("=== 籌碼資料補齊（往前 %d 個日曆天）===", days)
     n = backfill_chips(days=days)
     logger.info(
         "=== 籌碼補齊完成：三大法人%d／融資融券%d／外資持股%%%d 個交易日 ===",
@@ -1256,8 +1256,9 @@ if __name__ == "__main__":
     parser.add_argument("--workers", type=int, default=3, metavar="N",
                         help="backfill-twse / backfill-yf 並行 workers 數（預設 3，過高可能被限速）")
     parser.add_argument("--backfill-chips", type=int, default=0, metavar="DAYS",
-                        help="TWSE 三大法人(T86)/融資融券(MI_MARGN)/外資持股%%(MI_QFIIS) "
-                             "補齊過去 N 個交易日（建議 14；同一天缺哪個來源就補哪個）")
+                        help="上市(TWSE)＋上櫃(TPEx官網報表) 三大法人/融資融券/外資持股%% "
+                             "補齊過去 N 個「日曆天」內的交易日（建議 14；補到 2025-01-01 約填 660；"
+                             "同一天缺哪個來源、哪個市場就補哪個）")
     parser.add_argument("--backtest", action="store_true",
                         help="跑巨量換手回測，輸出勝率與期望值統計")
     parser.add_argument("--backtest-accumulation", action="store_true",

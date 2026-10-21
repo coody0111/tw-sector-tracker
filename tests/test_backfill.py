@@ -1,3 +1,4 @@
+from contextlib import ExitStack
 from datetime import date
 from unittest.mock import MagicMock, patch
 
@@ -329,6 +330,23 @@ def _fh_df(d: str) -> pd.DataFrame:
     return pd.DataFrame([{"stock_id": "2330", "date": d, "foreign_pct": 75.5}])
 
 
+def _universe(tmp_path, twse=("2330",), tpex=("6488",)) -> str:
+    """測試用股票池：backfill_chips() 靠 exchange 欄分市場判斷某天是否已有資料。"""
+    path = tmp_path / "universe.csv"
+    lines = ["stock_id,exchange"] + [f"{s},TWSE" for s in twse] + [f"{s},TPEx" for s in tpex]
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return str(path)
+
+
+def _patch_tpex(stack: ExitStack, inst=None, margin=None, fh=None) -> None:
+    """把上櫃三支歷史抓取函式換成假的；沒指定的一律回空 DataFrame（等同非交易日），不連網路。"""
+    def empty(d):
+        return pd.DataFrame()
+    stack.enter_context(patch("scrapers.chips.fetch_institutional_tpex_hist", side_effect=inst or empty))
+    stack.enter_context(patch("scrapers.chips.fetch_margin_tpex_hist", side_effect=margin or empty))
+    stack.enter_context(patch("scrapers.chips.fetch_foreign_holding_tpex_hist", side_effect=fh or empty))
+
+
 def test_backfill_chips_skips_existing_dates_per_source_independently(tmp_path):
     """2026-09-02 實測發現的真實情況：同一天institutional有資料、margin/foreign_holdings
     卻沒有，是常態不是例外。backfill_chips()同一輪迴圈要對每個(來源,日期)組合各自判斷，
@@ -360,8 +378,11 @@ def test_backfill_chips_skips_existing_dates_per_source_independently(tmp_path):
 
     with patch("scrapers.chips.fetch_institutional", side_effect=fake_inst), \
          patch("scrapers.chips.fetch_margin_all_twse", side_effect=fake_margin), \
-         patch("scrapers.chips.fetch_foreign_holding_twse", side_effect=fake_fh):
-        written = backfill_chips(days=3, db_path=db_path, sleep_sec=0, today=date(2026, 1, 5))
+         patch("scrapers.chips.fetch_foreign_holding_twse", side_effect=fake_fh), \
+         ExitStack() as stack:
+        _patch_tpex(stack)
+        written = backfill_chips(days=3, db_path=db_path, sleep_sec=0, today=date(2026, 1, 5),
+                                 universe_path=_universe(tmp_path))
 
     # institutional 2026-01-02 已有資料，不該被重抓；margin/foreign_holdings 同一天沒有資料，要補
     assert inst_calls == ["2026-01-05"]
@@ -392,11 +413,124 @@ def test_backfill_chips_blocked_source_does_not_stop_other_sources(tmp_path):
 
     with patch("scrapers.chips.fetch_institutional", side_effect=blocked_inst), \
          patch("scrapers.chips.fetch_margin_all_twse", side_effect=fake_margin), \
-         patch("scrapers.chips.fetch_foreign_holding_twse", side_effect=lambda d: _fh_df(d.isoformat())):
-        written = backfill_chips(days=3, db_path=db_path, sleep_sec=0, today=date(2026, 1, 5))
+         patch("scrapers.chips.fetch_foreign_holding_twse", side_effect=lambda d: _fh_df(d.isoformat())), \
+         ExitStack() as stack:
+        _patch_tpex(stack)
+        written = backfill_chips(days=3, db_path=db_path, sleep_sec=0, today=date(2026, 1, 5),
+                                 universe_path=_universe(tmp_path))
 
     # institutional 第一天就被擋，之後的交易日不再嘗試；margin 不受影響，兩天都補上
     assert written["institutional"] == 0
     assert margin_calls == ["2026-01-02", "2026-01-05"]
     assert written["margin"] == 2
     assert written["foreign_holdings"] == 2
+
+
+def _tpex_inst_df(d: str) -> pd.DataFrame:
+    return pd.DataFrame([{
+        "stock_id": "6488", "date": d, "foreign_net": 200, "trust_net": 20,
+        "dealer_net": 2, "total_net": 222,
+    }])
+
+
+def test_backfill_chips_fills_tpex_when_only_twse_written_that_day(tmp_path):
+    """半套日子（只寫了上市）：上市那天要跳過、上櫃那天要補，而且補上櫃時不能刪掉同一天的上市資料。
+    舊版只看整張表有沒有那天，半套的另一個市場會被永久跳過（2026-08 起實際出現大量只有上市的日子）。"""
+    db_path = str(tmp_path / "test.db")
+    con = duckdb.connect(db_path)
+    con.execute("""
+        CREATE TABLE institutional (
+            stock_id VARCHAR, date DATE, foreign_net BIGINT, trust_net BIGINT,
+            dealer_net BIGINT, total_net BIGINT, PRIMARY KEY (stock_id, date)
+        )
+    """)
+    con.execute("INSERT INTO institutional VALUES ('2330', '2026-01-02', 1, 1, 1, 3)")
+    con.close()
+
+    twse_calls, tpex_calls = [], []
+
+    def fake_twse_inst(d):
+        twse_calls.append(d.isoformat())
+        return _inst_df(d.isoformat())
+
+    def fake_tpex_inst(d):
+        tpex_calls.append(d.isoformat())
+        return _tpex_inst_df(d.isoformat())
+
+    with patch("scrapers.chips.fetch_institutional", side_effect=fake_twse_inst), \
+         patch("scrapers.chips.fetch_margin_all_twse", side_effect=lambda d: _margin_df(d.isoformat())), \
+         patch("scrapers.chips.fetch_foreign_holding_twse", side_effect=lambda d: _fh_df(d.isoformat())), \
+         ExitStack() as stack:
+        _patch_tpex(stack, inst=fake_tpex_inst)
+        written = backfill_chips(days=3, db_path=db_path, sleep_sec=0, today=date(2026, 1, 5),
+                                 universe_path=_universe(tmp_path))
+
+    assert twse_calls == ["2026-01-05"]
+    assert tpex_calls == ["2026-01-02", "2026-01-05"]
+    assert written["institutional"] == 3  # 上市 1 天 + 上櫃 2 天
+
+    con = duckdb.connect(db_path)
+    rows = con.execute(
+        "SELECT stock_id, foreign_net FROM institutional WHERE date = '2026-01-02' ORDER BY stock_id"
+    ).fetchall()
+    con.close()
+    assert rows == [("2330", 1), ("6488", 200)]  # 原本的上市資料沒被刪、也沒被覆蓋
+
+
+def test_backfill_chips_tpex_blocked_does_not_stop_twse(tmp_path):
+    """上櫃官網被擋時只中止上櫃那個來源，上市照常補完。"""
+    from scrapers.chips import TPExBlockedError
+
+    db_path = str(tmp_path / "test.db")
+    twse_calls, tpex_calls = [], []
+
+    def fake_twse_inst(d):
+        twse_calls.append(d.isoformat())
+        return _inst_df(d.isoformat())
+
+    def blocked_tpex(d):
+        tpex_calls.append(d.isoformat())
+        raise TPExBlockedError("模擬被擋")
+
+    with patch("scrapers.chips.fetch_institutional", side_effect=fake_twse_inst), \
+         patch("scrapers.chips.fetch_margin_all_twse", side_effect=lambda d: _margin_df(d.isoformat())), \
+         patch("scrapers.chips.fetch_foreign_holding_twse", side_effect=lambda d: _fh_df(d.isoformat())), \
+         ExitStack() as stack:
+        _patch_tpex(stack, inst=blocked_tpex)
+        written = backfill_chips(days=3, db_path=db_path, sleep_sec=0, today=date(2026, 1, 5),
+                                 universe_path=_universe(tmp_path))
+
+    assert tpex_calls == ["2026-01-02"]  # 第一天被擋後，上櫃三大法人本輪不再嘗試
+    assert twse_calls == ["2026-01-02", "2026-01-05"]
+    assert written["institutional"] == 2
+
+
+def test_backfill_chips_rewrite_same_batch_replaces_only_those_stocks(tmp_path):
+    """同一市場同一天重寫（例如門檻內只有少量列而被判定缺資料）時，只覆蓋這批股票的舊值。"""
+    db_path = str(tmp_path / "test.db")
+    con = duckdb.connect(db_path)
+    con.execute("""
+        CREATE TABLE institutional (
+            stock_id VARCHAR, date DATE, foreign_net BIGINT, trust_net BIGINT,
+            dealer_net BIGINT, total_net BIGINT, PRIMARY KEY (stock_id, date)
+        )
+    """)
+    con.execute("INSERT INTO institutional VALUES ('2330', '2026-01-05', 9, 9, 9, 27)")
+    con.execute("INSERT INTO institutional VALUES ('2317', '2026-01-05', 5, 5, 5, 15)")
+    con.close()
+
+    with patch("scrapers.chips.fetch_institutional", side_effect=lambda d: _inst_df(d.isoformat())), \
+         patch("scrapers.chips.fetch_margin_all_twse", side_effect=lambda d: _margin_df(d.isoformat())), \
+         patch("scrapers.chips.fetch_foreign_holding_twse", side_effect=lambda d: _fh_df(d.isoformat())), \
+         ExitStack() as stack:
+        _patch_tpex(stack)
+        # 股票池只把 2330 當上市 → 門檻 1；但讓 2026-01-05 被判定為缺資料：股票池換成沒有 2330/2317 的上市股
+        backfill_chips(days=1, db_path=db_path, sleep_sec=0, today=date(2026, 1, 5),
+                       universe_path=_universe(tmp_path, twse=("1101",)))
+
+    con = duckdb.connect(db_path)
+    rows = con.execute(
+        "SELECT stock_id, foreign_net FROM institutional WHERE date = '2026-01-05' ORDER BY stock_id"
+    ).fetchall()
+    con.close()
+    assert rows == [("2317", 5), ("2330", 100)]  # 2330 被新值覆蓋，不在這批的 2317 保留

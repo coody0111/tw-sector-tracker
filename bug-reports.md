@@ -3534,3 +3534,63 @@ reimport 完成：共 372163 筆
   屬於可自行判斷是否處理的次要項目。MOPS下載修復、族群表折行、季報基本面公式
   邏輯本身都驗證通過，可以繼續，但季報基本面有幾項數字需要正式 DB 才能徹底
   查證（已列在上方 ⚠️）。
+
+## [2026-10-21] 報告 - 籌碼/形態/逆轟三頁統一頁面骨架（988366d）
+
+驗證方式：`docs/*.html` 還是舊骨架（沒有 `ui-topbar`），而重跑 `main.py` 會抓網路、寫 DB，
+所以改用合成資料直接呼叫三支 `generate()` 產頁（輸出放 scratchpad，**沒有動 docs/ 與 DB**），
+用 headless Chrome 注入量測腳本，在 1920／1440／1000／800 與 375（iframe 模擬，Chrome headless 視窗
+最小只到 500）幾種寬度量 DOM 位置。另外用 `git archive 988366d^` 產出改動前的版本做對照。
+
+### 🔴 數據問題（需立刻修）
+- 無（只改版面，沒有碰到資料流）。
+
+### 🔴 程式問題（需立刻修）
+- 問題：**籌碼頁所有 sticky 元素都沒有作用**：頁首、左側目錄、搜尋工具列往下捲都會跟著捲走
+  位置：`export/chips_generator.py` 第 695–696 行 `html{...overflow-x:hidden}` ＋ `body{...overflow-x:hidden}`
+  說明：`html` 與 `body` 兩層都設了 `overflow-x:hidden`，`body` 會變成自己的捲動容器，
+  sticky 就改成黏在 body 上，而 body 本身並不會捲動，所以 sticky 等於失效。
+  實測捲動到 1500px 時，頁首 bottom = −1444、工具列 top = −1424（1440 與 1000 寬都一樣）。
+  **這是既有問題，不是這次改出來的**：改動前的版本（舊 `.topbar` 64px）量到的結果一樣是 −1436。
+  但這次的交接清單寫「左側目錄、搜尋工具列不會被頁首蓋住」，這項之所以看起來通過，
+  是因為根本沒有東西黏住，並不是 sticky 位移算對了。
+  驗證修法：注入 `html,body{overflow-x:clip}` 之後，頁首固定在 0–56、工具列 top=68（1440 寬）、
+  沒有橫向捲軸（hscroll=0）。建議 Developer 把這兩行的 `hidden` 改成 `clip`（或拿掉 html 那層）。
+  重現方式：開 chips.html，資料夠長時往下捲 → 頁首／工具列都捲走了。
+
+### 🟡 建議改善
+- **修好 sticky 之後，≤1100px 會冒出一個潛在問題**：`.chips-toolbar{top:calc(var(--ui-topbar-h) + 60px)}`
+  假設橫向分頁列高 60px，但實測 `.section-nav` 高 71px（56→127），工具列會停在 116 →
+  頂端 11px 被分頁列（z-index 15 > 10）蓋住。建議改成 `+ 71px`，或量出實際高度再設變數。
+  （改動前是 64+60=124 對上 64+71=135，一樣差 11px，屬既有問題。）
+- **大螢幕左緣沒有對齊**：頁首是滿版（標題 left=24），`.ui-main` 則是最寬 1600 置中。
+  視窗超過 1648px 時，內容左緣會往內縮：1920 寬時逆轟內容 left=169、籌碼 385，標題卻還在 24。
+  交接寫的「左緣對齊頁首左緣」只有在 ≤1648px 成立。如果要完全對齊，頁首內層也要套用
+  `max-width:var(--ui-max);margin:0 auto`。這屬於設計取捨，請 Cody 決定。
+- 導覽數量不一致：`index.html` 有 5 個切頁（多一個「自選股 watchlist.html」），
+  `ui_theme.NAV_PAGES` 只有 4 個，所以從籌碼／形態／逆轟頁沒辦法切到自選股。屬既有問題，
+  不過既然已經有共用 `NAV_PAGES`，順手補上很容易。
+- 形態頁內文字級從 16px 變成 14px（body 改成共用 14px，表格 td 跟著繼承），交接沒提到。
+  這符合「字型統一」的方向，只是記錄一下這是看得出來的變化。
+- 逆轟頁在 761–1000px 寬時，三個資料日期會讓頁首折成兩行（56→78px）。因為逆轟沒有依賴
+  `--ui-topbar-h` 的 sticky 元素，目前沒有影響；但之後如果有頁面依賴這個變數，要記得頁首高度不一定是 56。
+
+### ✅ 驗證通過
+- `pytest tests/test_chips_generator.py tests/test_momentum_generator.py tests/test_patterns_generator.py`：
+  112 passed；全 repo `pytest -q`：728 passed。
+- 三頁頁首一致：高度 56、`<h1 class="ui-title">` 分別是籌碼分析／形態掃描／逆轟動能策略，有資料日期，
+  4 個切頁按鈕，當前頁 `aria-current="page"` 只有一個且正確。字型都是 Public Sans 14px。
+- 逆轟頁：notice、摘要格、提醒框、決策分頁、決策表、區塊標題、族群卡的左緣在 1440／1000 都是 24，
+  跟標題左緣一致；375 時都是 14。
+- 形態頁：5 個分頁籤逐一點擊，每次都只顯示對應的 panel；`*{margin:0;padding:0}` 的特異度比
+  `.ui-main`／`.ui-topbar` 低，不會吃掉骨架的留白；td padding 跟改動前一樣。
+- 手機 375：三頁頁首都是 `position:static`，`.ui-nav` 是 `overflow-x:auto`（4 顆按鈕放得下，所以實際不會捲），
+  沒有橫向捲軸（hscroll=0）。
+- `index.html`：這個 commit 沒有動 `index_generator.py`／`html_generator.py`，外觀不受影響。
+- `render_topbar()`：`title` 有經過跳脫；`date_html` 不跳脫，但三個呼叫端傳入的都是程式內部組出來的日期
+  （逆轟的有先 `_esc`），沒有外部字串進來。
+
+### 結論
+- [x] 需要修改後再確認 — 籌碼頁的 sticky 失效（既有問題，但這次交接的驗證項目就建立在它上面）
+  建議改 `overflow-x:clip`，同時把 ≤1100px 的工具列位移從 +60 修正成 +71。其他頁面骨架統一的
+  部分驗證通過。

@@ -514,7 +514,7 @@ def _decision_table_tabs_html(decision_table: list) -> str:
             f'data-label="{_esc(label)}" onclick="switchDecisionTab(this.dataset.label)">'
             f'{_esc(label)} <span class="cnt">{counts[label]}</span></button>'
         )
-    return f'<div class="decision-tabs" role="tablist">{"".join(buttons)}</div>'
+    return f'<div class="decision-tabs ui-sticky-tabs" role="tablist">{"".join(buttons)}</div>'
 
 
 def _decision_table_section_html(decision_table: list) -> str:
@@ -641,6 +641,7 @@ def generate(
 </div>
 {_sector_priority_html(sector_priority)}
 <div class="section-head"><h2>個股決策主表</h2></div>
+<section class="decision-block">
 {_decision_table_tabs_html(decision_table)}
 <div class="overflow-wrap">
 <table class="decision-table" id="decisionTable">
@@ -648,6 +649,7 @@ def generate(
 {_decision_table_section_html(decision_table)}
 </table>
 </div>
+</section>
 {risk_zone_html}
 {_streak_cards_html(streak_cards)}
 </main>

@@ -486,7 +486,7 @@ def generate(trade_date: date, results: list[dict], output_path: str) -> None:
   <input id="s-search" class="s-search" type="text" placeholder="搜尋股號 / 名稱 / 族群…" oninput="applyFilters()">
 </div>
 {summary}
-<div class="tab-bar">
+<div class="tab-bar ui-sticky-tabs">
   <button class="tab-btn" data-tab="tab-overview" onclick="switchTab('tab-overview')">研究總覽</button>
   <button class="tab-btn" data-tab="tab-screener" onclick="switchTab('tab-screener')">做多候選</button>
   <button class="tab-btn" data-tab="tab-patterns" onclick="switchTab('tab-patterns')">形態分區</button>

@@ -10,10 +10,12 @@ SHARED_CSS = r"""
 @media(max-width:640px){.ui-summary-item{flex:1 1 100px;min-width:0}.ui-card-grid{grid-template-columns:1fr}.ui-compact-card{padding:9px 10px}.ui-compact-card:hover{transform:none}}@media(prefers-reduced-motion:reduce){.ui-compact-card{transition:none}.ui-compact-card:hover{transform:none}}
 """ + r"""
 /* 頁面骨架（2026-10-21 統一）：頁首、頁名、左右留白、內容寬度、字型。各頁 CSS 不要再自訂 body / 頁首。 */
-:root{--ui-sans:"Public Sans",-apple-system,"PingFang TC","Microsoft JhengHei","Noto Sans TC","Segoe UI",sans-serif;--ui-mono:ui-monospace,"Cascadia Code","Roboto Mono",monospace;--ui-topbar-h:56px;--ui-gutter:24px;--ui-max:1600px}
+/* --ui-sticky-top：頁內 sticky 元素（分頁籤、工具列）要讓出的高度＝頁首實際高度；render_topbar() 附的 script 會依實際量到的值覆寫（頁首折行時會超過 56px）。 */
+:root{--ui-sans:"Public Sans",-apple-system,"PingFang TC","Microsoft JhengHei","Noto Sans TC","Segoe UI",sans-serif;--ui-mono:ui-monospace,"Cascadia Code","Roboto Mono",monospace;--ui-topbar-h:56px;--ui-sticky-top:var(--ui-topbar-h);--ui-gutter:24px;--ui-max:1600px}
 body{margin:0;background:var(--ui-bg);color:var(--ui-ink);font-family:var(--ui-sans);font-size:14px;line-height:1.55}
 button,input,select{font-family:inherit}
-.ui-topbar{position:sticky;top:0;z-index:20;display:flex;align-items:center;flex-wrap:wrap;gap:6px 20px;min-height:var(--ui-topbar-h);padding:8px var(--ui-gutter);border-bottom:1px solid var(--ui-border);background:rgba(8,11,18,.94);backdrop-filter:blur(12px)}
+.ui-topbar{position:sticky;top:0;z-index:20;padding:0 var(--ui-gutter);border-bottom:1px solid var(--ui-border);background:rgba(8,11,18,.94);backdrop-filter:blur(12px)}
+.ui-topbar-inner{display:flex;align-items:center;flex-wrap:wrap;gap:6px 20px;min-height:var(--ui-topbar-h);max-width:calc(var(--ui-max) - 2 * var(--ui-gutter));margin:0 auto;padding:8px 0}
 .ui-title{margin:0;color:var(--ui-ink);font-family:var(--ui-sans);font-size:1.125rem;font-weight:740;letter-spacing:.01em;line-height:1.3}
 .ui-date{color:var(--ui-ink-3);font-size:.72rem;font-variant-numeric:tabular-nums}
 .ui-date b{color:var(--ui-ink-2);font-weight:600}
@@ -23,21 +25,35 @@ button,input,select{font-family:inherit}
 .ui-nav-link.active{color:var(--ui-ink);border-color:var(--ui-accent);background:var(--ui-panel-2)}
 .ui-nav-link:focus-visible{outline:3px solid var(--ui-accent);outline-offset:2px}
 .ui-main{max-width:var(--ui-max);margin:0 auto;padding:20px var(--ui-gutter) 80px}
+.ui-sticky-tabs{position:sticky;top:var(--ui-sticky-top);z-index:15;background:var(--ui-bg)}
 @media(max-width:760px){
-  :root{--ui-gutter:14px}
-  .ui-topbar{position:static;padding:12px var(--ui-gutter)}
+  :root{--ui-gutter:14px;--ui-sticky-top:0px}
+  .ui-topbar{position:static}
+  .ui-topbar-inner{padding:12px 0}
   .ui-nav{order:3;width:100%;margin-left:0;overflow-x:auto}
   .ui-nav-link{min-height:44px;padding:5px 12px}
 }
 @media(prefers-reduced-motion:reduce){.ui-nav-link{transition:none}}
 """
 
-# 頁首切頁按鈕：(檔名, 顯示名稱)。四頁共用同一份順序與名稱。
+# 頁首切頁按鈕：(檔名, 顯示名稱)。順序與名稱跟 index.html 的導覽一致。
 NAV_PAGES = (
     ("index.html", "族群績效"),
     ("chips.html", "籌碼分析"),
     ("patterns.html", "形態掃描"),
     ("momentum.html", "逆轟策略"),
+    ("watchlist.html", "自選股"),
+)
+
+
+# 量頁首實際高度寫進 --ui-sticky-top；頁首不固定（手機版）時寫 0，頁內分頁籤就黏在最上面。
+_STICKY_TOP_JS = (
+    "(function(){var t=document.querySelector('.ui-topbar');if(!t)return;"
+    "var r=document.documentElement;"
+    "function s(){r.style.setProperty('--ui-sticky-top',"
+    "(getComputedStyle(t).position==='sticky'?t.offsetHeight:0)+'px')}"
+    "s();if(window.ResizeObserver)new ResizeObserver(s).observe(t);"
+    "window.addEventListener('resize',s)})();"
 )
 
 
@@ -51,9 +67,10 @@ def render_topbar(title: str, active_href: str, date_html: str = "") -> str:
     )
     date_part = f'<span class="ui-date">{date_html}</span>' if date_html else ""
     return (
-        '<header class="ui-topbar">'
+        '<header class="ui-topbar"><div class="ui-topbar-inner">'
         f'<h1 class="ui-title">{_html_escape(title)}</h1>'
         f"{date_part}"
         f'<nav class="ui-nav" aria-label="主要功能">{links}</nav>'
-        "</header>"
+        "</div></header>"
+        f"<script>{_STICKY_TOP_JS}</script>"
     )

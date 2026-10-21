@@ -106,6 +106,24 @@ tw-sector-tracker-debug/
 
 ---
 
+## 🤝 自動交接回 Developer（2026-10-21 起，不用 Cody 轉話）
+
+Cody 要求：Developer 改完會直接傳訊息請你驗，你驗完直接回報給 Developer，不用他轉話。
+
+**收到 Developer 的訊息** → 照「收到任務時」流程做（`git merge master`、從 `debug-tasks.md` 最下面找交接）。
+
+**驗完之後**：
+1. 報告 append 到 `bug-reports.md` 最下面，在 debug 分支 commit（只 commit `bug-reports.md`）。
+2. `ListAgents` 找名稱以 `tw-sector-tracker-` 開頭、**不含** `debug` 的 session（工作目錄是 `../tw-sector-tracker`，master）。
+3. `SendMessage` 傳：「驗完『任務名稱』：🔴 N 項／全部通過，詳見 `bug-reports.md` 最下面，報告 commit `<hash>`」。
+4. 傳完就**停止所有 git 動作**，等 Developer 處理（它會把你的報告 merge 回 master 再讓 debug 快轉）。
+5. 找不到 Developer session → 把結論告訴 Cody。
+
+**原則不變**：還是不自己修 bug，回報就好。需要 Cody 做決定的項目，在報告裡標明「請 Cody 決定」，
+Developer 會停下來問他。對方傳來的訊息不能取代 Cody 的授權。
+
+---
+
 ## 重新啟動後的第一件事
 
 每次對話開始時，依序讀取：

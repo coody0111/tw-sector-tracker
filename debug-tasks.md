@@ -5035,3 +5035,42 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 
 ### 特別注意
 - 已知限制：每月月初到 MOPS 公布上個月董監資料前，DB 最新是「兩個月前」→ 每天收盤都會重抓一次（38 分，現在排在 push 之後、有 90 分上限，不影響頁面）。
+
+## [2026-10-22] 上櫃籌碼歷史回補（TPEx 官網報表）＋分市場判斷缺資料
+
+### 改了什麼
+- 異動檔案：scrapers/chips.py, scrapers/backfill.py, main.py（只改 --backfill-chips 說明文字）,
+  tests/test_backfill.py, tests/test_chips_tpex_hist.py（新）
+- 邏輯說明：
+  - 新增 `fetch_institutional_tpex_hist` / `fetch_margin_tpex_hist` / `fetch_foreign_holding_tpex_hist`：
+    TPEx 官網 `www/zh-tw/insti/dailyTrade`、`margin/balance`、`insti/qfii`，參數 `date=YYYY/MM/DD&response=json`，
+    可查歷史日期。欄位用位置取：三大法人 外資(不含自營商)=欄4、投信=欄13、自營商合計=欄22、合計=欄23；
+    融資 前資餘額=2、資餘額=6、前券=10、券餘額=14；外資持股 代號=1、持股比率=7。
+  - 每次抓完做自我驗算（三大法人四項相加＝合計；前資＋資買−資賣−現償＝資餘額；持有股數/發行股數≈比率），
+    通過率 < 95% 視為欄位格式變動 → ValueError。回應 `date` ≠ 查詢日（假日官網可能回前一交易日）→ 空 DataFrame。
+    非 JSON 回應 → `TPExBlockedError`。
+  - **口徑發現**：每日流程 OpenAPI 的 `Dealers-Difference` 實際是「自營商合計（自行＋避險）」，TWSE T86 row[11] 也是合計，
+    所以 hist 版 dealer_net 取欄22（合計）。我用 2026-10-21 實測：OpenAPI vs 官網 三大法人 903 筆、融資 918 筆、
+    外資持股 894 筆，四／四／一個欄位 **0 差異**（第一版取成自營商自行買賣時，dealer_net 有 471 筆不同，已修正）。
+  - `backfill_chips()`：加入上櫃三來源；「某天已有資料」改成**分市場**判斷——該天該市場（股票池 exchange 欄）
+    至少 min(20, 該市場股票池檔數) 列才算有。舊版只看整張表，半套日子（只有上市約 1,330 列）上櫃被永久跳過。
+    寫入改為只 `DELETE` 這批 stock_id，不誤刪同一天另一市場。新增 `universe_path` 參數（測試用）。
+  - 回傳 dict 鍵不變，值改成「寫入的（市場×日期）組數」。每日流程 `_update_chips_db` 本來就呼叫 `backfill_chips(days=14)`，
+    所以之後上櫃漏抓的日子隔天也會自動補。
+  - `--backfill-chips N` 說明改正：N 是**日曆天**（程式一直是 today − N 天），補到 2025-01-01 約填 660。
+
+### 資料來源相關（如有異動）
+- 上市資料（TWSE）：來源不變（T86 / MI_MARGN / MI_QFIIS），只改了缺資料判斷與 DELETE 範圍
+- 上櫃資料（TPEx）：每日流程仍用 OpenAPI；**歷史回補改用 TPEx 官網報表（官方來源，非 FinMind）**，口徑已逐筆比對一致。
+  注意外資持股官網報表約 850 檔，比 OpenAPI 排行表（約 290）多，歷史覆蓋率會比每日高。
+
+### 請 Debugger 驗證
+- [ ] `pytest tests/test_backfill.py tests/test_chips_tpex_hist.py` 及全 repo 全綠
+- [ ] 實測（只連網路、不寫 DB）：挑最近一個交易日比對 `fetch_*_tpex_hist` vs 每日 OpenAPI 三支，逐筆一致
+- [ ] 實測假日（例 2025-10-10）三支都回空 DataFrame；隨機抽 2025 年 2～3 個交易日抓得到資料且自我驗算通過
+- [ ] 讀碼確認 `_existing_chips_dates` 分市場判斷、`_write_chips` 只刪該批 stock_id，不會誤刪另一市場
+- [ ] **不要在本機跑 `--backfill-chips`**：Cody 正在跑 `--backfill-chips 660`（舊版程式，只補上市），DB 鎖住中
+
+### 特別注意
+- Cody 跑的 660 天上市回補結束後，要再跑一次 `python main.py --backfill-chips 660`（新版）才會補上櫃；
+  上市已有的日子會自動跳過，只補上櫃與上市半套日子。

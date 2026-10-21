@@ -4980,3 +4980,30 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 
 ### 特別注意
 - `clip` 需要 Chrome 90+／Safari 16+，舊瀏覽器會退回可見溢出（不會擋 sticky，只是窄螢幕可能出現橫向捲軸）。
+
+## [2026-10-21] 頁首與頁內分頁籤固定、大螢幕左緣對齊、補自選股切頁
+
+### 改了什麼
+- 異動檔案：export/ui_theme.py, export/momentum_generator.py, export/chips_generator.py, export/patterns_generator.py
+- 邏輯說明（Cody 要求：往下捲時上面的分頁要定住；同時處理上一份報告的 🟡 左緣對齊、自選股切頁）：
+  - 頁首改成外層滿版背景＋內層 `.ui-topbar-inner`（`max-width: 1600 - 2×gutter` 置中）→ 大螢幕頁名左緣 = `.ui-main` 內容左緣。
+  - 新變數 `--ui-sticky-top`：頁內 sticky 元素要讓出的高度。`render_topbar()` 後面附一段 script，用 ResizeObserver
+    量頁首實際 `offsetHeight` 寫進去（逆轟 761–1000px 頁首折兩行時也正確）；頁首不是 sticky（≤760px）時寫 0。
+  - 新 class `.ui-sticky-tabs`（sticky、top=`--ui-sticky-top`、z-index 15、底色）：
+    - 形態頁 `.tab-bar`（研究總覽／做多候選…）
+    - 逆轟頁 `.decision-tabs`；決策分頁＋決策表包進 `<section class="decision-block">`，捲過表格分頁籤就放開，不會蓋到風險區
+  - 籌碼頁：`.section-nav-inner`、`.section-nav`（≤1100）、`.chips-toolbar` 的 top 全部改用 `--ui-sticky-top`；
+    ≤760px 拿掉 `.section-nav{position:static}`，手機版分析視角分頁列固定在最上面（搜尋工具列手機版維持不固定）。
+  - `NAV_PAGES` 補上 `("watchlist.html", "自選股")`，順序跟 index.html 一致（放最後）。
+
+### 資料來源相關（如有異動）
+- 無
+
+### 請 Debugger 驗證
+- [ ] 1440／1000／800 寬往下捲：三頁頁首固定；形態分頁籤、逆轟決策分頁籤、籌碼目錄＋工具列都固定在頁首下方，沒有重疊或縫隙
+- [ ] 逆轟 761–1000px（頁首折兩行）：決策分頁籤剛好接在頁首下方，沒被蓋住
+- [ ] 逆轟：捲過決策表後，分頁籤會放開，不會蓋住「風險區」與連續漲停卡片
+- [ ] 375 手機：頁首不固定；形態分頁籤、逆轟決策分頁籤、籌碼分析視角分頁列固定在畫面最上方（top 0）
+- [ ] 1920 寬：頁名左緣跟內容左緣對齊（逆轟/形態 = 內容左緣；籌碼 = 目錄欄左緣 +24）
+- [ ] 三頁切頁按鈕都有 5 個（含自選股），自選股連結可用
+- [ ] 上一則 sticky clip 修正一起驗

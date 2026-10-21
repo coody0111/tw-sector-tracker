@@ -4931,3 +4931,33 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 - **月營收（「月月」）目前仍是半套**：`monthly_revenue` 只有 TWSE 1,085 檔的
   2026-07 一個月。Cody 重跑後才會補上 TPEx。個股卡片的月營收區塊**尚未實作**，
   等資料齊了再接。
+
+## [2026-10-21] 籌碼/形態/逆轟三頁統一頁面骨架
+
+### 改了什麼
+- 異動檔案：export/ui_theme.py, export/momentum_generator.py, export/chips_generator.py, export/patterns_generator.py
+- 邏輯說明：
+  - `ui_theme.py` 的 `SHARED_CSS` 加上頁面骨架（body 字型/底色、`.ui-topbar`/`.ui-title`/`.ui-date`/`.ui-nav`/`.ui-nav-link`/`.ui-main`、
+    `--ui-topbar-h:56px`、`--ui-gutter:24px`（≤760px 為 14px）、`--ui-max:1600px`），並新增 `render_topbar(title, active_href, date_html)`。
+  - 三支 generator 刪掉各自的 body / 頁首 / nav-link CSS，頁首改呼叫 `render_topbar()`。
+  - 逆轟：內容包進 `.ui-main`，各區塊原本寫死的左右 24px margin 改成 0（留白交給 `.ui-main`）；資料日期改粗體。
+  - 籌碼：拿掉站名「台股電子半導體族群追蹤」，h1 改成「籌碼分析」；workspace 最寬 1840→1600；
+    左側目錄、工具列的 sticky `top` 改用 `var(--ui-topbar-h)` 計算（原本寫死 64/76/84/124px）。
+  - 形態：原本沒有頁首，補上；篩選列到分頁內容包進 `<main class="ui-main">`；body 不再自訂 padding/字型。
+  - 對照稿：`docs/superpowers/mockups/2026-10-21-page-shell-unify-v1.html`（Cody 已同意）
+  - index.html（族群績效）**沒改**，它不引用 ui_theme。
+
+### 資料來源相關（如有異動）
+- 無，只動版面。
+
+### 請 Debugger 驗證
+- [ ] `pytest tests/test_chips_generator.py tests/test_momentum_generator.py tests/test_patterns_generator.py` 全綠
+- [ ] 三頁重產後頁首一致：同高度、頁名 h1、資料日期、切頁按鈕且當前頁 `aria-current="page"`
+- [ ] 籌碼頁往下捲：左側目錄、搜尋工具列不會被頁首蓋住（寬螢幕、≤1100px 兩種寬度都看）
+- [ ] 逆轟頁：摘要格、提醒框、決策表左緣對齊頁首左緣，不再貼齊視窗邊
+- [ ] 形態頁：分頁籤切換正常，表格/卡片沒有因 `*{margin:0;padding:0}` 與新骨架互相影響而跑版
+- [ ] 手機寬度（375px）：頁首不固定、切頁按鈕可橫向捲動、沒有橫向捲軸
+- [ ] 族群績效 index.html 外觀沒有變
+
+### 特別注意
+- 區塊之間的上下間距沿用各頁原本的 margin（逆轟本來就是 28px），沒有全面改成 gap，跟對照稿的「區塊間 28px」大致一致但不是逐一重排。

@@ -8,7 +8,7 @@ from pathlib import Path
 from urllib.parse import quote
 import json
 
-from export.ui_theme import SHARED_CSS
+from export.ui_theme import SHARED_CSS, render_topbar
 
 _CUM_THRESHOLD = 15
 
@@ -693,26 +693,15 @@ _CSS = SHARED_CSS + """
   :root{--bg:#080B12;--surface:#0F1420;--surface-2:#161D2C;--surface-3:#1E2738;--border:#293346;--border-strong:#37435C;--text:#DADFE8;--muted:#98A0B4;--subtle:#636B80;--accent:#F0BB55;--accent-soft:rgba(240,187,85,.16);--caution:#6E8CB0;--caution-soft:rgba(110,140,176,.16);--focus:#F0BB55;--up:#E6432F;--down:#37B25C;--radius:8px}
   *{box-sizing:border-box}
   html{background:var(--bg);overflow-x:hidden}
-  body{margin:0;min-width:320px;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans TC",sans-serif;background:var(--bg);color:var(--text);line-height:1.5;overflow-x:hidden}
+  body{min-width:320px;overflow-x:hidden}
   button,input{font:inherit}button{touch-action:manipulation}
   a:focus-visible,button:focus-visible,input:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
   .skip-link{position:fixed;left:12px;top:8px;z-index:1000;transform:translateY(-160%);padding:9px 13px;background:var(--text);color:var(--bg);border-radius:6px;font-weight:750}
   .skip-link:focus{transform:translateY(0)}
   .app-shell{min-height:100dvh}
-  .topbar{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:28px;min-height:64px;padding:0 24px;border-bottom:1px solid var(--border);background:rgba(8,11,18,.96);backdrop-filter:blur(12px)}
-  .brand-lockup{display:flex;align-items:baseline;gap:12px;min-width:max-content}
-  h1{margin:0;font-size:1rem;font-weight:760;color:var(--text);letter-spacing:.015em}
-  .page-name{font-size:.75rem;color:var(--accent);font-weight:750;padding-left:12px;border-left:1px solid var(--border-strong)}
-  .nav-links{display:flex;align-items:center;gap:8px;white-space:nowrap}
-  .nav-link{display:inline-flex;align-items:center;min-height:32px;padding:5px 14px;border:1px solid var(--border);border-radius:6px;color:var(--muted);text-decoration:none;font-family:"Public Sans",-apple-system,"PingFang TC","Microsoft JhengHei","Segoe UI",sans-serif;font-size:.78rem;font-weight:600;transition:color .15s,border-color .15s,background .15s}
-  .nav-link:hover{color:var(--text);border-color:var(--border-strong);background:var(--surface)}
-  .nav-link.active{color:var(--text);border-color:var(--accent);background:var(--surface)}
-  .data-status{margin-left:auto;display:grid;grid-template-columns:auto auto;column-gap:10px;align-items:baseline;white-space:nowrap}
-  .data-status span{color:var(--subtle);font-size:.6875rem;font-weight:700}
-  .data-status strong{font-size:.8125rem;font-weight:720;font-variant-numeric:tabular-nums;color:var(--text)}
-  .workspace{display:grid;grid-template-columns:216px minmax(0,1fr);max-width:1840px;margin:0 auto;min-height:calc(100dvh - 64px)}
+  .workspace{display:grid;grid-template-columns:216px minmax(0,1fr);max-width:var(--ui-max);margin:0 auto;min-height:calc(100dvh - var(--ui-topbar-h))}
   .section-nav{border-right:1px solid var(--border);background:#0B0F19;padding:20px 14px}
-  .section-nav-inner{position:sticky;top:84px}
+  .section-nav-inner{position:sticky;top:calc(var(--ui-topbar-h) + 20px)}
   .section-nav-label{padding:0 10px 9px;color:var(--subtle);font-size:.6875rem;font-weight:800;letter-spacing:.08em}
   .tab-groups{display:flex;flex-direction:column;gap:14px}
   .tab-group{display:flex;flex-direction:column;gap:4px}
@@ -735,8 +724,8 @@ _CSS = SHARED_CSS + """
   .weak-banner{margin-bottom:14px;padding:11px 14px;background:transparent;border:1px dashed var(--border-strong);border-radius:6px;color:var(--muted);font-size:.75rem}
   .weak-banner b{color:var(--subtle)}
   .section-nav-note{margin:18px 10px 0;padding-top:14px;border-top:1px solid var(--border);color:var(--subtle);font-size:.6875rem;line-height:1.65}
-  .main-content{min-width:0;padding:20px 24px 32px}
-  .chips-toolbar{position:sticky;top:76px;z-index:10;display:flex;align-items:end;gap:12px;margin:0 0 16px;padding:10px 12px;background:rgba(15,20,32,.97);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 8px 24px rgba(3,4,7,.24)}
+  .main-content{min-width:0;padding:20px var(--ui-gutter) 80px}
+  .chips-toolbar{position:sticky;top:calc(var(--ui-topbar-h) + 12px);z-index:10;display:flex;align-items:end;gap:12px;margin:0 0 16px;padding:10px 12px;background:rgba(15,20,32,.97);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 8px 24px rgba(3,4,7,.24)}
   .search-field{display:grid;grid-template-columns:auto minmax(220px,320px);align-items:center;gap:9px;color:var(--muted);font-size:.75rem;font-weight:700}
   .search-field input{width:100%;height:40px;padding:8px 11px;color:var(--text);background:var(--bg);border:1px solid var(--border-strong);border-radius:6px}
   .search-field input::placeholder{color:var(--subtle)}
@@ -774,19 +763,18 @@ _CSS = SHARED_CSS + """
   .footer{margin:28px 0 0;font-size:.6875rem;color:var(--subtle);text-align:center;padding-bottom:8px}
   .cum-cell{font-size:.8125rem;font-weight:700;text-align:center;white-space:nowrap;padding:6px 9px}
   @media(max-width:1100px){
-    .topbar{gap:16px}.workspace{display:block}.section-nav{position:sticky;top:64px;z-index:15;padding:8px 16px;border-right:0;border-bottom:1px solid var(--border)}
+    .workspace{display:block}.section-nav{position:sticky;top:var(--ui-topbar-h);z-index:15;padding:8px 16px;border-right:0;border-bottom:1px solid var(--border)}
     .section-nav-inner{position:static}.section-nav-label,.section-nav-note,.tab-group-label{display:none}.tab-groups{flex-direction:row;gap:4px;overflow-x:auto;scrollbar-width:thin}.tab-group{flex-direction:row;gap:4px}.tab-bar{flex-direction:row;gap:4px}
     .tab-btn{flex:0 0 auto;width:auto;padding:8px 13px;border-left:0;border-bottom:2px solid transparent;border-radius:6px 6px 0 0;text-align:center;white-space:nowrap}
-    .tab-btn.active{border-left-color:transparent;border-bottom-color:var(--accent)}.chips-toolbar{top:124px}
+    .tab-btn.active{border-left-color:transparent;border-bottom-color:var(--accent)}.chips-toolbar{top:calc(var(--ui-topbar-h) + 60px)}
   }
   @media(max-width:760px){
-    .topbar{position:static;min-height:auto;padding:12px 14px;flex-wrap:wrap;gap:10px 16px}.brand-lockup{width:100%}.nav-links{order:3;width:100%;overflow-x:auto}
-    .nav-link{min-height:44px;padding:5px 12px}.data-status{margin-left:0}.section-nav{position:static}.main-content{padding:12px}
+    .section-nav{position:static}.main-content{padding:12px var(--ui-gutter) 60px}
     .chips-toolbar{position:static;align-items:stretch;flex-wrap:wrap}.search-field{grid-template-columns:1fr;width:100%;gap:4px}.search-field input{min-width:0}
     .exchange-filter{flex:1}.exch-btn{flex:1}.filter-result{margin-left:0;width:100%}.chips-grid{grid-template-columns:minmax(0,1fr)}
   }
   @media(max-width:540px){
-    .page-name{display:none}.main-content{padding:10px}.chips-section,.chips-section-half{padding:11px}.tab-btn{min-height:44px}
+    .main-content{padding:10px var(--ui-gutter) 60px}.chips-section,.chips-section-half{padding:11px}.tab-btn{min-height:44px}
     .ct td{font-size:.75rem}.ct th{font-size:.6875rem}.table-toggle{display:block}
   }
   @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
@@ -1421,22 +1409,7 @@ def generate(
 <body>
   <a class="skip-link" href="#main-content">跳到籌碼內容</a>
   <div class="app-shell">
-  <header class="topbar">
-    <div class="brand-lockup">
-      <h1>台股電子半導體族群追蹤</h1>
-      <span class="page-name">籌碼分析</span>
-    </div>
-    <div class="data-status" aria-label="籌碼資料日期">
-      <span>資料日期</span>
-      <strong>{chips_date}（週{weekday}）</strong>
-    </div>
-    <nav class="nav-links" aria-label="主要功能">
-      <a class="nav-link" href="index.html">族群績效</a>
-      <a class="nav-link active" href="chips.html" aria-current="page">籌碼分析</a>
-      <a class="nav-link" href="patterns.html">形態掃描</a>
-      <a class="nav-link" href="momentum.html">逆轟策略</a>
-    </nav>
-  </header>
+  {render_topbar("籌碼分析", "chips.html", f"籌碼資料 <b>{chips_date}（週{weekday}）</b>")}
   <div class="workspace">
     <aside class="section-nav" aria-label="籌碼分析視角">
       <div class="section-nav-inner">

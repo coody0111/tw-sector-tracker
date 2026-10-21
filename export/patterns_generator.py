@@ -6,7 +6,7 @@ from datetime import date
 from pathlib import Path
 from urllib.parse import quote as _q
 
-from export.ui_theme import SHARED_CSS
+from export.ui_theme import SHARED_CSS, render_topbar
 
 _BULLISH = {"雙底", "頭肩底", "收斂三角", "上升三角", "下降楔型", "多頭拐點", "VCP突破"}
 _BEARISH = {"雙頂", "三角跌破"}
@@ -347,14 +347,8 @@ _BACKTEST_NOTE = (
 
 _CSS = SHARED_CSS + """
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:#080B12;color:#DADFE8;font-family:system-ui,sans-serif;padding:12px 20px}
 a{color:#F0BB55}
-.page-head{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap}
-.nav-links{display:flex;align-items:center;gap:8px;margin-left:auto;white-space:nowrap}
-.nav-link{display:inline-flex;align-items:center;min-height:32px;font-family:"Public Sans",-apple-system,"PingFang TC","Microsoft JhengHei","Segoe UI",sans-serif;font-size:.78rem;font-weight:600;padding:5px 14px;border-radius:6px;border:1px solid #293346;color:#636B80;text-decoration:none;transition:color .15s,border-color .15s,background .15s}
-.nav-link:hover{border-color:#37435C;color:#98A0B4}
-.nav-link.active{border-color:#F0BB55;color:#DADFE8;background:#161D2C}
-.filter-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:14px 0 0}
+.filter-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0}
 .exch-btn{background:transparent;color:#98A0B4;border:1px solid #293346;border-radius:6px;padding:4px 12px;cursor:pointer;font-size:.72rem;transition:all .15s}
 .exch-btn.active{background:#293346;color:#DADFE8;border-color:#37435C}
 .s-search{flex:1;min-width:160px;max-width:260px;background:#0F1420;color:#DADFE8;border:1px solid #293346;border-radius:6px;padding:4px 10px;font-size:.78rem;outline:none}
@@ -375,7 +369,7 @@ tbody td{padding:5px 10px;border-bottom:1px solid #293346;vertical-align:middle;
 .pt tr:hover td{background:#161D2C}
 .pattern-card .pattern-detail summary{cursor:pointer;color:#98A0B4;font-size:.7rem}.pattern-card .pattern-detail[open] summary{color:#F0BB55}
 .pattern-overview{display:grid;gap:10px}.pattern-group{background:#0F1420;border:1px solid #293346;border-radius:6px;padding:12px 14px}.pattern-group>summary{cursor:pointer;list-style:none;color:#DADFE8;font-size:.78rem;font-weight:700;letter-spacing:.04em}.pattern-group>summary::-webkit-details-marker{display:none}.pattern-group>summary::before{content:'＋';display:inline-block;width:18px;color:#F0BB55}.pattern-group[open]>summary{margin-bottom:12px}.pattern-group[open]>summary::before{content:'−'}.pattern-group .ui-card-grid{margin-top:0}
-@media(max-width:540px){body{padding:10px}.tab-btn{padding:8px 10px;font-size:.72rem}}
+@media(max-width:540px){.tab-btn{padding:8px 10px;font-size:.72rem}}
 """
 
 _TAB_JS = """
@@ -483,17 +477,8 @@ def generate(trade_date: date, results: list[dict], output_path: str) -> None:
 <style>{_CSS}</style>
 </head>
 <body>
-<div class="page-head">
-  <div style="color:#98A0B4;font-size:1rem;font-weight:600">形態掃描
-    <span style="color:#37435C;font-size:.78rem;font-weight:400;margin-left:8px">{date_str}</span>
-  </div>
-  <div class="nav-links">
-    <a class="nav-link" href="index.html">族群績效</a>
-    <a class="nav-link" href="chips.html">籌碼分析</a>
-    <a class="nav-link active" href="patterns.html" aria-current="page">形態掃描</a>
-    <a class="nav-link" href="momentum.html">逆轟策略</a>
-  </div>
-</div>
+{render_topbar("形態掃描", "patterns.html", f"個股行情 <b>{date_str}</b>")}
+<main id="main-content" class="ui-main">
 <div class="filter-bar">
   <button class="exch-btn active" data-exch="" onclick="applyFilters(this)">全部</button>
   <button class="exch-btn" data-exch="TWSE" onclick="applyFilters(this)">上市</button>
@@ -525,6 +510,7 @@ def generate(trade_date: date, results: list[dict], output_path: str) -> None:
 <div class="tab-panel" id="tab-avoid">
   {tab4}
 </div>
+</main>
 
 {_TAB_JS}
 </body>

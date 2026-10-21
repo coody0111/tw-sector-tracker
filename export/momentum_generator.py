@@ -13,7 +13,7 @@
 """
 from html import escape as _html_escape
 
-from export.ui_theme import SHARED_CSS
+from export.ui_theme import SHARED_CSS, render_topbar
 from datetime import date
 from pathlib import Path
 
@@ -369,37 +369,29 @@ _CSS = SHARED_CSS + """
   --ink:#DADFE8;--ink-2:#98A0B4;--ink-3:#636B80;--up:#E6432F;--down:#37B25C;
   --accent:#F0BB55;--tier-super:#F0BB55;--tier-strong:#4FC46A;--tier-mid:#8B94AC;
   --tier-weak:#E08A3E;--tier-superweak:#E6432F;
-  --sans:"Public Sans",-apple-system,"PingFang TC","Microsoft JhengHei","Segoe UI",sans-serif;
+  --sans:var(--ui-sans);
   --mono:ui-monospace,"IBM Plex Mono","Cascadia Code","Roboto Mono",monospace;}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.55;padding:0 0 80px}
 .tabular{font-family:var(--mono);font-variant-numeric:tabular-nums}
 a{color:inherit}
 .skip-link{position:absolute;left:-999px;top:0;background:var(--panel);color:var(--ink);padding:8px 14px;z-index:100}
 .skip-link:focus{left:8px;top:8px}
-.topbar{display:flex;align-items:baseline;gap:16px;padding:18px 24px;border-bottom:1px solid var(--border);flex-wrap:wrap}
-.topbar h1{font-size:1.2rem;font-weight:700;margin:0}
-.topbar .sub{font-size:.72rem;color:var(--ink-3)}
-.nav-links{display:flex;align-items:center;gap:8px;margin-left:auto;white-space:nowrap}
-.nav-link{display:inline-flex;align-items:center;min-height:32px;font-family:var(--sans);font-size:.78rem;font-weight:600;padding:5px 14px;border-radius:6px;border:1px solid var(--border);color:var(--ink-2);text-decoration:none;transition:color .15s,border-color .15s,background .15s}
-.nav-link:hover{border-color:var(--ink-2);color:var(--ink)}
-.nav-link.active{border-color:var(--accent);color:var(--ink);background:var(--panel-2)}
-.nav-link:focus-visible,button:focus-visible,summary:focus-visible,a:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
-.notice{margin:16px 24px;padding:10px 16px;border:1px solid var(--border);border-radius:8px;color:var(--ink-2);font-size:.8rem}
-.permission-banner{margin:0 24px 20px;padding:18px 20px;border-radius:10px;border:1px solid var(--border);border-left:4px solid var(--tier-mid)}
+button:focus-visible,summary:focus-visible,a:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.notice{margin:0;padding:10px 16px;border:1px solid var(--border);border-radius:8px;color:var(--ink-2);font-size:.8rem}
+.permission-banner{margin:0 0 20px;padding:18px 20px;border-radius:10px;border:1px solid var(--border);border-left:4px solid var(--tier-mid)}
 .permission-banner[data-permission="normal"]{border-left-color:var(--tier-strong)}
 .permission-banner[data-permission="selective"]{border-left-color:var(--accent)}
 .permission-banner[data-permission="defensive"]{border-left-color:var(--tier-superweak)}
 .permission-banner[data-permission="unknown"]{border-left-color:var(--ink-3)}
 .permission-banner h2{margin:0 0 6px;font-size:1.1rem}
 .permission-banner p{margin:4px 0;color:var(--ink-2);font-size:.85rem}
-.section-head{margin:28px 24px 10px}
+.section-head{margin:28px 0 10px}
 .section-head h2{font-size:1rem;margin:0}
-.sector-grid{display:flex;gap:10px;flex-wrap:wrap;margin:0 24px}
+.sector-grid{display:flex;gap:10px;flex-wrap:wrap;margin:0}
 .sector-card{border:1px solid var(--border);border-radius:8px;padding:10px 14px;background:var(--panel);min-width:150px}
 .sector-card .rank{color:var(--accent);font-weight:700;font-family:var(--mono)}
 .sector-card .state{font-size:.72rem;color:var(--ink-2)}
-table.decision-table{width:100%;border-collapse:collapse;margin:0 24px;max-width:calc(100% - 48px)}
+table.decision-table{width:100%;border-collapse:collapse;margin:0}
 .decision-table th,.decision-table td{padding:8px 10px;border-bottom:1px solid var(--border);text-align:left;font-size:.82rem}
 .decision-table th{color:var(--ink-3);font-weight:600;font-size:.72rem;text-transform:uppercase}
 .decision-table tbody tr{background:var(--panel);box-shadow:inset 2px 0 0 transparent}.decision-table tbody tr:hover{background:var(--panel-2);box-shadow:inset 2px 0 0 var(--accent)}
@@ -416,13 +408,13 @@ details.evidence summary{cursor:pointer;font-size:.76rem;color:var(--ink-2)}
 .evidence-list{margin:6px 0 0;padding-left:18px;font-size:.78rem;color:var(--ink-2)}
 .evidence-list li[data-pass="true"]{color:var(--tier-strong)}
 .evidence-list li[data-pass="false"]{color:var(--ink-3)}
-.risk-zone{margin:28px 24px;padding:16px 20px;border:1px solid var(--tier-superweak);border-radius:10px}
+.risk-zone{margin:28px 0;padding:16px 20px;border:1px solid var(--tier-superweak);border-radius:10px}
 .risk-zone h2{margin:0 0 10px;font-size:1rem}
-.streak-grid{display:flex;gap:10px;flex-wrap:wrap;margin:0 24px}
+.streak-grid{display:flex;gap:10px;flex-wrap:wrap;margin:0}
 .streak-card{border:1px solid var(--border);border-radius:8px;padding:10px 14px;background:var(--panel)}
 .overflow-wrap{overflow-x:auto}
 tbody[hidden]{display:none}
-.decision-tabs{display:flex;gap:4px;flex-wrap:wrap;margin:0 24px 10px;border-bottom:1px solid var(--border)}
+.decision-tabs{display:flex;gap:4px;flex-wrap:wrap;margin:0 0 10px;border-bottom:1px solid var(--border)}
 .decision-tab-btn{background:transparent;border:0;border-bottom:2px solid transparent;color:var(--ink-2);
   padding:8px 12px;font-size:.8rem;font-family:inherit;cursor:pointer}
 .decision-tab-btn:hover{color:var(--ink)}
@@ -612,14 +604,12 @@ def generate(
     divergence_text = _esc(market_permission_data.get("divergence_text", ""))
     advice_text = _esc(market_permission_data.get("advice_text", ""))
 
-    freshness_bits = []
-    if index_date:
-        freshness_bits.append(f"指數 {index_date}")
-    if price_date:
-        freshness_bits.append(f"個股行情 {price_date}")
-    if chips_date:
-        freshness_bits.append(f"籌碼 {chips_date}")
-    freshness_text = "　·　".join(freshness_bits) if freshness_bits else date_str
+    freshness_bits = [
+        f"{label} <b>{_esc(str(d))}</b>"
+        for label, d in (("指數", index_date), ("個股行情", price_date), ("籌碼", chips_date))
+        if d
+    ]
+    freshness_html = "　·　".join(freshness_bits) if freshness_bits else f"<b>{date_str}</b>"
 
     risk_zone_html = _risk_zone_html(risk_zone) if permission == "defensive" else ""
     risk_count = len(risk_zone.get("resilient", [])) + len(risk_zone.get("limit_down", []))
@@ -640,18 +630,9 @@ def generate(
 </head>
 <body>
 <a class="skip-link" href="#main-content">跳到主要內容</a>
-<header class="topbar">
-  <h1>逆轟動能策略</h1>
-  <span class="sub">{freshness_text}</span>
-  <nav class="nav-links" aria-label="主要功能">
-    <a class="nav-link" href="index.html">族群績效</a>
-    <a class="nav-link" href="chips.html">籌碼分析</a>
-    <a class="nav-link" href="patterns.html">形態掃描</a>
-    <a class="nav-link active" href="momentum.html" aria-current="page">逆轟策略</a>
-  </nav>
-</header>
+{render_topbar("逆轟動能策略", "momentum.html", freshness_html)}
+<main id="main-content" class="ui-main">
 <div class="notice">本頁為全市場動能掃描與決策支援，不是自動交易或個人化投資建議。所有分數與門檻標記為實驗性，尚未回測校準。</div>
-<main id="main-content">
 {page_summary}
 <div class="permission-banner" data-permission="{permission}">
   <h2>市場操作許可：{tier_text}</h2>

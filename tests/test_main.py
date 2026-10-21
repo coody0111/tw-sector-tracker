@@ -388,6 +388,41 @@ def test_update_insider_holdings_db_skips_when_this_month_already_has_data(monke
     assert calls == []
 
 
+def _first_of_month_shift(base: date, months_back: int) -> date:
+    y, m = base.year, base.month - months_back
+    while m < 1:
+        y, m = y - 1, m + 12
+    return date(y, m, 1)
+
+
+def test_update_insider_holdings_db_skips_when_previous_month_already_has_data(monkeypatch):
+    """report_date 是資料所屬月份，最新只會到上個月（10 月時是 09-01）。
+    舊 gate 拿它跟「這個月」比永遠不成立，每天重抓 38 分鐘把收盤排程拖到逾時（2026-10-21）。"""
+    monkeypatch.setattr(
+        "screener.database.get_conn",
+        lambda: _FakeConn(_first_of_month_shift(date.today(), 1)),
+    )
+    calls = []
+    monkeypatch.setattr(main, "_update_insider_holdings", lambda: calls.append(1))
+
+    _update_insider_holdings_db(realtime=False)
+
+    assert calls == []
+
+
+def test_update_insider_holdings_db_updates_when_two_months_behind(monkeypatch):
+    monkeypatch.setattr(
+        "screener.database.get_conn",
+        lambda: _FakeConn(_first_of_month_shift(date.today(), 2)),
+    )
+    calls = []
+    monkeypatch.setattr(main, "_update_insider_holdings", lambda: calls.append(1))
+
+    _update_insider_holdings_db(realtime=False)
+
+    assert calls == [1]
+
+
 def test_update_insider_holdings_db_updates_when_data_is_stale(monkeypatch):
     monkeypatch.setattr(
         "screener.database.get_conn",

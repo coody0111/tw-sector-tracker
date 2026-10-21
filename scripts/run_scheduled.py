@@ -107,7 +107,11 @@ class ExecutionLock:
             pass
 
 
-def run_main_py(mode: str, summary_path: str, timeout: int = 900) -> dict:
+_INTRADAY_TIMEOUT_SEC = 900
+_CLOSE_TIMEOUT_SEC = 5400
+
+
+def run_main_py(mode: str, summary_path: str, timeout: int = _INTRADAY_TIMEOUT_SEC) -> dict:
     """呼叫 `python main.py`。intraday 模式帶 --realtime --no-push，close 模式不帶。
     兩種模式都帶 --summary-json。回傳 {returncode, stdout, stderr}。"""
     cmd = [sys.executable, str(_PROJECT_ROOT / "main.py")]
@@ -289,7 +293,10 @@ def main() -> int:
         # 「summary is None」，走進本來就有的失敗通知分支（見 finding 5）。
         _SUMMARY_PATH.unlink(missing_ok=True)
         try:
-            result = run_main_py(mode, str(_SUMMARY_PATH))
+            # 收盤模式在頁面 push 之後還要跑集保回補（新週 20-35 分）＋董監持股（38 分起跳），
+            # 900 秒必砍、資料永遠存不進去，所以收盤放寬到 90 分鐘；盤中維持 15 分鐘。
+            timeout = _CLOSE_TIMEOUT_SEC if mode == "close" else _INTRADAY_TIMEOUT_SEC
+            result = run_main_py(mode, str(_SUMMARY_PATH), timeout=timeout)
         except subprocess.TimeoutExpired as exc:
             duration = (datetime.now() - started).total_seconds()
             logger.error("main.py 執行逾時（超過 %s 秒）：%s", exc.timeout, exc)

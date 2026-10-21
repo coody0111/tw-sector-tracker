@@ -183,7 +183,7 @@ con.close()
 | 三大法人/融資融券/外資持股% | `institutional`/`margin`/`foreign_holdings` | 每交易日 | ✅ 自動（`backfill_chips(days=14)`，每次 `python main.py` 都會跑） |
 | 集保大戶 | `shareholder` | 每週（通常週五） | ✅ 自動（`_backfill_shareholder(weeks=4)`，只在收盤模式跑） |
 | 官方月營收/季報 | `monthly_revenue`/`financial_facts` | 月營收月更、季報季更 | ✅ 自動（`_update_fundamentals_db`，只在收盤模式跑，成本低每天都跑） |
-| 董監持股 | `insider_holdings` | 月更 | ✅ 自動（`_update_insider_holdings_db`，只在收盤模式跑，內部有「本月已有資料就跳過」的 gate，避免每天觸發那個 17 分鐘起跳的逐股查詢） |
+| 董監持股 | `insider_holdings` | 月更 | ✅ 自動（`_update_insider_holdings_db`，只在收盤模式跑，DB 最新一期已是上個月就跳過（2026-10-21 修正舊 gate 永遠不成立的 bug），避免每天觸發那個 38 分鐘起跳的逐股查詢；跟集保回補一起排在頁面 push 之後才跑，收盤排程上限 90 分鐘） |
 
 **判斷「這個資料是不是缺很久」的粗略基準**：跟今天日期比，行情/籌碼三表落後 > 3 個交易日、
 集保落後 > 2 週、月營收/季報/董監落後 > 1 個月，就該懷疑排程沒正常跑（先查

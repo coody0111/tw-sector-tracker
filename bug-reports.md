@@ -4208,3 +4208,27 @@ reimport 完成：共 372163 筆
 ### 結論
 - [x] 框架可以先合，等官方行情重建完再補實跑對照（必考題、PF／R 跟 §13.10／13.11 的差異、精確 vs 近似漲停的差異）。
 - 建議先處理 🟡 1（預熱期），否則實跑出來的樣本內數字沒有參考價值。
+
+## [2026-10-24] 報告 - 修：回測框架依報告 🟡 1、3、4（commit 029aee2）
+
+### 🔴 數據問題（需立刻修）
+- 無
+
+### 🔴 程式問題（需立刻修）
+- 無
+
+### 🟡 建議改善
+- `recommend/backtest.py:112` `g["one_word"].shift(-1).fillna(False).astype(bool)` 會出現 pandas FutureWarning
+  （「Downcasting object dtype arrays on .fillna is deprecated」），測試多了 3 個 warning。現在結果正確，
+  但未來 pandas 版本行為會變。建議改成 `g["one_word"].shift(-1, fill_value=False).astype(bool)`。
+
+### ✅ 驗證通過
+- `pytest tests/test_recommend_backtest.py tests/test_main.py`：**42 passed**；全套：**803 passed**（4 warnings，其中 3 個是上面那行）。
+- **預熱期**（唯讀，用目前 DB 實測）：start=2025-01-01 → 面板從 **2024-05-27** 開始載。`hi90` 第一次有值的中位數從原本的 2025-05-23 提前到 **2024-10-08**，
+  **97%** 的股票在 2025-01-02 前就有 `hi90`（剩下的是之後才上市的）。訊號只取 `date >= start` ✅
+- **踩雷率口徑**：用合成資料驗證，隔天一字漲停的訊號不計入；`exclude_dates` 裡的訊號也不計入（全部排除時回 NaN）✅。跟 `run_trades` 一致。
+- features.py 註解已改正上市除權息日的限制 ✅
+- 🟡2（大戶路線期間）、🟡5（跌停賣不掉）交接說已記入規格，不改程式，接受。
+
+### 結論
+- [x] 可以繼續。實跑對照等官方行情重建完再補。

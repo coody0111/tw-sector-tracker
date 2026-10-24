@@ -4089,3 +4089,23 @@ reimport 完成：共 372163 筆
 ### 結論
 - [x] 可以請 Cody 開跑（執行邏輯和資料都正確），順序：先 `--update-calendar 2020-01`，再 `--backfill-official 2020-01-02`，晚上或假日跑。
 - [ ] 失敗的測試請 Developer 修（不擋開跑）。
+
+## [2026-10-24] 報告 - 修測試：--backfill-official 續跑不備份的斷言（commit 37c09e3）
+
+### 🔴 數據問題（需立刻修）
+- 無
+
+### 🔴 程式問題（需立刻修）
+- 無
+
+### 🟡 建議改善
+- 無
+
+### ✅ 驗證通過
+- 只改了 `tests/test_official_prices.py`（以及 debug-tasks.md），沒有動到程式。
+- 原本的測試改成斷言「已有官方 CSV＝續跑 → 不建備份資料夾」；另外新增 `test_backfill_official_first_run_backs_up_existing_csvs`，
+  驗證首次執行只有 1 份備份，而且備份的是覆寫前的原檔（沒有 `source` 欄）。跟上一份報告的建議一致。
+- `pytest tests/test_official_prices.py`：**8 passed**；全套 `pytest -q`：**761 passed**，0 failed。
+
+### 結論
+- [x] 可以繼續下一個任務。上一份報告的 🔴（測試紅燈）已解決，`--backfill-official` 可以開跑。

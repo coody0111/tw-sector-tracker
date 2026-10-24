@@ -4140,3 +4140,28 @@ reimport 完成：共 372163 筆
 
 ### 結論
 - [x] 需要修改後再確認：Cody 可以先直接重跑同一行指令接著做（資料安全），但建議 Developer 加上網路錯誤重試，免得 4 小時內要人工重跑好幾次。
+
+## [2026-10-24] 報告 - 修：--backfill-official 網路錯誤重試、停下不崩潰（commit 6aa042f）
+
+### 🔴 數據問題（需立刻修）
+- 無
+
+### 🔴 程式問題（需立刻修）
+- 無
+
+### 🟡 建議改善
+- 重試只包住 `requests.get`。如果 HTTP 200 但 body 不完整，例如 JSON 被截斷、`resp.json()` 拋 `JSONDecodeError`，就**不會重試**，
+  而是直接停下（實測 stopped='2026-10-22'）。結果是安全的（不崩潰、照常 reimport），只是要人工重跑。
+  要更省事的話，可以把 `resp.json()` 也放進重試範圍。不急。
+
+### ✅ 驗證通過
+- `pytest tests/test_official_prices.py`：**10 passed**；全套（照交接排除 `test_recommend_*`）：**763 passed**。
+  （順便跑了 `test_recommend_*`：31 passed，這部分不在本次驗證範圍。）
+- 模擬情境（mock `requests.get`）：
+  - 前兩次拋 `ChunkedEncodingError`、第三次成功 → `fetch_tpex_day` 正常回傳，共 3 次請求，等待 **5、15 秒** ✅
+  - 一直 `ConnectionError` → 重試 2 次後，`backfill_official_prices` 回 `stopped='2026-10-22'`，**沒有崩潰** ✅
+  - 200 但 JSON 解析失敗（`requests.exceptions.JSONDecodeError`，同時是 RequestException 和 ValueError）→ 停下、不崩潰 ✅
+- 讀碼：主迴圈 except 涵蓋 Blocked／RequestException／ValueError → break，`backfill_official_cli` 有寫入就照常 `reimport_db()`。
+
+### 結論
+- [x] 可以繼續。Cody 重跑 `python main.py --backfill-official 2020-01-02` 會從 2020-06-05 接著做（要先 `git pull` 到含 6aa042f 的 master）。

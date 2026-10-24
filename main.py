@@ -248,6 +248,7 @@ def _build_run_summary(
     started_at,
     finished_at,
     warnings: list,
+    recommend: dict | None = None,
 ) -> dict:
     """組出 --summary-json 要寫的執行摘要（見 docs/scheduler.md §6）。純函式、不寫檔，
     方便單元測試。盤中模式（realtime=True）不帶 flow_watch 欄位——那是收盤摘要專屬的
@@ -271,6 +272,8 @@ def _build_run_summary(
     }
     if not realtime:
         summary["flow_watch"] = flow_watch
+        if recommend is not None:
+            summary["recommend"] = recommend
     return summary
 
 
@@ -491,6 +494,29 @@ def _update_fundamentals() -> None:
     )
 
 
+RECOMMEND_PAYLOAD_PATH = Path("data/recommend_payload.json")
+
+
+def _update_recommend(realtime: bool, trade_date: date, warnings: list | None = None) -> dict | None:
+    """收盤後跑個股推薦（規格 §10）：策略訊號、成績單、payload（存 data/recommend_payload.json 給推薦頁）。
+    盤中不跑；失敗只記 warning，不擋其他流程。"""
+    if realtime:
+        return None
+    try:
+        from recommend.daily import run_daily
+        payload = run_daily(day=trade_date)
+        RECOMMEND_PAYLOAD_PATH.parent.mkdir(parents=True, exist_ok=True)
+        RECOMMEND_PAYLOAD_PATH.write_text(json.dumps(payload, ensure_ascii=False, default=str), encoding="utf-8")
+        logger.info("個股推薦：新訊號 %d 檔，有效中 %d、失效 %d",
+                    sum(g["count"] for g in payload["new"]), len(payload["active"]), len(payload["invalid"]))
+        return payload
+    except Exception as exc:
+        logger.warning("個股推薦產生失敗（不影響其他產出）：%s", exc)
+        if warnings is not None:
+            warnings.append("個股推薦產生失敗")
+        return None
+
+
 def _update_fundamentals_db(realtime: bool, warnings: list | None = None) -> None:
     """官方月營收/季報：TWSE/TPEx bulk API(兩個交易所各一次官方彙總呼叫，不是逐股)，
     成本低，收盤模式每天跑一次沒負擔，直接更新到「目前最新」，不需要額外的月度/
@@ -702,6 +728,7 @@ def run(trade_date: date = None, realtime: bool = False, push: bool = True, summ
     flow_watch = []
     chips_html_written = False
     push_succeeded = False
+    recommend_payload = None
     if trade_date is None:
         trade_date = date.today()
         if trade_date.weekday() >= 5:  # 週六=5, 週日=6 → 退回上週五
@@ -866,6 +893,9 @@ def run(trade_date: date = None, realtime: bool = False, push: bool = True, summ
     # 6.3 官方基本面（月營收/季報）：bulk API成本低，收盤模式每天跑一次。
     _update_fundamentals_db(realtime, warnings=_run_warnings)
 
+    # 6.4 個股推薦（收盤模式）：籌碼已寫入 DB 才跑；失敗只記 warning
+    recommend_payload = _update_recommend(realtime, trade_date, warnings=_run_warnings)
+
     # 6.5 行情連續性體檢：daily_prices 缺交易日時，所有「近N日」指標都會跨過那些洞、
     # 算出偏大的漲跌幅（2026-08-28 金居 8358 顯示「5日 +100%」實為近一個月）。
     # get_rolling_returns() 等處已會擋下不可信的窗口回 None，這裡額外把狀況推到
@@ -903,6 +933,9 @@ def run(trade_date: date = None, realtime: bool = False, push: bool = True, summ
             taiex_history = fetch_taiex_history(trade_date, months=4)
             market_context = analyze_market_history(pd.DataFrame(taiex_history), as_of=trade_date)
             taiex = taiex_history[-1] if taiex_history else None
+            if recommend_payload is not None and len(taiex_history) >= 20:
+                closes = [r["close"] for r in taiex_history[-20:]]
+                recommend_payload["taiex_above_ma20"] = closes[-1] > sum(closes) / 20
             # 順手更新官方交易日行事曆（同一份 FMTQIK，不多打 API）
             try:
                 from scrapers.trading_calendar import merge_trading_days
@@ -1295,6 +1328,7 @@ def run(trade_date: date = None, realtime: bool = False, push: bool = True, summ
         summary = _build_run_summary(
             trade_date=trade_date, realtime=realtime,
             market_regime=market_regime, margin_div=margin_div, flow_watch=flow_watch,
+            recommend=recommend_payload,
             html_updated=bool(chips_html_written),
             git_pushed=push_succeeded,
             started_at=_started_at, finished_at=_finished_at, warnings=_run_warnings,

@@ -498,3 +498,28 @@ def test_backtest_recommend_cli_has_warmup_and_filters_signals_from_start():
     from main import backtest_recommend_cli
     src = inspect.getsource(backtest_recommend_cli)
     assert "warmup_start" in src and 'sig["date"] >= pd.Timestamp(start)' in src
+
+
+def test_build_run_summary_includes_recommend_only_in_close_mode():
+    started = datetime(2026, 10, 22, 15, 0, 0)
+    finished = datetime(2026, 10, 22, 15, 5, 0)
+    rec = {"trade_date": "2026-10-22", "new": [], "header": {}, "active": [], "invalid": []}
+    common = dict(trade_date=date(2026, 10, 22), market_regime=None, margin_div={}, flow_watch=[],
+                  html_updated=True, git_pushed=True, started_at=started, finished_at=finished, warnings=[])
+    assert _build_run_summary(realtime=False, recommend=rec, **common)["recommend"]["trade_date"] == "2026-10-22"
+    assert "recommend" not in _build_run_summary(realtime=True, recommend=rec, **common)
+
+
+def test_run_calls_recommend_daily_in_close_mode():
+    source = inspect.getsource(run)
+    assert "_update_recommend(" in source
+
+
+def test_update_recommend_skips_realtime_and_swallows_errors(monkeypatch):
+    import main as m
+    assert m._update_recommend(True, date(2026, 10, 22)) is None
+    import recommend.daily as rd
+    monkeypatch.setattr(rd, "run_daily", lambda day=None: (_ for _ in ()).throw(RuntimeError("壞了")))
+    warnings = []
+    assert m._update_recommend(False, date(2026, 10, 22), warnings=warnings) is None
+    assert warnings == ["個股推薦產生失敗"]

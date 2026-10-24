@@ -41,6 +41,7 @@ logger = logging.getLogger(__name__)
 
 # 模組層級 import：sys.path 已在上面修好，不需要延到 main() 內才 import。
 from notifications.telegram import send_telegram_message, TelegramConfigError  # noqa: E402
+from recommend.telegram_format import compose_recommend_message  # noqa: E402
 
 _MARKET_OPEN = dt_time(9, 0)
 _MARKET_CLOSE = dt_time(13, 30)  # TWSE 正式收盤時間，僅供參考語意，不直接拿來判斷排程窗口
@@ -236,6 +237,15 @@ def compose_close_message(summary: dict, site_url: str) -> str:
     return "\n".join(lines)
 
 
+def send_recommend_message(summary: dict, site_url: str) -> None:
+    """收盤後的個股推薦表格（規格 E21）；沒有新訊號就不發。"""
+    rec = summary.get("recommend")
+    if not rec or not rec.get("new"):
+        return
+    url = site_url.rstrip("/") + "/recommend.html"
+    send_telegram_message(compose_recommend_message(rec, rec.get("taiex_above_ma20"), url), parse_mode="HTML")
+
+
 def compose_failure_message(mode: str, error: str, duration_seconds: float) -> str:
     mode_label = "盤中監控" if mode == "intraday" else "收盤更新"
     minutes, seconds = divmod(round(duration_seconds), 60)
@@ -344,6 +354,7 @@ def main() -> int:
                 site_url = os.environ.get("SITE_URL", "https://coody0111.github.io/tw-sector-tracker/")
                 try:
                     send_telegram_message(compose_close_message(summary, site_url))
+                    send_recommend_message(summary, site_url)
                 except TelegramConfigError as exc:
                     logger.error("Telegram 設定缺失，無法通知：%s", exc)
         except Exception as exc:

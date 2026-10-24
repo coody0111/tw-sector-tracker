@@ -403,3 +403,18 @@ def test_main_sends_failure_notification_on_subprocess_timeout(monkeypatch, tmp_
     assert len(sent) == 1
     assert "逾時" in sent[0]
     assert not lock_path.exists()  # finally 區塊仍正常釋放鎖
+
+
+def test_close_sends_recommend_message_when_new_signals(monkeypatch):
+    import scripts.run_scheduled as rs
+    sent = []
+    monkeypatch.setattr(rs, "send_telegram_message", lambda text, **kw: sent.append((text, kw)) or True)
+    rec = {"trade_date": "2026-10-22", "header": {}, "new": [{"sector": "散熱", "count": 1, "cards": [
+        {"stock_id": "3017", "stock_name": "奇鋐", "type": "續攻", "n_routes": 2, "close": 1.0, "change_pct": 9.9,
+         "alerts": []}]}], "active": [], "invalid": [], "taiex_above_ma20": True}
+    rs.send_recommend_message({"recommend": rec}, "https://x/")
+    assert sent and sent[0][1]["parse_mode"] == "HTML" and "https://x/recommend.html" in sent[0][0]
+    sent.clear()
+    rs.send_recommend_message({"recommend": {**rec, "new": []}}, "https://x/")
+    rs.send_recommend_message({}, "https://x/")
+    assert not sent

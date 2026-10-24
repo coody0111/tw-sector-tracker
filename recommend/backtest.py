@@ -109,7 +109,7 @@ def blowup_rate(signals: pd.DataFrame, features: pd.DataFrame, exclude_dates=())
     entry = g["open"].shift(-1)
     exit_ = g["close"].shift(-BLOWUP_DAYS)
     f["a20"] = exit_ * (1 - FEE - TAX) / (entry * (1 + FEE)) - 1
-    f.loc[g["one_word"].shift(-1).fillna(False).astype(bool), "a20"] = np.nan
+    f.loc[g["one_word"].shift(-1, fill_value=False).astype(bool), "a20"] = np.nan
     sig = signals[~signals["date"].isin(excl)]
     m = sig.merge(f[["stock_id", "date", "a20"]], on=["stock_id", "date"], how="left").dropna(subset=["a20"])
     return (m["a20"] <= BLOWUP_RET).mean() if len(m) else np.nan

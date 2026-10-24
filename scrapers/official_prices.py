@@ -241,6 +241,8 @@ def backfill_official_prices(
             stats["skipped"] += 1
             d += timedelta(days=1)
             continue
+        if stats["written"] == stats["holidays"] == stats["partial"] == 0:
+            logger.info("已是官方跳過 %d 天，從 %s 開始抓（每 5 天回報一次進度）", stats["skipped"], d.isoformat())
         try:
             twse = fetch_twse_day(d)
             time.sleep(sleep_sec)
@@ -268,7 +270,7 @@ def backfill_official_prices(
             pd.DataFrame(rows).to_csv(path, index=False, encoding="utf-8-sig")
             prev_close.update(_bases_from_rows(rows))
             stats["written"] += 1
-            if stats["written"] % 20 == 0:
+            if stats["written"] % 5 == 0:  # 一天約 10 秒，每 5 天回報一次，免得看起來像卡住
                 logger.info("官方行情：已寫到 %s（%d 天）", d.isoformat(), stats["written"])
         time.sleep(sleep_sec)
         d += timedelta(days=1)

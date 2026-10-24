@@ -5278,3 +5278,14 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 
 ### 請 Debugger 驗證
 - [ ] tests/test_recommend_backtest.py、tests/test_main.py 與全套
+
+## [2026-10-24] 小修：官方回補進度訊息、FutureWarning
+
+### 改了什麼
+- 異動檔案：scrapers/official_prices.py, recommend/backtest.py
+  1. 官方回補：續跑時先印「已是官方跳過 N 天，從 X 開始抓」；進度改每 5 天印一次（Cody 反映續跑後好幾分鐘沒畫面像卡住）。
+     注意：開始前那句在第一次真的要抓之前印一次（skipped 之後、written/holidays/partial 都還是 0 時）。
+  2. backtest.py:112 改 `shift(-1, fill_value=False)`（報告 🟡）。
+
+### 請 Debugger 驗證
+- [ ] tests/test_official_prices.py、tests/test_recommend_backtest.py 與全套，FutureWarning 消失

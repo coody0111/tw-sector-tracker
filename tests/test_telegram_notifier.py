@@ -70,3 +70,14 @@ def test_split_message_splits_long_message_on_blank_lines():
     assert len(chunks) >= 2
     assert all(len(c) <= 4000 for c in chunks)
     assert "".join(chunks).replace("\n\n", "") == text.replace("\n\n", "")
+
+
+def test_send_passes_parse_mode_when_given(monkeypatch):
+    from unittest.mock import MagicMock
+    import notifications.telegram as tg
+    post = MagicMock(return_value=MagicMock(status_code=200))
+    monkeypatch.setattr(tg.requests, "post", post)
+    assert tg.send_telegram_message("<pre>x</pre>", token="t", chat_id="c", parse_mode="HTML")
+    assert post.call_args.kwargs["data"]["parse_mode"] == "HTML"
+    tg.send_telegram_message("x", token="t", chat_id="c")
+    assert "parse_mode" not in post.call_args.kwargs["data"]

@@ -1,0 +1,30 @@
+from recommend.telegram_format import compose_recommend_message
+
+
+def _card(sid, sector, alerts=()):
+    return {"stock_id": sid, "stock_name": "名<稱>", "meta_sector": sector, "type": "整理", "n_routes": 3,
+            "close": 337.5, "change_pct": 10.0, "alerts": list(alerts)}
+
+
+def _payload(n_new):
+    cards = [_card(f"{1000 + k}", "銅箔基板" if k < 2 else "散熱", ["乖離大"] if k == 2 else []) for k in range(n_new)]
+    groups = [{"sector": "銅箔基板", "count": 2, "cards": cards[:2]},
+              {"sector": "散熱", "count": n_new - 2, "cards": cards[2:]}]
+    return {"trade_date": "2026-10-22",
+            "header": {"above_ma20_pct": 0.61, "fail_rate": 0.33, "limit_up": 18, "limit_down": 3},
+            "new": groups, "active": [{}] * 4, "invalid": [{}] * 2}
+
+
+def test_message_has_table_groups_and_escaping():
+    msg = compose_recommend_message(_payload(3), taiex_above_ma20=True, site_url="https://x/recommend.html")
+    assert msg.startswith("個股推薦 10/22 收盤")
+    assert "MA20上 61%｜失敗率 33%｜加權&gt;MA20｜漲停 18 跌停 3" in msg
+    assert "<pre>" in msg and "[銅箔基板 2檔]" in msg and "[散熱 1檔]" in msg
+    assert "乖離大" in msg and "名&lt;稱&gt;" in msg
+    assert "新 3 檔｜有效中 4 檔｜失效 2 檔" in msg and msg.rstrip().endswith("https://x/recommend.html")
+    assert "點火" not in msg
+
+
+def test_message_truncates_after_fifteen():
+    msg = compose_recommend_message(_payload(20), taiex_above_ma20=None, site_url="u")
+    assert "另 5 檔見頁面" in msg and "加權" not in msg

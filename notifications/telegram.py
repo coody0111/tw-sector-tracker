@@ -49,7 +49,7 @@ def _split_message(text: str, max_length: int = _MAX_MESSAGE_LENGTH) -> list[str
 
 
 def send_telegram_message(
-    text: str, token: str | None = None, chat_id: str | None = None
+    text: str, token: str | None = None, chat_id: str | None = None, parse_mode: str | None = None
 ) -> bool:
     """
     傳送訊息到 Telegram。token/chat_id 未傳入時讀環境變數
@@ -65,7 +65,10 @@ def send_telegram_message(
     all_ok = True
     for chunk in _split_message(text):
         try:
-            resp = requests.post(url, data={"chat_id": chat_id, "text": chunk}, timeout=_TIMEOUT_SECONDS)
+            data = {"chat_id": chat_id, "text": chunk}
+            if parse_mode:  # 例：個股推薦表格用 HTML 的 <pre>（recommend/telegram_format.py）
+                data["parse_mode"] = parse_mode
+            resp = requests.post(url, data=data, timeout=_TIMEOUT_SECONDS)
             if resp.status_code != 200:
                 logger.error("Telegram 發送失敗：HTTP %d", resp.status_code)
                 all_ok = False

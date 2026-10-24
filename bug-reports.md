@@ -4253,3 +4253,66 @@ reimport 完成：共 372163 筆
 
 ### 結論
 - [x] 可以繼續下一個任務。
+
+## [2026-10-24] 報告 - 個股推薦階段 4：每日後端（訊號、成績單、Telegram）（commit 40937bd，第一階段）
+
+> 官方行情還在重建，正式對照（用 DB 複本跑 `run_daily`）等重建完再補。這次先用**唯讀**模擬：讀正式 DB（目前是 Yahoo 版，
+> 近期價格跟官方一致），`build_payload` 照跑，成績單寫到**記憶體 DuckDB**，沒有寫正式 DB、也沒碰 `data/daily_prices`。
+
+### 🔴 數據問題（需立刻修）
+- 無
+
+### 🔴 程式問題（需立刻修）
+- 無
+
+### 🟡 建議改善
+1. **payload JSON 裡有 `NaN`，瀏覽器讀不了**（做推薦頁之前必修）：成績單還沒有已出場的交易時，`summary()` → `_core()` 的
+   `mean_ret／mean_r／win_rate／payoff／pf` 都是 `nan`，`json.dumps` 會寫成 `NaN`（Python 讀得了，但瀏覽器 `JSON.parse` 會直接報錯）。
+   `data/recommend_payload.json` 是要給 recommend.html 用的，建議寫檔前把 NaN 轉成 `null`
+   （例如 `json.dumps(..., allow_nan=False)` 前先清洗，或 `_core` 改回 None）。實測模擬 payload 的 JSON 裡確實有 `NaN`。
+2. **成績單只記「當天」的訊號**：`run_daily` 只對 `signals[signals["date"] == day]` 呼叫 `record_signals`。哪天收盤流程失敗、逾時或休市誤判，
+   那天的推薦就**永遠不會進成績單**，成績單會漏掉。建議改成記錄 `KEEP_DAYS`（或近 N 天）內所有訊號，`record_signals` 本來就會跳過已存在的。
+3. **`compose_recommend_message` 遇到 `change_pct=None` 會崩潰**：`f"{c['change_pct']:>+6.1f}"` 碰到 None 會 TypeError
+   （`build_cards` 在 prev 為 0 時給 None）。在排程裡會被外層 `except Exception` 接住，走 `_notify_failure`，
+   結果收盤「明明成功」卻發出失敗通知，而且推薦表格也沒發出去。很少發生，但建議格式化時處理 None。
+   另外建議 `send_recommend_message` 自己 try/except，不要讓推薦訊息失敗變成整個收盤通知失敗。
+4. **Telegram 表格對齊**：docstring 說「中文放每列最後」，但「型態」（整理／續攻）在中間，「提醒」（乖離大等）也在名稱前面：
+   - 每列的型態都是 2 個中文字，所以各列之間是對齊的，但**表頭**的「型態 條」跟資料列錯開約 2 格。
+   - 有提醒的列，`{alert:<6}` 是用字數補空白，3 個中文字實際佔 6 格，名稱欄會往右偏。名稱在最後，所以只影響名稱的起點。
+   - 建議型態改用英文縮寫（例如 B／C），或接受目前的樣子。下面附上實際輸出，請 Cody 看手機效果再決定。
+5. **連線設定的脆弱點**：實測 DuckDB 在同一個程序裡，已經有讀寫連線時，再開 `read_only=True` 會丟
+   `ConnectionException: Can't open a connection to same database file with a different configuration`。`load_panel` 用唯讀連線，
+   如果收盤流程走到 6.4 之前有讀寫連線沒關，推薦會每天靜默失敗（只有 warning）。目前其他模組（institutional／patterns）也在同一個程序用
+   read_only，而且 run.log 從來沒出現過這個錯誤，所以應該沒事，記錄一下。上線後第一次收盤要看 log 有沒有「個股推薦產生失敗」。
+6. 口徑：卡片的「失效」是「現價 ≤ **推薦日收盤** ×0.94」，成績單／回測的停損是「≤ **進場價（隔天開盤）**×0.94」，兩者可能不同步
+   （跳空開高時卡片比較晚失效）。如果是規格刻意的就接受，請確認。
+
+### ✅ 驗證通過
+- `pytest -q`：**821 passed**（含新的 test_recommend_{market,cards,scorecard,daily,telegram}.py 和 main／scheduled_runner／telegram_notifier 追加的測試）。
+- **模擬 `run_daily(day=2026-09-24)`**（唯讀＋記憶體成績單）：
+  - `build_payload` 4.4 秒；當天新訊號 5 檔：**6213、6672**、6533、3219、3016 → **兩個必考題都有命中** ✅（重建後要再用官方資料確認一次）
+  - active 8、invalid 1；header：MA20 上比例 61%、漲停 18、跌停 1、近 10 日突破失敗率 30%（n=40），數字合理。
+  - 成績單：記錄 5 筆、refresh 5 筆，`summary` 正常回傳。
+  - JSON 可以寫出（9.4 KB），但有 NaN（見 🟡1）。
+- **Telegram 訊息**（498 字，遠低於 4096，不會被切段，`<pre>` 不會被切斷）：
+  ```
+  個股推薦 09/24 收盤
+  MA20上 61%｜失敗率 30%｜加權&gt;MA20｜漲停 18 跌停 1
+
+  <pre>股號   型態 條  收盤     漲幅    提醒     名稱
+  ----------------------------------------------
+  [半導體 2檔]
+  6213   整理  4    595.0  +10.0%         聯茂
+  6672   整理  3    337.5   +9.9%         騰輝電子-KY
+  ...
+  </pre>
+  新 5 檔｜有效中 8 檔｜失效 1 檔
+  ```
+  `&gt;` 在 parse_mode=HTML 下會顯示成 `>`，跳脫正確。
+- `_update_recommend`：盤中直接 return；有 try/except，失敗只記 warning 並 append `_run_warnings`，不影響後面的產頁與 push ✅（有測試）。
+- `limit_down_price`：參考價 ×0.9 無條件進位到跳動單位，跟漲停對稱 ✅。
+- `send_telegram_message` 加 `parse_mode`，舊的呼叫不受影響 ✅。
+
+### 結論
+- [x] 後端邏輯可以先合。🟡1（NaN）要在做推薦頁之前修；🟡2、🟡3 建議上線前修。
+- 官方行情重建完後，我再用 DB 複本跑一次正式的 `run_daily`，對照必考題和 header。

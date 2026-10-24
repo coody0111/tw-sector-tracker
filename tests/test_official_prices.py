@@ -109,7 +109,23 @@ def test_backfill_official_prices_writes_deletes_holiday_resumes_and_stops(tmp_p
     written = pd.read_csv(out / "2026-10-20.csv", dtype={"stock_id": str})
     assert sorted(written["stock_id"]) == ["2330", "6488"]
     assert (written["source"] == "official").all()
-    assert list((tmp_path / "daily_prices_backup").iterdir())  # 開始前先整份備份
+    assert not (tmp_path / "daily_prices_backup").exists()  # 已有官方 CSV＝續跑，不再備份
+
+
+def test_backfill_official_first_run_backs_up_existing_csvs(tmp_path):
+    """第一次跑（目錄裡還沒有官方 CSV）：開始覆寫前先把現有 CSV 整份複製一份。"""
+    out = tmp_path / "daily_prices"
+    out.mkdir()
+    pd.DataFrame([_r("2330", 2400)]).to_csv(out / "2026-10-20.csv", index=False)
+    with patch("scrapers.official_prices.fetch_twse_day", return_value=[_r("2330", 2410)]), \
+         patch("scrapers.official_prices.fetch_tpex_day", return_value=[_r("6488", 450)]), \
+         patch("scrapers.official_prices.time.sleep"):
+        backfill_official_prices(["2330", "6488"], date(2026, 10, 20), date(2026, 10, 20),
+                                 output_dir=str(out), sleep_sec=0)
+    backups = list((tmp_path / "daily_prices_backup").iterdir())
+    assert len(backups) == 1
+    old = pd.read_csv(backups[0] / "2026-10-20.csv", dtype={"stock_id": str})
+    assert "source" not in old.columns  # 備份的是覆寫前的原檔
 
 
 def test_backfill_official_keeps_csv_when_empty_but_calendar_says_trading_day(tmp_path):

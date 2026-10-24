@@ -5224,3 +5224,13 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 
 ### 特別注意
 - 驗完沒有 🔴 就可以請 Cody 開跑。
+
+## [2026-10-24] 修測試：--backfill-official 續跑不備份的斷言
+
+### 改了什麼
+- 異動檔案：tests/test_official_prices.py（只改測試，程式沒動）
+- 依報告 🔴：原測試第 112 行斷言「有備份」，但該測試先放了 official CSV（＝續跑）→ 改成斷言「續跑不備份」；
+  另新增 `test_backfill_official_first_run_backs_up_existing_csvs`：首次執行會備份、備份內容是覆寫前的原檔。
+
+### 請 Debugger 驗證
+- [ ] tests/test_official_prices.py（8 個）與全套全綠

@@ -1,0 +1,338 @@
+<title>個股推薦頁設計稿</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;600;700;800&family=Roboto+Mono:wght@400;600;700&display=swap">
+<style>
+/* 版面：頁首大盤條 → 資金列（黏在上方）→ 今日新訊號（依族群分組的卡片）→ 有效中（緊湊列）→ 已失效（摺疊）→ 成績單。
+   沿用 export/ui_theme.py 的 token：深底、台股紅漲綠跌、金色重點。單一深色主題，跟網站其他頁一致。 */
+:root{
+  --bg:#080B12; --panel:#0F1420; --panel-2:#161D2C; --border:#293346; --border-strong:#37435C;
+  --ink:#DADFE8; --ink-2:#98A0B4; --ink-3:#636B80;
+  --up:#E6432F; --down:#37B25C; --accent:#F0BB55; --warn:#E39A3B;
+  --sans:"Public Sans",-apple-system,"PingFang TC","Microsoft JhengHei","Noto Sans TC",sans-serif;
+  --mono:"Roboto Mono",ui-monospace,"Cascadia Code",monospace;
+  --radius:6px;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.55}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.wrap{max-width:1280px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.up{color:var(--up)}.down{color:var(--down)}.muted{color:var(--ink-2)}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
+
+/* 設計稿標示 */
+.mock-note{border-bottom:1px dashed var(--border-strong);color:var(--ink-3);font-size:.72rem}
+.mock-note .wrap{padding-block:6px}
+
+/* 頁首 */
+.topbar{border-bottom:1px solid var(--border)}
+.topbar .wrap{display:flex;flex-wrap:wrap;align-items:center;gap:6px 20px;padding-block:10px}
+.title{margin:0;font-size:1.125rem;font-weight:750}
+.date{color:var(--ink-3);font-size:.72rem}.date b{color:var(--ink-2);font-weight:600}
+.nav{display:flex;gap:8px;margin-left:auto;overflow-x:auto;max-width:100%}
+.nav a{display:inline-flex;align-items:center;min-height:32px;padding:5px 12px;border:1px solid var(--border);border-radius:var(--radius);color:var(--ink-2);font-size:.78rem;font-weight:600;text-decoration:none;white-space:nowrap}
+.nav a[aria-current]{color:var(--ink);border-color:var(--accent);background:var(--panel-2)}
+
+/* 大盤條 */
+.market{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;margin-top:16px;background:var(--border);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+.mcell{padding:10px 14px;background:var(--panel);min-width:0}
+.mcell label{display:block;color:var(--ink-3);font-size:.66rem;letter-spacing:.06em}
+.mcell strong{display:block;margin-top:2px;font-size:1.05rem}
+.mcell small{color:var(--ink-3);font-size:.68rem}
+.market-note{margin:6px 0 0;color:var(--ink-3);font-size:.7rem}
+
+/* 資金列 */
+.capital{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;margin-top:16px;background:var(--bg);border-bottom:1px solid var(--border)}
+.capital-inner{display:flex;flex-wrap:wrap;align-items:center;gap:10px 22px;padding-block:10px}
+.capital label{color:var(--ink-2);font-size:.78rem;font-weight:600}
+.capital input{width:150px;min-height:40px;padding:6px 10px;border:1px solid var(--border-strong);border-radius:var(--radius);background:var(--panel-2);color:var(--ink);font:600 1rem var(--mono)}
+.capital input:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.rule{display:flex;gap:16px;flex-wrap:wrap;color:var(--ink-2);font-size:.78rem}
+.rule b{color:var(--ink)}
+.capital-hint{color:var(--ink-3);font-size:.7rem}
+
+/* 區塊標題 */
+section{margin-top:28px}
+.sec-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.sec-head h2{margin:0;font-size:1rem;font-weight:750}
+.sec-head .count{color:var(--accent);font:700 .78rem var(--mono)}
+.sec-head .hint{color:var(--ink-3);font-size:.72rem}
+
+/* 族群群組 */
+.sector{margin-top:14px}
+.sector-head{display:flex;align-items:center;gap:8px;margin-bottom:8px;color:var(--ink-2);font-size:.8rem;font-weight:700}
+.sector-head .n{color:var(--ink);font-family:var(--mono)}
+.sector-head::after{content:"";flex:1;height:1px;background:var(--border)}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:10px}
+
+/* 推薦卡 */
+.card{display:grid;gap:10px;padding:14px;background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);min-width:0}
+.card:hover{border-color:var(--border-strong)}
+.c-head{display:flex;align-items:baseline;gap:8px;min-width:0}
+.c-id{color:var(--ink-3);font:700 .78rem var(--mono)}
+.c-name{font-size:1rem;font-weight:750;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.type{margin-left:auto;padding:1px 8px;border:1px solid var(--border-strong);border-radius:4px;font-size:.7rem;font-weight:700;white-space:nowrap}
+.type.box{color:var(--accent);border-color:rgba(240,187,85,.5)}
+.type.run{color:#8FB6F0;border-color:rgba(143,182,240,.45)}
+.price{display:flex;align-items:baseline;gap:10px}
+.price .close{font:700 1.3rem var(--mono)}
+.price .chg{font:700 .9rem var(--mono)}
+.routes{display:flex;flex-wrap:wrap;gap:5px}
+.route{padding:1px 7px;border-radius:4px;font-size:.7rem;border:1px solid var(--border);color:var(--ink-3)}
+.route.hit{color:var(--ink);border-color:var(--border-strong);background:var(--panel-2)}
+.order{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;background:var(--border);border:1px solid var(--border);border-radius:5px;overflow:hidden}
+.order div{padding:7px 9px;background:var(--panel-2);min-width:0}
+.order label{display:block;color:var(--ink-3);font-size:.64rem;letter-spacing:.04em}
+.order strong{display:block;font:700 .92rem var(--mono)}
+.order small{color:var(--ink-3);font:.68rem var(--mono)}
+.foot{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;color:var(--ink-3);font-size:.72rem}
+.alert{padding:1px 7px;border-radius:4px;font-size:.7rem;font-weight:700;color:var(--warn);border:1px solid rgba(227,154,59,.5);background:rgba(227,154,59,.08)}
+
+/* 有效中列表、失效 */
+.table-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:var(--radius)}
+table{width:100%;border-collapse:collapse;font-size:.8rem}
+th,td{padding:8px 10px;text-align:left;white-space:nowrap;border-bottom:1px solid var(--border)}
+th{color:var(--ink-3);font-size:.68rem;font-weight:600;letter-spacing:.04em;background:var(--panel)}
+td.r,th.r{text-align:right}
+tbody tr:last-child td{border-bottom:0}
+tbody tr:hover td{background:var(--panel)}
+.dayn{display:inline-block;padding:0 6px;border-radius:4px;background:var(--panel-2);color:var(--ink-2);font-size:.7rem}
+details.invalid{margin-top:10px}
+details.invalid summary{cursor:pointer;color:var(--ink-2);font-size:.82rem;min-height:36px;display:flex;align-items:center}
+details.invalid summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+details.invalid table{color:var(--ink-3)}
+
+/* 成績單 */
+.score{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px}
+.tile{padding:10px 12px;background:var(--panel);border:1px solid var(--border);border-radius:var(--radius)}
+.tile label{display:block;color:var(--ink-3);font-size:.66rem;letter-spacing:.05em}
+.tile strong{display:block;font:700 1.2rem var(--mono)}
+.tile small{display:block;color:var(--ink-3);font:.7rem var(--mono)}
+.tile small.lag{color:var(--warn)}
+.score-note{margin:8px 0 0;color:var(--ink-3);font-size:.72rem}
+.split{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);gap:14px;margin-top:14px}
+.split h3{margin:0 0 6px;color:var(--ink-2);font-size:.78rem;font-weight:700}
+.chip-cons{padding:1px 7px;border-radius:4px;font-size:.7rem;font-weight:700;color:var(--accent);border:1px solid rgba(240,187,85,.5);background:rgba(240,187,85,.08);white-space:nowrap}
+.bar{display:inline-block;height:6px;border-radius:3px;vertical-align:middle;margin-left:6px}
+
+footer{margin-block:40px 32px;color:var(--ink-3);font-size:.7rem}
+
+@media(max-width:760px){
+  .market{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .cards{grid-template-columns:1fr}
+  .split{grid-template-columns:1fr}
+  .capital{position:static}
+  .nav{order:3;width:100%;margin-left:0}
+  .nav a{min-height:44px}
+}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="mock-note"><div class="wrap">設計稿：股票與數字是示意（取自 2026-09-24 的 6672、6213 等），實際頁面由收盤流程產生。</div></div>
+
+<header class="topbar"><div class="wrap">
+  <h1 class="title">個股推薦</h1>
+  <span class="date">資料日 <b class="num">2026-09-24</b> 收盤</span>
+  <nav class="nav" aria-label="主要功能">
+    <a href="#">族群績效</a><a href="#">籌碼分析</a><a href="#">形態掃描</a><a href="#">逆轟策略</a><a href="#" aria-current="page">個股推薦</a><a href="#">自選股</a>
+  </nav>
+</div></header>
+
+<main class="wrap">
+  <div class="market" aria-label="大盤資訊">
+    <div class="mcell"><label>股票池站上 MA20</label><strong class="num">61%</strong><small>1,036 檔中 20 日均量 ≥ 300 張者</small></div>
+    <div class="mcell"><label>近 10 日突破失敗率</label><strong class="num">33%</strong><small class="num">42 筆中 14 筆跌破停損</small></div>
+    <div class="mcell"><label>加權指數</label><strong class="up">在 MA20 之上</strong><small class="num">距 MA20 +2.8%</small></div>
+    <div class="mcell"><label>今日漲停／跌停</label><strong class="num"><span class="up">18</span> ／ <span class="down">3</span></strong><small>股票池內家數</small></div>
+  </div>
+  <p class="market-note">大盤資訊只給你參考，不會擋掉訊號。</p>
+
+  <div class="capital"><div class="capital-inner">
+    <div><label for="capital">總資金</label><br><input id="capital" type="text" inputmode="numeric" value="1,000,000" aria-describedby="capital-hint"></div>
+    <div class="rule">
+      <span>每筆風險 <b class="num">1%</b> ＝ <b class="num" id="risk">10,000</b> 元</span>
+      <span>停損 <b class="num">6%</b></span>
+      <span>出場：最高收盤回落 <b class="num">20%</b>，最多 60 天</span>
+    </div>
+    <span class="capital-hint" id="capital-hint">只存在你的瀏覽器，不會上傳。股數以收盤價估算，停損請用實際買進價 × 0.94。</span>
+  </div></div>
+
+  <section aria-labelledby="new-h">
+    <div class="sec-head"><h2 id="new-h">今日新訊號</h2><span class="count">3 檔</span><span class="hint">突破策略：漲停＋創 90 日高＋籌碼任一路線，明天開盤買</span></div>
+
+    <div class="sector">
+      <div class="sector-head">銅箔基板 <span class="n">2 檔</span></div>
+      <div class="cards">
+        <article class="card" data-price="337.5">
+          <div class="c-head"><span class="c-id">6672</span><span class="c-name">騰輝電子-KY</span><span class="type box">整理型</span></div>
+          <div class="price"><span class="close num">337.5</span><span class="chg up">+10.0%</span><span class="muted" style="font-size:.72rem">量比 3.0</span></div>
+          <div class="routes"><span class="route hit">法人大買</span><span class="route hit">外資大增</span><span class="route">投信持續</span><span class="route hit">大戶大增</span></div>
+          <div class="order">
+            <div><label>買幾股</label><strong class="shares">493</strong><small class="amount">約 16.6 萬</small></div>
+            <div><label>停損價</label><strong class="stop">317.25</strong><small>−6%</small></div>
+            <div><label>最多虧</label><strong class="loss">1.0 萬</strong><small>總資金 1%</small></div>
+          </div>
+          <div class="foot"><span>+24% 參考價 <b class="num t24">418.5</b></span><span>前 20 日區間 18%</span></div>
+        </article>
+        <article class="card" data-price="595">
+          <div class="c-head"><span class="c-id">6213</span><span class="c-name">聯茂</span><span class="type box">整理型</span></div>
+          <div class="price"><span class="close num">595.0</span><span class="chg up">+10.0%</span><span class="muted" style="font-size:.72rem">量比 0.94</span></div>
+          <div class="routes"><span class="route hit">法人大買</span><span class="route hit">外資大增</span><span class="route hit">投信持續</span><span class="route hit">大戶大增</span></div>
+          <div class="order">
+            <div><label>買幾股</label><strong class="shares">280</strong><small class="amount">約 16.7 萬</small></div>
+            <div><label>停損價</label><strong class="stop">559.3</strong><small>−6%</small></div>
+            <div><label>最多虧</label><strong class="loss">1.0 萬</strong><small>總資金 1%</small></div>
+          </div>
+          <div class="foot"><span>+24% 參考價 <b class="num t24">737.8</b></span><span>前 20 日區間 18%</span></div>
+        </article>
+      </div>
+    </div>
+
+    <div class="sector">
+      <div class="sector-head">散熱 <span class="n">1 檔</span></div>
+      <div class="cards">
+        <article class="card" data-price="98.9">
+          <div class="c-head"><span class="c-id">3324</span><span class="c-name">雙鴻</span><span class="type run">續攻型</span></div>
+          <div class="price"><span class="close num">98.9</span><span class="chg up">+9.9%</span><span class="muted" style="font-size:.72rem">量比 2.4</span></div>
+          <div class="routes"><span class="route hit">法人大買</span><span class="route">外資大增</span><span class="route hit">投信持續</span><span class="route">大戶大增</span></div>
+          <div class="order">
+            <div><label>買幾股</label><strong class="shares">1,685</strong><small class="amount">約 16.7 萬</small></div>
+            <div><label>停損價</label><strong class="stop">92.97</strong><small>−6%</small></div>
+            <div><label>最多虧</label><strong class="loss">1.0 萬</strong><small>總資金 1%</small></div>
+          </div>
+          <div class="foot"><span class="alert">乖離大</span><span>MA10 乖離 31%</span><span>前 20 日漲 42%</span><span>+24% 參考價 <b class="num t24">122.6</b></span></div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="active-h">
+    <div class="sec-head"><h2 id="active-h">前幾天的推薦，仍有效</h2><span class="count">2 檔</span><span class="hint">保留 3 個交易日；股數和停損用現價重算</span></div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>推薦日</th><th>股票</th><th>型態</th><th class="r">推薦日收盤</th><th class="r">現價</th><th class="r">推薦後</th><th class="r">買幾股</th><th class="r">停損價</th><th>提醒</th></tr></thead>
+      <tbody>
+        <tr><td><span class="num">09-23</span> <span class="dayn">第 2 天</span></td><td>2383 台光電</td><td>整理型</td><td class="r num">1,150</td><td class="r num">1,185</td><td class="r num up">+3.0%</td><td class="r num">140</td><td class="r num">1,113.9</td><td></td></tr>
+        <tr><td><span class="num">09-22</span> <span class="dayn">第 3 天</span></td><td>2368 金像電</td><td>續攻型</td><td class="r num">402.0</td><td class="r num">455.0</td><td class="r num up">+13.2%</td><td class="r num">366</td><td class="r num">427.7</td><td><span class="alert">已漲多</span></td></tr>
+      </tbody>
+    </table></div>
+    <details class="invalid">
+      <summary>已失效 1 檔（跌破推薦日收盤 −6%）</summary>
+      <div class="table-wrap"><table>
+        <thead><tr><th>推薦日</th><th>股票</th><th class="r">推薦日收盤</th><th class="r">現價</th><th class="r">推薦後</th></tr></thead>
+        <tbody><tr><td class="num">09-22</td><td>6274 台燿</td><td class="r num">310.0</td><td class="r num">288.5</td><td class="r num down">−6.9%</td></tr></tbody>
+      </table></div>
+    </details>
+  </section>
+
+  <section aria-labelledby="lead-h">
+    <div class="sec-head"><h2 id="lead-h">近 21 天最強</h2><span class="hint">漲幅排行；標「整理中」的是漲多後正在橫盤量縮，可能醞釀下一段（定義待回測）</span></div>
+    <div class="split">
+      <div>
+        <h3>族群 前 10</h3>
+        <div class="table-wrap"><table>
+          <thead><tr><th>#</th><th>族群</th><th class="r">21 日</th><th class="r">5 日區間</th><th>狀態</th></tr></thead>
+          <tbody>
+            <tr><td class="num">1</td><td>銅箔基板</td><td class="r num up">+38.2%</td><td class="r num">4.1%</td><td><span class="chip-cons">整理中</span></td></tr>
+            <tr><td class="num">2</td><td>PCB</td><td class="r num up">+29.5%</td><td class="r num">7.8%</td><td class="muted">上攻中</td></tr>
+            <tr><td class="num">3</td><td>散熱</td><td class="r num up">+21.7%</td><td class="r num">3.2%</td><td><span class="chip-cons">整理中</span></td></tr>
+            <tr><td class="num">4</td><td>光通訊</td><td class="r num up">+18.4%</td><td class="r num">9.6%</td><td class="muted">上攻中</td></tr>
+            <tr><td class="num">5</td><td>記憶體</td><td class="r num up">+15.0%</td><td class="r num">11.2%</td><td class="down">回檔中</td></tr>
+          </tbody>
+        </table></div>
+      </div>
+      <div>
+        <h3>個股 前 20</h3>
+        <div class="table-wrap"><table>
+          <thead><tr><th>#</th><th>股票</th><th>族群</th><th class="r">21 日</th><th class="r">離高點</th><th class="r">5 日區間</th><th class="r">量比 5/20</th><th>狀態</th></tr></thead>
+          <tbody>
+            <tr><td class="num">1</td><td>6274 台燿</td><td>銅箔基板</td><td class="r num up">+82.4%</td><td class="r num">−3.1%</td><td class="r num">5.6%</td><td class="r num">0.71</td><td><span class="chip-cons">整理中</span></td></tr>
+            <tr><td class="num">2</td><td>2368 金像電</td><td>PCB</td><td class="r num up">+64.0%</td><td class="r num">0.0%</td><td class="r num">12.3%</td><td class="r num">1.35</td><td class="muted">上攻中</td></tr>
+            <tr><td class="num">3</td><td>6213 聯茂</td><td>銅箔基板</td><td class="r num up">+51.5%</td><td class="r num">0.0%</td><td class="r num">10.1%</td><td class="r num">1.12</td><td class="muted">上攻中</td></tr>
+            <tr><td class="num">4</td><td>3324 雙鴻</td><td>散熱</td><td class="r num up">+42.0%</td><td class="r num">−4.4%</td><td class="r num">6.9%</td><td class="r num">0.64</td><td><span class="chip-cons">整理中</span></td></tr>
+            <tr><td class="num">5</td><td>2383 台光電</td><td>銅箔基板</td><td class="r num up">+37.8%</td><td class="r num">−12.6%</td><td class="r num">9.4%</td><td class="r num">0.88</td><td class="down">回檔中</td></tr>
+          </tbody>
+        </table></div>
+        <p class="score-note">實際頁面列滿 20 檔，可依欄位排序；也在推薦卡上標出「近 21 天前 20 名」。</p>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="score-h">
+    <div class="sec-head"><h2 id="score-h">推薦成績單</h2><span class="hint">每筆推薦依規則追蹤到出場（停損 6%、回落 20%、60 天），跟回測並列</span></div>
+    <div class="score">
+      <div class="tile"><label>推薦筆數</label><strong>128</strong><small>已出場 95・持有中 33</small></div>
+      <div class="tile"><label>勝率</label><strong>31%</strong><small>回測 28%</small></div>
+      <div class="tile"><label>賺賠比</label><strong>5.2</strong><small>回測 5.6</small></div>
+      <div class="tile"><label>每筆平均</label><strong class="up">+1.1R</strong><small>回測 +1.18R</small></div>
+      <div class="tile"><label>獲利因子 PF</label><strong>2.0</strong><small class="lag">回測 2.21（低於回測）</small></div>
+      <div class="tile"><label>買不到</label><strong>6</strong><small>隔天一字漲停</small></div>
+    </div>
+    <p class="score-note">實際明顯比回測差時，要回頭檢查規則是否過度擬合，或市場是否改變。</p>
+
+    <div class="split">
+      <div>
+        <h3>分型態</h3>
+        <div class="table-wrap"><table>
+          <thead><tr><th>型態</th><th class="r">筆數</th><th class="r">每筆</th><th class="r">PF</th></tr></thead>
+          <tbody>
+            <tr><td>整理型</td><td class="r num">48</td><td class="r num up">+1.3R</td><td class="r num">2.3</td></tr>
+            <tr><td>續攻型</td><td class="r num">47</td><td class="r num up">+0.9R</td><td class="r num">1.8</td></tr>
+          </tbody>
+        </table></div>
+      </div>
+      <div>
+        <h3>按月（推薦月份）</h3>
+        <div class="table-wrap"><table>
+          <thead><tr><th>月份</th><th class="r">筆數</th><th class="r">勝率</th><th class="r">每筆</th><th class="r">PF</th></tr></thead>
+          <tbody>
+            <tr><td class="num">2026-09</td><td class="r num">31</td><td class="r num">35%</td><td class="r num up">+1.4R<span class="bar" style="width:42px;background:var(--up)"></span></td><td class="r num">2.4</td></tr>
+            <tr><td class="num">2026-08</td><td class="r num">18</td><td class="r num">28%</td><td class="r num up">+0.4R<span class="bar" style="width:12px;background:var(--up)"></span></td><td class="r num">1.4</td></tr>
+            <tr><td class="num">2026-07</td><td class="r num">22</td><td class="r num">14%</td><td class="r num down">−0.9R<span class="bar" style="width:27px;background:var(--down)"></span></td><td class="r num">0.3</td></tr>
+            <tr><td class="num">2026-06</td><td class="r num">24</td><td class="r num">38%</td><td class="r num up">+2.6R<span class="bar" style="width:78px;background:var(--up)"></span></td><td class="r num">3.9</td></tr>
+          </tbody>
+        </table></div>
+      </div>
+    </div>
+
+    <h3 style="margin:18px 0 6px;color:var(--ink-2);font-size:.78rem">明細（最近 5 筆，實際頁面可排序、全部列出）</h3>
+    <div class="table-wrap"><table>
+      <thead><tr><th>推薦日</th><th>股票</th><th>型態</th><th class="r">進場</th><th class="r">出場</th><th>原因</th><th class="r">報酬</th><th class="r">R</th><th class="r">最高曾漲</th></tr></thead>
+      <tbody>
+        <tr><td class="num">09-24</td><td>6672 騰輝電子-KY</td><td>整理型</td><td class="r num">340.0</td><td class="muted">持有中</td><td></td><td class="r num up">+4.4%</td><td class="r num">—</td><td class="r num">+6.2%</td></tr>
+        <tr><td class="num">09-24</td><td>6213 聯茂</td><td>整理型</td><td class="r num">600.0</td><td class="muted">持有中</td><td></td><td class="r num up">+2.1%</td><td class="r num">—</td><td class="r num">+3.0%</td></tr>
+        <tr><td class="num">09-18</td><td>3017 奇鋐</td><td>續攻型</td><td class="r num">1,265</td><td class="r num">1,189</td><td>停損</td><td class="r num down">−6.3%</td><td class="r num down">−1.05</td><td class="r num">+1.2%</td></tr>
+        <tr><td class="num">09-11</td><td>2383 台光電</td><td>整理型</td><td class="r num">1,020</td><td class="r num">1,268</td><td>回落</td><td class="r num up">+24.0%</td><td class="r num up">+4.00</td><td class="r num">+55.1%</td></tr>
+        <tr><td class="num">09-10</td><td>6274 台燿</td><td>整理型</td><td class="r num">—</td><td class="muted">買不到</td><td>一字漲停</td><td class="r num">—</td><td class="r num">—</td><td class="r num">—</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <footer>R＝報酬 ÷ 停損 6%。成績已扣手續費（2.8 折）與證交稅。這是研究工具的訊號整理，買賣請自行判斷。</footer>
+</main>
+
+<script>
+(function(){
+  var KEY="tw-recommend-capital-v1", input=document.getElementById("capital");
+  function fmt(n){return Math.round(n).toLocaleString("en-US")}
+  function read(){try{return localStorage.getItem(KEY)}catch(e){return null}}
+  function save(v){try{localStorage.setItem(KEY,v)}catch(e){}}
+  function capital(){var v=Number(String(input.value).replace(/[^\d.]/g,""));return v>0?v:0}
+  function render(){
+    var cap=capital(), risk=cap*0.01;
+    document.getElementById("risk").textContent=fmt(risk);
+    document.querySelectorAll(".card[data-price]").forEach(function(card){
+      var p=Number(card.dataset.price), shares=Math.floor(risk/(p*0.06));
+      card.querySelector(".shares").textContent=fmt(shares);
+      card.querySelector(".amount").textContent="約 "+(shares*p/10000).toFixed(1)+" 萬";
+      card.querySelector(".stop").textContent=(p*0.94).toFixed(2);
+      card.querySelector(".loss").textContent=(risk/10000).toFixed(1)+" 萬";
+      card.querySelector(".t24").textContent=(p*1.24).toFixed(1);
+    });
+  }
+  var saved=read(); if(saved){input.value=saved}
+  input.addEventListener("input",function(){save(input.value);render()});
+  input.addEventListener("blur",function(){if(capital()){input.value=fmt(capital());save(input.value)}});
+  render();
+})();
+</script>

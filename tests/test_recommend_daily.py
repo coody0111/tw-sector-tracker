@@ -1,0 +1,38 @@
+import pandas as pd
+
+from recommend.daily import build_payload
+
+
+class _FakeStrategy:
+    name = "測試策略"
+
+    def __init__(self, hits):
+        self.hits = hits
+
+    def scan(self, features):
+        rows = [{"stock_id": sid, "date": d, "strategy": self.name, "type": "整理", "routes": "法人", "n_routes": 1}
+                for sid, d in self.hits]
+        return pd.DataFrame(rows, columns=["stock_id", "date", "strategy", "type", "routes", "n_routes"])
+
+
+def _feat():
+    d = pd.bdate_range("2026-01-01", periods=70)
+    rows = []
+    for sid, sector, tail in (("A", "銅箔基板", [100, 101, 102]), ("B", "散熱", [100, 90, 90]),
+                              ("C", "銅箔基板", [100, 100, 100])):
+        closes = [100.0] * 67 + [float(x) for x in tail]
+        for dt, c in zip(d, closes):
+            rows.append({"stock_id": sid, "stock_name": sid, "meta_sector": sector, "date": dt, "open": c, "close": c,
+                         "change": 0.0, "limit_up": False, "liq": True, "one_word": False})
+    return pd.DataFrame(rows), d
+
+
+def test_build_payload_splits_new_active_invalid(monkeypatch):
+    f, d = _feat()
+    strat = _FakeStrategy([("C", d[-1]), ("A", d[-3]), ("B", d[-3]), ("A", d[-10])])
+    monkeypatch.setattr("recommend.daily.ALL_STRATEGIES", [strat])
+    p = build_payload(f, d[-1])
+    assert [(g["sector"], g["count"]) for g in p["new"]] == [("銅箔基板", 1)]
+    assert [(c["stock_id"], c["day_n"]) for c in p["active"]] == [("A", 3)]
+    assert [c["stock_id"] for c in p["invalid"]] == ["B"]           # 100 → 90 失效
+    assert set(p["header"]) >= {"above_ma20_pct", "limit_up", "limit_down", "fail_rate"}

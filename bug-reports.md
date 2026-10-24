@@ -4232,3 +4232,24 @@ reimport 完成：共 372163 筆
 
 ### 結論
 - [x] 可以繼續。實跑對照等官方行情重建完再補。
+
+## [2026-10-24] 報告 - 小修：官方回補進度訊息、FutureWarning（commit ae53d47）
+
+### 🔴 數據問題（需立刻修）
+- 無
+
+### 🔴 程式問題（需立刻修）
+- 無
+
+### 🟡 建議改善
+- 無
+
+### ✅ 驗證通過
+- `pytest tests/test_official_prices.py tests/test_recommend_backtest.py -W error::FutureWarning`：**17 passed**（把 FutureWarning 當成錯誤也通過）。
+- 全套：**803 passed、1 warning**（原本 4 個）。剩下的 1 個是既有的 `tests/test_processors.py:454` concat warning，跟這次修改無關。
+- 讀碼：「已是官方跳過 N 天，從 X 開始抓」只在第一次真的發請求前印一次（written／holidays／partial 都是 0）。
+  被擋的那一輪也是先印再停，不影響流程；進度改成每寫 5 天印一次。純 log 修改，沒有動到資料邏輯。
+- 依指示沒有碰 `data/daily_prices`。
+
+### 結論
+- [x] 可以繼續下一個任務。

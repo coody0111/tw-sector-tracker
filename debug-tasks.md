@@ -5123,3 +5123,31 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 ### 特別注意
 - **沒有清資料、沒有回補**：4 個休市日複本、2 個非交易日外資持股、半套籌碼日的重抓、2025-08-01 行情缺口，都要 Cody 決定才動。
 - 🟡 前一則提到的 log 文字等小項這次沒有處理。
+
+## [2026-10-24] 官方交易日行事曆（FMTQIK）
+
+### 改了什麼
+- 異動檔案：scrapers/trading_calendar.py（新）、config.py、scripts/run_scheduled.py、main.py、tests/test_trading_calendar.py（新）
+- 邏輯說明（回應 bug-reports 2026-10-24 🟡 1：假日清單漏 11 天、沒有 2020～2024）：
+  1. `scrapers/trading_calendar.py`：用 TWSE FMTQIK（沿用 `scrapers/taiex.py::_fetch_taiex_month`）建 `data/trading_calendar.csv`，
+     欄位 `date,is_trading`，**只寫已確認的日子**：過完的月份整月每天一列；當月只寫到已公布的最後交易日。
+  2. `config.is_trading_day()`：先查行事曆，沒涵蓋的日子（今天尚未公布、未來、沒建檔的機器）才退回週末＋`TAIWAN_HOLIDAYS`。
+     `TAIWAN_HOLIDAYS` 補上 2026 漏的 5 天（06-19、09-25、09-28、10-09、10-23）。
+  3. `scripts/run_scheduled.py::is_trading_day()` 改呼叫 config 版 → 國定假日不再跑盤中／收盤流程。
+  4. `backfill.py::_iter_weekdays()` 本來就用 config 版 → 籌碼回補自動跳過行事曆上的休市日（2025-01-23/24 那種）。
+  5. 新 CLI：`python main.py --update-calendar 2020-01`（已整月確認的月份跳過；被擋就停、保留已抓的）。
+     每日流程抓 4 個月 TAIEX 時順手 `merge_trading_days()`（不多打 API，失敗不影響產出）。
+
+### 資料來源相關
+- FMTQIK 是 TWSE 的全市場成交統計，上市、上櫃共用同一份休市日（兩市場休市日相同）。
+
+### 請 Debugger 驗證
+- [ ] 跑 tests/test_trading_calendar.py（5 個）、tests/test_scheduled_runner.py 與全套
+- [ ] 唯讀試算：拿 FMTQIK 2025-01～2026-10 的交易日跑 `month_status`，跟你上次的 436 天比對；2025-01-23/24、2026-07-10、10-23 要是 False
+- [ ] 檔案不存在時（筆電沒建檔）行為跟修改前一樣
+- [ ] 排程那邊 `is_market_hours()` 在國定假日回 False
+
+### 特別注意
+- **沒有實際打 API 建檔**，`--update-calendar` 等 Cody 跑。
+- 未來日子仍靠 `TAIWAN_HOLIDAYS`，每年要補隔年休市日（config 註解已寫）；颱風假靠前一次修的 quote_date 防呆。
+- 🟡 2（中位數門檻在回補到 2020 後的浪費請求）這次沒處理。

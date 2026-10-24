@@ -51,10 +51,11 @@ _INTRADAY_POLL_END = dt_time(15, 0)
 
 
 def is_trading_day(d: date) -> bool:
-    """週一至週五為交易日。不含國定假日行事曆（YAGNI，docs/scheduler.md 沒有要求；
-    國定假日誤跑的風險：main.py 抓不到當天資料會自然回退到最近交易日，不會產生錯誤資料，
-    只是浪費一次排程，接受這個風險，不在第一版處理）。"""
-    return d.weekday() < 5
+    """交易日判斷改用 config.is_trading_day（官方行事曆＋假日清單）。
+    原本只排除週末，國定假日照跑盤中流程，把前一交易日的報價寫成休市日的行情複本
+    （2026-10-22 bug-reports：07-10、09-25、09-28、10-09、10-23）。"""
+    from config import is_trading_day as _is_trading_day
+    return _is_trading_day(d.isoformat())
 
 
 def is_market_hours(now: datetime) -> bool:

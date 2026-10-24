@@ -857,6 +857,12 @@ def run(trade_date: date = None, realtime: bool = False, push: bool = True, summ
             taiex_history = fetch_taiex_history(trade_date, months=4)
             market_context = analyze_market_history(pd.DataFrame(taiex_history), as_of=trade_date)
             taiex = taiex_history[-1] if taiex_history else None
+            # 順手更新官方交易日行事曆（同一份 FMTQIK，不多打 API）
+            try:
+                from scrapers.trading_calendar import merge_trading_days
+                merge_trading_days([r["date"] for r in taiex_history], as_of=trade_date)
+            except Exception as exc:
+                logger.warning("交易日行事曆更新失敗（不影響本次產出）：%s", exc)
             logger.info(
                 "Oliver 大盤週線：%s / %s（截至 %s）",
                 market_context["market_phase"], market_context["market_action"], market_context["as_of"],
@@ -1275,6 +1281,9 @@ if __name__ == "__main__":
                              "建議 19，會刪舊 CSV 重抓）")
     parser.add_argument("--workers", type=int, default=3, metavar="N",
                         help="backfill-twse / backfill-yf 並行 workers 數（預設 3，過高可能被限速）")
+    parser.add_argument("--update-calendar", type=str, default=None, metavar="YYYY-MM",
+                        help="從指定月份起抓 TWSE FMTQIK 建立／補齊官方交易日行事曆 data/trading_calendar.csv"
+                             "（已整月確認的月份會跳過；回補到 2020 前先跑 --update-calendar 2020-01）")
     parser.add_argument("--backfill-chips", type=int, default=0, metavar="DAYS",
                         help="上市(TWSE)＋上櫃(TPEx官網報表) 三大法人/融資融券/外資持股%% "
                              "補齊過去 N 個「日曆天」內的交易日（建議 14；補到 2025-01-01 約填 660；"
@@ -1327,6 +1336,11 @@ if __name__ == "__main__":
         backfill_twse(months=args.backfill_twse, workers=args.workers)
     elif args.backfill_yf:
         backfill_yf(months=args.backfill_yf, workers=args.workers)
+    elif args.update_calendar:
+        from scrapers.trading_calendar import update_calendar
+        y, m = (int(x) for x in args.update_calendar.split("-"))
+        n = update_calendar(date(y, m, 1))
+        logger.info("交易日行事曆：本次抓了 %d 個月", n)
     elif args.backfill_chips:
         backfill_chips_cli(days=args.backfill_chips)
     elif args.backtest:

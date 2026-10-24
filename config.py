@@ -1,5 +1,7 @@
 # 台灣證交所非交易日（國定假日）
 # 用途：backfill 時跳過這些日期，避免寫入 stale 資料
+# ⚠️ 2026-10-24 起過去的日子以官方行事曆 data/trading_calendar.csv 為準（見 is_trading_day），
+#    這份清單只用在「行事曆還沒涵蓋的日子」（今天、未來）——每年證交所公布隔年休市日後要補上。
 TAIWAN_HOLIDAYS = {
     # ── 2025 ──────────────────────────────────────────────────────
     "2025-01-01",  # 元旦
@@ -29,13 +31,24 @@ TAIWAN_HOLIDAYS = {
     "2026-04-03",  # 兒童節補假
     "2026-04-06",  # 清明節補假
     "2026-05-01",  # 勞動節
+    "2026-06-19",  # 端午節
+    "2026-09-25",  # 中秋節
+    "2026-09-28",  # 教師節
+    "2026-10-09",  # 國慶日補假
+    "2026-10-23",  # 光復節補假
 }
 
 
 def is_trading_day(date_str: str) -> bool:
-    """判斷某日是否為交易日（非週末、非國定假日）。"""
+    """判斷某日是否為交易日。
+    先查官方行事曆 data/trading_calendar.csv（TWSE FMTQIK，`python main.py --update-calendar`
+    產生）；行事曆沒涵蓋的日子（還沒公布的今天、未來、或沒建檔的機器）才退回週末＋上面的假日清單。"""
     import datetime
+    from scrapers.trading_calendar import calendar_status
     dt = datetime.date.fromisoformat(date_str)
+    status = calendar_status(dt)
+    if status is not None:
+        return status
     if dt.weekday() >= 5:  # 週六/日
         return False
     return date_str not in TAIWAN_HOLIDAYS

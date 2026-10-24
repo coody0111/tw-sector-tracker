@@ -4048,3 +4048,44 @@ reimport 完成：共 372163 筆
 - [x] 可以給 Cody 跑：資料格式、實際價、休市判斷都正確。
 - 建議先修 🟡 1（刪 CSV 前用行事曆確認，`end` 不要包含還沒公布的今天）再跑；
   或者 Cody 跑的時候避開交易日 15:00 以前，並且先跑 `--update-calendar 2020-01`。
+
+## [2026-10-24] 報告 - 修：--backfill-official 依報告 🟡 1、2、3、5 調整（commit 33542f4）
+
+### 🔴 數據問題（需立刻修）
+- 無
+
+### 🔴 程式問題（需立刻修）
+- **全套測試 1 個失敗**：`tests/test_official_prices.py::test_backfill_official_prices_writes_deletes_holiday_resumes_and_stops`
+  - 相關 log：`FileNotFoundError: ...\test_backfill_official_prices_0\daily_prices_backup`（第 112 行 `assert list((tmp_path / "daily_prices_backup").iterdir())`）
+  - 原因：測試在第 88 行先放了一個 `source=official` 的 10-19.csv，而新規則是「已經有官方 CSV＝續跑，不備份」，所以不會建備份資料夾。
+    **是測試沒有跟著改，程式行為是對的**。把第 112 行改成斷言「沒有備份」，或拿掉 10-19 的預置檔，另外寫一個測試驗「首次執行會備份」即可。
+  - **不影響 Cody 開跑**（純測試問題，執行路徑沒錯）。但 master 上的測試是紅的，請先修。
+
+### 🟡 建議改善
+- **開跑前一定要先建行事曆**：休市判斷現在靠 `config.is_trading_day`。沒建 `data/trading_calendar.csv` 的話，2020～2024 的國定假日
+  （清單沒列）會被當成交易日 → 記成 partial、不刪檔。這不會寫錯資料（Yahoo 在那些日子本來就沒有 CSV），但 log 會很吵，
+  partial 計數也會失真。請 Cody 先跑 `python main.py --update-calendar 2020-01`（今天 13:58 FMTQIK 被擋過，被擋就隔一陣子再跑）。
+- 「已經有官方 CSV 就不備份」：等這次整段跑完之後，以後再用 `--backfill-official` 補洞**都不會再備份**。被覆寫的只會是非 official 的日子
+  （每日流程寫的或 Yahoo 的），風險不大，記錄一下。
+- 上市除權息日仍然是前收口徑（MI_INDEX 沒有參考價），docstring 已改正，接受。
+
+### ✅ 驗證通過
+- `pytest -q`：759 passed、**1 failed**（見上）。
+- **端到端實跑**（寫到 scratchpad 的獨立資料夾，沒碰專案 `data/`；股票池 2330、4966、4908、5206、8077、6488、9917；間隔 6 秒，沒被擋）：
+  - 2026-08-18～08-21：寫入 4 天、0 partial；第一次執行有建備份。
+  - 2026-10-23（休市）：預先放的假 CSV **被刪掉**，記成 holidays=1；這次是續跑，**沒有再建備份**（備份資料夾還是只有 1 份）✅
+  - CSV 欄位：`stock_id, stock_name, open, high, low, close, change, volume, next_ref, change_pct, source`。
+- **上櫃除息日改用參考價口徑**（2026-08-20 除息）：
+
+  | 股票 | 08-19 收盤 | 次日參考價 | 08-20 收盤 | 我們的 change_pct | 前收口徑 |
+  |---|---|---|---|---|---|
+  | 4966 | 582 | 573（Yahoo 股利 8.88） | 567 | **−1.05%** | −2.58% |
+  | 4908 | 152.5 | 151.5（股利 1.0） | 154 | **+1.65%** | +0.98% |
+  | 8077 | 44.9 | 42.9 | 44.5 | **+3.73%** | −0.89%（正負號相反） |
+
+  次日參考價＝前收−股利（按升降單位取整），算出的漲跌幅就是官方參考價口徑 ✅。一般日 next_ref＝收盤（例如 6488），上市股 next_ref 是空的、改用收盤（2330），都正確。
+- 讀碼：🟡1「兩邊都空但行事曆是交易日 → 不刪」有單元測試；`end` 預設是昨天；🟡5 partial 那天會用抓到的那一邊更新基準。
+
+### 結論
+- [x] 可以請 Cody 開跑（執行邏輯和資料都正確），順序：先 `--update-calendar 2020-01`，再 `--backfill-official 2020-01-02`，晚上或假日跑。
+- [ ] 失敗的測試請 Developer 修（不擋開跑）。

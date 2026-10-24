@@ -92,17 +92,33 @@ def _collect_rows_by_date(day_rows: dict, rows: list) -> None:
         day_rows[row["_date"]].append(row)
 
 
+_PRICE_BACKUP_KEEP = 3  # 行情 CSV 備份保留最近幾份
+
+
 def _clear_price_csvs(output_path: Path) -> None:
-    """清除既有行情 CSV；被其他程式鎖定的檔案保留並記錄。"""
-    deleted = skipped = 0
-    for path in output_path.glob("*.csv"):
+    """清空既有行情 CSV——**先搬到備份資料夾，不直接刪**；被其他程式鎖定的檔案保留並記錄。
+
+    備份位置：<output_path 的上一層>/daily_prices_backup/<時間戳>/，只留最近 _PRICE_BACKUP_KEEP 份。
+    原本直接 unlink（2026-10-24 Cody 跑 --backfill-yf 82 時，426 個官方行情 CSV 被刪掉、救不回來）。"""
+    import shutil
+    from datetime import datetime
+
+    files = list(output_path.glob("*.csv"))
+    if not files:
+        return
+    backup_root = output_path.parent / f"{output_path.name}_backup"
+    backup_dir = backup_root / datetime.now().strftime("%Y%m%d-%H%M%S")
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    moved = skipped = 0
+    for path in files:
         try:
-            path.unlink()
-            deleted += 1
+            shutil.move(str(path), str(backup_dir / path.name))
+            moved += 1
         except PermissionError:
             skipped += 1
-    if deleted or skipped:
-        logger.info("清除舊 CSV：刪除 %d 個，跳過 %d 個（被鎖定）", deleted, skipped)
+    logger.info("清空舊 CSV：搬到 %s %d 個，跳過 %d 個（被鎖定）", backup_dir, moved, skipped)
+    for old in sorted(p for p in backup_root.iterdir() if p.is_dir())[:-_PRICE_BACKUP_KEEP]:
+        shutil.rmtree(old, ignore_errors=True)
 
 
 def _write_price_rows(output_path: Path, day_rows: dict) -> tuple[int, int]:
@@ -273,7 +289,11 @@ def _fetch_yfinance_one_stock(
 
     for attempt in range(max_retries + 1):
         try:
-            hist = yf.Ticker(ticker).history(start=buffer_start, end=end_date, timeout=15)
+            # auto_adjust=False：要實際成交價。yfinance 預設 True 會回還原權息價（2026-10-24 bug-reports：
+            # 2330 2020-01-02 寫成 297.70，實際 339），跟每日流程的官方實際價混在同一張表
+            hist = yf.Ticker(ticker).history(
+                start=buffer_start, end=end_date, timeout=15, auto_adjust=False, actions=False,
+            )
             if hist is not None and not hist.empty:
                 hist = hist.reset_index()
                 closes = hist["Close"].astype(float).tolist()
@@ -389,6 +409,13 @@ def backfill_yfinance(
             ok, total, success_rate * 100,
         )
         clean = False
+
+    # Yahoo 會對休市日給佔位列（量 0、OHLC＝前一日收盤；2026-10-23 光復節補假實際出現過），用交易日判斷濾掉
+    from config import is_trading_day
+    holidays = sorted(d for d in day_rows if not is_trading_day(d))
+    if holidays:
+        logger.info("略過非交易日 %d 天：%s", len(holidays), ", ".join(holidays[:10]))
+        day_rows = {d: rows for d, rows in day_rows.items() if d not in holidays}
 
     if clean:
         _clear_price_csvs(output_path)

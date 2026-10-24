@@ -5151,3 +5151,27 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 - **沒有實際打 API 建檔**，`--update-calendar` 等 Cody 跑。
 - 未來日子仍靠 `TAIWAN_HOLIDAYS`，每年要補隔年休市日（config 註解已寫）；颱風假靠前一次修的 quote_date 防呆。
 - 🟡 2（中位數門檻在回補到 2020 後的浪費請求）這次沒處理。
+
+## [2026-10-24] 修：Yahoo 回補改抓實際價、濾休市日、清 CSV 前先備份
+
+### 改了什麼
+- 異動檔案：scrapers/backfill.py, config.py, tests/test_backfill.py, CLAUDE-developer.md
+- 邏輯說明（回應 bug-reports 2026-10-24「backfill-yf 實查」🔴；Cody 決定 DB 統一存**實際價**）：
+  1. `_fetch_yfinance_one_stock`：`history(..., auto_adjust=False, actions=False)`，Close 改為實際成交價。
+  2. `backfill_yfinance`：寫 CSV 前用 `config.is_trading_day` 濾掉非交易日（Yahoo 10-23 佔位列）。
+  3. `_clear_price_csvs`：不再 unlink，改搬到 `data/daily_prices_backup/<時間戳>/`，只留最近 3 份
+     （`backfill_twse_monthly` 也共用，一併受益）。
+  4. `TAIWAN_HOLIDAYS` 補 2026-12-25（行憲紀念日，前一則報告 🟡 1）。
+  5. CLAUDE-developer.md「資料跑掉時」補上述行為說明（CLAUDE.md 本地檔沒動，兩台要再 cp）。
+
+### 資料來源相關
+- 上市（.TW）／上櫃（.TWO）同一條 Yahoo 路徑，兩邊都改；每日流程不受影響。
+
+### 請 Debugger 驗證
+- [ ] 跑 tests/test_backfill.py（新增 3 個）與全套
+- [ ] 實打 1～2 檔確認：`auto_adjust=False` 時 2330 2020-01-02 Close ≈ 339、2024-07-11 ≈ 1080（跟官方一致）；
+      再看 Yahoo 的 Close 是否有做「分割調整」（台股減資／面額變更的股票），有的話列出來
+- [ ] 除息日的 change_pct：我們用「前一日收盤」算，官方用「除息參考價」算，兩者會不同 → 確認差異大小、要不要記成已知口徑差
+
+### 特別注意
+- **沒有重跑回補、沒有動 DB**。現在 DB 仍是 Cody 13:37 跑出來的還原價，重建方式等 Cody 決定（有沒有 data/ 備份）。

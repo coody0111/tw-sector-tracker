@@ -560,3 +560,47 @@ def test_existing_chips_dates_small_universe_keeps_absolute_floor():
     assert _existing_chips_dates(con, "institutional", {"2330"}) == {"2026-01-02"}
     assert _existing_chips_dates(con, "institutional", set()) == set()
     con.close()
+
+
+def test_fetch_yfinance_one_stock_requests_actual_prices():
+    """要實際成交價：history() 必須明確帶 auto_adjust=False（yfinance 預設 True 會回還原權息價）。"""
+    hist = _make_yf_history(["2026-06-29", "2026-06-30"], [100.0, 101.0])
+    fake_ticker = MagicMock()
+    fake_ticker.history.return_value = hist
+    with patch("yfinance.Ticker", return_value=fake_ticker),          patch("scrapers.backfill.time.sleep"):
+        _fetch_yfinance_one_stock("2330", "2330.TW", "2026-06-29", "2026-07-01")
+    assert fake_ticker.history.call_args.kwargs["auto_adjust"] is False
+
+
+def test_backfill_yfinance_drops_non_trading_day_rows(tmp_path):
+    """Yahoo 對休市日給的佔位列不能寫成 CSV（2026-10-23 光復節補假）。"""
+    merged = []
+
+    def fake_fetch(sid, ticker, start_date, end_date, pause_state=None):
+        return sid, [
+            {"stock_id": sid, "close": 100.0, "change": 0, "change_pct": 0, "volume": 10, "_date": "2026-10-22"},
+            {"stock_id": sid, "close": 100.0, "change": 0, "change_pct": 0, "volume": 0, "_date": "2026-10-23"},
+        ]
+
+    with patch("scrapers.backfill._fetch_yfinance_one_stock", side_effect=fake_fetch),          patch("scrapers.backfill._merge_into_csv", side_effect=lambda p, r, overwrite=False: merged.append(p.name) or True),          patch("config.is_trading_day", side_effect=lambda d: d != "2026-10-23"):
+        backfill_yfinance(["2330"], exchange_map={"2330": "TWSE"}, months=1,
+                          output_dir=str(tmp_path), today=date(2026, 10, 23), clean=False)
+    assert merged == ["2026-10-22.csv"]
+
+
+def test_clear_price_csvs_moves_to_backup_and_keeps_latest(tmp_path):
+    """清空行情 CSV 時要先搬去備份，不能直接刪；備份只留最近幾份。"""
+    from scrapers.backfill import _PRICE_BACKUP_KEEP, _clear_price_csvs
+    out = tmp_path / "daily_prices"
+    out.mkdir()
+    backup_root = tmp_path / "daily_prices_backup"
+    for k in range(_PRICE_BACKUP_KEEP + 1):
+        (backup_root / f"20260101-00000{k}").mkdir(parents=True)
+    (out / "2026-10-22.csv").write_text("stock_id,close\n2330,2385\n", encoding="utf-8")
+
+    _clear_price_csvs(out)
+
+    assert list(out.glob("*.csv")) == []
+    backups = sorted(p for p in backup_root.iterdir() if p.is_dir())
+    assert len(backups) == _PRICE_BACKUP_KEEP
+    assert (backups[-1] / "2026-10-22.csv").read_text(encoding="utf-8").startswith("stock_id")

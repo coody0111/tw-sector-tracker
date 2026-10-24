@@ -12,8 +12,10 @@
   已寫的保留，下次重跑接著做。
 - 兩個市場都回「不是這天的資料」→ 休市：刪掉那天既有的 CSV（之前寫進去的複本或 Yahoo 佔位列）。
 - 無成交（收盤 '--'）的股票不寫列（停牌期間不再出現假列）。
-- 漲跌：官方有正負號就用官方（以參考價為基準，除權息日也對）；除權息 'X' 或解析不了時，
-  改用前一交易日收盤反推（同 Yahoo 回補的口徑）。
+- 漲跌：官方有正負號就用官方（以參考價為基準）。除權息日官方不給數字（上市 'X'、上櫃 '除息'）：
+  上櫃用前一天的「次日參考價」算（參考價口徑，CSV 多存一欄 next_ref）；上市 MI_INDEX 沒有參考價，
+  只能用前一交易日收盤反推（前收口徑，跟官方差約 0.3 個百分點，高殖利率股更多）。
+- 休市判斷以交易日行事曆為準：官方兩邊都回空、但行事曆說是交易日（還沒公布或 API 偶發空回應）就不刪。
 """
 import logging
 import re
@@ -50,11 +52,11 @@ def _num(val) -> float | None:
         return None
 
 
-def _row(sid, name, open_, high, low, close, change, volume_shares) -> dict:
+def _row(sid, name, open_, high, low, close, change, volume_shares, next_ref=None) -> dict:
     return {
         "stock_id": sid, "stock_name": name,
         "open": open_, "high": high, "low": low, "close": close,
-        "change": change, "volume": int(volume_shares or 0) // 1000,
+        "change": change, "volume": int(volume_shares or 0) // 1000, "next_ref": next_ref,
     }
 
 
@@ -104,6 +106,7 @@ def parse_tpex_daily_quotes(data: dict, trade_date: date) -> list | None:
     missing = [n for n in need if n not in f]
     if missing:
         raise ValueError(f"TPEx 每日收盤行情 {trade_date}：缺欄位 {missing}（實際 {fields}）")
+    i_ref = f.get("次日參考價")
     rows = []
     for r in tables[0]["data"]:
         close = _num(r[f["收盤"]])
@@ -113,6 +116,7 @@ def parse_tpex_daily_quotes(data: dict, trade_date: date) -> list | None:
             str(r[f["代號"]]).strip(), str(r[f["名稱"]]).strip(),
             _num(r[f["開盤"]]), _num(r[f["最高"]]), _num(r[f["最低"]]), close,
             _num(r[f["漲跌"]]), _num(r[f["成交股數"]]),
+            _num(r[i_ref]) if i_ref is not None else None,
         ))
     return rows
 
@@ -149,23 +153,33 @@ def _is_official_csv(path: Path) -> bool:
     return "source" in df.columns and not df.empty and (df["source"] == SOURCE_TAG).all()
 
 
-def _prev_closes(output_dir: Path, before: date) -> dict:
-    """續跑時：取 before 之前最近一個 CSV 的收盤，當除權息日反推漲跌的基準。"""
+def _base_from_csv(path: Path) -> dict:
+    """某天 CSV → {stock_id: 隔天漲跌基準}：有次日參考價用參考價，沒有用收盤。"""
+    df = pd.read_csv(path, dtype={"stock_id": str})
+    base = dict(zip(df["stock_id"], df["close"]))
+    if "next_ref" in df.columns:
+        base.update({k: v for k, v in zip(df["stock_id"], df["next_ref"]) if pd.notna(v) and v > 0})
+    return base
+
+
+def _prev_bases(output_dir: Path, before: date) -> dict:
+    """續跑時：取 before 之前最近一個 CSV，當除權息日算漲跌的基準。"""
     earlier = sorted(p for p in output_dir.glob("*.csv") if p.stem < before.isoformat())
-    if not earlier:
-        return {}
-    df = pd.read_csv(earlier[-1], dtype={"stock_id": str})
-    return dict(zip(df["stock_id"], df["close"]))
+    return _base_from_csv(earlier[-1]) if earlier else {}
 
 
-def finalize_rows(rows: list, prev_close: dict, universe: set) -> list:
-    """只留股票池；補上缺的漲跌（前一日收盤反推）並算漲跌幅。回傳新 list，不改 rows。"""
+def _bases_from_rows(rows: list) -> dict:
+    return {r["stock_id"]: (r.get("next_ref") or r["close"]) for r in rows}
+
+
+def finalize_rows(rows: list, prev_base: dict, universe: set) -> list:
+    """只留股票池；補上缺的漲跌（前一天的次日參考價，沒有就前一日收盤）並算漲跌幅。回傳新 list，不改 rows。"""
     out = []
     for r in rows:
         if r["stock_id"] not in universe:
             continue
         change = r["change"]
-        prev = prev_close.get(r["stock_id"])
+        prev = prev_base.get(r["stock_id"])
         if change is None:
             change = round(r["close"] - prev, 2) if prev else 0.0
         base = r["close"] - change
@@ -186,13 +200,18 @@ def backfill_official_prices(
     sleep_sec: float = 4.0,
 ) -> dict:
     """由 start 到 end 逐日抓官方全市場行情寫 CSV。回傳 {"written", "skipped", "holidays", "partial", "stopped"}。"""
-    end = end or date.today()
+    from config import is_trading_day
+    from scrapers.backfill import backup_price_csvs
+
+    end = end or date.today() - timedelta(days=1)  # 今天收盤資料可能還沒公布
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     universe = set(stock_ids)
-    from scrapers.backfill import backup_price_csvs
-    backup_price_csvs(out_dir)  # 會逐日覆寫既有 CSV，先整份複製一份
-    prev_close = _prev_closes(out_dir, start)
+    # 會逐日覆寫既有 CSV，先整份複製一份；已經有官方 CSV 代表是續跑，不再備份
+    # （每次都備份會把「開跑前的原始狀態」輪替掉，備份只留最近幾份）
+    if not any(_is_official_csv(p) for p in out_dir.glob("*.csv")):
+        backup_price_csvs(out_dir)
+    prev_close = _prev_bases(out_dir, start)
     stats = {"written": 0, "skipped": 0, "holidays": 0, "partial": 0, "stopped": None}
 
     d = start
@@ -202,8 +221,7 @@ def backfill_official_prices(
             d += timedelta(days=1)
             continue
         if _is_official_csv(path):
-            df = pd.read_csv(path, dtype={"stock_id": str})
-            prev_close.update(zip(df["stock_id"], df["close"]))
+            prev_close.update(_base_from_csv(path))
             stats["skipped"] += 1
             d += timedelta(days=1)
             continue
@@ -215,7 +233,10 @@ def backfill_official_prices(
             logger.error("官方行情被擋，停在 %s（已寫的保留，重跑會接著做）：%s", d.isoformat(), exc)
             stats["stopped"] = d.isoformat()
             break
-        if twse is None and tpex is None:
+        if twse is None and tpex is None and is_trading_day(d.isoformat()):
+            logger.warning("%s 官方兩邊都沒資料，但行事曆是交易日（尚未公布或偶發空回應），不動既有 CSV", d.isoformat())
+            stats["partial"] += 1
+        elif twse is None and tpex is None:
             if path.exists():
                 path.unlink()
                 logger.info("%s 休市，刪除既有 CSV（複本或 Yahoo 佔位列）", d.isoformat())
@@ -223,11 +244,12 @@ def backfill_official_prices(
         elif twse is None or tpex is None:
             # 兩市場休市日相同，只有一邊有資料代表另一邊這次沒抓到：不寫（寫了會被標成官方而永遠不重抓）
             logger.warning("%s 只有%s有資料，這天先不寫，重跑時再抓", d.isoformat(), "上櫃" if twse is None else "上市")
+            prev_close.update(_bases_from_rows(twse or tpex))
             stats["partial"] += 1
         else:
             rows = finalize_rows(twse + tpex, prev_close, universe)
             pd.DataFrame(rows).to_csv(path, index=False, encoding="utf-8-sig")
-            prev_close.update({r["stock_id"]: r["close"] for r in rows})
+            prev_close.update(_bases_from_rows(rows))
             stats["written"] += 1
             if stats["written"] % 20 == 0:
                 logger.info("官方行情：已寫到 %s（%d 天）", d.isoformat(), stats["written"])

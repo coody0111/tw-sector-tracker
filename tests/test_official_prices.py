@@ -98,6 +98,7 @@ def test_backfill_official_prices_writes_deletes_holiday_resumes_and_stops(tmp_p
 
     with patch("scrapers.official_prices.fetch_twse_day", side_effect=twse), \
          patch("scrapers.official_prices.fetch_tpex_day", side_effect=tpex), \
+         patch("config.is_trading_day", side_effect=lambda d: d != "2026-10-21"), \
          patch("scrapers.official_prices.time.sleep"):
         stats = backfill_official_prices(["2330", "6488"], date(2026, 10, 19), date(2026, 10, 24),
                                          output_dir=str(out), sleep_sec=0)
@@ -109,3 +110,31 @@ def test_backfill_official_prices_writes_deletes_holiday_resumes_and_stops(tmp_p
     assert sorted(written["stock_id"]) == ["2330", "6488"]
     assert (written["source"] == "official").all()
     assert list((tmp_path / "daily_prices_backup").iterdir())  # 開始前先整份備份
+
+
+def test_backfill_official_keeps_csv_when_empty_but_calendar_says_trading_day(tmp_path):
+    """官方兩邊都回空、但行事曆說是交易日（還沒公布／偶發空回應）：不能刪掉有效的 CSV。"""
+    out = tmp_path / "daily_prices"
+    out.mkdir()
+    pd.DataFrame([_r("2330", 2400)]).to_csv(out / "2026-10-22.csv", index=False)
+    with patch("scrapers.official_prices.fetch_twse_day", return_value=None), \
+         patch("scrapers.official_prices.fetch_tpex_day", return_value=None), \
+         patch("config.is_trading_day", return_value=True), \
+         patch("scrapers.official_prices.time.sleep"):
+        stats = backfill_official_prices(["2330"], date(2026, 10, 22), date(2026, 10, 22),
+                                         output_dir=str(out), sleep_sec=0)
+    assert (out / "2026-10-22.csv").exists()
+    assert stats["holidays"] == 0 and stats["partial"] == 1
+
+
+def test_tpex_ex_dividend_uses_previous_next_ref_price():
+    """上櫃除息日官方漲跌欄是「除息」：用前一天的「次日參考價」算，不是前一天收盤。"""
+    data = {"stat": "ok", "date": "20261022", "tables": [{
+        "fields": ["代號", "名稱", "收盤", "漲跌", "開盤", "最高", "最低", "成交股數", "次日 參考價"],
+        "data": [["6488", "環球晶", "98.00", "除息 ", "97", "99", "96", "1,000", "98.00"]],
+    }]}
+    rows = parse_tpex_daily_quotes(data, D)
+    assert rows[0]["change"] is None and rows[0]["next_ref"] == 98.0
+    out = finalize_rows(rows, {"6488": 96.0}, {"6488"})  # 前一天的次日參考價 96（前收是 100）
+    assert out[0]["change"] == 2.0
+    assert out[0]["change_pct"] == round(2 / 96 * 100, 2)

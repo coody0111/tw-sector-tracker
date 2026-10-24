@@ -5205,3 +5205,22 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 ### 特別注意
 - 沒有實際回補；DB 還是 Cody 13:37 那份還原價。驗證過後由 Cody 跑 `python main.py --backfill-official 2020-01-02`（約 1,650 個交易日 × 2 次請求，預估 3～4 小時，被擋就隔一陣子重跑）。
 - b8b4ce4（Yahoo 改實際價）那份報告的 🔴 由這個新指令取代；Yahoo 回補程式的修正仍保留（給臨時補洞用）。
+
+## [2026-10-24] 修：--backfill-official 依報告 🟡 1、2、3、5 調整
+
+### 改了什麼
+- 異動檔案：scrapers/official_prices.py, tests/test_official_prices.py
+- 邏輯說明：
+  1. 🟡1 休市刪檔前先問 `config.is_trading_day`：官方兩邊都空但行事曆是交易日 → 不刪、記 partial。`end` 預設改成昨天。
+  2. 🟡2 上櫃除息日改參考價口徑：解析「次日參考價」存成 CSV 欄 `next_ref`，隔天除權息時用它當基準（續跑時也從 CSV 讀）。
+     上市 MI_INDEX 沒有參考價，**仍是前收口徑**，docstring 已改正（交接原本寫「除權息日也對」不成立）。
+  3. 🟡3 目錄裡已經有任何 official CSV（＝續跑）就不再備份，保住開跑前那份原始狀態。
+  4. 🟡5 只抓到一邊的日子，用抓到那邊更新漲跌基準。
+- 🟡4（中途被擋時 DB 是官方＋Yahoo 混合）是預期行為，會跟 Cody 說明「整段跑完前別拿來回測」。
+
+### 請 Debugger 驗證
+- [ ] tests/test_official_prices.py（7 個）與全套
+- [ ] 上櫃除息實例：挑一檔上櫃除息日，算出的 change_pct 跟官方參考價口徑一致
+
+### 特別注意
+- 驗完沒有 🔴 就可以請 Cody 開跑。

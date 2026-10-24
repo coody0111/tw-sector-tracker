@@ -7,6 +7,7 @@ import pandas as pd
 import duckdb
 
 from scrapers.backfill import (
+    _existing_chips_dates,
     _fetch_yfinance_one_stock,
     _ohlc_value,
     _first_month_start,
@@ -534,3 +535,28 @@ def test_backfill_chips_rewrite_same_batch_replaces_only_those_stocks(tmp_path):
     ).fetchall()
     con.close()
     assert rows == [("2317", 5), ("2330", 100)]  # 2330 被新值覆蓋，不在這批的 2317 保留
+
+
+def test_existing_chips_dates_treats_partial_day_as_missing():
+    """半套日子（只寫了一部分股票）要被當成缺、讓回補重抓。2026-10-22 bug-reports：上市 margin
+    06-16 只有 34 筆、institutional 05-19 只有 379 筆（正常約 500），舊門檻 min(20, 檔數) 會當成已有。"""
+    ids = {f"{1000 + k}" for k in range(30)}
+    con = duckdb.connect(":memory:")
+    con.execute("CREATE TABLE margin (stock_id VARCHAR, date DATE)")
+    for d, n in (("2026-06-15", 30), ("2026-06-16", 21), ("2026-06-17", 30), ("2026-06-18", 29)):
+        for sid in sorted(ids)[:n]:
+            con.execute("INSERT INTO margin VALUES (?, ?)", [sid, d])
+    got = _existing_chips_dates(con, "margin", ids)
+    con.close()
+    # 中位數 29.5 × 80% = 23.6：21 筆那天（超過舊門檻 20）要算缺，29 筆那天正常
+    assert got == {"2026-06-15", "2026-06-17", "2026-06-18"}
+
+
+def test_existing_chips_dates_small_universe_keeps_absolute_floor():
+    """股票很少時（測試或小市場）門檻不能高過檔數：1 檔有寫就算已有。"""
+    con = duckdb.connect(":memory:")
+    con.execute("CREATE TABLE institutional (stock_id VARCHAR, date DATE)")
+    con.execute("INSERT INTO institutional VALUES ('2330', '2026-01-02')")
+    assert _existing_chips_dates(con, "institutional", {"2330"}) == {"2026-01-02"}
+    assert _existing_chips_dates(con, "institutional", set()) == set()
+    con.close()

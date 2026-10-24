@@ -609,7 +609,8 @@ _CHIPS_TABLE_SCHEMAS = {
 }
 
 
-_CHIPS_EXISTING_MIN_ROWS = 20  # 某市場某天至少有這麼多「股票池內該市場股票」的列，才算那天該市場已有資料
+_CHIPS_EXISTING_MIN_ROWS = 20  # 絕對下限：某市場某天至少有這麼多「股票池內該市場股票」的列
+_CHIPS_EXISTING_MEDIAN_RATIO = 0.8  # 相對門檻：還要 ≥ 該表該市場「每日列數中位數」的 80%，半套日子才會被重抓
 
 
 def _load_exchange_ids(universe_path: str) -> dict:
@@ -624,17 +625,23 @@ def _load_exchange_ids(universe_path: str) -> dict:
 def _existing_chips_dates(con, table: str, ids: set) -> set:
     """某市場已有資料的日期：當天該市場（股票池內）股票列數 ≥ 門檻。
     分市場判斷，是因為每日流程常出現「同一天只寫了上市或只寫了上櫃」的半套日子，
-    舊版只看整張表有沒有那天，半套的那一邊會被永久跳過。"""
+    舊版只看整張表有沒有那天，半套的那一邊會被永久跳過。
+
+    門檻＝max(絕對下限, 每日列數中位數 × 80%)。只用絕對下限 20 時，「只寫了一部分」的日子
+    （2026-10-22 bug-reports：上市 margin 06-16 只有 34 筆、institutional 05-19 只有 379 筆，
+    正常約 500）會被當成已有資料而永遠不重抓。用中位數而不是股票池檔數，是因為各表本來就
+    不會涵蓋全部股票（例如上櫃融資約 8 成股票才有）。"""
     if not ids:
         return set()
     ids_df = pd.DataFrame({"stock_id": sorted(ids)})  # noqa: F841  DuckDB 以變數名參照
-    threshold = min(_CHIPS_EXISTING_MIN_ROWS, len(ids))
-    rows = con.execute(
-        f"SELECT date FROM {table} WHERE stock_id IN (SELECT stock_id FROM ids_df) "
-        "GROUP BY date HAVING count(*) >= ?",
-        [threshold],
+    counts = con.execute(
+        f"SELECT date, count(*) AS n FROM {table} WHERE stock_id IN (SELECT stock_id FROM ids_df) "
+        "GROUP BY date"
     ).df()
-    return set(rows["date"].astype(str).tolist()) if not rows.empty else set()
+    if counts.empty:
+        return set()
+    threshold = max(min(_CHIPS_EXISTING_MIN_ROWS, len(ids)), counts["n"].median() * _CHIPS_EXISTING_MEDIAN_RATIO)
+    return set(counts.loc[counts["n"] >= threshold, "date"].astype(str).tolist())
 
 
 def _write_chips(db_path: str, table: str, df: pd.DataFrame, d_str: str) -> None:

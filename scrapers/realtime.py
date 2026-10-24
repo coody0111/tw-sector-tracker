@@ -14,6 +14,7 @@
   b  — 五檔買價（"_" 分隔）
   a  — 五檔賣價（"_" 分隔）
   t  — 最新時間
+  d  — 報價所屬交易日（YYYYMMDD）
   ex — 掛牌市場 tse / otc
 """
 import logging
@@ -116,7 +117,7 @@ def _clamp_to_day_range(price: float, high: float | None, low: float | None) -> 
 def fetch_realtime_prices(stock_ids: List[str]) -> pd.DataFrame:
     """
     批次查詢即時行情，回傳 DataFrame 欄位：
-      stock_id, close, change, change_pct, volume, open, high, low, time
+      stock_id, close, change, change_pct, volume, open, high, low, time, quote_date
     """
     session = requests.Session()
     try:
@@ -180,6 +181,9 @@ def fetch_realtime_prices(stock_ids: List[str]) -> pd.DataFrame:
                 "high":       day_high,
                 "low":        day_low,
                 "time":       item.get("t", ""),
+                # 報價所屬交易日（YYYYMMDD）。休市日 API 仍回最近交易日的報價，
+                # main.py 用它擋掉「把前一交易日複本寫成休市日」（2026-10-22 bug-reports）
+                "quote_date": item.get("d", ""),
             })
 
         if bi < total_batches:

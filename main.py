@@ -45,6 +45,17 @@ def _prev_trading_day(d: date) -> date:
     return d
 
 
+def _quote_trade_date(prices_df) -> date | None:
+    """行情資料自己標的交易日（realtime 的 quote_date 欄，YYYYMMDD），取最多股票的那個日期。
+    沒有這欄（官方收盤 API）或解析不了就回 None，交給既有的 2330 探測防呆。"""
+    if prices_df is None or prices_df.empty or "quote_date" not in prices_df.columns:
+        return None
+    parsed = pd.to_datetime(prices_df["quote_date"].astype(str), format="%Y%m%d", errors="coerce").dropna()
+    if parsed.empty:
+        return None
+    return parsed.mode().iloc[0].date()
+
+
 def _retry_fetch(fn, *args, retries: int = 3, backoff: tuple = (1.0, 3.0), retry_on=(Exception,), **kwargs):
     """通用重試小幫手：對 retry_on 型別的例外重試 retries 次，每次退避在 backoff 秒數範圍內
     隨機（比照 scrapers/shareholder.py 既有的 TDCC 抓取重試模式，已驗證穩定）。
@@ -726,7 +737,16 @@ def run(trade_date: date = None, realtime: bool = False, push: bool = True, summ
     # --realtime 抓的是當下即時快照，即使探測股價格剛好與前一天收盤相同（例如尚未成交、
     # API 延遲），也仍是「今天」的合法資料，不應該把 trade_date 切回前一天。
     prices_are_new = True
-    if not realtime and prices_df is not None and not prices_df.empty:
+    # 休市日保護（2026-10-22 bug-reports：07-10、09-25、09-28、10-09 被寫入前一交易日的整份複本）：
+    # 排程只排除週末，國定假日照跑；即時源在休市日仍回最近交易日的報價，--realtime 又不套用下面的
+    # 2330 探測防呆。改看報價自己標的交易日，跟本次 trade_date 不同就不寫入。
+    quote_day = _quote_trade_date(prices_df)
+    if quote_day is not None and quote_day != trade_date:
+        logger.warning("行情報價日期 %s ≠ 本次交易日 %s（休市或尚未開盤），不寫入行情", quote_day, trade_date)
+        prices_are_new = False
+        if quote_day < trade_date:
+            trade_date = quote_day
+    if prices_are_new and not realtime and prices_df is not None and not prices_df.empty:
         prev_day = _prev_trading_day(trade_date)
         prev_csv = Path(f"data/daily_prices/{prev_day.isoformat()}.csv")
         # 探測股固定用 2330（大型權值股，資料最穩定）。如果它不在這次抓到的資料裡

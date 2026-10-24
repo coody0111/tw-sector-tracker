@@ -458,3 +458,27 @@ def test_update_insider_holdings_db_appends_failure_to_warnings(monkeypatch):
     _update_insider_holdings_db(realtime=False, warnings=warnings)
 
     assert "董監持股更新失敗" in warnings
+
+
+def test_quote_trade_date_takes_most_common_quote_date():
+    """休市日即時源回的是前一交易日報價：用報價自己標的日期判斷，避免寫成休市日的複本。"""
+    import pandas as pd
+    from main import _quote_trade_date
+    df = pd.DataFrame({"stock_id": ["2330", "2317", "6488"], "quote_date": ["20260924", "20260924", "20260923"]})
+    assert _quote_trade_date(df) == date(2026, 9, 24)
+
+
+def test_quote_trade_date_none_when_no_usable_date():
+    """官方收盤 API 沒有 quote_date 欄、或欄位是空字串時回 None，交給既有 2330 探測防呆。"""
+    import pandas as pd
+    from main import _quote_trade_date
+    assert _quote_trade_date(None) is None
+    assert _quote_trade_date(pd.DataFrame({"stock_id": ["2330"], "close": [1.0]})) is None
+    assert _quote_trade_date(pd.DataFrame({"stock_id": ["2330"], "quote_date": [""]})) is None
+
+
+def test_run_skips_price_write_when_quote_date_differs():
+    """run() 寫行情前要先比對報價日期；端對端成本高，同既有做法用原始碼鎖定這道防呆。"""
+    source = inspect.getsource(run)
+    assert "_quote_trade_date(prices_df)" in source
+    assert "quote_day != trade_date" in source

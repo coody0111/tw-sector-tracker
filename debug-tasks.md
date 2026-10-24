@@ -5095,3 +5095,31 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 
 ### 特別注意
 - 只回報，不清資料；要清／要補由 Cody 決定。
+
+## [2026-10-24] 修：行情休市日複本保護、籌碼半套日門檻
+
+### 改了什麼
+- 異動檔案：scrapers/realtime.py, main.py, scrapers/backfill.py, tests/test_main.py, tests/test_backfill.py
+- 邏輯說明：
+  1. **行情休市日保護**（bug-reports 2026-10-22 🔴 第 1 項）。寫入路徑查到是：排程 `scripts/run_scheduled.py::is_trading_day()` 只排除週末，
+     國定假日照跑 `--realtime`；mis.twse 即時源休市日仍回最近交易日的報價；而 main.py 的 2330 探測防呆只在 batch 模式套用
+     → realtime 把前一交易日整份寫成 `data/daily_prices/<休市日>.csv`。
+     修法：`scrapers/realtime.py` 多帶 `quote_date`（API 的 `d` 欄，YYYYMMDD）；`main.py` 新增 `_quote_trade_date()`，
+     寫行情前若報價日 ≠ trade_date → 不寫入（報價日較早時 trade_date 改成報價日，同既有 batch 防呆的做法）。
+     官方收盤 API 沒有這欄 → 回 None，維持原本 2330 探測防呆。CSV 多一欄 `quote_date`，匯入 SQL 是指定欄位，不受影響。
+  2. **籌碼半套日門檻**（🔴 第 2 項）：`_existing_chips_dates` 門檻改成 max(min(20, 檔數), 該表該市場每日列數中位數 × 80%)。
+     用中位數不用股票池檔數，因為各表本來就不涵蓋全部股票（上櫃融資約 8 成）。
+
+### 資料來源相關
+- 上市（TWSE）／上櫃（TPEx）：每日流程的即時同源（mis.twse，兩市場同一 API）加日期欄；籌碼回補兩市場共用同一個門檻函式，分市場各自算中位數。
+
+### 請 Debugger 驗證
+- [ ] 跑 tests/test_main.py、tests/test_backfill.py（新增 5 個測試）與全套測試
+- [ ] 實打一次 mis.twse API 確認回應真的有 `d` 欄、格式是 YYYYMMDD（我沒有跑程式確認）
+- [ ] 用現在的 DB 唯讀算 `_existing_chips_dates`：上市 margin 06-16/06-23/06-24、institutional 05-19 應該**不在**結果裡；
+      其他日子（含上櫃 institutional 2025-04-07 那種官網本來就少的日子）列出來看會不會被誤判成缺
+- [ ] 沒有影響其他模組（realtime 盤中流程、收盤 batch 流程）
+
+### 特別注意
+- **沒有清資料、沒有回補**：4 個休市日複本、2 個非交易日外資持股、半套籌碼日的重抓、2025-08-01 行情缺口，都要 Cody 決定才動。
+- 🟡 前一則提到的 log 文字等小項這次沒有處理。

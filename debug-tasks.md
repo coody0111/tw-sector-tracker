@@ -5175,3 +5175,33 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 
 ### 特別注意
 - **沒有重跑回補、沒有動 DB**。現在 DB 仍是 Cody 13:37 跑出來的還原價，重建方式等 Cody 決定（有沒有 data/ 備份）。
+
+## [2026-10-24] 新增：官方逐日全市場行情回補 `--backfill-official`
+
+### 改了什麼
+- 異動檔案：scrapers/official_prices.py（新）、scrapers/backfill.py、main.py、tests/test_official_prices.py（新）
+- 邏輯說明（回應 bug-reports「Yahoo 仍做分割調整」🔴；Cody 選 (b) 改走官方重建）：
+  1. 每個平日抓兩次：上市 TWSE `MI_INDEX?type=ALLBUT0999`、上櫃 TPEx `www/zh-tw/afterTrading/dailyQuotes`。
+     **都依欄位名稱取值**（MI_INDEX 找含「證券代號」「收盤價」的表；TPEx 找 代號/名稱/收盤/漲跌/開盤/最高/最低/成交股數），對不上就拋 ValueError。
+  2. 由舊到新逐日寫 `data/daily_prices/<日期>.csv`（整檔覆寫、只留股票池），多一欄 `source=official`。
+  3. 續跑：CSV 已是 official 就跳過；被擋就停、保留已寫的；開始前用新的 `backup_price_csvs()` **複製**整份備份。
+  4. 兩邊都回「不是這天」→ 休市，刪掉既有 CSV（清掉 Yahoo 10-23 佔位列與舊複本）；只有一邊有資料 → 那天不寫、重跑再抓。
+  5. 無成交（收盤 `--`）不寫列 → 停牌期間不再有假列（前則 🟡 2）。
+  6. 漲跌：官方有正負號就用官方（參考價口徑，除權息日也對）；MI_INDEX 的 `X`（除權息）或解析不了 → 用前一交易日收盤反推。
+  7. 每次請求間隔 4 秒；跑完（含被擋停下）都 `reimport_db()`。
+  8. `backfill.py`：備份資料夾邏輯抽成 `_new_price_backup_dir()`，`_clear_price_csvs`（搬）與 `backup_price_csvs`（複製）共用。
+
+### 資料來源相關
+- 上市：TWSE MI_INDEX（官方、實際價）。上櫃：TPEx 官網每日收盤行情（官方、實際價）。跟每日流程同一系列官方來源，不用 FinMind／Yahoo。
+
+### 請 Debugger 驗證
+- [ ] 跑 tests/test_official_prices.py（5 個）與全套
+- [ ] **實打 API 確認格式**（我沒有實際打過，欄位名稱是照官網表頭寫的）：
+      MI_INDEX 2026-10-22、2020-01-02 各一次：回應有沒有 `date` 欄、表的 fields 名稱；
+      TPEx dailyQuotes 同兩天：`date` 欄格式是不是 YYYYMMDD、fields 名稱（含空白／換行？）
+- [ ] 抽查幾檔：6415、2349、3481、9917 的實際價跟官方一致；除權息日（例 2330 某次除息日）MI_INDEX 的漲跌欄長什麼樣、我們算出的 change_pct
+- [ ] 休市日（2026-10-23、2025-01-23）兩邊是不是都回 None
+
+### 特別注意
+- 沒有實際回補；DB 還是 Cody 13:37 那份還原價。驗證過後由 Cody 跑 `python main.py --backfill-official 2020-01-02`（約 1,650 個交易日 × 2 次請求，預估 3～4 小時，被擋就隔一陣子重跑）。
+- b8b4ce4（Yahoo 改實際價）那份報告的 🔴 由這個新指令取代；Yahoo 回補程式的修正仍保留（給臨時補洞用）。

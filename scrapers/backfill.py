@@ -95,20 +95,44 @@ def _collect_rows_by_date(day_rows: dict, rows: list) -> None:
 _PRICE_BACKUP_KEEP = 3  # 行情 CSV 備份保留最近幾份
 
 
+def _new_price_backup_dir(output_path: Path) -> Path:
+    """建 <output_path 的上一層>/<名稱>_backup/<時間戳>/，並刪掉超過 _PRICE_BACKUP_KEEP 份的舊備份。"""
+    import shutil
+    from datetime import datetime
+
+    backup_root = output_path.parent / f"{output_path.name}_backup"
+    backup_dir = backup_root / datetime.now().strftime("%Y%m%d-%H%M%S")
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    for old in sorted(p for p in backup_root.iterdir() if p.is_dir())[:-_PRICE_BACKUP_KEEP]:
+        shutil.rmtree(old, ignore_errors=True)
+    return backup_dir
+
+
+def backup_price_csvs(output_path: Path) -> Path | None:
+    """把現有行情 CSV **複製**一份到備份資料夾（原檔不動），回傳備份位置；沒有檔案回 None。"""
+    import shutil
+
+    files = list(output_path.glob("*.csv"))
+    if not files:
+        return None
+    backup_dir = _new_price_backup_dir(output_path)
+    for path in files:
+        shutil.copy2(path, backup_dir / path.name)
+    logger.info("行情 CSV 已備份 %d 個到 %s", len(files), backup_dir)
+    return backup_dir
+
+
 def _clear_price_csvs(output_path: Path) -> None:
     """清空既有行情 CSV——**先搬到備份資料夾，不直接刪**；被其他程式鎖定的檔案保留並記錄。
 
     備份位置：<output_path 的上一層>/daily_prices_backup/<時間戳>/，只留最近 _PRICE_BACKUP_KEEP 份。
     原本直接 unlink（2026-10-24 Cody 跑 --backfill-yf 82 時，426 個官方行情 CSV 被刪掉、救不回來）。"""
     import shutil
-    from datetime import datetime
 
     files = list(output_path.glob("*.csv"))
     if not files:
         return
-    backup_root = output_path.parent / f"{output_path.name}_backup"
-    backup_dir = backup_root / datetime.now().strftime("%Y%m%d-%H%M%S")
-    backup_dir.mkdir(parents=True, exist_ok=True)
+    backup_dir = _new_price_backup_dir(output_path)
     moved = skipped = 0
     for path in files:
         try:
@@ -117,8 +141,6 @@ def _clear_price_csvs(output_path: Path) -> None:
         except PermissionError:
             skipped += 1
     logger.info("清空舊 CSV：搬到 %s %d 個，跳過 %d 個（被鎖定）", backup_dir, moved, skipped)
-    for old in sorted(p for p in backup_root.iterdir() if p.is_dir())[:-_PRICE_BACKUP_KEEP]:
-        shutil.rmtree(old, ignore_errors=True)
 
 
 def _write_price_rows(output_path: Path, day_rows: dict) -> tuple[int, int]:

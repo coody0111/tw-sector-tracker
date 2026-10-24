@@ -77,3 +77,14 @@ def test_case_hits():
     sig = pd.DataFrame({"stock_id": ["6672"], "date": [pd.Timestamp("2026-09-24")]})
     assert case_hits(sig) == {("6672", "2026-09-24"): True, ("6213", "2026-09-24"): False}
     assert CASES == [("6672", "2026-09-24"), ("6213", "2026-09-24")]
+
+
+def test_blowup_rate_skips_unfillable_and_excluded_signals():
+    """口徑跟 run_trades 一致：隔天一字漲停買不到、排除日的訊號都不算進踩雷率。"""
+    a = _price("A", [100.0] * 2 + [80.0] * 25)
+    a.loc[1, "one_word"] = True                     # 訊號隔天一字 → 買不到
+    b = _price("B", [100.0] * 2 + [80.0] * 25)
+    f = pd.concat([a, b], ignore_index=True)
+    d0, d1 = f["date"].iloc[0], f["date"].iloc[1]
+    assert blowup_rate(pd.DataFrame({"stock_id": ["A", "B"], "date": [d0, d0]}), f) == 1.0   # 只剩 B
+    assert pd.isna(blowup_rate(pd.DataFrame({"stock_id": ["B"], "date": [d0]}), f, exclude_dates=[d0]))

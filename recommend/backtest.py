@@ -100,14 +100,18 @@ def catch_rate(episodes: pd.DataFrame, signals: pd.DataFrame, features: pd.DataF
     return hits / len(episodes)
 
 
-def blowup_rate(signals: pd.DataFrame, features: pd.DataFrame) -> float:
-    """訊號後隔天開盤進、第 20 個交易日收盤出（扣成本）≤ −15% 的比例。"""
-    f = features[["stock_id", "date", "open", "close"]].sort_values(["stock_id", "date"]).reset_index(drop=True)
+def blowup_rate(signals: pd.DataFrame, features: pd.DataFrame, exclude_dates=()) -> float:
+    """訊號後隔天開盤進、第 20 個交易日收盤出（扣成本）≤ −15% 的比例。
+    口徑跟 run_trades 一致：排除 exclude_dates 的訊號，隔天一字漲停買不到的不算。"""
+    excl = set(pd.to_datetime(list(exclude_dates)))
+    f = features[["stock_id", "date", "open", "close", "one_word"]].sort_values(["stock_id", "date"]).reset_index(drop=True)
     g = f.groupby("stock_id", sort=False)
     entry = g["open"].shift(-1)
     exit_ = g["close"].shift(-BLOWUP_DAYS)
     f["a20"] = exit_ * (1 - FEE - TAX) / (entry * (1 + FEE)) - 1
-    m = signals.merge(f[["stock_id", "date", "a20"]], on=["stock_id", "date"], how="left").dropna(subset=["a20"])
+    f.loc[g["one_word"].shift(-1).fillna(False).astype(bool), "a20"] = np.nan
+    sig = signals[~signals["date"].isin(excl)]
+    m = sig.merge(f[["stock_id", "date", "a20"]], on=["stock_id", "date"], how="left").dropna(subset=["a20"])
     return (m["a20"] <= BLOWUP_RET).mean() if len(m) else np.nan
 
 

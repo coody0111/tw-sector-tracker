@@ -5266,3 +5266,15 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 
 ### 特別注意
 - 唯讀 DB；沒有接進每日流程（那是階段 4～5）。
+
+## [2026-10-24] 修：回測框架依報告 🟡 1、3、4
+
+### 改了什麼
+- 異動檔案：main.py, recommend/backtest.py, recommend/features.py, tests/test_recommend_backtest.py, tests/test_main.py
+  1. 🟡1 `--backtest-recommend` 往前多載 220 個日曆天（約 150 交易日）當預熱，訊號只取 start 之後。
+  2. 🟡3 features.py 註解改正：上市除權息日 ref 是前收、漲停可能漏判，待 0-3 除權息資料。
+  3. 🟡4 `blowup_rate(..., exclude_dates)`：排除日、隔天一字漲停買不到的訊號不算，口徑同 run_trades。
+- 🟡2（大戶路線只有 2025-12 起、樣本內外規則不同）、🟡5（跌停賣不掉）記入規格，不改程式。
+
+### 請 Debugger 驗證
+- [ ] tests/test_recommend_backtest.py、tests/test_main.py 與全套

@@ -405,12 +405,15 @@ def backtest_recommend_cli(start: str = "2025-01-01", split: str = "2026-01-01")
     from recommend.features import add_chip_features, add_price_features
     from recommend.strategies import ALL_STRATEGIES
 
-    feats = add_chip_features(add_price_features(load_panel(start=start)))
+    # 預熱：往前多載約 150 個交易日，讓 hi90／量比／籌碼視窗在 start 當天就有值；訊號只取 start 之後
+    warmup_start = (pd.Timestamp(start) - pd.Timedelta(days=220)).date().isoformat()
+    feats = add_chip_features(add_price_features(load_panel(start=warmup_start)))
     bad_days = [d for d in feats["date"].drop_duplicates() if not is_trading_day(d.date().isoformat())]
     end = feats["date"].max() - pd.offsets.BDay(30)
     eps = winner_episodes(feats, start=start, end=str(end.date()))
     for strat in ALL_STRATEGIES:
         sig = strat.scan(feats)
+        sig = sig[sig["date"] >= pd.Timestamp(start)]
         r = report(run_trades(feats, sig, exclude_dates=bad_days), split_date=split)
         logger.info("=== %s：訊號 %d、已出場 %d、交易日 %d ===", strat.name, len(sig), r["n"], r["days"])
         logger.info("每筆 %.2fR｜勝率 %.0f%%｜賺賠比 %.2f｜PF %.2f｜前5%%占 %.0f%%｜單日最大占 %.0f%%｜最差10%% %.1f%%｜最多連虧 %d",
@@ -420,7 +423,7 @@ def backtest_recommend_cli(start: str = "2025-01-01", split: str = "2026-01-01")
         logger.info("分型態\n%s", r["by_type"].round(3).to_string(index=False))
         logger.info("按月\n%s", r["by_month"].round(3).to_string(index=False))
         logger.info("飆股抓到率 %.0f%%（%d 段）｜踩雷率 %.1f%%｜必考題 %s",
-                    catch_rate(eps, sig, feats) * 100, len(eps), blowup_rate(sig, feats) * 100, case_hits(sig))
+                    catch_rate(eps, sig, feats) * 100, len(eps), blowup_rate(sig, feats, bad_days) * 100, case_hits(sig))
 
 
 def backfill_chips_cli(days: int = 14) -> None:

@@ -491,3 +491,10 @@ def test_backtest_recommend_cli_wires_all_strategies():
     for name in ("load_panel", "add_price_features", "add_chip_features", "ALL_STRATEGIES",
                  "run_trades", "report", "winner_episodes", "catch_rate", "blowup_rate", "case_hits"):
         assert name in src
+
+
+def test_backtest_recommend_cli_has_warmup_and_filters_signals_from_start():
+    """hi90 需要 90 天回看：要往前多載預熱期，訊號只取 start 之後（Debugger 2026-10-24 🟡1）。"""
+    from main import backtest_recommend_cli
+    src = inspect.getsource(backtest_recommend_cli)
+    assert "warmup_start" in src and 'sig["date"] >= pd.Timestamp(start)' in src

@@ -11,7 +11,9 @@ NEW_LISTING_DAYS = 5   # 新上市前 5 個交易日無漲跌幅限制，不判�
 def add_price_features(panel: pd.DataFrame) -> pd.DataFrame:
     df = panel.sort_values(["stock_id", "date"]).reset_index(drop=True).copy()
     g = df.groupby("stock_id", sort=False)
-    # 參考價＝收盤 − 官方漲跌（官方漲跌以參考價為基準，除權息日也成立）
+    # 參考價＝收盤 − 官方漲跌（官方漲跌以參考價為基準）。
+    # ⚠️ 上市除權息日官方不給漲跌，回補時用前一日收盤反推（scrapers/official_prices.py），這天的 ref 是前收、
+    # 不是除權息參考價 → 漲停可能漏判；上櫃有「次日參考價」已校正。要等階段 0-3 除權息資料才能補正。
     ref = df["close"] - df["change"].fillna(0)
     limit = ref.map(lambda r: limit_up_price(r) if r > 0 else np.inf)
     seq = g.cumcount()

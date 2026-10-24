@@ -16,3 +16,10 @@ def limit_up_price(ref: float) -> float:
     raw = ref * 1.10
     tick = tick_size(raw)
     return round(math.floor(raw / tick + 1e-9) * tick, 2)
+
+
+def limit_down_price(ref: float) -> float:
+    """參考價 × 0.90，無條件進位到「該價位」的跳動單位。"""
+    raw = ref * 0.90
+    tick = tick_size(raw)
+    return round(math.ceil(raw / tick - 1e-9) * tick, 2)

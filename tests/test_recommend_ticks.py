@@ -20,3 +20,13 @@ def test_tick_size_boundaries(price, tick):
 ])
 def test_limit_up_price_rounds_down_to_tick_of_result(ref, limit):
     assert limit_up_price(ref) == pytest.approx(limit)
+
+
+@pytest.mark.parametrize("ref,limit", [
+    (100.0, 90.0),     # 90 → 50～100 跳 0.1 → 90.0
+    (306.5, 276.0),    # 275.85 → 100～500 跳 0.5，無條件進位 → 276.0
+    (11.0, 9.9),       # 9.9 → <10 跳 0.01 → 9.9
+])
+def test_limit_down_price_rounds_up_to_tick_of_result(ref, limit):
+    from recommend.ticks import limit_down_price
+    assert limit_down_price(ref) == pytest.approx(limit)

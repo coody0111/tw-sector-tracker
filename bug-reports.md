@@ -4109,3 +4109,34 @@ reimport 完成：共 372163 筆
 
 ### 結論
 - [x] 可以繼續下一個任務。上一份報告的 🔴（測試紅燈）已解決，`--backfill-official` 可以開跑。
+
+## [2026-10-24] 報告 - Cody 執行 `--backfill-official 2020-01-02` 中途因網路錯誤崩潰
+
+### 🔴 數據問題（需立刻修）
+- 無（已寫的資料沒有壞，見 ✅）
+
+### 🔴 程式問題（需立刻修）
+- **暫時性網路錯誤沒有被處理，整支程式崩潰**：
+  位置：`scrapers/official_prices.py` 第 231 行附近，`backfill_official_prices()` 只 catch `TWSEBlockedError`／`TPExBlockedError`；
+  `fetch_tpex_day()`（第 135 行 `requests.get`）在讀 TPEx 回應時拋了 `requests.exceptions.ChunkedEncodingError`。
+  相關 log（Cody 貼的 traceback）：`ChunkedEncodingError: ('Connection broken: IncompleteRead(7036 bytes read, 1156 more expected)', ...)`。
+  - 影響：
+    1. 程式直接結束，`backfill_official_cli()` 後面的 `reimport_db()` 沒有跑到 → 已寫好的官方 CSV 還沒進 DB
+       （DB 仍是 Yahoo 還原價，跟之前一樣，沒有變得更糟）。
+    2. 預估要跑 4 小時，每一兩千次請求遇到一次斷線很正常，每次都要人工重跑。
+  - 建議：`fetch_twse_day`／`fetch_tpex_day` 對 `requests.exceptions.RequestException`（ConnectionError、ChunkedEncodingError、Timeout）
+    重試 2～3 次並退避（專案裡已經有 `main._retry_fetch` 的模式）；重試仍失敗就比照「被擋」處理：記錄 `stopped`、`break`，
+    讓後面的 `reimport_db()` 照常執行。`ValueError`（欄位格式變動）也建議同樣停下而不是崩潰。
+
+### 🟡 建議改善
+- 無
+
+### ✅ 驗證通過
+- 崩潰前的進度（14:20 開跑，14:37 到第 100 天）：`data/daily_prices/` 共 1653 個 CSV，其中 **100 個是 `source=official`**
+  （2020-01-02～2020-06-04），其餘還是 Yahoo。
+- 開跑時有備份 1653 個 CSV 到 `data/daily_prices_backup/20261024-142031/` ✅（只有這 1 份）。
+- 行事曆 `data/trading_calendar.csv` 完整：2020-01～2026-10 共 82 個月、2487 列，沒有缺月 ✅。
+- 續跑機制不受影響：重跑同一行指令會跳過已是 official 的 100 天、從 2020-06-05 接著做，也不會再備份一次（已有官方 CSV）。
+
+### 結論
+- [x] 需要修改後再確認：Cody 可以先直接重跑同一行指令接著做（資料安全），但建議 Developer 加上網路錯誤重試，免得 4 小時內要人工重跑好幾次。

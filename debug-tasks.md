@@ -5289,3 +5289,24 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 
 ### 請 Debugger 驗證
 - [ ] tests/test_official_prices.py、tests/test_recommend_backtest.py 與全套，FutureWarning 消失
+
+## [2026-10-24] 個股推薦階段 4：每日後端（訊號、成績單、Telegram）
+
+### 改了什麼
+- 計畫：docs/superpowers/plans/2026-10-24-recommend-daily-backend.md（Task 1～7）
+- 新增 recommend/market.py（頁首：MA20 比例、漲跌停家數、突破失敗率）、cards.py（卡片、提醒、失效、族群分組）、
+  scorecard.py（DuckDB 新表 recommendations）、daily.py（payload、run_daily）、telegram_format.py（E21 表格）；ticks 加跌停價
+- notifications/telegram.py：send_telegram_message 加 parse_mode
+- main.py：收盤模式 step 6.4 `_update_recommend()` → data/recommend_payload.json、summary["recommend"]；step 7 補 taiex_above_ma20
+- scripts/run_scheduled.py：close 時 `send_recommend_message()`（有新訊號才發，parse_mode=HTML）
+
+### 請 Debugger 驗證
+- [ ] 新測試（test_recommend_{market,cards,scorecard,daily,telegram}.py＋main／scheduled_runner／telegram_notifier 追加）與全套
+- [ ] **官方行情重建完成後**，用 DB 複本跑 `recommend.daily.run_daily(day='2026-09-24', db_path=<複本>)`：
+      new 是否含 6672、6213；header 數字合理；recommendations 表有列；JSON 可寫出
+- [ ] 印出 `compose_recommend_message` 看對齊與長度
+- [ ] 收盤流程中 `_update_recommend` 失敗時只記 warning、不影響 push
+
+### 特別注意
+- 推薦頁 recommend.html 還沒做（下一份計畫，先出設計稿給 Cody）；Telegram 連結在頁面上線前會 404。
+- 第一次收盤跑會在正式 DB 建 recommendations 表。

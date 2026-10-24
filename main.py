@@ -397,6 +397,32 @@ def backfill_official_cli(start: date) -> None:
         logger.warning("被擋停在 %s，過一段時間再跑同一行指令會接著做", stats["stopped"])
 
 
+def backtest_recommend_cli(start: str = "2025-01-01", split: str = "2026-01-01") -> None:
+    """個股推薦回測（規格 §11、§12、§6 案例庫指標），結果印到 log。唯讀 DB。"""
+    from config import is_trading_day
+    from recommend.backtest import blowup_rate, case_hits, catch_rate, report, run_trades, winner_episodes
+    from recommend.data import load_panel
+    from recommend.features import add_chip_features, add_price_features
+    from recommend.strategies import ALL_STRATEGIES
+
+    feats = add_chip_features(add_price_features(load_panel(start=start)))
+    bad_days = [d for d in feats["date"].drop_duplicates() if not is_trading_day(d.date().isoformat())]
+    end = feats["date"].max() - pd.offsets.BDay(30)
+    eps = winner_episodes(feats, start=start, end=str(end.date()))
+    for strat in ALL_STRATEGIES:
+        sig = strat.scan(feats)
+        r = report(run_trades(feats, sig, exclude_dates=bad_days), split_date=split)
+        logger.info("=== %s：訊號 %d、已出場 %d、交易日 %d ===", strat.name, len(sig), r["n"], r["days"])
+        logger.info("每筆 %.2fR｜勝率 %.0f%%｜賺賠比 %.2f｜PF %.2f｜前5%%占 %.0f%%｜單日最大占 %.0f%%｜最差10%% %.1f%%｜最多連虧 %d",
+                    r["mean_r"], r["win_rate"] * 100, r["payoff"], r["pf"], r["top5_share"] * 100,
+                    r["max_day_share"] * 100, r["worst10_mean"] * 100, r["max_consec_losses"])
+        logger.info("樣本內 %s｜樣本外 %s", r["in_sample"], r["out_sample"])
+        logger.info("分型態\n%s", r["by_type"].round(3).to_string(index=False))
+        logger.info("按月\n%s", r["by_month"].round(3).to_string(index=False))
+        logger.info("飆股抓到率 %.0f%%（%d 段）｜踩雷率 %.1f%%｜必考題 %s",
+                    catch_rate(eps, sig, feats) * 100, len(eps), blowup_rate(sig, feats) * 100, case_hits(sig))
+
+
 def backfill_chips_cli(days: int = 14) -> None:
     """補齊過去 N 個日曆天內的三大法人/融資融券/外資持股%（上市 TWSE ＋ 上櫃 TPEx 官網報表）"""
     logger.info("=== 籌碼資料補齊（往前 %d 個日曆天）===", days)
@@ -1298,6 +1324,8 @@ if __name__ == "__main__":
                              "建議 19，會刪舊 CSV 重抓）")
     parser.add_argument("--workers", type=int, default=3, metavar="N",
                         help="backfill-twse / backfill-yf 並行 workers 數（預設 3，過高可能被限速）")
+    parser.add_argument("--backtest-recommend", action="store_true",
+                        help="個股推薦策略回測：報告、樣本內外、分型態、按月、飆股抓到率、踩雷率、必考題（唯讀 DB）")
     parser.add_argument("--backfill-official", type=str, default=None, metavar="YYYY-MM-DD",
                         help="從指定日期起逐日抓官方全市場行情（上市 TWSE MI_INDEX＋上櫃 TPEx 每日收盤），"
                              "實際成交價；會先備份 CSV、逐日覆寫，被擋就停，重跑會從沒做完的日子接著做")
@@ -1356,6 +1384,8 @@ if __name__ == "__main__":
         backfill_twse(months=args.backfill_twse, workers=args.workers)
     elif args.backfill_yf:
         backfill_yf(months=args.backfill_yf, workers=args.workers)
+    elif args.backtest_recommend:
+        backtest_recommend_cli()
     elif args.backfill_official:
         backfill_official_cli(date.fromisoformat(args.backfill_official))
     elif args.update_calendar:

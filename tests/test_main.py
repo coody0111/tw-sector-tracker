@@ -482,3 +482,12 @@ def test_run_skips_price_write_when_quote_date_differs():
     source = inspect.getsource(run)
     assert "_quote_trade_date(prices_df)" in source
     assert "quote_day != trade_date" in source
+
+
+def test_backtest_recommend_cli_wires_all_strategies():
+    """--backtest-recommend 要把載入→特徵→所有策略→交易→報告→案例庫指標串起來（端對端要真 DB，改用原始碼檢查）。"""
+    from main import backtest_recommend_cli
+    src = inspect.getsource(backtest_recommend_cli)
+    for name in ("load_panel", "add_price_features", "add_chip_features", "ALL_STRATEGIES",
+                 "run_trades", "report", "winner_episodes", "catch_rate", "blowup_rate", "case_hits"):
+        assert name in src

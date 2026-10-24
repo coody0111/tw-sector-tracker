@@ -28,3 +28,15 @@ def test_message_has_table_groups_and_escaping():
 def test_message_truncates_after_fifteen():
     msg = compose_recommend_message(_payload(20), taiex_above_ma20=None, site_url="u")
     assert "另 5 檔見頁面" in msg and "加權" not in msg
+
+
+def test_none_change_pct_and_columns_align_by_display_width():
+    from recommend.telegram_format import _width
+    p = _payload(3)
+    p["new"][1]["cards"][0]["change_pct"] = None
+    msg = compose_recommend_message(p, taiex_above_ma20=None, site_url="u")
+    table = msg.split("<pre>")[1].split("</pre>")[0]
+    rows = [r for r in table.split("\n") if r[:1].isdigit() or r.startswith("股號")]
+    starts = {r[:r.index("名&lt;") if "名&lt;" in r else r.index("名稱")] for r in rows}
+    assert len({_width(s.replace("&lt;", "<")) for s in starts}) == 1    # 名稱欄起點的顯示寬度都一樣
+    assert "—" in table

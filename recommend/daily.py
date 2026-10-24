@@ -47,9 +47,23 @@ def run_daily(day=None, db_path: str = DB_PATH, keep_days: int = KEEP_DAYS) -> d
     try:
         ensure_table(con)
         signals = payload.pop("signals")
-        record_signals(con, signals[signals["date"] == day], feats)
+        # 記保留期內所有訊號（已存在的會跳過）：某天收盤失敗時，隔天還能補記那天的訊號
+        window = sorted(feats.loc[feats["date"] <= day, "date"].unique())[-keep_days:]
+        record_signals(con, signals[signals["date"].isin(window)], feats)
         refresh(con, feats)
         payload["scorecard"] = {s.name: summary(con, s.name) for s in ALL_STRATEGIES}
     finally:
         con.close()
-    return payload
+    return json_safe(payload)
+
+
+def json_safe(obj):
+    """NaN／numpy 數字轉成 JSON 合法值（NaN → None），瀏覽器 JSON.parse 才不會報錯。"""
+    if isinstance(obj, dict):
+        return {k: json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [json_safe(v) for v in obj]
+    if isinstance(obj, float) or hasattr(obj, "item"):
+        v = obj.item() if hasattr(obj, "item") else obj
+        return None if isinstance(v, float) and v != v else v
+    return obj

@@ -5310,3 +5310,18 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 ### 特別注意
 - 推薦頁 recommend.html 還沒做（下一份計畫，先出設計稿給 Cody）；Telegram 連結在頁面上線前會 404。
 - 第一次收盤跑會在正式 DB 建 recommendations 表。
+
+## [2026-10-24] 修：個股推薦後端依報告 🟡 1～5
+
+### 改了什麼
+- 異動檔案：recommend/daily.py, recommend/data.py, recommend/telegram_format.py, scripts/run_scheduled.py, 對應測試
+  1. 🟡1 `run_daily` 回傳前過 `json_safe()`：NaN → null、numpy 數字轉 Python。
+  2. 🟡2 成績單記錄保留期（3 個交易日）內所有訊號，已存在的跳過 → 某天收盤失敗隔天會補記。
+  3. 🟡3 `change_pct=None` 顯示「—」；`send_recommend_message` 自己 try/except，失敗只記 log，不會變成「收盤失敗」通知（Telegram 設定缺失仍往外拋，維持原本行為）。
+  4. 🟡4 表格改用顯示寬度補空白（中文、全形算 2 格），表頭和資料列的各欄起點對齊。
+  5. 🟡5 `load_panel` 唯讀連線遇到 ConnectionException 時改用一般連線（只做 SELECT）。
+- 🟡6（卡片失效用推薦日收盤 ×0.94、成績單停損用進場價 ×0.94）是刻意的：卡片給「還沒買的人」看，只知道推薦日收盤（規格 C16）；成績單模擬隔天開盤買進的人。會在推薦頁說明。
+
+### 請 Debugger 驗證
+- [ ] 新增 3 個測試與全套
+- [ ] 印一次 2026-09-24 的 Telegram 訊息看對齊（含有提醒、沒有提醒的列）

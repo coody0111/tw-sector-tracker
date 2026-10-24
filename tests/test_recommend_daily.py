@@ -36,3 +36,12 @@ def test_build_payload_splits_new_active_invalid(monkeypatch):
     assert [(c["stock_id"], c["day_n"]) for c in p["active"]] == [("A", 3)]
     assert [c["stock_id"] for c in p["invalid"]] == ["B"]           # 100 → 90 失效
     assert set(p["header"]) >= {"above_ma20_pct", "limit_up", "limit_down", "fail_rate"}
+
+
+def test_json_safe_turns_nan_and_numpy_into_json_values():
+    import json
+    import numpy as np
+    from recommend.daily import json_safe
+    out = json_safe({"a": float("nan"), "b": [np.float64(1.5), np.int64(2), np.bool_(True)], "c": "x"})
+    assert out == {"a": None, "b": [1.5, 2, True], "c": "x"}
+    json.dumps(out, allow_nan=False)

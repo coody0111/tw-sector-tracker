@@ -418,3 +418,9 @@ def test_close_sends_recommend_message_when_new_signals(monkeypatch):
     rs.send_recommend_message({"recommend": {**rec, "new": []}}, "https://x/")
     rs.send_recommend_message({}, "https://x/")
     assert not sent
+
+
+def test_recommend_message_failure_is_logged_not_raised(monkeypatch):
+    import scripts.run_scheduled as rs
+    monkeypatch.setattr(rs, "compose_recommend_message", lambda *a, **k: (_ for _ in ()).throw(TypeError("壞")))
+    rs.send_recommend_message({"recommend": {"new": [{"sector": "x", "count": 1, "cards": []}]}}, "https://x/")

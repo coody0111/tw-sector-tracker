@@ -243,7 +243,13 @@ def send_recommend_message(summary: dict, site_url: str) -> None:
     if not rec or not rec.get("new"):
         return
     url = site_url.rstrip("/") + "/recommend.html"
-    send_telegram_message(compose_recommend_message(rec, rec.get("taiex_above_ma20"), url), parse_mode="HTML")
+    try:
+        send_telegram_message(compose_recommend_message(rec, rec.get("taiex_above_ma20"), url), parse_mode="HTML")
+    except TelegramConfigError:
+        raise
+    except Exception as exc:
+        # 推薦訊息組裝失敗不能讓整個收盤通知變成「執行失敗」，記下來就好
+        logger.error("個股推薦訊息組裝或發送失敗：%s", exc)
 
 
 def compose_failure_message(mode: str, error: str, duration_seconds: float) -> str:

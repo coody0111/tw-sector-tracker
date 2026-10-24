@@ -5246,3 +5246,23 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 ### 請 Debugger 驗證
 - [ ] tests/test_official_prices.py（新增 2 個）與全套
 - [ ] 注意：tests/test_recommend_*.py 是另一件進行中的工作（階段 2 回測框架），會另外交接，這次可先忽略
+
+## [2026-10-24] 個股推薦階段 2：recommend/ 回測框架
+
+### 改了什麼
+- 計畫：docs/superpowers/plans/2026-10-24-recommend-backtest-framework.md（Task 1～9）
+- 新增 recommend/：ticks（跳動單位、精確漲停價）、data（DuckDB 面板）、features（§3 價量＋籌碼特徵）、
+  strategies/（介面＋突破策略 §7.5）、exits（停損 6%／回落 20%／60 日）、backtest（§11 報告、§6 案例庫指標）
+- main.py `--backtest-recommend`；測試 tests/test_recommend_{ticks,data,features,breakout,exits,backtest}.py＋test_main.py 1 個
+- 跟原型的差異：漲停改精確判斷（參考價＝收盤−官方漲跌，×1.1 捨去到跳動單位），原型是 change_pct ≥ 9.5 且收＝高
+
+### 請 Debugger 驗證
+- [ ] tests/test_recommend_*.py 與全套
+- [ ] 效能：`add_price_features` 在全 DB（2020 起約 160 萬列）跑多久（groupby transform 有 lambda）
+- [ ] 官方行情重建完成後（Cody 還在跑 --backfill-official）跑 `python main.py --backtest-recommend`：
+      6672、6213 2026-09-24 必考題皆命中；兩型合計 PF／每筆 R 跟 §13.10／13.11 同方向（資料從還原價改官方價，數字會變，列出差異）
+- [ ] 精確漲停 vs 舊近似：列出不一致的天數與例子
+- [ ] 回測資料還沒重建完之前可以先只跑測試
+
+### 特別注意
+- 唯讀 DB；沒有接進每日流程（那是階段 4～5）。

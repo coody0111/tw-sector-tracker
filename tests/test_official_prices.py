@@ -154,3 +154,38 @@ def test_tpex_ex_dividend_uses_previous_next_ref_price():
     out = finalize_rows(rows, {"6488": 96.0}, {"6488"})  # 前一天的次日參考價 96（前收是 100）
     assert out[0]["change"] == 2.0
     assert out[0]["change_pct"] == round(2 / 96 * 100, 2)
+
+
+def test_get_with_retry_retries_network_errors_then_raises():
+    import requests
+    from scrapers import official_prices as op
+    calls = []
+
+    def flaky(*a, **k):
+        calls.append(1)
+        if len(calls) < 3:
+            raise requests.exceptions.ChunkedEncodingError("IncompleteRead")
+        return "ok"
+
+    with patch("scrapers.official_prices.requests.get", side_effect=flaky), \
+         patch("scrapers.official_prices.time.sleep"):
+        assert op._get_with_retry("u", {}, {}) == "ok"
+    assert len(calls) == 3
+
+    with patch("scrapers.official_prices.requests.get",
+               side_effect=requests.exceptions.ConnectionError("down")), \
+         patch("scrapers.official_prices.time.sleep"), pytest.raises(requests.RequestException):
+        op._get_with_retry("u", {}, {})
+
+
+def test_backfill_official_stops_instead_of_crashing_on_network_error(tmp_path):
+    import requests
+    out = tmp_path / "daily_prices"
+    out.mkdir()
+    with patch("scrapers.official_prices.fetch_twse_day",
+               side_effect=requests.exceptions.ChunkedEncodingError("IncompleteRead")), \
+         patch("scrapers.official_prices.fetch_tpex_day", return_value=None), \
+         patch("scrapers.official_prices.time.sleep"):
+        stats = backfill_official_prices(["2330"], date(2026, 10, 20), date(2026, 10, 22),
+                                         output_dir=str(out), sleep_sec=0)
+    assert stats["stopped"] == "2026-10-20"

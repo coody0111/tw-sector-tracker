@@ -5234,3 +5234,15 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 
 ### 請 Debugger 驗證
 - [ ] tests/test_official_prices.py（8 個）與全套全綠
+
+## [2026-10-24] 修：--backfill-official 網路錯誤重試、停下不崩潰
+
+### 改了什麼
+- 異動檔案：scrapers/official_prices.py, tests/test_official_prices.py
+- 依 bug-reports 🔴（ChunkedEncodingError 讓整支程式結束、沒 reimport）：
+  1. 新增 `_get_with_retry()`：`requests.RequestException` 重試 2 次（等 5、15 秒），仍失敗才拋出；`fetch_twse_day`/`fetch_tpex_day` 改用它。
+  2. 主迴圈的 except 加上 `requests.RequestException`、`ValueError`（欄位格式）→ 記 stopped、break，呼叫端照常 reimport。
+
+### 請 Debugger 驗證
+- [ ] tests/test_official_prices.py（新增 2 個）與全套
+- [ ] 注意：tests/test_recommend_*.py 是另一件進行中的工作（階段 2 回測框架），會另外交接，這次可先忽略

@@ -121,21 +121,37 @@ def parse_tpex_daily_quotes(data: dict, trade_date: date) -> list | None:
     return rows
 
 
+RETRY_WAITS = (5, 15)  # 網路錯誤（連線中斷、IncompleteRead、逾時）重試前等待秒數
+
+
+def _get_with_retry(url: str, params: dict, headers: dict):
+    """requests.get，網路層錯誤重試 len(RETRY_WAITS) 次；仍失敗就把最後的例外拋出去。
+    （2026-10-24 Cody 跑到第 100 天時 TPEx 回 ChunkedEncodingError，整支程式中斷、沒有 reimport。）"""
+    for wait in (*RETRY_WAITS, None):
+        try:
+            return requests.get(url, params=params, headers=headers, timeout=30, verify=False)
+        except requests.RequestException as exc:
+            if wait is None:
+                raise
+            logger.warning("%s 網路錯誤，%d 秒後重試：%s", url.rsplit("/", 1)[-1], wait, exc)
+            time.sleep(wait)
+
+
 def fetch_twse_day(trade_date: date) -> list | None:
-    resp = requests.get(
+    resp = _get_with_retry(
         TWSE_MI_INDEX_URL,
-        params={"date": trade_date.strftime("%Y%m%d"), "type": "ALLBUT0999", "response": "json"},
-        headers=_HEADERS_TWSE, timeout=30, verify=False,
+        {"date": trade_date.strftime("%Y%m%d"), "type": "ALLBUT0999", "response": "json"},
+        _HEADERS_TWSE,
     )
     _check_twse_response(resp)
     return parse_twse_mi_index(resp.json(), trade_date)
 
 
 def fetch_tpex_day(trade_date: date) -> list | None:
-    resp = requests.get(
+    resp = _get_with_retry(
         TPEX_DAILY_QUOTES_URL,
-        params={"date": trade_date.strftime("%Y/%m/%d"), "response": "json"},
-        headers=_HEADERS_TPEX, timeout=30, verify=False,
+        {"date": trade_date.strftime("%Y/%m/%d"), "response": "json"},
+        _HEADERS_TPEX,
     )
     ctype = resp.headers.get("Content-Type", "")
     if resp.status_code != 200 or "json" not in ctype.lower():
@@ -229,8 +245,9 @@ def backfill_official_prices(
             twse = fetch_twse_day(d)
             time.sleep(sleep_sec)
             tpex = fetch_tpex_day(d)
-        except (TWSEBlockedError, TPExBlockedError) as exc:
-            logger.error("官方行情被擋，停在 %s（已寫的保留，重跑會接著做）：%s", d.isoformat(), exc)
+        except (TWSEBlockedError, TPExBlockedError, requests.RequestException, ValueError) as exc:
+            # 被擋、重試後仍網路錯誤、欄位格式對不上：都停下來（不崩潰），讓呼叫端照常 reimport
+            logger.error("官方行情停在 %s（已寫的保留，重跑會接著做）：%s: %s", d.isoformat(), type(exc).__name__, exc)
             stats["stopped"] = d.isoformat()
             break
         if twse is None and tpex is None and is_trading_day(d.isoformat()):

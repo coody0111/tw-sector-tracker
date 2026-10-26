@@ -8,6 +8,8 @@ from typing import Any, Iterable, Optional
 
 import pandas as pd
 
+from export.ui_theme import SHARED_CSS, render_topbar
+
 
 WATCHLIST_KEY = "tw-sector-watchlist-v1"
 
@@ -135,12 +137,11 @@ def generate(
 <html lang="zh-Hant"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>我的自選股 {escape(generated)}</title>
-<style>
+<style>{SHARED_CSS}
 :root{{--bg:#101315;--panel:#171c1f;--panel-2:#20272a;--ink:#edf1ed;--muted:#9ca9a4;--border:#34403f;--accent:#d4a24e;--up:#4bbd82;--down:#ed756c}}
 *{{box-sizing:border-box}}body{{margin:0;background:var(--bg);color:var(--ink);font-family:Arial,"Noto Sans TC",sans-serif}}
-.topbar{{display:flex;align-items:center;gap:18px;padding:16px 24px;border-bottom:1px solid var(--border);flex-wrap:wrap}}
-.brand{{margin-right:auto}}.eyebrow{{font:700 .65rem monospace;letter-spacing:.14em;color:var(--accent)}}h1{{margin:5px 0 0;font-size:1.25rem}}
-nav{{display:flex;gap:8px}}nav a,.button{{display:inline-flex;align-items:center;min-height:40px;padding:0 12px;border:1px solid var(--border);border-radius:5px;background:var(--panel-2);color:var(--ink);text-decoration:none;font-size:.78rem;cursor:pointer}}
+.eyebrow{{font:700 .65rem monospace;letter-spacing:.14em;color:var(--accent)}}
+.button{{display:inline-flex;align-items:center;min-height:40px;padding:0 12px;border:1px solid var(--border);border-radius:5px;background:var(--panel-2);color:var(--ink);text-decoration:none;font-size:.78rem;cursor:pointer}}
 main{{max-width:1400px;margin:0 auto;padding:24px}}.intro{{display:flex;align-items:end;justify-content:space-between;gap:16px;margin-bottom:18px;flex-wrap:wrap}}
 .intro h2{{margin:5px 0;font-size:1.45rem}}.intro p{{margin:0;color:var(--muted);font-size:.82rem}}.count{{color:var(--accent);font:700 .75rem monospace}}
 .market-context{{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;margin-bottom:18px;border:1px solid var(--border);border-radius:7px;overflow:hidden;background:var(--border)}}.market-cell{{padding:12px 14px;background:var(--panel)}}.market-cell label{{display:block;margin-bottom:5px;color:var(--muted);font:.62rem monospace;letter-spacing:.08em}}.market-cell strong{{font-size:.9rem}}.market-detail{{display:block;margin-top:4px;color:var(--muted);font-size:.7rem}}
@@ -150,10 +151,9 @@ main{{max-width:1400px;margin:0 auto;padding:24px}}.intro{{display:flex;align-it
 .metrics{{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin:15px 0}}.metric{{padding:8px;background:var(--panel-2);border-radius:4px}}.metric label{{display:block;color:var(--muted);font: .62rem monospace}}.metric strong{{display:block;margin-top:4px;font:700 .8rem monospace}}
 .analysis{{border-top:1px solid var(--border);padding-top:12px;color:var(--muted);font-size:.75rem;line-height:1.6}}.analysis b{{color:var(--ink)}}.analysis-row{{margin:3px 0}}.state{{display:inline-flex;margin-left:7px;padding:1px 6px;border:1px solid var(--border);border-radius:3px;color:var(--accent);font:700 .65rem monospace}}.evidence{{margin:8px 0 0;padding-left:18px}}.uncertainty{{margin-top:7px;color:#c5a66a}}.note{{width:100%;margin-top:12px;min-height:56px;padding:8px;border:1px solid var(--border);border-radius:4px;background:var(--panel-2);color:var(--ink);font: .78rem Arial}}
 .card-actions{{display:flex;gap:8px;margin-top:10px}}.empty{{padding:48px 20px;text-align:center;border:1px dashed var(--border);border-radius:7px;color:var(--muted)}}
-@media(max-width:600px){{main{{padding:14px}}.topbar{{padding:14px}}.metrics{{grid-template-columns:repeat(2,1fr)}}.market-context{{grid-template-columns:1fr}}}}
+@media(max-width:600px){{main{{padding:14px}}.metrics{{grid-template-columns:repeat(2,1fr)}}.market-context{{grid-template-columns:1fr}}}}
 </style></head><body>
-<header class="topbar"><div class="brand"><div class="eyebrow">PERSONAL WORKSPACE</div><h1>我的自選股</h1></div>
-<nav aria-label="主要功能"><a href="index.html">族群總覽</a><a href="watchlist.html" aria-current="page">自選股</a><a href="patterns.html">形態掃描</a></nav></header>
+{render_topbar("自選股", "watchlist.html", f"個股行情 <b>{escape(generated)}</b>")}
 <main><div class="intro"><div><div class="eyebrow">OLIVER-INSPIRED WATCHLIST</div><h2>只看你挑選的股票</h2><p>週線看背景，日線看週期；資料不足時保留不確定性。</p></div><span class="count" id="count"></span></div>
 <section id="market-context" class="market-context" aria-label="大盤週線 Market Context"></section>
 <section id="watchlist" class="grid" aria-live="polite"></section></main>

@@ -5566,3 +5566,18 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 - [ ] 全套 pytest
 - [ ] ps1 語法（陣列觸發）；不用真的註冊
 - [ ] 週末執行（is_trading_day=False）會跑；沒有新集保時不發訊息、不 push
+
+## [2026-10-26] 各分頁頁首統一成族群績效（index.html）樣式
+
+### 改了什麼
+- 異動檔案：export/ui_theme.py（SHARED_CSS 頁首、render_topbar）、export/watchlist_generator.py（改用共用頁首）、tests/test_ui_theme.py（新）
+- 依據：Cody「上方的 bar 這幾個分頁都要整合成一樣的吧 參照族群績效」
+  - render_topbar：左邊「TW SECTOR TRACKER」小字（金色、字距 .16em）＋襯線頁名（Georgia…，1.08rem／600）、資料日期靠右（等寬字、金色粗體）、導覽在最右
+  - 頁首撐滿寬度（拿掉 inner max-width）；內容寬 1560＋左右 26（--ui-max 1612、--ui-gutter 26，1180 以下 18、760 以下 12）＝ index 的 .page-shell
+  - 自選股頁：原本自己的頁首只有「族群總覽／自選股／形態掃描」三個舊連結 → 改用 render_topbar（6 個分頁）；頁面其餘樣式沒動
+  - 影響頁面：chips、patterns、momentum、recommend、watchlist（index.html 本身沒改）
+
+### 請 Debugger 驗證
+- [ ] 全套 pytest
+- [ ] 重產各頁（或用既有 docs/*.html 對照）：1440／1024／375 寬度下頁首跟 index.html 看起來一致；手機導覽列可橫向捲動、頁面不橫向捲動
+- [ ] chips.html 的 sticky 分頁籤（--ui-sticky-top）仍貼在頁首下方

@@ -9,27 +9,33 @@ SHARED_CSS = r"""
 .ui-empty{padding:16px 12px;border:1px dashed var(--ui-border-strong);border-radius:var(--ui-radius);color:var(--ui-ink-2);font-size:.76rem;text-align:center}.ui-empty strong{display:block;color:var(--ui-ink);margin-bottom:3px}.ui-card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px}.ui-compact-card{display:grid;gap:5px;min-width:0;padding:11px 12px;background:var(--ui-panel);border:1px solid var(--ui-border);border-radius:var(--ui-radius);transition:border-color .15s,background .15s,transform .15s}.ui-compact-card:hover{border-color:var(--ui-border-strong);background:var(--ui-panel-2);transform:translateY(-1px)}.ui-card-head{display:flex;align-items:baseline;gap:7px;min-width:0}.ui-card-name{overflow:hidden;color:var(--ui-ink);font-size:.86rem;font-weight:750;text-overflow:ellipsis;white-space:nowrap}.ui-card-id{color:var(--ui-ink-3);font-size:.68rem;font-variant-numeric:tabular-nums}.ui-card-meta{overflow:hidden;color:var(--ui-ink-2);font-size:.7rem;text-overflow:ellipsis;white-space:nowrap}.ui-card-stats{display:flex;flex-wrap:wrap;align-items:center;gap:5px 9px;color:var(--ui-ink-2);font-size:.72rem;font-variant-numeric:tabular-nums}.ui-card-detail{margin-top:3px;padding-top:7px;border-top:1px solid var(--ui-border);color:var(--ui-ink-2);font-size:.72rem}
 @media(max-width:640px){.ui-summary-item{flex:1 1 100px;min-width:0}.ui-card-grid{grid-template-columns:1fr}.ui-compact-card{padding:9px 10px}.ui-compact-card:hover{transform:none}}@media(prefers-reduced-motion:reduce){.ui-compact-card{transition:none}.ui-compact-card:hover{transform:none}}
 """ + r"""
-/* 頁面骨架（2026-10-21 統一）：頁首、頁名、左右留白、內容寬度、字型。各頁 CSS 不要再自訂 body / 頁首。 */
+/* 頁面骨架（2026-10-21 統一）：頁首、頁名、左右留白、內容寬度、字型。各頁 CSS 不要再自訂 body / 頁首。
+   2026-10-26 Cody：「這幾個分頁都要整合成一樣的吧 參照族群績效」→ 頁首照 index.html：左邊 TW SECTOR TRACKER 小字＋襯線頁名、
+   資料日期靠右、導覽在最右；頁首撐滿寬度、內容寬 1560、左右留白 26（index_generator.py 的 .topbar／.page-shell）。 */
 /* --ui-sticky-top：頁內 sticky 元素（分頁籤、工具列）要讓出的高度＝頁首實際高度；render_topbar() 附的 script 會依實際量到的值覆寫（頁首折行時會超過 56px）。 */
-:root{--ui-sans:"Public Sans",-apple-system,"PingFang TC","Microsoft JhengHei","Noto Sans TC","Segoe UI",sans-serif;--ui-mono:ui-monospace,"Cascadia Code","Roboto Mono",monospace;--ui-topbar-h:56px;--ui-sticky-top:var(--ui-topbar-h);--ui-gutter:24px;--ui-max:1600px}
+:root{--ui-sans:"Public Sans",-apple-system,"PingFang TC","Microsoft JhengHei","Noto Sans TC","Segoe UI",sans-serif;--ui-mono:ui-monospace,"Cascadia Code","Roboto Mono",monospace;--ui-serif:Georgia,"Iowan Old Style","Source Serif 4","Noto Serif TC",serif;--ui-topbar-h:56px;--ui-sticky-top:var(--ui-topbar-h);--ui-gutter:26px;--ui-max:1612px}
 body{margin:0;background:var(--ui-bg);color:var(--ui-ink);font-family:var(--ui-sans);font-size:14px;line-height:1.55}
 button,input,select{font-family:inherit}
 .ui-topbar{position:sticky;top:0;z-index:20;padding:0 var(--ui-gutter);border-bottom:1px solid var(--ui-border);background:rgba(8,11,18,.94);backdrop-filter:blur(12px)}
-.ui-topbar-inner{display:flex;align-items:center;flex-wrap:wrap;gap:6px 20px;min-height:var(--ui-topbar-h);max-width:calc(var(--ui-max) - 2 * var(--ui-gutter));margin:0 auto;padding:8px 0}
-.ui-title{margin:0;color:var(--ui-ink);font-family:var(--ui-sans);font-size:1.125rem;font-weight:740;letter-spacing:.01em;line-height:1.3}
-.ui-date{color:var(--ui-ink-3);font-size:.72rem;font-variant-numeric:tabular-nums}
-.ui-date b{color:var(--ui-ink-2);font-weight:600}
-.ui-nav{display:flex;align-items:center;gap:8px;margin-left:auto;white-space:nowrap}
+.ui-topbar-inner{display:flex;align-items:center;flex-wrap:wrap;gap:6px 14px;min-height:var(--ui-topbar-h);padding:10px 0}
+.ui-brand{display:flex;align-items:baseline;gap:10px;white-space:nowrap}
+.ui-kicker{color:var(--ui-accent);font-size:.62rem;font-weight:700;letter-spacing:.16em;text-transform:uppercase}
+.ui-title{margin:0;color:var(--ui-ink);font-family:var(--ui-serif);font-size:1.08rem;font-weight:600;letter-spacing:.01em;line-height:1.3}
+.ui-date{margin-left:auto;color:var(--ui-ink-3);font-family:var(--ui-mono);font-size:.68rem;font-variant-numeric:tabular-nums}
+.ui-date b{color:var(--ui-accent);font-weight:700}
+.ui-nav{display:flex;align-items:center;gap:8px;white-space:nowrap}
 .ui-nav-link{display:inline-flex;align-items:center;min-height:32px;padding:5px 14px;border:1px solid var(--ui-border);border-radius:var(--ui-radius);color:var(--ui-ink-2);font-family:var(--ui-sans);font-size:.78rem;font-weight:600;text-decoration:none;transition:color .15s,border-color .15s,background .15s}
 .ui-nav-link:hover{color:var(--ui-ink);border-color:var(--ui-border-strong);background:var(--ui-panel)}
 .ui-nav-link.active{color:var(--ui-ink);border-color:var(--ui-accent);background:var(--ui-panel-2)}
 .ui-nav-link:focus-visible{outline:3px solid var(--ui-accent);outline-offset:2px}
 .ui-main{max-width:var(--ui-max);margin:0 auto;padding:20px var(--ui-gutter) 80px}
 .ui-sticky-tabs{position:sticky;top:var(--ui-sticky-top);z-index:15;background:var(--ui-bg)}
+@media(max-width:1180px){:root{--ui-gutter:18px}}
 @media(max-width:760px){
-  :root{--ui-gutter:14px;--ui-sticky-top:0px}
+  :root{--ui-gutter:12px;--ui-sticky-top:0px}
   .ui-topbar{position:static}
   .ui-topbar-inner{padding:12px 0}
+  .ui-date{margin-left:0}
   .ui-nav{order:3;width:100%;margin-left:0;overflow-x:auto}
   .ui-nav-link{min-height:44px;padding:5px 12px}
 }
@@ -66,10 +72,10 @@ def render_topbar(title: str, active_href: str, date_html: str = "") -> str:
         else f'<a class="ui-nav-link" href="{href}">{label}</a>'
         for href, label in NAV_PAGES
     )
-    date_part = f'<span class="ui-date">{date_html}</span>' if date_html else ""
+    date_part = f'<span class="ui-date">{date_html}</span>' if date_html else '<span class="ui-date"></span>'
     return (
         '<header class="ui-topbar"><div class="ui-topbar-inner">'
-        f'<h1 class="ui-title">{_html_escape(title)}</h1>'
+        f'<div class="ui-brand"><span class="ui-kicker">TW SECTOR TRACKER</span><h1 class="ui-title">{_html_escape(title)}</h1></div>'
         f"{date_part}"
         f'<nav class="ui-nav" aria-label="主要功能">{links}</nav>'
         "</div></header>"

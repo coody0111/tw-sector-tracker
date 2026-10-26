@@ -5664,3 +5664,13 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 ### 請 Debugger 驗證
 - [ ] 全套 pytest
 - [ ] 同一天連跑兩次 main.py（或模擬）：第二次 log 有「官方基本面今天（…）已更新過，跳過」
+
+## [2026-10-27] 修：測試不能寫入真的基本面戳記
+
+### 改了什麼
+- 新增：tests/conftest.py（autouse fixture：main.FUNDAMENTALS_STAMP_PATH 一律指到 tmp_path）
+- 回應 bug-reports 2026-10-27 🔴：test_main.py 舊測試（333、342 行）沒 patch 戳記路徑 → 在當前目錄寫 data/fundamentals_last_update.txt，
+  pytest 1～2 failed，且在 master 跑會讓當天收盤跳過基本面。現在所有測試都用 tmp；master 的 data/ 目前沒有這個檔（已確認）
+
+### 請 Debugger 驗證
+- [ ] 全套 pytest 通過；跑完後 debug 與 master 的 data/ 都沒有 fundamentals_last_update.txt

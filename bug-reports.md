@@ -4961,3 +4961,34 @@ recommend、watchlist 用新版 generator 在 scratchpad 重產；index.html 原
 ### 結論
 - [ ] 需要修改後再確認
 - [x] 可以繼續下一個任務
+
+## [2026-10-27] 報告 - 各分頁右上日期文字統一成族群績效格式（d9972fd）
+
+測試方式：chips／patterns／momentum 用上一輪的頁面換成新版 SHARED_CSS＋`render_topbar(…, data_date, data_mode)`，recommend 用新版 generator 重產，
+index.html 用 master 現有檔；Chrome headless 截 1440 與 375 頁首。
+
+### 🔴 數據問題（需立刻修）
+- 無
+
+### 🔴 程式問題（需立刻修）
+- 問題：**全套 pytest 1 個失敗（master 上一樣）**
+  重現方式：`python -m pytest -q` → 1 failed, 869 passed
+  說明：`tests/test_ui_theme.py::test_topbar_matches_index_layout` 還在檢查 `'.ui-date{margin-left:auto'`，
+  但這次把 `.ui-date` 改成 `{display:flex;flex-direction:column;…;margin-left:auto;…}`，字串對不上。測試要跟著改（例如只檢查 `margin-left:auto` 在 .ui-date 規則裡）。
+
+### 🟡 建議改善
+- **第二行的時間是「產生頁面的時間」，接在「資料日（週幾）」後面容易誤讀**：例如 master 現在的 index.html 寫「收盤快照／2026-10-22（週四）00:39」，
+  其實是 10/27 凌晨 00:39 產生的；推薦頁之後由集保更新（週六 20:00）重產時，也會出現「2026-10-23（週五）20:05」這種「週五 20:05」看起來像收盤後資料的字樣。
+  這是沿用 index 原本的格式，不是這次新增的問題；如果要更清楚，可改成「資料 2026-10-22（週四）・更新 10/27 00:39」，或時間只在同一天時顯示。請 Cody 決定要不要動。
+- 推薦頁固定顯示「收盤快照」（沒有 data_mode），集保更新後重產也一樣；目前沒有錯，只是看不出是集保更新版。
+
+### ✅ 驗證通過
+- 1440：index、chips、patterns、momentum、recommend 右上都是兩行——第一行金色「收盤快照」、第二行「2026-10-22（週四）HH:MM」，
+  字級、位置、跟導覽的間距一致；逆轟頁指數不同天時第二行後面補「・指數 10-21」，仍是一行。
+- 375：三頁（index、recommend、momentum）都是頁名下方兩行日期、靠左，排法一致。
+- `render_topbar(…, data_mode="intraday")` 第一行是「盤中資料，尚未收盤確認」；main.py 給 index、watchlist、chips、patterns、momentum 都傳了 `data_mode`（realtime 時 intraday），recommend 只在收盤／集保更新產生，固定收盤快照。
+- 其餘 869 個測試通過。
+
+### 結論
+- [x] 需要修改後再確認（1 個測試）
+- [ ] 可以繼續下一個任務

@@ -128,3 +128,50 @@ def load_event_refs(path: Path = EVENTS_PATH) -> dict:
     df = pd.read_csv(path, dtype={"stock_id": str})
     base = df["base"].fillna(df["ref"]) if "base" in df.columns else df["ref"]
     return {(d, s): float(b) for d, s, b in zip(df["date"], df["stock_id"], base)}
+
+
+# ── 補漏：事件表沒涵蓋、漲跌仍超過 ±10.6% 的上市日子，用每日「開盤競價基準」（TWT84U）補 ────────────
+# 2026-10-26 修完事件日後仍有 8101 2024-11-19 +450%（減資恢復，三張表都沒列）、2321 東訊等。
+# TWT84U 一天一個請求，只查有問題的那幾天。
+TWT84U_PATH = "variation/TWT84U"
+OUTLIER_PCT = 10.6
+NEW_LISTING_DAYS = 5
+
+
+def parse_twt84u(data: dict, day: str) -> list:
+    """TWT84U：第 0 欄代號、2 欄漲停價、3 欄（漲停用的）開盤競價基準。基準是 '--' 的跳過。"""
+    if data.get("stat") != "OK":
+        return []
+    out = []
+    for r in data.get("data") or []:
+        base, limit = _num(r[3]), _num(r[2])
+        if base and base > 0:
+            out.append({"stock_id": str(r[0]).strip(), "date": day, "pre_close": None, "ref": base,
+                        "limit_up": limit, "open_base": base, "base": base, "src": "開盤競價基準"})
+    return out
+
+
+def outlier_days(prices: pd.DataFrame, twse_ids: set, known: set) -> list:
+    """prices：stock_id, date（ISO）, change_pct。找上市、非上市前 5 天、不在事件表（known）裡、
+    漲跌幅超過 ±10.6% 的 (日期, 股號)。"""
+    p = prices.sort_values(["stock_id", "date"])
+    seq = p.groupby("stock_id").cumcount()
+    hit = (p["change_pct"].abs() > OUTLIER_PCT) & (seq >= NEW_LISTING_DAYS) & p["stock_id"].isin(twse_ids)
+    return sorted((d, s) for s, d in zip(p.loc[hit, "stock_id"], p.loc[hit, "date"]) if (d, s) not in known)
+
+
+def fetch_outlier_bases(targets: list, sleep_sec: float = 4.0) -> list:
+    """targets：[(日期, 股號)]；每個日期查一次 TWT84U，只回傳 targets 裡的股票。"""
+    from scrapers.official_prices import _get_with_retry
+
+    wanted: dict = {}
+    for day, sid in targets:
+        wanted.setdefault(day, set()).add(sid)
+    rows = []
+    for day, sids in sorted(wanted.items()):
+        resp = _get_with_retry(_URL.format(path=TWT84U_PATH),
+                               {"date": day.replace("-", ""), "selectType": "ALL", "response": "json"}, _HEADERS_TWSE)
+        _check_twse_response(resp)
+        rows += [r for r in parse_twt84u(resp.json(), day) if r["stock_id"] in sids]
+        time.sleep(sleep_sec)
+    return rows

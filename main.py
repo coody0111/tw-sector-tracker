@@ -431,6 +431,37 @@ def repair_ex_rights_cli(start: date = date(2020, 1, 1)) -> None:
     if stats["rows"]:
         init_db()
         logger.info("DuckDB 重新匯入：共 %d 筆", reimport_db())
+    _repair_price_outliers()
+
+
+def _repair_price_outliers() -> None:
+    """補漏：事件表沒涵蓋、漲跌仍超過 ±10.6% 的上市日子（非新股前 5 天），用 TWT84U 開盤競價基準重算。
+    （2026-10-26：8101 2024-11-19 減資恢復 +450%、2321 東訊等）"""
+    import duckdb
+    from scrapers.official_prices import repair_event_changes
+    from scrapers.twse_events import EVENTS_PATH, fetch_outlier_bases, load_event_refs, merge_events, outlier_days
+    from screener.database import reimport_db
+    universe_df = pd.read_csv(UNIVERSE_PATH, encoding="utf-8-sig", dtype={"stock_id": str})
+    twse_ids = set(universe_df.loc[universe_df["exchange"] == "TWSE", "stock_id"])
+    con = duckdb.connect("data/screener.db", read_only=True)
+    try:
+        prices = con.execute("SELECT stock_id, CAST(date AS VARCHAR) AS date, change_pct FROM daily_prices").df()
+    finally:
+        con.close()
+    targets = outlier_days(prices, twse_ids, set(load_event_refs()))
+    logger.info("事件表外的上市大漲跌：%d 列，查 TWT84U 開盤競價基準", len(targets))
+    if not targets:
+        return
+    try:
+        rows = fetch_outlier_bases(targets)
+    except Exception as exc:
+        logger.warning("TWT84U 抓取失敗，這批先不補（重跑同一行指令會再試）：%s: %s", type(exc).__name__, exc)
+        return
+    merge_events(rows, EVENTS_PATH)
+    stats = repair_event_changes({(r["date"], r["stock_id"]): r["base"] for r in rows})
+    if stats["rows"]:
+        init_db()
+        logger.info("DuckDB 重新匯入：共 %d 筆", reimport_db())
 
 
 def backtest_recommend_cli(start: str = "2025-01-01", split: str = "2026-01-01") -> None:

@@ -61,3 +61,36 @@ def test_fetch_events_queries_three_tables_per_half_year():
     assert get.call_count == 3 * 2
     assert {r["src"] for r in rows} == {"除權息", "減資", "變更面額"}
     assert pd.DataFrame(rows)["stock_id"].eq("2364").all()
+
+
+def test_parse_twt84u_takes_up_base_and_skips_dash():
+    from scrapers.twse_events import parse_twt84u
+    data = {"stat": "OK", "data": [
+        ["8101", "華冠", "10.45", "9.50", "8.55", "--", "--", "--", "--", "113.11.15", "可"],
+        ["9999", "停牌", "--", "--", "--", "--", "--", "--", "--", "", ""],
+    ]}
+    assert parse_twt84u(data, "2024-11-19") == [
+        {"stock_id": "8101", "date": "2024-11-19", "pre_close": None, "ref": 9.5, "limit_up": 10.45,
+         "open_base": 9.5, "base": 9.5, "src": "開盤競價基準"}]
+
+
+def test_outlier_days_skips_new_listing_tpex_and_known_events():
+    from scrapers.twse_events import outlier_days
+    d = [f"2024-11-{k:02d}" for k in range(11, 20)]
+    rows = [("8101", x, 0.5) for x in d[:-1]] + [("8101", d[-1], 450.0)]           # 上市、第 9 天 → 要補
+    rows += [("7777", x, 30.0) for x in d[:5]]                                    # 新股前 5 天 → 不補
+    rows += [("6488", x, 0.1) for x in d[:-1]] + [("6488", d[-1], -20.0)]          # 上櫃 → 不補
+    rows += [("9105", x, 0.1) for x in d[:-1]] + [("9105", d[-1], -15.9)]          # 已在事件表 → 不補
+    prices = pd.DataFrame(rows, columns=["stock_id", "date", "change_pct"])
+    assert outlier_days(prices, {"8101", "7777", "9105"}, {(d[-1], "9105")}) == [(d[-1], "8101")]
+
+
+def test_fetch_outlier_bases_one_request_per_day_and_filters_stocks():
+    from scrapers.twse_events import fetch_outlier_bases
+    resp = MagicMock(status_code=200, headers={"Content-Type": "application/json"})
+    resp.json.return_value = {"stat": "OK", "data": [["8101", "華冠", "10.45", "9.50"], ["2330", "台積電", "660", "600"]]}
+    with patch("scrapers.official_prices._get_with_retry", return_value=resp) as get, \
+         patch("scrapers.twse_events._check_twse_response"), patch("scrapers.twse_events.time.sleep"):
+        rows = fetch_outlier_bases([("2024-11-19", "8101")])
+    assert get.call_count == 1 and get.call_args[0][1]["date"] == "20241119"
+    assert [(r["stock_id"], r["base"]) for r in rows] == [("8101", 9.5)]

@@ -539,8 +539,9 @@ def test_repair_ex_rights_cli_skips_when_events_unavailable_and_reimports_after_
     monkeypatch.setattr(te, "load_event_refs", lambda: {("2021-10-08", "2364"): 24.01})
     monkeypatch.setattr(m, "init_db", lambda: None)
     monkeypatch.setattr(db, "reimport_db", lambda: calls.append("reimport") or 10)
+    monkeypatch.setattr(m, "_repair_price_outliers", lambda: calls.append("outliers"))
     m.repair_ex_rights_cli()
-    assert calls == ["repair", "reimport"]
+    assert calls == ["repair", "reimport", "outliers"]
 
 
 def test_backfill_official_cli_passes_event_refs():

@@ -4403,3 +4403,26 @@ DB 只讀；run_daily／回測用 scratchpad 的 DB 複本，正式 DB 沒寫。
 ### 結論
 - [ ] 需要修改後再確認
 - [x] 可以繼續下一個任務（🟡1 請 Cody 決定優先序；🟡2 建議盡快補 10/26 假日）
+
+## [2026-10-26] 報告 - 補 10/26 休市日＋官方回補重試拉長（4492bc2）
+
+### 🔴 數據問題（需立刻修）
+- 無
+
+### 🔴 程式問題（需立刻修）
+- 無
+
+### 🟡 建議改善
+- 最壞情況：一個請求 5 次都逾時（timeout 30 秒）＋等待 110 秒，約 4 分鐘才停下；回補是手動跑，可接受。
+- 2026-10-27 仍回 True（官方行事曆還沒有這天），明天收盤若官方也沒開，`_quote_trade_date()` 一樣會擋住寫入。
+
+### ✅ 驗證通過
+- `config.is_trading_day('2026-10-26')` → False；`run_scheduled.is_trading_day(date(2026,10,26))` → False；10/23 也是 False。
+- `_get_with_retry`：`RETRY_WAITS=(5, 15, 30, 60)`，原本 1 次＋重試 4 次，第 5 次失敗才把例外拋出；
+  測試確認呼叫 5 次、sleep 依序是 5/15/30/60。
+- 拋出後 `backfill_official_prices` 仍會 catch `RequestException` 並停下、不 crash（`test_backfill_official_stops_instead_of_crashing_on_network_error` 通過）。
+- 全套 `pytest -q`：825 passed（多 1 個新測試）。
+
+### 結論
+- [ ] 需要修改後再確認
+- [x] 可以繼續下一個任務

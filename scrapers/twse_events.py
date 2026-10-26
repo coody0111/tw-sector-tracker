@@ -9,8 +9,12 @@
 - change/TWTB8U    變更面額恢復買賣參考價（同上）
 三張都能用日期區間查，半年一查，2020 起約 42 個請求。上櫃有「次日參考價」，不用這張表。
 
-存成 data/corporate_events.csv（stock_id, date, pre_close, ref, src），之後算還原價（階段 0-3）也能用：
-還原因子＝ref ÷ pre_close。
+漲跌基準 base（2026-10-26 Debugger 實查）：官方漲停價大多由參考價算，但現金增資除權等事件改用「開盤競價基準」
+（6225 2026-08-18 用參考價會算出 +62%，實際一字漲停 +9.91%）。規則：limit_up_price(參考價) 等於官方漲停價就用參考價，
+否則用開盤競價基準。
+
+存成 data/corporate_events.csv（stock_id, date, pre_close, ref, limit_up, open_base, base, src）；
+之後算還原價（階段 0-3）也能用：還原因子＝ref ÷ pre_close。
 """
 import logging
 import re
@@ -20,18 +24,20 @@ from pathlib import Path
 
 import pandas as pd
 
+from recommend.ticks import limit_up_price
 from scrapers.chips import _HEADERS_TWSE, _check_twse_response
 
 logger = logging.getLogger(__name__)
 
 EVENTS_PATH = Path(__file__).resolve().parent.parent / "data" / "corporate_events.csv"
+# (路徑, 名稱, 漲停價欄, 開盤競價基準欄)；三張表第 0 欄日期、1 欄代號、3 欄前收、4 欄參考價
 EVENT_SOURCES = (
-    ("exRight/TWT49U", "除權息"),
-    ("reducation/TWTAUU", "減資"),
-    ("change/TWTB8U", "變更面額"),
+    ("exRight/TWT49U", "除權息", 7, 9),
+    ("reducation/TWTAUU", "減資", 5, 7),
+    ("change/TWTB8U", "變更面額", 5, 7),
 )
 _URL = "https://www.twse.com.tw/rwd/zh/{path}"
-COLUMNS = ["stock_id", "date", "pre_close", "ref", "src"]
+COLUMNS = ["stock_id", "date", "pre_close", "ref", "limit_up", "open_base", "base", "src"]
 
 
 def _roc_date(s: str) -> str | None:
@@ -50,15 +56,26 @@ def _num(s) -> float | None:
         return None
 
 
-def parse_events(data: dict, src: str) -> list:
-    """三張表共用：第 0 欄日期、1 欄代號（尾端有空白）、3 欄前收、4 欄參考價。"""
+def _base(ref: float, limit_up: float | None, open_base: float | None) -> float:
+    """漲跌基準：參考價算出的漲停價跟官方一致就用參考價，否則用開盤競價基準（缺的話退回參考價）。"""
+    if limit_up is None or abs(limit_up_price(ref) - limit_up) < 1e-6 or not open_base:
+        return ref
+    return open_base
+
+
+def parse_events(data: dict, src: str, i_limit: int, i_open: int) -> list:
+    """第 0 欄日期、1 欄代號（尾端有空白）、3 欄前收、4 欄參考價；漲停價、開盤競價基準欄位依表而不同。"""
     if data.get("stat") != "OK":
         return []
     out = []
     for r in data.get("data") or []:
         day, pre, ref = _roc_date(r[0]), _num(r[3]), _num(r[4])
-        if day and ref and ref > 0:
-            out.append({"stock_id": str(r[1]).strip(), "date": day, "pre_close": pre, "ref": ref, "src": src})
+        if not (day and ref and ref > 0):
+            continue
+        limit = _num(r[i_limit]) if len(r) > i_limit else None
+        open_base = _num(r[i_open]) if len(r) > i_open else None
+        out.append({"stock_id": str(r[1]).strip(), "date": day, "pre_close": pre, "ref": ref, "limit_up": limit,
+                    "open_base": open_base, "base": _base(ref, limit, open_base), "src": src})
     return out
 
 
@@ -75,13 +92,13 @@ def fetch_events(start: date, end: date, sleep_sec: float = 4.0) -> list:
     from scrapers.official_prices import _get_with_retry
 
     rows = []
-    for path, src in EVENT_SOURCES:
+    for path, src, i_limit, i_open in EVENT_SOURCES:
         for a, b in _half_years(start, end):
             resp = _get_with_retry(_URL.format(path=path), {"startDate": a.strftime("%Y%m%d"),
                                                            "endDate": b.strftime("%Y%m%d"), "response": "json"},
                                    _HEADERS_TWSE)
             _check_twse_response(resp)
-            rows += parse_events(resp.json(), src)
+            rows += parse_events(resp.json(), src, i_limit, i_open)
             time.sleep(sleep_sec)
     return rows
 
@@ -105,8 +122,9 @@ def update_events(start: date, end: date, path: Path = EVENTS_PATH) -> pd.DataFr
 
 
 def load_event_refs(path: Path = EVENTS_PATH) -> dict:
-    """{(ISO 日期, 股號): 參考價}；沒有事件表回空 dict（回補退回舊算法）。"""
+    """{(ISO 日期, 股號): 漲跌基準 base}；沒有事件表回空 dict（回補退回舊算法）。"""
     if not path.exists():
         return {}
     df = pd.read_csv(path, dtype={"stock_id": str})
-    return {(d, s): float(r) for d, s, r in zip(df["date"], df["stock_id"], df["ref"])}
+    base = df["base"].fillna(df["ref"]) if "base" in df.columns else df["ref"]
+    return {(d, s): float(b) for d, s, b in zip(df["date"], df["stock_id"], base)}

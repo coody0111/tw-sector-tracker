@@ -5420,3 +5420,18 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 
 ### 特別注意
 - 正式資料由 Cody 跑：`python main.py --repair-ex-rights`（驗證通過後）。
+
+## [2026-10-26] 修：事件日漲跌基準改「官方漲停價對得上才用參考價，否則開盤競價基準」
+
+### 改了什麼
+- 異動檔案：scrapers/twse_events.py、tests/test_twse_events.py
+- 回應 bug-reports 2026-10-26 🔴（現金增資除權 6225 +62.45% 等 7 列）：照你的建議規則
+  - `limit_up_price(參考價)` == 官方漲停價（TWT49U 第 7 欄；TWTAUU／TWTB8U 第 5 欄）→ 用參考價；
+    否則用開盤競價基準（TWT49U 第 9 欄；另兩張第 7 欄）；兩欄缺值時退回參考價。
+  - 事件表多存 limit_up、open_base、base 三欄；`load_event_refs` 讀 base（舊表沒有 base 時用 ref）。
+  - ref 原值保留，階段 0-3 的還原因子仍是 ref ÷ pre_close。
+
+### 請 Debugger 驗證
+- [ ] 6225 2026-08-18 → +9.91%、2429、9105 等 7 列正確；6669／2364／4968 仍是 −0.19／−9.83／−7.22
+- [ ] 2,933 列事件日漲停判斷 0 錯
+- [ ] 全套 pytest

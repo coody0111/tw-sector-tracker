@@ -107,3 +107,8 @@ def test_sector_row_expands_to_member_ranking():
 def test_sector_without_members_is_plain_text():
     html = render(_payload())                      # 舊 payload 沒有 members → 不出現展開按鈕
     assert "sec-toggle\" aria-expanded" not in html
+
+
+def test_distance_from_high_column_is_labelled_21d_with_tooltip():
+    html = render(_payload())
+    assert ">離 21 日高</th>" in html and "0.0% ＝ 收在 21 日新高" in html and ">離高點<" not in html

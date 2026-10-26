@@ -633,14 +633,25 @@ def _rerun_recommend(prev: dict, push: bool) -> dict:
             "git_pushed": pushed}
 
 
+FUNDAMENTALS_STAMP_PATH = Path("data/fundamentals_last_update.txt")
+
+
 def _update_fundamentals_db(realtime: bool, warnings: list | None = None) -> None:
     """官方月營收/季報：TWSE/TPEx bulk API(兩個交易所各一次官方彙總呼叫，不是逐股)，
     成本低，收盤模式每天跑一次沒負擔，直接更新到「目前最新」，不需要額外的月度/
-    季度gate（2026-09-07比照集保大戶接進每日流程，同一批問題：忘記手動跑就永久缺口）。"""
+    季度gate（2026-09-07比照集保大戶接進每日流程，同一批問題：忘記手動跑就永久缺口）。
+    2026-10-27 Cody：一天只抓一次——同一天手動重跑 main.py 每次多花約 27 秒抓一樣的資料；
+    當天成功過就跳過（data/fundamentals_last_update.txt），強制重抓用 --update-fundamentals。"""
     if realtime:
         return
+    today = date.today().isoformat()
     try:
+        if FUNDAMENTALS_STAMP_PATH.exists() and FUNDAMENTALS_STAMP_PATH.read_text(encoding="utf-8").strip() == today:
+            logger.info("官方基本面今天（%s）已更新過，跳過", today)
+            return
         _update_fundamentals()
+        FUNDAMENTALS_STAMP_PATH.parent.mkdir(parents=True, exist_ok=True)
+        FUNDAMENTALS_STAMP_PATH.write_text(today, encoding="utf-8")
     except Exception as exc:
         logger.warning("官方基本面更新失敗: %s", exc)
         if warnings is not None:

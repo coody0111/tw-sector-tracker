@@ -5650,3 +5650,17 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 ### 請 Debugger 驗證
 - [ ] 全套 pytest
 - [ ] DB 複本產頁：點銅箔基板展開 14 檔、排序對；375 寬展開後不橫向捲動（小表在 .table-wrap 內）
+
+## [2026-10-27] 月營收／季報一天只抓一次；推薦頁「離高點」改「離 21 日高」
+
+### 改了什麼
+- 異動檔案：main.py（_update_fundamentals_db 用 data/fundamentals_last_update.txt 當天戳記）、export/recommend_generator.py、
+  tests/test_main.py、tests/test_recommend_page.py、docs/superpowers/specs/…design.md（§13.14 流動性門檻回測紀錄）
+- 依據：Cody 問 main.py 為何跑很久（log：完整一輪約 2.5 分；基本面每次 ~27 秒）→「一天只抓一次」；
+  「離高點 0.0% 是已經創新高了嗎」→ 欄名改「離 21 日高」，title 說明「今天收盤 ÷ 近 21 個交易日最高收盤 − 1；0.0% ＝ 收在 21 日新高」
+  - 戳記只在成功後寫；失敗照舊記 warning、下次重試；盤中不抓（原本就是）；強制重抓仍用 --update-fundamentals
+- §13.14：流動性門檻 0～1000 張 PF 都 1.79～1.81；富驊 5465 拿掉門檻仍 0 訊號（籌碼四條都沒中）
+
+### 請 Debugger 驗證
+- [ ] 全套 pytest
+- [ ] 同一天連跑兩次 main.py（或模擬）：第二次 log 有「官方基本面今天（…）已更新過，跳過」

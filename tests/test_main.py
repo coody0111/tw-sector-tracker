@@ -601,3 +601,30 @@ def test_preopen_reruns_same_signal_day_and_reports_added(monkeypatch, tmp_path)
 def test_preopen_without_close_payload_does_nothing(monkeypatch, tmp_path):
     m, path, calls = _preopen_env(monkeypatch, tmp_path, None, "2026-10-23")
     assert m.preopen_recommend()["updated"] is False and calls == []
+
+
+def test_fundamentals_fetched_once_per_day(monkeypatch, tmp_path):
+    """同一天手動重跑 main.py 不再重抓月營收／季報（2026-10-27 Cody）；失敗不寫戳記，下次會重試。"""
+    import main as m
+    stamp = tmp_path / "fundamentals_last_update.txt"
+    monkeypatch.setattr(m, "FUNDAMENTALS_STAMP_PATH", stamp)
+    calls = []
+    monkeypatch.setattr(m, "_update_fundamentals", lambda: calls.append(1))
+    m._update_fundamentals_db(False)
+    m._update_fundamentals_db(False)
+    assert calls == [1] and stamp.read_text(encoding="utf-8") == date.today().isoformat()
+    stamp.write_text("2000-01-01", encoding="utf-8")       # 昨天以前抓的 → 今天要再抓
+    m._update_fundamentals_db(False)
+    assert calls == [1, 1]
+    m._update_fundamentals_db(True)                        # 盤中不抓
+    assert calls == [1, 1]
+
+
+def test_fundamentals_failure_does_not_write_stamp(monkeypatch, tmp_path):
+    import main as m
+    stamp = tmp_path / "s.txt"
+    monkeypatch.setattr(m, "FUNDAMENTALS_STAMP_PATH", stamp)
+    monkeypatch.setattr(m, "_update_fundamentals", lambda: (_ for _ in ()).throw(RuntimeError("API 掛了")))
+    warnings = []
+    m._update_fundamentals_db(False, warnings=warnings)
+    assert not stamp.exists() and warnings == ["官方基本面（月營收/季報）更新失敗"]

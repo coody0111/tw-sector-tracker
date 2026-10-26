@@ -222,7 +222,7 @@ def _sector_row(i: int, r: dict) -> str:
         f'<td class="r num">{_signed(m["ret21"])}</td><td class="r num">{_signed(m["from_high"])}</td>'
         f'<td>{_status(m["status"])}</td></tr>' for m in members)
     return (row + f'<tr id="{mid}" class="sec-members" hidden><td colspan="6"><table class="mini"><thead><tr><th>#</th>'
-            '<th>股票</th><th class="r">21 日</th><th class="r">離高點</th><th>狀態</th></tr></thead>'
+            '<th>股票</th><th class="r">21 日</th><th class="r" title="今天收盤 ÷ 近 21 個交易日最高收盤 − 1（用收盤價）；0.0% ＝ 收在 21 日新高">離 21 日高</th><th>狀態</th></tr></thead>'
             f'<tbody>{inner}</tbody></table></td></tr>')
 
 
@@ -238,10 +238,10 @@ def _leaders_section(lead: dict) -> str:
     return (
         f'<section aria-labelledby="lead-h">{head}<div class="split">'
         f'<div><h3>族群 前 {len(sectors)}</h3><div class="table-wrap"><table class="sectors"><thead><tr><th>#</th><th>族群</th>'
-        '<th class="r">21 日</th><th class="r">離高點</th><th class="r">5 日區間</th><th>狀態</th></tr></thead>'
+        '<th class="r">21 日</th><th class="r" title="今天收盤 ÷ 近 21 個交易日最高收盤 − 1（用收盤價）；0.0% ＝ 收在 21 日新高">離 21 日高</th><th class="r">5 日區間</th><th>狀態</th></tr></thead>'
         f'<tbody>{sec_rows}</tbody></table></div><p class="score-note">點族群名稱展開成員個股排行。</p></div>'
         f'<div><h3>個股 前 {len(stocks)}</h3><div class="table-wrap"><table class="sortable"><thead><tr>'
-        '<th data-sort>#</th><th>股票</th><th>族群</th><th class="r" data-sort>21 日</th><th class="r" data-sort>離高點</th>'
+        '<th data-sort>#</th><th>股票</th><th>族群</th><th class="r" data-sort>21 日</th><th class="r" data-sort title="今天收盤 ÷ 近 21 個交易日最高收盤 − 1（用收盤價）；0.0% ＝ 收在 21 日新高">離 21 日高</th>'
         '<th class="r" data-sort>5 日區間</th><th class="r" data-sort>量比 5/20</th><th>狀態</th></tr></thead>'
         f'<tbody>{stk_rows}</tbody></table></div><p class="score-note">點欄位標題可排序。</p></div>'
         '</div></section>'

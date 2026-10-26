@@ -1,18 +1,19 @@
-"""推薦頁「近 21 天最強」（規格 §10.1）：個股前 20、族群前 10，標整理中／上攻中／回檔中。
-門檻是草案【假設】，官方行情重建後回測再定。"""
+"""推薦頁「近 21 天最強」（規格 §10.1）：個股前 20、族群前 10，標拉回中／整理中／上攻中。
+回測（13.13）：前 20 名裡「拉回中」（離 21 日高點 ≤ −10%）之後 20 日平均 +7.9%，最好；「整理中」只有 +1.8%
+（原本假設它在醞釀下一段，不成立）。頁面改把重點標在拉回中（2026-10-26 Cody）。"""
 import pandas as pd
 
 WINDOW = 21                 # 近 21 個交易日
 TOP_STOCKS, TOP_SECTORS = 20, 10
 MIN_MEMBERS = 3             # 族群至少 3 檔有流動性的成員才排
 DAILY_CLIP = 0.11           # 族群指數單日報酬上限：擋掉上市除權／減資日的假漲跌（bug-reports 2026-10-26 🟡1）
-STOCK_RULE = {"rng5": 0.08, "pullback": -0.10}    # 整理中：5 日區間 ≤ 8%、量縮；回檔中：離高點 ≤ −10%
-SECTOR_RULE = {"rng5": 0.05, "pullback": -0.08}   # 族群：5 日區間 ≤ 5%；回檔中：離高點 ≤ −8%
+STOCK_RULE = {"rng5": 0.08, "pullback": -0.10}    # 整理中：5 日區間 ≤ 8%、量縮；拉回中：離高點 ≤ −10%
+SECTOR_RULE = {"rng5": 0.05, "pullback": -0.08}   # 族群：5 日區間 ≤ 5%；拉回中：離高點 ≤ −8%
 
 
 def _status(from_high: float, rng5: float, rule: dict, vol_shrink: bool = True) -> str:
     if from_high <= rule["pullback"]:
-        return "回檔中"
+        return "拉回中"
     if rng5 <= rule["rng5"] and vol_shrink:
         return "整理中"
     return "上攻中"

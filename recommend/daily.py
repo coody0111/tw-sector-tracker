@@ -12,9 +12,17 @@ from recommend.strategies import ALL_STRATEGIES
 
 KEEP_DAYS = 3        # C16：推薦在頁面保留 3 個交易日
 WARMUP_DAYS = 400    # 日曆天；hi90、MA60、籌碼視窗的預熱
+SOLO_ALERT = "族群獨漲"   # 13.13：同族群同日只有 1 檔訊號 +0.34R（PF 1.30），2 檔以上 +1.35～+1.99R；只提醒、不擋
 
 
-def build_payload(features: pd.DataFrame, day: pd.Timestamp, keep_days: int = KEEP_DAYS, rally_pct=None) -> dict:
+def _sector_counts(features: pd.DataFrame, signals: pd.DataFrame) -> dict:
+    """{(訊號日 ISO, 族群): 當天同族群的訊號檔數}。"""
+    sector = features.drop_duplicates("stock_id", keep="last").set_index("stock_id")["meta_sector"]
+    keys = [(pd.Timestamp(d).date().isoformat(), sector.get(s)) for s, d in zip(signals["stock_id"], signals["date"])]
+    return pd.Series(keys, dtype=object).value_counts().to_dict() if keys else {}
+
+
+def build_payload(features: pd.DataFrame, day: pd.Timestamp, keep_days: int = KEEP_DAYS) -> dict:
     """純函式：new（當天、有效，依族群分組）、active（第 2～N 天有效）、invalid（已失效）、header、
     leaders（近 21 天最強，§10.1）、signals。卡片在近 21 天個股前 20 名時標 top21。"""
     day = pd.Timestamp(day)
@@ -23,12 +31,15 @@ def build_payload(features: pd.DataFrame, day: pd.Timestamp, keep_days: int = KE
     day_n = {pd.Timestamp(d): len(window) - i for i, d in enumerate(window)}
     signals = pd.concat([s.scan(features) for s in ALL_STRATEGIES], ignore_index=True)
     recent = signals[signals["date"].isin(window)]
-    cards = build_cards(features, recent, day, rally_pct=rally_pct)
+    cards = build_cards(features, recent, day)
     lead = leaders(features, day)
+    alone = _sector_counts(features, recent)
     top_ids = {r["stock_id"] for r in lead["stocks"]}
     for c in cards:
         c["day_n"] = day_n[pd.Timestamp(c["signal_date"])]
         c["top21"] = c["stock_id"] in top_ids
+        if alone.get((c["signal_date"], c["meta_sector"])) == 1:
+            c["alerts"].append(SOLO_ALERT)
     valid = [c for c in cards if c["status"] == "有效"]
     return {
         "trade_date": day.date().isoformat(),

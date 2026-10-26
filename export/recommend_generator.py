@@ -177,9 +177,9 @@ def _active_section(active: list, invalid: list) -> str:
 # ── 近 21 天最強 ───────────────────────────────────────────
 
 def _status(s: str) -> str:
-    if s == "整理中":
-        return '<span class="chip-cons">整理中</span>'
-    return f'<span class="{"down" if s == "回檔中" else "muted"}">{_e(s)}</span>'
+    if s == "拉回中":
+        return '<span class="chip-cons">拉回中</span>'
+    return f'<span class="muted">{_e(s)}</span>'
 
 
 def _leader_stock_row(r: dict) -> str:
@@ -197,8 +197,8 @@ def _leader_stock_row(r: dict) -> str:
 def _leaders_section(lead: dict) -> str:
     lead = lead or {}
     sectors, stocks = lead.get("sectors") or [], lead.get("stocks") or []
-    head = ('<div class="sec-head"><h2 id="lead-h">近 21 天最強</h2><span class="hint">漲幅排行；標「整理中」的是漲多後'
-            '橫盤量縮，可能醞釀下一段（門檻草案，待回測）</span></div>')
+    head = ('<div class="sec-head"><h2 id="lead-h">近 21 天最強</h2><span class="hint">漲幅排行；標「拉回中」的是離 21 日高點'
+            '已跌 10% 以上（族群 8%）。回測：前 20 名裡拉回中之後 20 天平均 +7.9%，上攻中 +5.4%，整理中 +1.8%</span></div>')
     if not stocks and not sectors:
         return f'<section aria-labelledby="lead-h">{head}<div class="ui-empty">資料不足 22 個交易日。</div></section>'
     sec_rows = "".join(

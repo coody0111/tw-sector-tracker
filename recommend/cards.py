@@ -6,7 +6,7 @@ from recommend.exits import STOP
 BIAS_HOT = 0.30   # MA10 乖離 ≥ 30% 顯示「乖離大」（13.10：當規則會變差，只提醒）
 
 
-def build_cards(features: pd.DataFrame, signals: pd.DataFrame, day: pd.Timestamp, rally_pct: float | None = None) -> list:
+def build_cards(features: pd.DataFrame, signals: pd.DataFrame, day: pd.Timestamp) -> list:
     """每筆訊號一張卡：現價、推薦後漲跌、乖離、季線、提醒、是否失效（現價 ≤ 推薦日收盤 × 0.94）。"""
     f = features.sort_values(["stock_id", "date"])
     g = f.groupby("stock_id")["close"]
@@ -28,8 +28,6 @@ def build_cards(features: pd.DataFrame, signals: pd.DataFrame, day: pd.Timestamp
             alerts.append("乖離大")
         if below60:
             alerts.append("季線下")
-        if rally_pct is not None and since >= rally_pct:
-            alerts.append("已漲多")
         prev = close - (t["change"] if pd.notna(t["change"]) else 0)
         cards.append({
             "stock_id": s.stock_id, "stock_name": t["stock_name"], "meta_sector": t["meta_sector"],

@@ -39,6 +39,17 @@ def test_build_payload_splits_new_active_invalid(monkeypatch):
     assert set(p["header"]) >= {"above_ma20_pct", "limit_up", "limit_down", "fail_rate"}
     assert [r["stock_id"] for r in p["leaders"]["stocks"]][0] == "A"   # 近 21 天漲最多
     assert p["new"][0]["cards"][0]["top21"] is True                     # C 也在前 20 名內
+    assert "族群獨漲" in p["new"][0]["cards"][0]["alerts"]              # C 當天是銅箔基板唯一一檔
+
+
+def test_solo_alert_only_when_sector_has_one_signal_that_day(monkeypatch):
+    f, d = _feat()
+    strat = _FakeStrategy([("A", d[-1]), ("C", d[-1]), ("B", d[-1])])   # 銅箔基板 2 檔、散熱 1 檔
+    monkeypatch.setattr("recommend.daily.ALL_STRATEGIES", [strat])
+    p = build_payload(f, d[-1])
+    alerts = {c["stock_id"]: c["alerts"] for g in p["new"] + [{"cards": p["invalid"]}] for c in g["cards"]}
+    assert "族群獨漲" not in alerts["A"] and "族群獨漲" not in alerts["C"]
+    assert "族群獨漲" in alerts["B"]
 
 
 def test_json_safe_turns_nan_and_numpy_into_json_values():

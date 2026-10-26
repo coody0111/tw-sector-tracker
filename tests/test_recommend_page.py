@@ -18,13 +18,13 @@ def _payload(**kw):
         "taiex_above_ma20": True, "taiex_ma20_gap": 0.028,
         "new": [{"sector": "銅箔基板", "count": 1, "cards": [_card("6672", "騰輝<電子>-KY", top21=True)]}],
         "active": [_card("2383", "台光電", signal_date="2026-09-22", day_n=3, close=1185.0, signal_close=1150.0,
-                         since_signal_pct=3.04, alerts=["已漲多"])],
+                         since_signal_pct=3.04, alerts=["族群獨漲"])],
         "invalid": [_card("6274", "台燿", signal_date="2026-09-22", day_n=3, close=288.5, signal_close=310.0,
                           since_signal_pct=-6.94, status="失效")],
         "leaders": {"sectors": [{"rank": 1, "sector": "銅箔基板", "n": 5, "ret21": 38.2, "from_high": -1.0,
                                  "rng5": 4.1, "status": "整理中"}],
                     "stocks": [{"rank": 1, "stock_id": "6274", "stock_name": "台燿", "meta_sector": "銅箔基板",
-                                "ret21": 82.4, "from_high": -12.6, "rng5": 5.6, "vr5_20": None, "status": "回檔中"}]},
+                                "ret21": 82.4, "from_high": -12.6, "rng5": 5.6, "vr5_20": None, "status": "拉回中"}]},
         "scorecard": {"突破策略": {"n": 25, "mean_r": 0.5, "win_rate": 0.3, "payoff": 4.0, "pf": 1.5, "open_n": 3,
                                    "unfilled_n": 2,
                                    "by_type": [{"type": "整理", "n": 25, "mean_r": 0.5, "pf": 1.5}],
@@ -48,6 +48,7 @@ def test_page_has_all_sections_and_precomputed_order():
     assert 'data-price="337.5"' in html
     assert ">493<" in html                         # 100 萬 × 1% ÷ (337.5 × 6%) = 493 股
     assert ">317.25<" in html                      # 停損價 337.5 × 0.94
+    assert '<span class="chip-cons">拉回中</span>' in html and "族群獨漲" in html
     assert 'href="recommend.html" aria-current="page"' in html
 
 

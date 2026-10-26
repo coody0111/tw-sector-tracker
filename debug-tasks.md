@@ -5465,3 +5465,23 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 
 ### 請 Debugger 驗證
 - [ ] 全套 pytest
+
+## [2026-10-26] 推薦頁依門檻回測調整：族群獨漲提醒、拿掉已漲多、改標「拉回中」
+
+### 改了什麼
+- 異動檔案：recommend/daily.py（`族群獨漲`：訊號日同族群只有 1 檔訊號就加提醒；build_payload 拿掉 rally_pct）、
+  recommend/cards.py（拿掉「已漲多」與 rally_pct）、recommend/leaders.py（「回檔中」改名「拉回中」）、
+  export/recommend_generator.py（金色標籤改標拉回中、整理中改灰字、說明文字換成回測數字）、
+  docs/superpowers/specs/…design.md（§13.13 回測紀錄、§10.1、§15 C15／C17／C18 決定）、
+  tests/test_recommend_{cards,daily,leaders,page}.py
+- 依據（規格 §13.13，scratchpad bt_pending.py／bt_consolidation.py，DB 唯讀）：
+  - 同族群同日 1 檔 +0.34R（PF 1.30），2 檔以上 +1.35～+1.99R → Cody 選「照列＋提醒」
+  - 已漲多：第 2／3 天進場漲越多沒有越差 → Cody 選拿掉
+  - 近 21 天前 20：拉回中 +7.9%、上攻中 +5.4%、整理中 +1.8%（之後 20 日）→ Cody 選金色改標拉回中
+  - C15 跳空、C17 冷卻期：無單調關係 → 不擋、不設（不用改 code）
+
+### 請 Debugger 驗證
+- [ ] 全套 pytest
+- [ ] 複本 run_daily（09-24、10-22）：族群獨漲只出現在當天同族群 1 檔的卡片；6672／6213（同為銅箔基板）不應有
+- [ ] Telegram 訊息提醒欄出現「族群獨漲」時仍對齊
+- [ ] （可選）用你的 DB 複本重算 13.13 的族群獨漲、整理中兩組數字

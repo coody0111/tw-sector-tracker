@@ -10,7 +10,7 @@ def _panel():
         "A": ([100 + 2 * k for k in range(25)] + [149, 150, 148, 150, 149], [1000] * 25 + [400] * 5, True),
         # 每天 +3% → 上攻中
         "B": ([100 * 1.03 ** k for k in range(30)], [1000] * 30, True),
-        # 漲到 160 後回到 140 → 回檔中（離高點 −12.5%）
+        # 漲到 160 後回到 140 → 拉回中（離高點 −12.5%）
         "C": ([100 + 3 * k for k in range(21)] + [160, 155, 150, 146, 143, 141, 140, 140, 140], [1000] * 30, True),
         # 漲最多但沒流動性 → 不列
         "D": ([100 * 1.05 ** k for k in range(30)], [10] * 30, False),
@@ -32,7 +32,7 @@ def test_stock_leaders_rank_and_status():
     assert [r["stock_id"] for r in out["stocks"]] == ["B", "A", "C"]   # 依 21 日漲幅
     assert stocks["A"]["status"] == "整理中" and stocks["A"]["vr5_20"] < 1
     assert stocks["B"]["status"] == "上攻中"
-    assert stocks["C"]["status"] == "回檔中" and stocks["C"]["from_high"] == -12.5
+    assert stocks["C"]["status"] == "拉回中" and stocks["C"]["from_high"] == -12.5
     assert stocks["B"]["ret21"] == round((1.03 ** 21 - 1) * 100, 1)
     assert out["stocks"][0]["rank"] == 1
 

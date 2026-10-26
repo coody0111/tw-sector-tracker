@@ -12,8 +12,8 @@ RISK = 0.01                      # 每筆風險＝總資金 1%（規格 §11）
 DEFAULT_CAPITAL = 1_000_000
 CAPITAL_KEY = "tw-recommend-capital-v1"
 STRATEGY = "突破策略"
-# 回測對照（bug-reports 2026-10-26：官方行情、精確漲停價，2025-01 起 --backtest-recommend）
-BACKTEST_REF = {"win_rate": 0.25, "payoff": 5.35, "mean_r": 0.87, "pf": 1.82}
+# 回測對照：官方行情＋除權息／減資漲跌修正後（2026-10-26 Cody 跑 --backtest-recommend，2025-01 起，已出場 2,392 筆）
+BACKTEST_REF = {"win_rate": 0.25, "payoff": 5.35, "mean_r": 0.86, "pf": 1.81}
 ROUTE_LABELS = (("法人", "法人大買"), ("外資", "外資大增"), ("投信", "投信持續"), ("大戶", "大戶大增"))
 TYPE_LABELS = {"整理": ("整理型", "box"), "續攻": ("續攻型", "run")}
 

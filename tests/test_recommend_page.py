@@ -54,7 +54,7 @@ def test_page_has_all_sections_and_precomputed_order():
 def test_page_escapes_names_and_marks_lagging_backtest():
     html = render(_payload())
     assert "騰輝&lt;電子&gt;-KY" in html and "騰輝<電子>" not in html
-    assert "（低於回測）" in html                  # 已出場 25 筆、勝率 30% > 回測 25%，但 PF 1.5 < 1.82
+    assert "（低於回測）" in html                  # 已出場 25 筆、勝率 30% > 回測 25%，但 PF 1.5 < 回測
     assert f"回測 {BACKTEST_REF['pf']:.2f}" in html
     assert "買不到" in html and "停損" in html
 

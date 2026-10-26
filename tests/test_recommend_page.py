@@ -77,3 +77,9 @@ def test_main_generates_and_pushes_recommend_page():
     src = inspect.getsource(main.run)
     assert "generate_recommend_html(recommend_payload)" in src
     assert '"docs/recommend.html"' in inspect.getsource(main._push_html)
+
+
+def test_mobile_single_column_can_shrink_below_table_width():
+    """1fr 的最小寬度是內容（表格）寬，375px 會橫向捲動；要 minmax(0,1fr)（bug-reports 2026-10-26）。"""
+    from export.recommend_generator import PAGE_CSS
+    assert "grid-template-columns:1fr" not in PAGE_CSS

@@ -403,7 +403,7 @@ details.invalid table{color:var(--ui-ink-3)}
 .split h3,.detail-h{margin:0 0 6px;color:var(--ui-ink-2);font-size:.78rem;font-weight:700}.detail-h{margin-top:18px}
 .bar{display:inline-block;height:6px;border-radius:3px;vertical-align:middle;margin-left:6px}
 .page-foot{margin-top:40px;color:var(--ui-ink-3);font-size:.7rem}
-@media(max-width:760px){.market{grid-template-columns:repeat(2,minmax(0,1fr))}.cards{grid-template-columns:1fr}.split{grid-template-columns:1fr}.capital{position:static}}
+@media(max-width:760px){.market{grid-template-columns:repeat(2,minmax(0,1fr))}.cards{grid-template-columns:minmax(0,1fr)}.split{grid-template-columns:minmax(0,1fr)}.capital{position:static}}
 @media(prefers-reduced-motion:reduce){.card{transition:none}}
 """
 

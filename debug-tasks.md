@@ -5380,3 +5380,13 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 ### 特別注意
 - 族群指數的 ±11% 截斷會把真正的新股暴漲也截掉（新股前 5 天無漲跌幅限制），影響小，可接受？
 - 回測對照是常數，之後重跑回測要記得手動更新。
+
+## [2026-10-26] 修：推薦頁 375px 橫向捲動
+
+### 改了什麼
+- 異動檔案：export/recommend_generator.py（手機版 `.split`、`.cards` 改 `minmax(0,1fr)`）、tests/test_recommend_page.py
+- 回應 bug-reports 2026-10-26 🔴：1fr 的最小寬度是表格寬，撐開整頁
+
+### 請 Debugger 驗證
+- [ ] 375px scrollWidth ≤ 視窗寬（表格在 .table-wrap 內捲動）
+- [ ] 全套 pytest

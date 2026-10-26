@@ -56,3 +56,15 @@ def test_solo_alert_is_shortened_and_keeps_alignment():
 def test_label_for_preopen_update():
     msg = compose_recommend_message(_payload(3), taiex_above_ma20=None, site_url="u", label="開盤前更新（集保）")
     assert msg.startswith("個股推薦 10/22 開盤前更新（集保）")
+
+
+def test_preopen_message_added_table_and_withdrawn_reasons():
+    from recommend.telegram_format import compose_preopen_message
+    p = _payload(3)
+    w = [{"stock_id": "3537", "stock_name": "晶<相>光", "reason": "法人買超占股本排名前 12%（需前 10%）"}]
+    msg = compose_preopen_message(p, ["1000"], w, "u")
+    assert msg.startswith("個股推薦 10/22 開盤前更新（集保）") and "[銅箔基板 1檔]" in msg and "1001" not in msg.split("</pre>")[0]
+    assert "撤回 1 檔" in msg and "晶&lt;相&gt;光：法人買超占股本排名前 12%（需前 10%）" in msg
+    only = compose_preopen_message(p, [], w, "u")
+    assert "<pre>" not in only and "撤回 1 檔" in only
+    assert compose_preopen_message(p, [], [], "u") is None

@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 
 # 模組層級 import：sys.path 已在上面修好，不需要延到 main() 內才 import。
 from notifications.telegram import send_telegram_message, TelegramConfigError  # noqa: E402
-from recommend.telegram_format import compose_recommend_message  # noqa: E402
+from recommend.telegram_format import compose_preopen_message, compose_recommend_message  # noqa: E402
 
 _MARKET_OPEN = dt_time(9, 0)
 _MARKET_CLOSE = dt_time(13, 30)  # TWSE 正式收盤時間，僅供參考語意，不直接拿來判斷排程窗口
@@ -258,18 +258,14 @@ def send_recommend_message(summary: dict, site_url: str) -> None:
 
 
 def send_preopen_message(summary: dict, site_url: str) -> None:
-    """開盤前更新：集保補進來後「比收盤版多出來」的新訊號才發；沒有新增就不發。"""
-    rec, added = summary.get("recommend"), set(summary.get("added") or [])
-    if not rec or not added:
+    """開盤前更新：比收盤版多出來的新訊號、撤回（附理由）才發；都沒有就不發。"""
+    rec = summary.get("recommend")
+    if not rec:
         return
-    groups = []
-    for g in rec.get("new") or []:
-        cards = [c for c in g["cards"] if c["stock_id"] in added]
-        if cards:
-            groups.append({**g, "count": len(cards), "cards": cards})
-    msg = compose_recommend_message({**rec, "new": groups}, rec.get("taiex_above_ma20"),
-                                    site_url.rstrip("/") + "/recommend.html", label="開盤前更新（集保）")
-    send_telegram_message(msg, parse_mode="HTML")
+    msg = compose_preopen_message(rec, summary.get("added") or [], summary.get("withdrawn") or [],
+                                  site_url.rstrip("/") + "/recommend.html")
+    if msg:
+        send_telegram_message(msg, parse_mode="HTML")
 
 
 _MODE_LABELS = {"intraday": "盤中監控", "close": "收盤更新", "preopen": "開盤前更新"}

@@ -618,17 +618,19 @@ def _new_ids(payload: dict) -> set:
 
 def _rerun_recommend(prev: dict, push: bool) -> dict:
     from recommend.daily import run_daily
-    payload = run_daily(day=prev["trade_date"])
+    payload = run_daily(day=prev["trade_date"], prev_new=[c for g in prev.get("new") or [] for c in g["cards"]])
     for k in ("taiex_above_ma20", "taiex_ma20_gap"):
         payload[k] = prev.get(k)
     added = sorted(_new_ids(payload) - _new_ids(prev))
     payload["preopen_added"] = added
+    withdrawn = payload.get("withdrawn") or []
     RECOMMEND_PAYLOAD_PATH.write_text(json.dumps(payload, ensure_ascii=False, default=str), encoding="utf-8")
     generate_recommend_html(payload)
-    logger.info("開盤前更新：集保 %s，新訊號 %d 檔（比收盤版多 %s）", payload.get("shareholder_date"),
-                sum(g["count"] for g in payload["new"]), added or "無")
+    logger.info("開盤前更新：集保 %s，新訊號 %d 檔（比收盤版多 %s、撤回 %s）", payload.get("shareholder_date"),
+                sum(g["count"] for g in payload["new"]), added or "無", [w["stock_id"] for w in withdrawn] or "無")
     pushed = _push_html(date.fromisoformat(prev["trade_date"])) if push else False
-    return {"mode": "preopen", "updated": True, "added": added, "recommend": payload, "git_pushed": pushed}
+    return {"mode": "preopen", "updated": True, "added": added, "withdrawn": withdrawn, "recommend": payload,
+            "git_pushed": pushed}
 
 
 def _update_fundamentals_db(realtime: bool, warnings: list | None = None) -> None:

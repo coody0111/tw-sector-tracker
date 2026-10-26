@@ -585,9 +585,14 @@ def test_preopen_reruns_same_signal_day_and_reports_added(monkeypatch, tmp_path)
     days = []
     new = {"trade_date": "2026-10-23", "shareholder_date": "2026-10-23", "header": {}, "active": [], "invalid": [],
            "new": [{"sector": "銅箔基板", "count": 2, "cards": [{"stock_id": "6213"}, {"stock_id": "6672"}]}]}
-    monkeypatch.setattr(rd, "run_daily", lambda day=None: days.append(day) or dict(new))
+    prev_cards = []
+    withdrawn = [{"stock_id": "3537", "reason": "法人…"}]
+    monkeypatch.setattr(rd, "run_daily", lambda day=None, prev_new=None: days.append(day) or prev_cards.append(prev_new)
+                        or {**new, "withdrawn": withdrawn})
     out = m.preopen_recommend()
     assert days == ["2026-10-23"] and out["updated"] and out["added"] == ["6672"]
+    assert prev_cards == [[{"stock_id": "6213", "stock_name": "聯茂"}]]          # 收盤版新訊號卡片傳進去比對撤回
+    assert out["withdrawn"] == withdrawn
     saved = json.loads(path.read_text(encoding="utf-8"))
     assert saved["taiex_above_ma20"] is True and saved["preopen_added"] == ["6672"]   # 大盤欄位沿用收盤版
     assert calls == ["shareholder", "html", ("push", "2026-10-23")]

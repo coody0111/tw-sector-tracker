@@ -5523,3 +5523,22 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 
 ### 特別注意
 - Cody 要以系統管理員重跑 `.\scripts\install_scheduler.ps1` 才會建立 08:00 工作（現有兩個工作會被 -Force 覆蓋成同樣設定）
+
+## [2026-10-26] 開盤前撤回（附理由）
+
+### 改了什麼
+- 新增：recommend/withdraw.py（withdraw_reasons、mark_withdrawn）、tests/test_recommend_withdraw.py
+- 異動：recommend/daily.py（run_daily 多 prev_new 參數）、recommend/scorecard.py（「撤回」不計成績、summary 加 withdrawn_n）、
+  main.py（_rerun_recommend 傳收盤版新訊號卡片、summary 加 withdrawn）、recommend/telegram_format.py（compose_preopen_message）、
+  scripts/run_scheduled.py（send_preopen_message 改用它：新增或撤回才發）、export/recommend_generator.py（撤回區塊、明細「撤回」不算已出場）、
+  docs/scheduler.md、tests/test_{main,scheduled_runner,recommend_telegram,recommend_page}.py
+- 回應 bug-reports 2026-10-26 🟡1：Cody 決定「撤回」，並要求「需要有撤回理由」。
+  - 撤回＝收盤版今日新訊號、開盤前版同一訊號日已不在訊號裡
+  - 理由：逐條看收盤時命中的路線，現在不成立的列出「法人買超占股本排名前 12%（需前 10%）」「投信 10 日買超 5 天（需 ≥ 6 天）」；
+    路線都還命中（或當天沒資料）寫「籌碼路線仍命中，其他條件改變」
+  - 成績單 exit_reason＝撤回（refresh 不再追、summary 不計）
+
+### 請 Debugger 驗證
+- [ ] 全套 pytest
+- [ ] DB 複本重現你的 06-18（3537、6155）、10-16（3701）：payload withdrawn 有這幾檔、理由跟實際百分位一致；成績單標撤回、summary 不計
+- [ ] Telegram：只有撤回時也會發，且不出現空表格；頁面撤回區塊手機寬度正常

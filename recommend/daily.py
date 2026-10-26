@@ -9,6 +9,7 @@ from recommend.leaders import leaders
 from recommend.market import market_header
 from recommend.scorecard import detail, ensure_table, record_signals, refresh, summary
 from recommend.strategies import ALL_STRATEGIES
+from recommend.withdraw import mark_withdrawn, withdraw_reasons
 
 KEEP_DAYS = 3        # C16：推薦在頁面保留 3 個交易日
 WARMUP_DAYS = 400    # 日曆天；hi90、MA60、籌碼視窗的預熱
@@ -52,8 +53,9 @@ def build_payload(features: pd.DataFrame, day: pd.Timestamp, keep_days: int = KE
     }
 
 
-def run_daily(day=None, db_path: str = DB_PATH, keep_days: int = KEEP_DAYS) -> dict:
-    """收盤流程用：載入（含預熱）→ 特徵 → payload → 寫成績單。回傳可 JSON 序列化的 payload（含 scorecard）。"""
+def run_daily(day=None, db_path: str = DB_PATH, keep_days: int = KEEP_DAYS, prev_new: list | None = None) -> dict:
+    """收盤流程用：載入（含預熱）→ 特徵 → payload → 寫成績單。回傳可 JSON 序列化的 payload（含 scorecard）。
+    prev_new：開盤前更新時傳收盤版的今日新訊號卡片；這次已不在訊號裡的列進 payload["withdrawn"]（附理由）、成績單標撤回。"""
     start = None
     if day is not None:
         start = (pd.Timestamp(day) - pd.Timedelta(days=WARMUP_DAYS)).date().isoformat()
@@ -67,6 +69,11 @@ def run_daily(day=None, db_path: str = DB_PATH, keep_days: int = KEEP_DAYS) -> d
         # 記保留期內所有訊號（已存在的會跳過）：某天收盤失敗時，隔天還能補記那天的訊號
         window = sorted(feats.loc[feats["date"] <= day, "date"].unique())[-keep_days:]
         record_signals(con, signals[signals["date"].isin(window)], feats)
+        if prev_new:
+            still = set(signals.loc[signals["date"] == day, "stock_id"])
+            gone = [c for c in prev_new if c["stock_id"] not in still]
+            payload["withdrawn"] = withdraw_reasons(feats, day, gone)
+            mark_withdrawn(con, gone, day)
         refresh(con, feats)
         payload["scorecard"] = {s.name: summary(con, s.name) for s in ALL_STRATEGIES}
         big = feats.loc[feats["date"] <= day, "big_date"].max()

@@ -84,3 +84,9 @@ def test_mobile_single_column_can_shrink_below_table_width():
     """1fr 的最小寬度是內容（表格）寬，375px 會橫向捲動；要 minmax(0,1fr)（bug-reports 2026-10-26）。"""
     from export.recommend_generator import PAGE_CSS
     assert "grid-template-columns:1fr" not in PAGE_CSS
+
+
+def test_withdrawn_block_shows_reason():
+    html = render(_payload(withdrawn=[{"stock_id": "3537", "stock_name": "晶相光", "reason": "法人買超占股本排名前 12%（需前 10%）"}],
+                           shareholder_date="2026-10-23"))
+    assert "開盤前撤回 1 檔" in html and "集保 2026-10-23 更新後不再符合" in html and "排名前 12%" in html

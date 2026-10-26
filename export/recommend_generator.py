@@ -129,10 +129,21 @@ def _card(c: dict) -> str:
     )
 
 
-def _new_section(groups: list) -> str:
+def _withdrawn_block(withdrawn: list, shareholder_date) -> str:
+    """開盤前撤回（集保更新後不再符合）：附理由，提醒開盤先不要買。"""
+    if not withdrawn:
+        return ""
+    rows = "".join(f'<li><b class="num">{_e(w["stock_id"])}</b> {_e(w.get("stock_name"))}：{_e(w["reason"])}</li>'
+                   for w in withdrawn)
+    when = f"（集保 {_e(shareholder_date)} 更新後不再符合，開盤先不要買）" if shareholder_date else "（集保更新後不再符合）"
+    return f'<div class="withdrawn"><strong>開盤前撤回 {len(withdrawn)} 檔</strong>{when}<ul>{rows}</ul></div>'
+
+
+def _new_section(groups: list, withdrawn: list | None = None, shareholder_date=None) -> str:
     n = sum(g["count"] for g in groups)
     head = ('<div class="sec-head"><h2 id="new-h">今日新訊號</h2>'
-            f'<span class="count">{n} 檔</span><span class="hint">突破策略：漲停＋創 90 日高＋籌碼任一路線，明天開盤買</span></div>')
+            f'<span class="count">{n} 檔</span><span class="hint">突破策略：漲停＋創 90 日高＋籌碼任一路線，明天開盤買</span></div>'
+            + _withdrawn_block(withdrawn or [], shareholder_date))
     if not groups:
         return f'<section aria-labelledby="new-h">{head}<div class="ui-empty"><strong>今天沒有新訊號</strong>收盤後沒有股票符合條件。</div></section>'
     body = "".join(
@@ -295,7 +306,7 @@ def _dv(v) -> str:
 
 def _detail_row(r: dict) -> str:
     reason = r.get("exit_reason") or "等待進場"
-    closed = reason not in ("持有中", "買不到", "等待進場")
+    closed = reason not in ("持有中", "買不到", "撤回", "等待進場")
     return (
         f'<tr><td class="num" data-v="{_e(r["signal_date"])}">{_e(r["signal_date"][2:])}</td>'
         f'<td>{_e(r["stock_id"])} {_e(r.get("stock_name"))}</td><td>{_e(_type_label(r.get("type")))}</td>'
@@ -402,6 +413,8 @@ details.invalid table{color:var(--ui-ink-3)}
 .split{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);gap:14px;margin-top:14px}
 .split h3,.detail-h{margin:0 0 6px;color:var(--ui-ink-2);font-size:.78rem;font-weight:700}.detail-h{margin-top:18px}
 .bar{display:inline-block;height:6px;border-radius:3px;vertical-align:middle;margin-left:6px}
+.withdrawn{margin-bottom:12px;padding:10px 14px;border:1px solid rgba(227,154,59,.5);border-radius:var(--ui-radius);background:rgba(227,154,59,.08);color:var(--ui-ink-2);font-size:.8rem}
+.withdrawn strong{color:#E39A3B}.withdrawn ul{margin:6px 0 0;padding-left:18px}.withdrawn li{margin:2px 0}
 .page-foot{margin-top:40px;color:var(--ui-ink-3);font-size:.7rem}
 @media(max-width:760px){.market{grid-template-columns:repeat(2,minmax(0,1fr))}.cards{grid-template-columns:minmax(0,1fr)}.split{grid-template-columns:minmax(0,1fr)}.capital{position:static}}
 @media(prefers-reduced-motion:reduce){.card{transition:none}}
@@ -458,7 +471,7 @@ def render(payload: dict) -> str:
     body = (
         _market(p.get("header"), p.get("taiex_above_ma20"), p.get("taiex_ma20_gap"))
         + _capital()
-        + _new_section(p.get("new") or [])
+        + _new_section(p.get("new") or [], p.get("withdrawn"), p.get("shareholder_date"))
         + _active_section(p.get("active") or [], p.get("invalid") or [])
         + _leaders_section(p.get("leaders"))
         + _score_section((p.get("scorecard") or {}).get(STRATEGY), (p.get("scorecard_rows") or {}).get(STRATEGY) or [])

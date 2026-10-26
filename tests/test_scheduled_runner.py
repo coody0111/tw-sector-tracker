@@ -488,3 +488,12 @@ def test_main_preopen_skips_non_trading_day_and_sends_on_added(monkeypatch, tmp_
 
 def test_failure_message_labels_preopen():
     assert "模式：開盤前更新" in compose_failure_message("preopen", "x", 1.0)
+
+
+def test_preopen_message_sent_for_withdrawn_only(monkeypatch):
+    sent = []
+    monkeypatch.setattr(sr, "send_telegram_message", lambda text, **kw: sent.append(text) or True)
+    rec = {"trade_date": "2026-10-23", "header": {}, "active": [], "invalid": [], "new": []}
+    sr.send_preopen_message({"recommend": rec, "added": [],
+                             "withdrawn": [{"stock_id": "3537", "stock_name": "晶相光", "reason": "法人…"}]}, "https://x/")
+    assert len(sent) == 1 and "撤回 1 檔" in sent[0]

@@ -89,4 +89,4 @@ def test_mobile_single_column_can_shrink_below_table_width():
 def test_withdrawn_block_shows_reason():
     html = render(_payload(withdrawn=[{"stock_id": "3537", "stock_name": "晶相光", "reason": "法人買超占股本排名前 12%（需前 10%）"}],
                            shareholder_date="2026-10-23"))
-    assert "開盤前撤回 1 檔" in html and "集保 2026-10-23 更新後不再符合" in html and "排名前 12%" in html
+    assert "集保更新後撤回 1 檔" in html and "集保 2026-10-23 更新後不再符合" in html and "排名前 12%" in html

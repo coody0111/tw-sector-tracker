@@ -1,7 +1,7 @@
-"""開盤前撤回（2026-10-26 Cody：「需要有撤回理由」）：集保補進來後，收盤版推薦過、但同一訊號日已不再符合的股票。
+"""集保更新後撤回（2026-10-26 Cody：「需要有撤回理由」）：集保補進來後，收盤版推薦過、但同一訊號日已不再符合的股票。
 新一週集保進來後，「大戶週增」（big1w）換成當週的週增，收盤時靠舊一週大增命中大戶路線的股票會掉出前 10%
 （Debugger 複本：06-18 撤回 3537／6155、10-16 撤回 3701，都是大戶路線；2026-10-26 更正原先「總股數改變 inst5」的推測）。
-回測用的是「含集保當天」的版本，所以以開盤前版為準：撤回、附理由、成績單標「撤回」不計成績。"""
+回測用的是「含集保當天」的版本，所以以集保更新版為準：撤回、附理由、成績單標「撤回」不計成績。"""
 import pandas as pd
 
 from recommend.strategies.breakout import PR_TOP, TRUST_DAYS
@@ -29,7 +29,7 @@ def _route_text(route: str, row: pd.Series) -> str:
 
 
 def withdraw_reasons(features: pd.DataFrame, day, cards: list) -> list:
-    """cards：收盤版推薦過、開盤前版已沒有的卡片。逐條看收盤時命中的路線，現在哪幾條不成立。"""
+    """cards：收盤版推薦過、集保更新版已沒有的卡片。逐條看收盤時命中的路線，現在哪幾條不成立。"""
     today = features[features["date"] == pd.Timestamp(day)].set_index("stock_id")
     out = []
     for c in cards:

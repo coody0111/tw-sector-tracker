@@ -55,7 +55,7 @@ def build_payload(features: pd.DataFrame, day: pd.Timestamp, keep_days: int = KE
 
 def run_daily(day=None, db_path: str = DB_PATH, keep_days: int = KEEP_DAYS, prev_new: list | None = None) -> dict:
     """收盤流程用：載入（含預熱）→ 特徵 → payload → 寫成績單。回傳可 JSON 序列化的 payload（含 scorecard）。
-    prev_new：開盤前更新時傳收盤版的今日新訊號卡片；這次已不在訊號裡的列進 payload["withdrawn"]（附理由）、成績單標撤回。"""
+    prev_new：集保更新時傳收盤版的今日新訊號卡片；這次已不在訊號裡的列進 payload["withdrawn"]（附理由）、成績單標撤回。"""
     start = None
     if day is not None:
         start = (pd.Timestamp(day) - pd.Timedelta(days=WARMUP_DAYS)).date().isoformat()
@@ -77,7 +77,7 @@ def run_daily(day=None, db_path: str = DB_PATH, keep_days: int = KEEP_DAYS, prev
         refresh(con, feats)
         payload["scorecard"] = {s.name: summary(con, s.name) for s in ALL_STRATEGIES}
         big = feats.loc[feats["date"] <= day, "big_date"].max()
-        payload["shareholder_date"] = None if pd.isna(big) else pd.Timestamp(big).date().isoformat()   # 開盤前更新比對用
+        payload["shareholder_date"] = None if pd.isna(big) else pd.Timestamp(big).date().isoformat()   # 集保更新比對用
         names = feats.drop_duplicates("stock_id", keep="last").set_index("stock_id")["stock_name"]
         payload["scorecard_rows"] = {s.name: [{**r, "stock_name": names.get(r["stock_id"], "")}
                                               for r in detail(con, s.name)] for s in ALL_STRATEGIES}

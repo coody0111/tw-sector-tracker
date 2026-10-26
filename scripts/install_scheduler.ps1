@@ -73,21 +73,24 @@ Register-ScheduledTask -TaskName "TW-Sector-DailyClose" `
 
 Write-Host "已建立 TW-Sector-DailyClose"
 
-# ── 開盤前更新（2026-10-26 加）────────────────────────────
-# 集保資料日（通常週五）的資料隔天才公布，收盤版推薦拿不到；08:00 先補集保，有比收盤版新就重跑推薦，
-# 多出新訊號才發 Telegram。集保新一週約 20～35 分鐘，09:00 開盤前會跑完（逾時上限 50 分鐘）。
+# ── 集保更新（2026-10-26 加）──────────────────────────────
+# 集保資料日（通常週五）的資料隔天才公布，收盤版推薦拿不到；補集保，有比收盤版新就重跑推薦，
+# 多出新訊號或有撤回才發 Telegram。每天 20:00（含週末：週五集保多半週末公布，Cody 前一天晚上就要看到）
+# ＋平日 08:00 保險。沒有新集保時本身不做事，多跑無妨。集保新一週約 20～35 分鐘（逾時上限 50 分鐘）。
 $PreopenAction = New-ScheduledTaskAction -Execute $PythonwPath `
     -Argument "`"$RunnerPath`" preopen" -WorkingDirectory $ProjectRoot
 
-$PreopenTrigger = New-ScheduledTaskTrigger -Weekly `
-    -DaysOfWeek Monday,Tuesday,Wednesday,Thursday,Friday -At "08:00"
+$PreopenTriggers = @(
+    (New-ScheduledTaskTrigger -Daily -At "20:00"),
+    (New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday,Tuesday,Wednesday,Thursday,Friday -At "08:00")
+)
 
 $PreopenSettings = New-ScheduledTaskSettingsSet `
     -MultipleInstances IgnoreNew -StartWhenAvailable -WakeToRun
 
 Register-ScheduledTask -TaskName "TW-Sector-Preopen" `
-    -Action $PreopenAction -Trigger $PreopenTrigger -Settings $PreopenSettings `
-    -Description "台股開盤前更新個股推薦（補集保），週一至週五 08:00 執行" -Force
+    -Action $PreopenAction -Trigger $PreopenTriggers -Settings $PreopenSettings `
+    -Description "台股集保更新個股推薦（補集保），每天 20:00＋週一至週五 08:00 執行" -Force
 
 Write-Host "已建立 TW-Sector-Preopen"
 Write-Host ""

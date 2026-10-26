@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS recommendations (
     PRIMARY KEY (strategy, stock_id, signal_date)
 )
 """
-_NOT_CLOSED = ("持有中", "買不到", "撤回")   # 不計入成績（還沒出場、隔天一字漲停買不到、開盤前撤回）
+_NOT_CLOSED = ("持有中", "買不到", "撤回")   # 不計入成績（還沒出場、隔天一字漲停買不到、集保更新後撤回）
 
 
 def ensure_table(con) -> None:

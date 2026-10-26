@@ -33,7 +33,7 @@ def _card_row(c: dict) -> str:
 
 
 def compose_recommend_message(payload: dict, taiex_above_ma20: bool | None, site_url: str, label: str = "收盤") -> str:
-    """parse_mode=HTML：表格放 <pre>，所有內容都做 HTML 跳脫。label：「收盤」或「開盤前更新」。"""
+    """parse_mode=HTML：表格放 <pre>，所有內容都做 HTML 跳脫。label：「收盤」或「集保更新」。"""
     d = payload["trade_date"]
     h = payload["header"]
     market = [f"MA20上 {_pct(h.get('above_ma20_pct'))}", f"失敗率 {_pct(h.get('fail_rate'))}"]
@@ -65,11 +65,11 @@ def compose_recommend_message(payload: dict, taiex_above_ma20: bool | None, site
 
 
 def compose_preopen_message(payload: dict, added: list, withdrawn: list, site_url: str) -> str | None:
-    """開盤前更新：只列比收盤版多出來的新訊號（表格）＋撤回的股票與理由；兩者都沒有回 None（不發）。"""
+    """集保更新（每天 20:00、平日 08:00 檢查）：只列比收盤版多出來的新訊號（表格）＋撤回的股票與理由；兩者都沒有回 None（不發）。"""
     added = set(added or [])
     if not added and not withdrawn:
         return None
-    label = "開盤前更新（集保）"
+    label = "集保更新"
     if added:
         groups = [{**g, "count": len(cs), "cards": cs} for g in payload.get("new") or []
                   if (cs := [c for c in g["cards"] if c["stock_id"] in added])]

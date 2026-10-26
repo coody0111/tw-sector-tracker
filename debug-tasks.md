@@ -5552,3 +5552,17 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 
 ### 請 Debugger 驗證
 - [ ] 全套 pytest
+
+## [2026-10-26] 集保更新改成每天 20:00（含週末）＋平日 08:00
+
+### 改了什麼
+- 異動檔案：scripts/install_scheduler.ps1（TW-Sector-Preopen 兩個觸發：每天 20:00、平日 08:00）、scripts/run_scheduled.py
+  （preopen 不再看交易日）、recommend/telegram_format.py（標題「集保更新」）、export/recommend_generator.py（「集保更新後撤回」）、
+  main.py／recommend/{daily,scorecard,withdraw}.py（文字）、docs/scheduler.md、tests/test_{scheduled_runner,recommend_telegram,recommend_page}.py
+- 依據：Cody「為啥要 10/27 八點阿 感覺我前一天就會研究了呀」——週五集保多半週末公布，週末晚上就要更新。
+  preopen 沒有新集保時本身不做事（比 payload 的 shareholder_date），所以多跑、週末跑都無副作用。
+
+### 請 Debugger 驗證
+- [ ] 全套 pytest
+- [ ] ps1 語法（陣列觸發）；不用真的註冊
+- [ ] 週末執行（is_trading_day=False）會跑；沒有新集保時不發訊息、不 push

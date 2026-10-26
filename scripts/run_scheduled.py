@@ -6,7 +6,7 @@
 Usage:
     python scripts/run_scheduled.py intraday
     python scripts/run_scheduled.py close
-    python scripts/run_scheduled.py preopen      # 08:00 開盤前補集保、更新個股推薦
+    python scripts/run_scheduled.py preopen      # 每天 20:00＋平日 08:00：補集保，有新的就更新個股推薦
     python scripts/run_scheduled.py test-notify
 """
 import hashlib
@@ -112,7 +112,7 @@ class ExecutionLock:
 
 _INTRADAY_TIMEOUT_SEC = 900
 _CLOSE_TIMEOUT_SEC = 5400
-_PREOPEN_TIMEOUT_SEC = 3000   # 新一週集保約 20～35 分鐘＋推薦重跑；08:00 開跑、09:00 前要結束
+_PREOPEN_TIMEOUT_SEC = 3000   # 新一週集保約 20～35 分鐘＋推薦重跑；平日 08:00 那次要在 09:00 前結束
 _TIMEOUTS = {"intraday": _INTRADAY_TIMEOUT_SEC, "close": _CLOSE_TIMEOUT_SEC, "preopen": _PREOPEN_TIMEOUT_SEC}
 
 
@@ -258,7 +258,7 @@ def send_recommend_message(summary: dict, site_url: str) -> None:
 
 
 def send_preopen_message(summary: dict, site_url: str) -> None:
-    """開盤前更新：比收盤版多出來的新訊號、撤回（附理由）才發；都沒有就不發。"""
+    """集保更新：比收盤版多出來的新訊號、撤回（附理由）才發；都沒有就不發。"""
     rec = summary.get("recommend")
     if not rec:
         return
@@ -268,7 +268,7 @@ def send_preopen_message(summary: dict, site_url: str) -> None:
         send_telegram_message(msg, parse_mode="HTML")
 
 
-_MODE_LABELS = {"intraday": "盤中監控", "close": "收盤更新", "preopen": "開盤前更新"}
+_MODE_LABELS = {"intraday": "盤中監控", "close": "收盤更新", "preopen": "集保更新"}
 
 
 def compose_failure_message(mode: str, error: str, duration_seconds: float) -> str:
@@ -312,7 +312,8 @@ def main() -> int:
     if mode == "intraday" and not is_market_hours(now):
         logger.info("非盤中時間，%s 模式跳過", mode)
         return 0
-    if mode in ("close", "preopen") and not is_trading_day(now.date()):
+    # preopen（集保更新）不看交易日：週五的集保多半週末公布，Cody 前一天晚上就要看到（2026-10-26）；沒有新集保時本身不做事
+    if mode == "close" and not is_trading_day(now.date()):
         logger.info("非交易日，%s 模式跳過", mode)
         return 0
 

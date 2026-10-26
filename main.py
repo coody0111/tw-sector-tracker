@@ -592,18 +592,18 @@ def _shareholder_latest_date() -> str | None:
 
 
 def preopen_recommend(push: bool = True, summary_path: str | None = None) -> dict:
-    """開盤前（08:00）更新推薦（規格 §3 大戶路線）：集保資料日 D 的資料 D+1 才公布，收盤版拿不到；
+    """集保更新推薦（排程每天 20:00＋平日 08:00；規格 §3 大戶路線）：集保資料日 D 的資料 D+1 才公布，收盤版拿不到；
     這裡先補集保，若比收盤版用的集保新，就用同一個訊號日重跑推薦、重產推薦頁並 push。
     回傳（也寫進 summary_path）{"mode", "updated", "added", "recommend"}；added＝比收盤版多出來的新訊號股號。"""
     prev = json.loads(RECOMMEND_PAYLOAD_PATH.read_text(encoding="utf-8")) if RECOMMEND_PAYLOAD_PATH.exists() else None
     out = {"mode": "preopen", "updated": False, "added": [], "recommend": None}
     if prev is None:
-        logger.warning("開盤前更新：找不到收盤版推薦（%s），跳過", RECOMMEND_PAYLOAD_PATH)
+        logger.warning("集保更新：找不到收盤版推薦（%s），跳過", RECOMMEND_PAYLOAD_PATH)
     else:
         _backfill_shareholder(weeks=2)
         latest, used = _shareholder_latest_date(), prev.get("shareholder_date")
         if latest is None or (used is not None and latest <= used):
-            logger.info("開盤前更新：集保沒有比收盤版新（DB %s／收盤版 %s），推薦不變", latest, used)
+            logger.info("集保更新：集保沒有比收盤版新（DB %s／收盤版 %s），推薦不變", latest, used)
         else:
             out = _rerun_recommend(prev, push)
     if summary_path:
@@ -626,7 +626,7 @@ def _rerun_recommend(prev: dict, push: bool) -> dict:
     withdrawn = payload.get("withdrawn") or []
     RECOMMEND_PAYLOAD_PATH.write_text(json.dumps(payload, ensure_ascii=False, default=str), encoding="utf-8")
     generate_recommend_html(payload)
-    logger.info("開盤前更新：集保 %s，新訊號 %d 檔（比收盤版多 %s、撤回 %s）", payload.get("shareholder_date"),
+    logger.info("集保更新：集保 %s，新訊號 %d 檔（比收盤版多 %s、撤回 %s）", payload.get("shareholder_date"),
                 sum(g["count"] for g in payload["new"]), added or "無", [w["stock_id"] for w in withdrawn] or "無")
     pushed = _push_html(date.fromisoformat(prev["trade_date"])) if push else False
     return {"mode": "preopen", "updated": True, "added": added, "withdrawn": withdrawn, "recommend": payload,
@@ -1493,7 +1493,7 @@ if __name__ == "__main__":
                         help="從指定日期起逐日抓官方全市場行情（上市 TWSE MI_INDEX＋上櫃 TPEx 每日收盤），"
                              "實際成交價；會先備份 CSV、逐日覆寫，被擋就停，重跑會從沒做完的日子接著做")
     parser.add_argument("--preopen-recommend", action="store_true",
-                        help="開盤前更新個股推薦：補集保，比收盤版新就用同一訊號日重跑、重產推薦頁並 push（排程 08:00）")
+                        help="集保更新個股推薦：補集保，比收盤版新就用同一訊號日重跑、重產推薦頁並 push（排程每天 20:00＋平日 08:00）")
     parser.add_argument("--repair-ex-rights", action="store_true",
                         help="一次性修復：上市除權息／減資／變更面額日的漲跌改用官方參考價算（先備份 CSV，修完重新匯入）")
     parser.add_argument("--update-calendar", type=str, default=None, metavar="YYYY-MM",

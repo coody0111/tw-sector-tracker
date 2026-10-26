@@ -163,14 +163,15 @@ def test_get_with_retry_retries_network_errors_then_raises():
 
     def flaky(*a, **k):
         calls.append(1)
-        if len(calls) < 3:
+        if len(calls) < 5:
             raise requests.exceptions.ChunkedEncodingError("IncompleteRead")
         return "ok"
 
     with patch("scrapers.official_prices.requests.get", side_effect=flaky), \
-         patch("scrapers.official_prices.time.sleep"):
+         patch("scrapers.official_prices.time.sleep") as slept:
         assert op._get_with_retry("u", {}, {}) == "ok"
-    assert len(calls) == 3
+    assert len(calls) == 5                                  # 原本 1 次＋重試 4 次
+    assert [c.args[0] for c in slept.call_args_list] == [5, 15, 30, 60]
 
     with patch("scrapers.official_prices.requests.get",
                side_effect=requests.exceptions.ConnectionError("down")), \

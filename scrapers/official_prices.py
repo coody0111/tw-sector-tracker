@@ -121,7 +121,8 @@ def parse_tpex_daily_quotes(data: dict, trade_date: date) -> list | None:
     return rows
 
 
-RETRY_WAITS = (5, 15)  # 網路錯誤（連線中斷、IncompleteRead、逾時）重試前等待秒數
+RETRY_WAITS = (5, 15, 30, 60)  # 網路錯誤（連線中斷、IncompleteRead、逾時）重試前等待秒數
+# 2026-10-24 TPEx 一天內連斷好幾次，(5, 15) 撐不住、停在 2022-02-09，拉長成 4 次共約 2 分鐘
 
 
 def _get_with_retry(url: str, params: dict, headers: dict):

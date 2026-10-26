@@ -5325,3 +5325,24 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 ### 請 Debugger 驗證
 - [ ] 新增 3 個測試與全套
 - [ ] 印一次 2026-09-24 的 Telegram 訊息看對齊（含有提醒、沒有提醒的列）
+
+## [2026-10-26] 補 10/26 休市日＋官方回補重試拉長
+
+### 改了什麼
+- 異動檔案：config.py, scrapers/official_prices.py, tests/test_scheduled_runner.py, tests/test_official_prices.py
+- 邏輯說明：
+  - 回應 bug-reports 2026-10-26 🟡2：TAIWAN_HOLIDAYS 補 2026-10-26（官方沒開盤；行事曆只到 10/22，靠 fallback 擋）。
+  - `RETRY_WAITS` (5, 15) → (5, 15, 30, 60)：10/24 跑回補時 TPEx 一天內連斷好幾次，3 次就放棄、停在 2022-02-09。
+
+### 資料來源相關（如有異動）
+- 上市資料（TWSE）：重試同一套，只多等幾次
+- 上櫃資料（TPEx dailyQuotes）：同上
+
+### 請 Debugger 驗證
+- [ ] `config.is_trading_day('2026-10-26')`、`run_scheduled.is_trading_day(date(2026,10,26))` 都回 False
+- [ ] 重試 4 次、間隔 5/15/30/60，第 5 次仍失敗才拋例外（backfill 照舊停下、不 crash）
+- [ ] 全套 pytest
+
+### 特別注意
+- 🟡1（除權／減資假漲跌）、🟡3、🟡4 這次沒動，等 Cody 決定優先序。
+- 10/23 的「光復節補假」註解可能不精確，不影響行為，沒改。

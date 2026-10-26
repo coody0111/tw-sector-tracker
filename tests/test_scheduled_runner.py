@@ -27,6 +27,11 @@ def test_is_trading_day_false_for_weekend():
     assert is_trading_day(date(2026, 8, 30)) is False  # 週日
 
 
+def test_is_trading_day_false_for_2026_10_26():
+    """官方 10/26 沒開盤、行事曆只到 10/22 → 要靠 TAIWAN_HOLIDAYS 擋（漏列時系統跑了一整天）。"""
+    assert is_trading_day(date(2026, 10, 26)) is False
+
+
 def test_is_market_hours_true_within_window():
     """2026-09-07窗口拉長到15:00：13:30 TWSE正式收盤後到15:00收盤摘要之間，
     盤中排程改成繼續輪詢當保險緩衝，不再是空窗期。"""

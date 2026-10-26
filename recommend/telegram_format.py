@@ -3,6 +3,7 @@ import unicodedata
 from html import escape
 
 MAX_ROWS = 15
+SHORT_ALERTS = {"族群獨漲": "獨漲"}   # 提醒欄寬 6（「乖離大」）；「族群獨漲」寬 8 會把名稱欄推歪，Telegram 用簡寫
 
 
 def _pct(v) -> str:
@@ -27,7 +28,7 @@ def _row(cols: list) -> str:
 def _card_row(c: dict) -> str:
     chg = "—" if c.get("change_pct") is None else f"{c['change_pct']:+.1f}%"
     return _row([(str(c["stock_id"]), 6, False), (c["type"], 4, False), (str(c["n_routes"]), 2, True),
-                 (f"{c['close']:.1f}", 8, True), (chg, 7, True), ("、".join(c["alerts"]), 6, False),
+                 (f"{c['close']:.1f}", 8, True), (chg, 7, True), ("、".join(SHORT_ALERTS.get(a, a) for a in c["alerts"]), 6, False),
                  (str(c["stock_name"]), 0, False)])
 
 

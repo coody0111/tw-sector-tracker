@@ -40,3 +40,14 @@ def test_none_change_pct_and_columns_align_by_display_width():
     starts = {r[:r.index("名&lt;") if "名&lt;" in r else r.index("名稱")] for r in rows}
     assert len({_width(s.replace("&lt;", "<")) for s in starts}) == 1    # 名稱欄起點的顯示寬度都一樣
     assert "—" in table
+
+
+def test_solo_alert_is_shortened_and_keeps_alignment():
+    from recommend.telegram_format import _width
+    p = _payload(3)
+    p["new"][1]["cards"][0]["alerts"] = ["族群獨漲"]
+    table = compose_recommend_message(p, taiex_above_ma20=None, site_url="u").split("<pre>")[1].split("</pre>")[0]
+    assert "獨漲" in table and "族群獨漲" not in table
+    rows = [r for r in table.split("\n") if r[:1].isdigit() or r.startswith("股號")]
+    starts = {r[:r.index("名&lt;") if "名&lt;" in r else r.index("名稱")] for r in rows}
+    assert len({_width(s.replace("&lt;", "<")) for s in starts}) == 1

@@ -5542,3 +5542,13 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 - [ ] 全套 pytest
 - [ ] DB 複本重現你的 06-18（3537、6155）、10-16（3701）：payload withdrawn 有這幾檔、理由跟實際百分位一致；成績單標撤回、summary 不計
 - [ ] Telegram：只有撤回時也會發，且不出現空表格；頁面撤回區塊手機寬度正常
+
+## [2026-10-26] 小修：撤回理由百分比一位小數、更正撤回原因說明
+
+### 改了什麼
+- 異動檔案：recommend/withdraw.py、tests/test_recommend_withdraw.py、docs/scheduler.md
+- 回應 bug-reports 2026-10-26 🟡：(1) docstring／文件改成「大戶週增換成當週數字 → 大戶路線掉出前 10%」；
+  (2) 排名百分比改一位小數（0.896 → 前 10.4%，不再出現「前 10%（需前 10%）」）
+
+### 請 Debugger 驗證
+- [ ] 全套 pytest

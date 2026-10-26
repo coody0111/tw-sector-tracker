@@ -1,5 +1,6 @@
 """開盤前撤回（2026-10-26 Cody：「需要有撤回理由」）：集保補進來後，收盤版推薦過、但同一訊號日已不再符合的股票。
-新一週集保會更新總股數 → 法人買超占股本（inst5）百分位跟著變，少數股票會掉出前 10%（Debugger 複本：06-18 少 2 檔、10-16 少 1 檔）。
+新一週集保進來後，「大戶週增」（big1w）換成當週的週增，收盤時靠舊一週大增命中大戶路線的股票會掉出前 10%
+（Debugger 複本：06-18 撤回 3537／6155、10-16 撤回 3701，都是大戶路線；2026-10-26 更正原先「總股數改變 inst5」的推測）。
 回測用的是「含集保當天」的版本，所以以開盤前版為準：撤回、附理由、成績單標「撤回」不計成績。"""
 import pandas as pd
 
@@ -24,7 +25,7 @@ def _route_text(route: str, row: pd.Series) -> str:
     v = row[col]
     if pd.isna(v):
         return f"{label}：無資料"
-    return f"{label}排名前 {(1 - v) * 100:.0f}%（需前 {(1 - PR_TOP) * 100:.0f}%）"
+    return f"{label}排名前 {(1 - v) * 100:.1f}%（需前 {(1 - PR_TOP) * 100:.0f}%）"   # 一位小數：0.895 不會顯示成「前 10%」
 
 
 def withdraw_reasons(features: pd.DataFrame, day, cards: list) -> list:

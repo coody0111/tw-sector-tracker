@@ -1,7 +1,7 @@
 import duckdb
 import pandas as pd
 
-from recommend.scorecard import ensure_table, record_signals, refresh, summary
+from recommend.scorecard import detail, ensure_table, record_signals, refresh, summary
 
 
 def _feat(closes, one_word=None):
@@ -38,4 +38,17 @@ def test_unfillable_next_day_one_word_marked_and_excluded():
     record_signals(con, _sig(f["date"][0]), f)
     refresh(con, f)
     assert con.execute("SELECT exit_reason FROM recommendations").fetchone()[0] == "買不到"
-    assert summary(con, "突破策略")["n"] == 0
+    s = summary(con, "突破策略")
+    assert s["n"] == 0 and s["unfilled_n"] == 1
+
+
+def test_detail_rows_have_string_dates_newest_first():
+    con = duckdb.connect(":memory:")
+    ensure_table(con)
+    f = _feat([100.0, 100.0, 102.0, 93.0])
+    record_signals(con, _sig(f["date"][0]), f)
+    record_signals(con, _sig(f["date"][2]), f)
+    refresh(con, f)
+    rows = detail(con, "突破策略")
+    assert [r["signal_date"] for r in rows] == ["2026-01-05", "2026-01-01"]
+    assert rows[1]["exit_reason"] == "停損" and rows[1]["exit_date"] == "2026-01-06"

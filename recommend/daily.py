@@ -5,8 +5,9 @@ import pandas as pd
 from recommend.cards import build_cards, group_by_sector
 from recommend.data import DB_PATH, load_panel
 from recommend.features import add_chip_features, add_price_features
+from recommend.leaders import leaders
 from recommend.market import market_header
-from recommend.scorecard import ensure_table, record_signals, refresh, summary
+from recommend.scorecard import detail, ensure_table, record_signals, refresh, summary
 from recommend.strategies import ALL_STRATEGIES
 
 KEEP_DAYS = 3        # C16：推薦在頁面保留 3 個交易日
@@ -14,7 +15,8 @@ WARMUP_DAYS = 400    # 日曆天；hi90、MA60、籌碼視窗的預熱
 
 
 def build_payload(features: pd.DataFrame, day: pd.Timestamp, keep_days: int = KEEP_DAYS, rally_pct=None) -> dict:
-    """純函式：new（當天、有效，依族群分組）、active（第 2～N 天有效）、invalid（已失效）、header、signals。"""
+    """純函式：new（當天、有效，依族群分組）、active（第 2～N 天有效）、invalid（已失效）、header、
+    leaders（近 21 天最強，§10.1）、signals。卡片在近 21 天個股前 20 名時標 top21。"""
     day = pd.Timestamp(day)
     trade_days = sorted(features.loc[features["date"] <= day, "date"].unique())
     window = trade_days[-keep_days:]
@@ -22,8 +24,11 @@ def build_payload(features: pd.DataFrame, day: pd.Timestamp, keep_days: int = KE
     signals = pd.concat([s.scan(features) for s in ALL_STRATEGIES], ignore_index=True)
     recent = signals[signals["date"].isin(window)]
     cards = build_cards(features, recent, day, rally_pct=rally_pct)
+    lead = leaders(features, day)
+    top_ids = {r["stock_id"] for r in lead["stocks"]}
     for c in cards:
         c["day_n"] = day_n[pd.Timestamp(c["signal_date"])]
+        c["top21"] = c["stock_id"] in top_ids
     valid = [c for c in cards if c["status"] == "有效"]
     return {
         "trade_date": day.date().isoformat(),
@@ -31,6 +36,7 @@ def build_payload(features: pd.DataFrame, day: pd.Timestamp, keep_days: int = KE
         "new": group_by_sector([c for c in valid if c["day_n"] == 1]),
         "active": sorted([c for c in valid if c["day_n"] > 1], key=lambda c: (c["day_n"], c["stock_id"])),
         "invalid": [c for c in cards if c["status"] == "失效"],
+        "leaders": lead,
         "signals": signals,
     }
 
@@ -52,6 +58,9 @@ def run_daily(day=None, db_path: str = DB_PATH, keep_days: int = KEEP_DAYS) -> d
         record_signals(con, signals[signals["date"].isin(window)], feats)
         refresh(con, feats)
         payload["scorecard"] = {s.name: summary(con, s.name) for s in ALL_STRATEGIES}
+        names = feats.drop_duplicates("stock_id", keep="last").set_index("stock_id")["stock_name"]
+        payload["scorecard_rows"] = {s.name: [{**r, "stock_name": names.get(r["stock_id"], "")}
+                                              for r in detail(con, s.name)] for s in ALL_STRATEGIES}
     finally:
         con.close()
     return json_safe(payload)

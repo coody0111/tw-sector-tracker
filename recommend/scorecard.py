@@ -72,7 +72,17 @@ def summary(con, strategy: str) -> dict:
     closed = df[df["exit_reason"].notna() & ~df["exit_reason"].isin(_NOT_CLOSED)]
     out = _core(closed)
     out["open_n"] = int((df["exit_reason"] == "持有中").sum())
+    out["unfilled_n"] = int((df["exit_reason"] == "買不到").sum())
     closed = closed.assign(month=pd.to_datetime(closed["signal_date"]).dt.strftime("%Y-%m"))
     out["by_type"] = [{"type": k, **_core(g)} for k, g in closed.groupby("type")]
     out["by_month"] = [{"month": k, **_core(g)} for k, g in closed.groupby("month")]
     return out
+
+
+def detail(con, strategy: str, limit: int = 300) -> list:
+    """推薦頁明細：最新在前（日期轉字串，payload 才能直接 JSON 化）。"""
+    return con.execute(
+        "SELECT stock_id, CAST(signal_date AS VARCHAR) AS signal_date, type, entry_price, "
+        "CAST(exit_date AS VARCHAR) AS exit_date, exit_price, exit_reason, ret, r_multiple, mfe, hold_days "
+        "FROM recommendations WHERE strategy = ? ORDER BY signal_date DESC, stock_id LIMIT ?",
+        [strategy, limit]).df().to_dict("records")

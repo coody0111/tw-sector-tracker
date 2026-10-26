@@ -38,9 +38,16 @@ def build_cards(features: pd.DataFrame, signals: pd.DataFrame, day: pd.Timestamp
             "close": close, "change_pct": round((close / prev - 1) * 100, 2) if prev else None,
             "since_signal_pct": round(since * 100, 2), "bias10": None if bias10 is None else round(bias10 * 100, 1),
             "below_ma60": below60, "alerts": alerts,
+            "vr": _round(t.get("vr"), 2), "rng20": _round(t.get("rng20"), 3, 100),
+            "ret20_prev": _round(t.get("ret20_prev"), 3, 100),
             "status": "失效" if close <= sig_close * (1 - STOP) else "有效",
         })
     return cards
+
+
+def _round(v, nd: int, scale: float = 1):
+    """卡片上的量比、前 20 日區間／漲幅（%）；缺值給 None。"""
+    return None if v is None or pd.isna(v) else round(float(v) * scale, nd)
 
 
 def group_by_sector(cards: list) -> list:

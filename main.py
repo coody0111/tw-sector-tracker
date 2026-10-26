@@ -21,6 +21,7 @@ from processors.oliver_structure import analyze_market_history, calc_oliver_mark
 from storage.csv_writer import CsvWriter
 from export.index_generator import generate as generate_index_html
 from export.watchlist_generator import generate as generate_watchlist_html
+from export.recommend_generator import generate as generate_recommend_html
 from export.chips_generator import generate as generate_chips_html
 from export.momentum_generator import (
     market_permission, classify_sector_state, build_sector_priority,
@@ -294,6 +295,8 @@ def _push_html(trade_date: date) -> bool:
             files_to_add.append("docs/momentum.html")
         if os.path.exists("docs/watchlist.html"):
             files_to_add.append("docs/watchlist.html")
+        if os.path.exists("docs/recommend.html"):
+            files_to_add.append("docs/recommend.html")
         subprocess.run(["git", "add"] + files_to_add, check=True)
         # 只看這幾個產出檔有沒有變動（限定範圍，不受其他 staged 變更影響判斷）
         result = subprocess.run(["git", "diff", "--cached", "--quiet", "--"] + files_to_add)
@@ -935,7 +938,9 @@ def run(trade_date: date = None, realtime: bool = False, push: bool = True, summ
             taiex = taiex_history[-1] if taiex_history else None
             if recommend_payload is not None and len(taiex_history) >= 20:
                 closes = [r["close"] for r in taiex_history[-20:]]
-                recommend_payload["taiex_above_ma20"] = closes[-1] > sum(closes) / 20
+                ma20 = sum(closes) / 20
+                recommend_payload["taiex_above_ma20"] = closes[-1] > ma20
+                recommend_payload["taiex_ma20_gap"] = closes[-1] / ma20 - 1
             # 順手更新官方交易日行事曆（同一份 FMTQIK，不多打 API）
             try:
                 from scrapers.trading_calendar import merge_trading_days
@@ -1117,6 +1122,14 @@ def run(trade_date: date = None, realtime: bool = False, push: bool = True, summ
                 logger.warning("自選股頁產生失敗: %s", exc)
         else:
             logger.warning("universe_df 未載入（data/stock_universe.csv 不存在），本次不產生 docs/index.html")
+
+        # 個股推薦頁只在收盤跑（_update_recommend 盤中回 None），盤中保留上一次收盤版
+        if recommend_payload is not None:
+            try:
+                generate_recommend_html(recommend_payload)
+                logger.info("HTML generated → docs/recommend.html")
+            except Exception as exc:
+                logger.warning("個股推薦頁產生失敗: %s", exc)
 
         try:
             inst_results = scan_institutional(trade_date.isoformat(), lookback=40)

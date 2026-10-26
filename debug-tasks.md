@@ -5346,3 +5346,37 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 ### 特別注意
 - 🟡1（除權／減資假漲跌）、🟡3、🟡4 這次沒動，等 Cody 決定優先序。
 - 10/23 的「光復節補假」註解可能不精確，不影響行為，沒改。
+
+## [2026-10-26] 個股推薦正式頁 docs/recommend.html＋近 21 天最強
+
+### 改了什麼
+- 新增：recommend/leaders.py（§10.1 近 21 天最強）、export/recommend_generator.py（推薦頁）、
+  tests/test_recommend_leaders.py、tests/test_recommend_page.py
+- 異動：recommend/daily.py（payload 加 leaders、卡片 top21、scorecard_rows 明細）、recommend/cards.py（卡片加 vr、
+  rng20、ret20_prev）、recommend/scorecard.py（summary 加 unfilled_n；新 detail()）、main.py（收盤時產生
+  docs/recommend.html、_push_html 加入它、payload 加 taiex_ma20_gap）、export/ui_theme.py＋export/index_generator.py
+  （導覽列加「個股推薦」）、tests/test_recommend_daily.py、tests/test_recommend_scorecard.py
+- 邏輯說明：
+  - 頁面照設計稿 docs/superpowers/mockups/recommend-page.html：大盤條 → 總資金（localStorage
+    `tw-recommend-capital-v1`，JS 重算股數）→ 今日新訊號（依族群分卡片，伺服器先用 100 萬算好）→ 仍有效／已失效
+    → 近 21 天最強（族群前 10、個股前 20，可排序）→ 成績單（跟回測並列、按型態、按月、明細可排序）。
+  - 近 21 天最強：個股限 liq（20 日均量 ≥ 300 張）且 22 個交易日都有資料；族群＝流動性成員等權日報酬連乘，
+    單日報酬截在 ±11%（擋除權／減資假漲跌，bug-reports 🟡1），至少 3 檔才排。整理中／回檔中門檻是 §10.1 草案。
+  - 回測對照數字寫死在 BACKTEST_REF（取自 2026-10-26 報告：勝率 25%、賺賠比 5.35、+0.87R、PF 1.82）；
+    已出場 ≥ 20 筆才標「低於回測」。
+  - 盤中不產生（payload 為 None），保留上一次收盤版。
+
+### 資料來源相關（如有異動）
+- 上市／上櫃：只讀 DB（daily_prices 等）與 recommendations 表，沒有新的抓取
+
+### 請 Debugger 驗證
+- [ ] 全套 pytest
+- [ ] 用 DB 複本跑 `run_daily(day='2026-09-24' 或最新交易日)` → `generate(payload, <scratchpad>)`：頁面打得開、
+      6672／6213 卡片的股數（100 萬：493／280）、停損價正確；近 21 天前 20／族群前 10 合理（抽一兩檔手算 21 日漲幅）
+- [ ] 手機寬度（375px）沒有橫向捲動（表格在 .table-wrap 內捲動）
+- [ ] 推薦頁導覽在其他頁也出現；index.html 的導覽也有
+- [ ] JSON payload 仍可 `json.dumps(allow_nan=False)`
+
+### 特別注意
+- 族群指數的 ±11% 截斷會把真正的新股暴漲也截掉（新股前 5 天無漲跌幅限制），影響小，可接受？
+- 回測對照是常數，之後重跑回測要記得手動更新。

@@ -42,6 +42,7 @@ NAV_PAGES = (
     ("chips.html", "籌碼分析"),
     ("patterns.html", "形態掃描"),
     ("momentum.html", "逆轟策略"),
+    ("recommend.html", "個股推薦"),
     ("watchlist.html", "自選股"),
 )
 

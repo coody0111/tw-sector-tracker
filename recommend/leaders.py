@@ -76,9 +76,23 @@ def _top(rows: list, n: int) -> list:
     return [{"rank": i + 1, **r} for i, r in enumerate(ranked)]
 
 
+_MEMBER_KEYS = ("stock_id", "stock_name", "ret21", "from_high", "rng5", "status")
+
+
+def _attach_members(sectors: list, stock_rows: list) -> list:
+    """每個族群附上成員個股依 21 日漲幅排行（推薦頁點族群展開用；2026-10-27 Cody：「族群前 10 點進去要有那些個股排行」）。"""
+    by_sector: dict = {}
+    for r in sorted(stock_rows, key=lambda r: -r["ret21"]):
+        by_sector.setdefault(r["meta_sector"], []).append({k: r[k] for k in _MEMBER_KEYS})
+    return [{**s, "members": [{"rank": i + 1, **m} for i, m in enumerate(by_sector.get(s["sector"], []))]}
+            for s in sectors]
+
+
 def leaders(features: pd.DataFrame, day) -> dict:
-    """{"stocks": 前 20, "sectors": 前 10}；資料不足 22 個交易日時兩邊都是空的。"""
+    """{"stocks": 前 20, "sectors": 前 10（各附 members 成員排行）}；資料不足 22 個交易日時兩邊都是空的。"""
     w, _ = _window(features, pd.Timestamp(day))
     if w is None or w.empty:
         return {"stocks": [], "sectors": []}
-    return {"stocks": _top(_stock_rows(w), TOP_STOCKS), "sectors": _top(_sector_rows(w), TOP_SECTORS)}
+    stock_rows = _stock_rows(w)
+    return {"stocks": _top(stock_rows, TOP_STOCKS),
+            "sectors": _attach_members(_top(_sector_rows(w), TOP_SECTORS), stock_rows)}

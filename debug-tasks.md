@@ -5636,3 +5636,17 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 ### 請 Debugger 驗證
 - [ ] 全套 pytest
 - [ ] 各頁＋index 右上第二行格式一致；1440 不會把頁首擠成兩行、375 正常
+
+## [2026-10-27] 推薦頁：族群前 10 點開看成員個股排行
+
+### 改了什麼
+- 異動檔案：recommend/leaders.py（_attach_members：每個族群附 members，依 21 日漲幅排行）、export/recommend_generator.py
+  （_sector_row：族群名稱變成開合按鈕、下一列隱藏的成員小表；JS 開合；CSS）、tests/test_recommend_leaders.py、tests/test_recommend_page.py
+- 依據：Cody「個股推薦的族群前 10 點進去要有那些個股排行」
+  - 成員＝當天有流動性、22 個交易日都有資料的族群股（跟族群指數同一批）；欄位：#、股票、21 日、離高點、狀態
+  - 舊 payload 沒有 members 時族群名稱照舊是純文字
+  - 按鈕 aria-expanded／aria-controls，鍵盤 Enter／空白可開合
+
+### 請 Debugger 驗證
+- [ ] 全套 pytest
+- [ ] DB 複本產頁：點銅箔基板展開 14 檔、排序對；375 寬展開後不橫向捲動（小表在 .table-wrap 內）

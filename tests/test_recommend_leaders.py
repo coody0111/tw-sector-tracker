@@ -51,3 +51,12 @@ def test_sector_needs_three_members_and_clips_fake_jumps():
 def test_not_enough_history_returns_empty():
     f, d = _panel()
     assert leaders(f, d[10]) == {"stocks": [], "sectors": []}
+
+
+def test_sector_members_ranked_by_21d_return():
+    """推薦頁點族群展開成員排行（2026-10-27 Cody）。"""
+    f, d = _panel()
+    sec = leaders(f, d[-1])["sectors"][0]
+    assert [m["stock_id"] for m in sec["members"]] == ["B", "A", "C"]
+    assert sec["members"][0]["rank"] == 1 and sec["members"][2]["status"] == "拉回中"
+    assert set(sec["members"][0]) == {"rank", "stock_id", "stock_name", "ret21", "from_high", "rng5", "status"}

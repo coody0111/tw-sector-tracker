@@ -205,6 +205,27 @@ def _leader_stock_row(r: dict) -> str:
     )
 
 
+def _sector_row(i: int, r: dict) -> str:
+    """族群列＋可展開的成員個股排行（點族群名稱開合）。"""
+    members = r.get("members") or []
+    mid = f"sec-m-{i}"
+    name = (f'<button type="button" class="sec-toggle" aria-expanded="false" aria-controls="{mid}">{_e(r["sector"])}'
+            f' <span class="muted small">{r["n"]} 檔</span></button>' if members
+            else f'{_e(r["sector"])} <span class="muted small">{r["n"]} 檔</span>')
+    row = (f'<tr><td class="num">{r["rank"]}</td><td>{name}</td>'
+           f'<td class="r num">{_signed(r["ret21"])}</td><td class="r num">{_signed(r["from_high"])}</td>'
+           f'<td class="r num">{r["rng5"]:.1f}%</td><td>{_status(r["status"])}</td></tr>')
+    if not members:
+        return row
+    inner = "".join(
+        f'<tr><td class="num">{m["rank"]}</td><td>{_e(m["stock_id"])} {_e(m["stock_name"])}</td>'
+        f'<td class="r num">{_signed(m["ret21"])}</td><td class="r num">{_signed(m["from_high"])}</td>'
+        f'<td>{_status(m["status"])}</td></tr>' for m in members)
+    return (row + f'<tr id="{mid}" class="sec-members" hidden><td colspan="6"><table class="mini"><thead><tr><th>#</th>'
+            '<th>股票</th><th class="r">21 日</th><th class="r">離高點</th><th>狀態</th></tr></thead>'
+            f'<tbody>{inner}</tbody></table></td></tr>')
+
+
 def _leaders_section(lead: dict) -> str:
     lead = lead or {}
     sectors, stocks = lead.get("sectors") or [], lead.get("stocks") or []
@@ -212,16 +233,13 @@ def _leaders_section(lead: dict) -> str:
             '已跌 10% 以上（族群 8%）。回測：前 20 名裡拉回中之後 20 天平均 +7.9%，上攻中 +5.4%，整理中 +1.8%</span></div>')
     if not stocks and not sectors:
         return f'<section aria-labelledby="lead-h">{head}<div class="ui-empty">資料不足 22 個交易日。</div></section>'
-    sec_rows = "".join(
-        f'<tr><td class="num">{r["rank"]}</td><td>{_e(r["sector"])} <span class="muted small">{r["n"]} 檔</span></td>'
-        f'<td class="r num" data-v="{r["ret21"]}">{_signed(r["ret21"])}</td><td class="r num" data-v="{r["from_high"]}">{_signed(r["from_high"])}</td>'
-        f'<td class="r num" data-v="{r["rng5"]}">{r["rng5"]:.1f}%</td><td>{_status(r["status"])}</td></tr>' for r in sectors)
+    sec_rows = "".join(_sector_row(i, r) for i, r in enumerate(sectors))
     stk_rows = "".join(_leader_stock_row(r) for r in stocks)
     return (
         f'<section aria-labelledby="lead-h">{head}<div class="split">'
-        f'<div><h3>族群 前 {len(sectors)}</h3><div class="table-wrap"><table><thead><tr><th>#</th><th>族群</th>'
+        f'<div><h3>族群 前 {len(sectors)}</h3><div class="table-wrap"><table class="sectors"><thead><tr><th>#</th><th>族群</th>'
         '<th class="r">21 日</th><th class="r">離高點</th><th class="r">5 日區間</th><th>狀態</th></tr></thead>'
-        f'<tbody>{sec_rows}</tbody></table></div></div>'
+        f'<tbody>{sec_rows}</tbody></table></div><p class="score-note">點族群名稱展開成員個股排行。</p></div>'
         f'<div><h3>個股 前 {len(stocks)}</h3><div class="table-wrap"><table class="sortable"><thead><tr>'
         '<th data-sort>#</th><th>股票</th><th>族群</th><th class="r" data-sort>21 日</th><th class="r" data-sort>離高點</th>'
         '<th class="r" data-sort>5 日區間</th><th class="r" data-sort>量比 5/20</th><th>狀態</th></tr></thead>'
@@ -414,6 +432,12 @@ details.invalid table{color:var(--ui-ink-3)}
 .score-note{margin:8px 0 0;color:var(--ui-ink-3);font-size:.72rem}
 .split{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);gap:14px;margin-top:14px}
 .split h3,.detail-h{margin:0 0 6px;color:var(--ui-ink-2);font-size:.78rem;font-weight:700}.detail-h{margin-top:18px}
+.sec-toggle{display:inline-flex;align-items:center;gap:6px;min-height:28px;margin-block:-6px;padding:0;border:0;background:none;color:var(--ui-ink);font:inherit;cursor:pointer;text-align:left}
+.sec-toggle::before{content:"▸";display:inline-block;color:var(--ui-ink-2);font-size:.85rem;line-height:1;transition:transform .15s}
+.sec-toggle[aria-expanded=true]::before{transform:rotate(90deg)}
+.sec-toggle:hover{color:var(--ui-accent)}.sec-toggle:focus-visible{outline:2px solid var(--ui-accent);outline-offset:2px}
+tr.sec-members>td{padding:0 0 10px 18px;background:var(--ui-panel);white-space:normal}
+table.mini{font-size:.76rem}table.mini th,table.mini td{padding:5px 8px}table.mini th{background:transparent}
 .bar{display:inline-block;height:6px;border-radius:3px;vertical-align:middle;margin-left:6px}
 .withdrawn{margin-bottom:12px;padding:10px 14px;border:1px solid rgba(227,154,59,.5);border-radius:var(--ui-radius);background:rgba(227,154,59,.08);color:var(--ui-ink-2);font-size:.8rem}
 .withdrawn strong{color:#E39A3B}.withdrawn ul{margin:6px 0 0;padding-left:18px}.withdrawn li{margin:2px 0}
@@ -447,6 +471,12 @@ PAGE_JS = r"""
   input.addEventListener("input",function(){save(input.value);render()});
   input.addEventListener("blur",function(){if(capital()){input.value=fmt(capital());save(input.value)}});
   render();
+  document.querySelectorAll(".sec-toggle").forEach(function(b){
+    b.addEventListener("click",function(){
+      var open=b.getAttribute("aria-expanded")==="true", row=document.getElementById(b.getAttribute("aria-controls"));
+      b.setAttribute("aria-expanded",open?"false":"true"); if(row){row.hidden=open}
+    });
+  });
   document.querySelectorAll("table.sortable th[data-sort]").forEach(function(th){
     th.tabIndex=0;
     function sort(){

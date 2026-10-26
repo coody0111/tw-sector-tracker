@@ -90,3 +90,20 @@ def test_withdrawn_block_shows_reason():
     html = render(_payload(withdrawn=[{"stock_id": "3537", "stock_name": "晶相光", "reason": "法人買超占股本排名前 12%（需前 10%）"}],
                            shareholder_date="2026-10-23"))
     assert "集保更新後撤回 1 檔" in html and "集保 2026-10-23 更新後不再符合" in html and "排名前 12%" in html
+
+
+def test_sector_row_expands_to_member_ranking():
+    p = _payload()
+    p["leaders"]["sectors"][0]["members"] = [
+        {"rank": 1, "stock_id": "6274", "stock_name": "台<燿>", "ret21": 82.4, "from_high": -12.6, "rng5": 5.6, "status": "拉回中"},
+        {"rank": 2, "stock_id": "6213", "stock_name": "聯茂", "ret21": 51.5, "from_high": 0.0, "rng5": 10.1, "status": "上攻中"}]
+    html = render(p)
+    assert 'class="sec-toggle" aria-expanded="false" aria-controls="sec-m-0"' in html
+    assert '<tr id="sec-m-0" class="sec-members" hidden>' in html
+    assert "台&lt;燿&gt;" in html and html.index("6274 台&lt;燿&gt;") < html.index("6213 聯茂")
+    assert 'querySelectorAll(".sec-toggle")' in html
+
+
+def test_sector_without_members_is_plain_text():
+    html = render(_payload())                      # 舊 payload 沒有 members → 不出現展開按鈕
+    assert "sec-toggle\" aria-expanded" not in html

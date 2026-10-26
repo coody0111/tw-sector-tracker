@@ -5045,3 +5045,32 @@ index.html 用 master 現有檔；Chrome headless 截 1440 與 375 頁首。
 ### 結論
 - [ ] 需要修改後再確認
 - [x] 可以繼續下一個任務
+
+## [2026-10-27] 報告 - 月營收／季報一天只抓一次；推薦頁「離高點」改「離 21 日高」（6dbc97b）
+
+### 🔴 數據問題（需立刻修）
+- 問題：**跑 pytest 會在專案的 data/ 寫下今天的基本面戳記，當天收盤流程就不抓月營收／季報**
+  位置：tests/test_main.py 第 333 行 `test_update_fundamentals_db_calls_update_when_not_realtime`、第 342 行 `test_update_fundamentals_db_appends_failure_to_warnings`
+  說明：這兩個舊測試沒有 monkeypatch `FUNDAMENTALS_STAMP_PATH`；`_update_fundamentals` 被 mock 成功後，真的寫了 `data/fundamentals_last_update.txt`＝今天
+  （相對路徑，跟著 pytest 的工作目錄）。我在 debug 資料夾實測：刪掉戳記 → 跑一次 pytest → `data/fundamentals_last_update.txt` 出現、內容 2026-10-27。
+  **如果在 master 資料夾（排程的工作目錄）跑 pytest，當天 15:00 收盤會 log「官方基本面今天已更新過，跳過」，月營收／季報那天就沒更新**，
+  而且不會有任何警告。（master 目前沒有這個檔，還沒發生。）
+  改法：這兩個測試也 monkeypatch 到 tmp_path（或在 conftest 用 autouse fixture 統一把 FUNDAMENTALS_STAMP_PATH 指到 tmp）。
+
+### 🔴 程式問題（需立刻修）
+- 問題：**全套 pytest 1～2 個失敗（跟上面同一個原因）**
+  重現方式：沒有戳記時跑 → 1 failed（`calls_update` 先寫了戳記，`appends_failure` 被跳過、warnings 是空的）；再跑一次 → 2 failed（兩個都被跳過）。
+  相關：`assert [] == [1]`、`assert '官方基本面（月營收/季報）更新失敗' in []`。我已刪掉 debug 資料夾被寫出的戳記。
+
+### 🟡 建議改善
+- 無
+
+### ✅ 驗證通過
+- 戳記邏輯本身正確：模擬同一天跑兩次（戳記指到暫存檔）→ 第一次抓、第二次 log「官方基本面今天（2026-10-27）已更新過，跳過」；
+  新測試涵蓋昨天戳記會重抓、盤中不抓、失敗不寫戳記。
+- 推薦頁三個表的欄名都改成「離 21 日高」，title 說明「今天收盤 ÷ 近 21 個交易日最高收盤 − 1（用收盤價）；0.0% ＝ 收在 21 日新高」，跟 leaders.py 的算法一致。
+- 其餘 875 個測試通過。
+
+### 結論
+- [x] 需要修改後再確認（測試寫到真的 data/）
+- [ ] 可以繼續下一個任務

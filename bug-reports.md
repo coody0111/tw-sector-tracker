@@ -4851,3 +4851,29 @@ Developer 轉 Cody 的問題，只評估、不改 code、不動 DB。數字都�
 ### 結論
 - [ ] 需要修改後再確認
 - [x] 可以繼續下一個任務
+
+## [2026-10-26] 報告 - 集保更新改成每天 20:00（含週末）＋平日 08:00（adcf622）
+
+### 🔴 數據問題（需立刻修）
+- 無
+
+### 🔴 程式問題（需立刻修）
+- 無
+
+### 🟡 建議改善
+- 如果哪天收盤流程失敗、`recommend_payload.json` 停在好幾天前，之後集保一更新就會用那個舊訊號日重跑並發 Telegram（標題日期是舊的那天）。
+  機率低，收盤失敗本來就會發失敗通知，記錄一下就好。
+
+### ✅ 驗證通過
+- `run_scheduled.main()`：preopen 不再看交易日（測試把 `is_trading_day` 設成 False 仍會執行並發送），close 仍會在非交易日跳過。
+- 沒有新集保時不做事：上一則的複本模擬已確認「集保沒有比收盤版新 → updated=False」，此時 `send_preopen_message` 拿不到 recommend → 不發，
+  也不會呼叫 `_push_html`。`_backfill_shareholder` 沒有缺週時只查一次 TDCC 可用日期就結束，每天多跑沒有負擔。
+- 週末流程推演：週五收盤版用上週集保 → 週六／日 20:00 抓到週五集保 → 重跑（新增／撤回才發）→ 下一次比對已相同 → 不再動；
+  週一收盤會用到新集保，週一 20:00 也不會再重跑。
+- `install_scheduler.ps1`：PowerShell parser 0 個語法錯誤；用同樣參數建 `New-ScheduledTask`（不註冊）：
+  兩個觸發是 `MSFT_TaskDailyTrigger` 20:00 與 `MSFT_TaskWeeklyTrigger` 08:00（DaysOfWeek 62＝週一～五）。
+- 全套 `pytest -q`：864 passed。
+
+### 結論
+- [ ] 需要修改後再確認
+- [x] 可以繼續下一個任務（Cody 要用系統管理員重跑 install_scheduler.ps1 才會生效）

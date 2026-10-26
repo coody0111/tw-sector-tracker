@@ -51,3 +51,8 @@ def test_solo_alert_is_shortened_and_keeps_alignment():
     rows = [r for r in table.split("\n") if r[:1].isdigit() or r.startswith("股號")]
     starts = {r[:r.index("名&lt;") if "名&lt;" in r else r.index("名稱")] for r in rows}
     assert len({_width(s.replace("&lt;", "<")) for s in starts}) == 1
+
+
+def test_label_for_preopen_update():
+    msg = compose_recommend_message(_payload(3), taiex_above_ma20=None, site_url="u", label="開盤前更新（集保）")
+    assert msg.startswith("個股推薦 10/22 開盤前更新（集保）")

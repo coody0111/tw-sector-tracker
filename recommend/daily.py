@@ -69,6 +69,8 @@ def run_daily(day=None, db_path: str = DB_PATH, keep_days: int = KEEP_DAYS) -> d
         record_signals(con, signals[signals["date"].isin(window)], feats)
         refresh(con, feats)
         payload["scorecard"] = {s.name: summary(con, s.name) for s in ALL_STRATEGIES}
+        big = feats.loc[feats["date"] <= day, "big_date"].max()
+        payload["shareholder_date"] = None if pd.isna(big) else pd.Timestamp(big).date().isoformat()   # 開盤前更新比對用
         names = feats.drop_duplicates("stock_id", keep="last").set_index("stock_id")["stock_name"]
         payload["scorecard_rows"] = {s.name: [{**r, "stock_name": names.get(r["stock_id"], "")}
                                               for r in detail(con, s.name)] for s in ALL_STRATEGIES}

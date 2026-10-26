@@ -429,3 +429,62 @@ def test_recommend_message_failure_is_logged_not_raised(monkeypatch):
     import scripts.run_scheduled as rs
     monkeypatch.setattr(rs, "compose_recommend_message", lambda *a, **k: (_ for _ in ()).throw(TypeError("壞")))
     rs.send_recommend_message({"recommend": {"new": [{"sector": "x", "count": 1, "cards": []}]}}, "https://x/")
+
+
+# ── 開盤前更新 preopen（2026-10-26）──────────────────────────
+
+def _card(sid):
+    return {"stock_id": sid, "stock_name": sid, "type": "整理", "n_routes": 1, "close": 10.0, "change_pct": 9.9,
+            "alerts": []}
+
+
+def test_run_main_py_preopen_mode_calls_preopen_recommend(monkeypatch, tmp_path):
+    captured = {}
+
+    class FakeCompleted:
+        returncode, stdout, stderr = 0, "", ""
+
+    monkeypatch.setattr("subprocess.run", lambda cmd, **kw: captured.setdefault("cmd", cmd) and FakeCompleted())
+    run_main_py("preopen", str(tmp_path / "s.json"))
+    assert "--preopen-recommend" in captured["cmd"] and "--realtime" not in captured["cmd"]
+
+
+def test_preopen_message_lists_only_added_and_skips_when_none(monkeypatch):
+    sent = []
+    monkeypatch.setattr(sr, "send_telegram_message", lambda text, **kw: sent.append((text, kw)) or True)
+    rec = {"trade_date": "2026-10-23", "header": {}, "active": [], "invalid": [], "taiex_above_ma20": None,
+           "new": [{"sector": "銅箔基板", "count": 2, "cards": [_card("6213"), _card("6672")]}]}
+    sr.send_preopen_message({"recommend": rec, "added": ["6672"]}, "https://x/")
+    assert len(sent) == 1 and sent[0][1]["parse_mode"] == "HTML"
+    assert "開盤前更新（集保）" in sent[0][0] and "6672" in sent[0][0] and "6213" not in sent[0][0]
+    assert "[銅箔基板 1檔]" in sent[0][0]
+    sent.clear()
+    sr.send_preopen_message({"recommend": rec, "added": []}, "https://x/")
+    sr.send_preopen_message({"mode": "preopen", "updated": False, "added": [], "recommend": None}, "https://x/")
+    assert not sent
+
+
+def test_main_preopen_skips_non_trading_day_and_sends_on_added(monkeypatch, tmp_path):
+    _patch_paths(monkeypatch, tmp_path)
+    calls, sent = [], []
+    summary = {"mode": "preopen", "updated": True, "added": ["6672"],
+               "recommend": {"trade_date": "2026-10-23", "header": {}, "active": [], "invalid": [],
+                             "new": [{"sector": "銅箔基板", "count": 1, "cards": [_card("6672")]}]}}
+
+    def fake_run(mode, path, timeout=900):
+        calls.append((mode, timeout))
+        Path(path).write_text(json.dumps(summary, ensure_ascii=False), encoding="utf-8")
+        return {"returncode": 0, "stdout": "", "stderr": ""}
+
+    monkeypatch.setattr(sr, "run_main_py", fake_run)
+    monkeypatch.setattr(sr, "send_telegram_message", lambda text, **kw: sent.append(text) or True)
+    monkeypatch.setattr(sys, "argv", ["run_scheduled.py", "preopen"])
+    monkeypatch.setattr(sr, "is_trading_day", lambda d: False)
+    assert sr.main() == 0 and calls == []
+    monkeypatch.setattr(sr, "is_trading_day", lambda d: True)
+    assert sr.main() == 0
+    assert calls == [("preopen", sr._PREOPEN_TIMEOUT_SEC)] and len(sent) == 1 and "開盤前更新" in sent[0]
+
+
+def test_failure_message_labels_preopen():
+    assert "模式：開盤前更新" in compose_failure_message("preopen", "x", 1.0)

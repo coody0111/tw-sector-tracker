@@ -32,8 +32,8 @@ def _card_row(c: dict) -> str:
                  (str(c["stock_name"]), 0, False)])
 
 
-def compose_recommend_message(payload: dict, taiex_above_ma20: bool | None, site_url: str) -> str:
-    """parse_mode=HTML：表格放 <pre>，所有內容都做 HTML 跳脫。"""
+def compose_recommend_message(payload: dict, taiex_above_ma20: bool | None, site_url: str, label: str = "收盤") -> str:
+    """parse_mode=HTML：表格放 <pre>，所有內容都做 HTML 跳脫。label：「收盤」或「開盤前更新」。"""
     d = payload["trade_date"]
     h = payload["header"]
     market = [f"MA20上 {_pct(h.get('above_ma20_pct'))}", f"失敗率 {_pct(h.get('fail_rate'))}"]
@@ -59,6 +59,6 @@ def compose_recommend_message(payload: dict, taiex_above_ma20: bool | None, site
     if total > shown:
         lines.append(f"另 {total - shown} 檔見頁面")
     table = escape("\n".join(lines))
-    head = escape(f"個股推薦 {d[5:7]}/{d[8:10]} 收盤\n{'｜'.join(market)}")
+    head = escape(f"個股推薦 {d[5:7]}/{d[8:10]} {label}\n{'｜'.join(market)}")
     tail = escape(f"新 {total} 檔｜有效中 {len(payload['active'])} 檔｜失效 {len(payload['invalid'])} 檔\n{site_url}")
     return f"{head}\n\n<pre>{table}</pre>\n{tail}"

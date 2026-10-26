@@ -98,6 +98,23 @@ python main.py --summary-json logs/latest_summary.json
   不含任何評分/排名邏輯的訊號）
 - 資料不完整時在通知中明確標示
 
+### 2.2b 開盤前更新 `preopen`（2026-10-26 加）
+
+執行時間：週一至週五 08:00（工作名稱 `TW-Sector-Preopen`，`install_scheduler.ps1` 會建立）
+
+內部呼叫：
+
+```powershell
+python main.py --preopen-recommend --summary-json logs/latest_summary.json
+```
+
+行為（個股推薦規格 §3 大戶路線）：
+
+- 集保資料日（通常週五）的資料隔天才公布，收盤版推薦拿不到 → 先補集保（`_backfill_shareholder(weeks=2)`）
+- DB 集保最新日 > 收盤版 payload 的 `shareholder_date` 才用**同一個訊號日**重跑推薦、重產 `docs/recommend.html` 並推送；否則什麼都不改
+- 比收盤版多出新訊號才傳 Telegram（只列新增的那幾檔，標題「開盤前更新（集保）」）；沒有新增不傳
+- 非交易日跳過；逾時上限 50 分鐘
+
 ### 2.3 通知測試 `test-notify`
 
 ```powershell
@@ -452,11 +469,12 @@ SITE_URL=https://coody0111.github.io/tw-sector-tracker/
 
 ## 10. Windows 排程
 
-建立兩個工作：
+建立三個工作：
 
 ```text
 TW-Sector-Intraday
 TW-Sector-DailyClose
+TW-Sector-Preopen（2026-10-26 加，見 §2.2b）
 ```
 
 ### 10.1 盤中工作

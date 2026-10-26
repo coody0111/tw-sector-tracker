@@ -5494,3 +5494,32 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 
 ### 請 Debugger 驗證
 - [ ] 全套 pytest；10-22 複本訊息名稱欄對齊
+
+## [2026-10-26] 開盤前（08:00）補集保後更新個股推薦
+
+### 改了什麼
+- 異動檔案：main.py（`--preopen-recommend`：preopen_recommend／_rerun_recommend／_shareholder_latest_date）、
+  recommend/daily.py（payload 加 shareholder_date＝這版用到的集保資料日）、recommend/telegram_format.py（label 參數）、
+  scripts/run_scheduled.py（新 `preopen` 模式、send_preopen_message、逾時 50 分）、scripts/install_scheduler.ps1
+  （新工作 TW-Sector-Preopen 週一～五 08:00）、docs/scheduler.md（§2.2b、§10）、
+  tests/test_main.py、tests/test_scheduled_runner.py、tests/test_recommend_telegram.py
+- 邏輯說明（規格 §3 大戶路線【決定】：收盤出第一版、隔天開盤前抓最新集保再更新一次，有新入選再發 Telegram）：
+  1. 讀收盤版 data/recommend_payload.json；沒有就跳過
+  2. `_backfill_shareholder(weeks=2)`；DB 集保最新日 ≤ 收盤版 shareholder_date → 什麼都不改
+     （收盤流程自己在 push 後也會補集保，所以比的是「payload 用到的集保日」，不是補之前／之後）
+  3. 比較新 → `run_daily(day=收盤版 trade_date)`（同一個訊號日），大盤欄位沿用收盤版，寫 payload、重產頁面、`_push_html`
+  4. summary：{"mode": "preopen", "updated", "added": 比收盤版多的新訊號股號, "recommend"}；scheduler 只在 added 非空時發 Telegram，
+     只列新增的那幾檔，標題「個股推薦 MM/DD 開盤前更新（集保）」
+- 非交易日跳過；跟其他模式共用執行鎖
+
+### 資料來源相關（如有異動）
+- 集保（TDCC）：沿用既有 `_backfill_shareholder`，沒有新來源
+
+### 請 Debugger 驗證
+- [ ] 全套 pytest
+- [ ] DB 複本：把 payload 的 shareholder_date 改成前一週 → `preopen_recommend(push=False)` 會重跑；改成最新 → 不重跑
+- [ ] 重跑後 recommendations 表沒有重複列；新增訊號的 entry 是隔天開盤
+- [ ] install_scheduler.ps1 語法（不用真的註冊）
+
+### 特別注意
+- Cody 要以系統管理員重跑 `.\scripts\install_scheduler.ps1` 才會建立 08:00 工作（現有兩個工作會被 -Force 覆蓋成同樣設定）

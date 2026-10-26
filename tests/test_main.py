@@ -1,6 +1,7 @@
 """_retry_fetch() 的回歸測試（debug-tasks.md #6：TWSE/TPEx 籌碼抓取單邊整批失敗，
 加重試機制。實測 2026-07-13 TPEx 三大法人/融資融券 API 當下正常，但當次抓取因暫時性
 問題整批漏掉——這兩個 TPEx 端點沒有歷史回補路徑，失敗一次當天資料就永久遺失）。"""
+import json
 from datetime import date
 
 import pytest
@@ -549,3 +550,49 @@ def test_backfill_official_cli_passes_event_refs():
     from main import backfill_official_cli
     src = inspect.getsource(backfill_official_cli)
     assert "_refresh_twse_events(start)" in src and "event_refs=load_event_refs()" in src
+
+
+def _preopen_env(monkeypatch, tmp_path, prev, latest):
+    import main as m
+    path = tmp_path / "recommend_payload.json"
+    if prev is not None:
+        path.write_text(json.dumps(prev, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(m, "RECOMMEND_PAYLOAD_PATH", path)
+    calls = []
+    monkeypatch.setattr(m, "_backfill_shareholder", lambda weeks=4: calls.append("shareholder"))
+    monkeypatch.setattr(m, "_shareholder_latest_date", lambda: latest)
+    monkeypatch.setattr(m, "generate_recommend_html", lambda p: calls.append("html"))
+    monkeypatch.setattr(m, "_push_html", lambda d: calls.append(("push", d.isoformat())) or True)
+    return m, path, calls
+
+
+def _prev_payload():
+    card = {"stock_id": "6213", "stock_name": "聯茂"}
+    return {"trade_date": "2026-10-23", "shareholder_date": "2026-10-16", "taiex_above_ma20": True,
+            "taiex_ma20_gap": 0.02, "new": [{"sector": "銅箔基板", "count": 1, "cards": [card]}]}
+
+
+def test_preopen_skips_when_shareholder_not_newer(monkeypatch, tmp_path):
+    m, path, calls = _preopen_env(monkeypatch, tmp_path, _prev_payload(), "2026-10-16")
+    out = m.preopen_recommend(summary_path=str(tmp_path / "s.json"))
+    assert out["updated"] is False and calls == ["shareholder"]
+    assert json.loads((tmp_path / "s.json").read_text(encoding="utf-8"))["mode"] == "preopen"
+
+
+def test_preopen_reruns_same_signal_day_and_reports_added(monkeypatch, tmp_path):
+    import recommend.daily as rd
+    m, path, calls = _preopen_env(monkeypatch, tmp_path, _prev_payload(), "2026-10-23")
+    days = []
+    new = {"trade_date": "2026-10-23", "shareholder_date": "2026-10-23", "header": {}, "active": [], "invalid": [],
+           "new": [{"sector": "銅箔基板", "count": 2, "cards": [{"stock_id": "6213"}, {"stock_id": "6672"}]}]}
+    monkeypatch.setattr(rd, "run_daily", lambda day=None: days.append(day) or dict(new))
+    out = m.preopen_recommend()
+    assert days == ["2026-10-23"] and out["updated"] and out["added"] == ["6672"]
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    assert saved["taiex_above_ma20"] is True and saved["preopen_added"] == ["6672"]   # 大盤欄位沿用收盤版
+    assert calls == ["shareholder", "html", ("push", "2026-10-23")]
+
+
+def test_preopen_without_close_payload_does_nothing(monkeypatch, tmp_path):
+    m, path, calls = _preopen_env(monkeypatch, tmp_path, None, "2026-10-23")
+    assert m.preopen_recommend()["updated"] is False and calls == []

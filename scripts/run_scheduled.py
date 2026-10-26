@@ -6,6 +6,7 @@
 Usage:
     python scripts/run_scheduled.py intraday
     python scripts/run_scheduled.py close
+    python scripts/run_scheduled.py preopen      # 08:00 開盤前補集保、更新個股推薦
     python scripts/run_scheduled.py test-notify
 """
 import hashlib
@@ -111,6 +112,8 @@ class ExecutionLock:
 
 _INTRADAY_TIMEOUT_SEC = 900
 _CLOSE_TIMEOUT_SEC = 5400
+_PREOPEN_TIMEOUT_SEC = 3000   # 新一週集保約 20～35 分鐘＋推薦重跑；08:00 開跑、09:00 前要結束
+_TIMEOUTS = {"intraday": _INTRADAY_TIMEOUT_SEC, "close": _CLOSE_TIMEOUT_SEC, "preopen": _PREOPEN_TIMEOUT_SEC}
 
 
 def run_main_py(mode: str, summary_path: str, timeout: int = _INTRADAY_TIMEOUT_SEC) -> dict:
@@ -119,6 +122,8 @@ def run_main_py(mode: str, summary_path: str, timeout: int = _INTRADAY_TIMEOUT_S
     cmd = [sys.executable, str(_PROJECT_ROOT / "main.py")]
     if mode == "intraday":
         cmd += ["--realtime", "--no-push"]
+    elif mode == "preopen":
+        cmd += ["--preopen-recommend"]
     cmd += ["--summary-json", summary_path]
 
     result = subprocess.run(
@@ -252,8 +257,26 @@ def send_recommend_message(summary: dict, site_url: str) -> None:
         logger.error("個股推薦訊息組裝或發送失敗：%s", exc)
 
 
+def send_preopen_message(summary: dict, site_url: str) -> None:
+    """開盤前更新：集保補進來後「比收盤版多出來」的新訊號才發；沒有新增就不發。"""
+    rec, added = summary.get("recommend"), set(summary.get("added") or [])
+    if not rec or not added:
+        return
+    groups = []
+    for g in rec.get("new") or []:
+        cards = [c for c in g["cards"] if c["stock_id"] in added]
+        if cards:
+            groups.append({**g, "count": len(cards), "cards": cards})
+    msg = compose_recommend_message({**rec, "new": groups}, rec.get("taiex_above_ma20"),
+                                    site_url.rstrip("/") + "/recommend.html", label="開盤前更新（集保）")
+    send_telegram_message(msg, parse_mode="HTML")
+
+
+_MODE_LABELS = {"intraday": "盤中監控", "close": "收盤更新", "preopen": "開盤前更新"}
+
+
 def compose_failure_message(mode: str, error: str, duration_seconds: float) -> str:
-    mode_label = "盤中監控" if mode == "intraday" else "收盤更新"
+    mode_label = _MODE_LABELS.get(mode, mode)
     minutes, seconds = divmod(round(duration_seconds), 60)
     return "\n".join([
         f"台股排程執行失敗｜{datetime.now().strftime('%H:%M')}", "",
@@ -274,8 +297,8 @@ def _notify_failure(mode: str, error: str, duration_seconds: float) -> None:
 
 
 def main() -> int:
-    if len(sys.argv) < 2 or sys.argv[1] not in ("intraday", "close", "test-notify"):
-        print("Usage: python scripts/run_scheduled.py {intraday|close|test-notify}")
+    if len(sys.argv) < 2 or sys.argv[1] not in ("intraday", "close", "preopen", "test-notify"):
+        print("Usage: python scripts/run_scheduled.py {intraday|close|preopen|test-notify}")
         return 1
     mode = sys.argv[1]
 
@@ -293,8 +316,8 @@ def main() -> int:
     if mode == "intraday" and not is_market_hours(now):
         logger.info("非盤中時間，%s 模式跳過", mode)
         return 0
-    if mode == "close" and not is_trading_day(now.date()):
-        logger.info("非交易日，close 模式跳過")
+    if mode in ("close", "preopen") and not is_trading_day(now.date()):
+        logger.info("非交易日，%s 模式跳過", mode)
         return 0
 
     lock = ExecutionLock()
@@ -312,7 +335,7 @@ def main() -> int:
         try:
             # 收盤模式在頁面 push 之後還要跑集保回補（新週 20-35 分）＋董監持股（38 分起跳），
             # 900 秒必砍、資料永遠存不進去，所以收盤放寬到 90 分鐘；盤中維持 15 分鐘。
-            timeout = _CLOSE_TIMEOUT_SEC if mode == "close" else _INTRADAY_TIMEOUT_SEC
+            timeout = _TIMEOUTS[mode]
             result = run_main_py(mode, str(_SUMMARY_PATH), timeout=timeout)
         except subprocess.TimeoutExpired as exc:
             duration = (datetime.now() - started).total_seconds()
@@ -356,6 +379,12 @@ def main() -> int:
                         logger.warning("Telegram 通知未成功送出，不更新 notification_state，下次會重試")
                 else:
                     logger.info("盤中訊號與上次相同，不重複通知")
+            elif mode == "preopen":
+                site_url = os.environ.get("SITE_URL", "https://coody0111.github.io/tw-sector-tracker/")
+                try:
+                    send_preopen_message(summary, site_url)
+                except TelegramConfigError as exc:
+                    logger.error("Telegram 設定缺失，無法通知：%s", exc)
             else:  # close
                 site_url = os.environ.get("SITE_URL", "https://coody0111.github.io/tw-sector-tracker/")
                 try:

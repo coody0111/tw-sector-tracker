@@ -1,5 +1,6 @@
 """Shared visual language for the static research pages."""
 
+from datetime import date, datetime
 from html import escape as _html_escape
 
 SHARED_CSS = r"""
@@ -21,8 +22,9 @@ button,input,select{font-family:inherit}
 .ui-brand{display:flex;align-items:baseline;gap:10px;white-space:nowrap}
 .ui-kicker{color:var(--ui-accent);font-size:.62rem;font-weight:700;letter-spacing:.16em;text-transform:uppercase}
 .ui-title{margin:0;color:var(--ui-ink);font-family:var(--ui-serif);font-size:1.08rem;font-weight:600;letter-spacing:.01em;line-height:1.3}
-.ui-date{margin-left:auto;color:var(--ui-ink-3);font-family:var(--ui-mono);font-size:.68rem;font-variant-numeric:tabular-nums}
-.ui-date b{color:var(--ui-accent);font-weight:700}
+.ui-date{display:flex;flex-direction:column;align-items:flex-end;gap:2px;margin-left:auto;font-family:var(--ui-mono);line-height:1.2;font-variant-numeric:tabular-nums}
+.ui-date strong{color:var(--ui-accent);font-size:.68rem;font-weight:700}
+.ui-date span{color:var(--ui-ink-3);font-size:.64rem}
 .ui-nav{display:flex;align-items:center;gap:8px;white-space:nowrap}
 .ui-nav-link{display:inline-flex;align-items:center;min-height:32px;padding:5px 14px;border:1px solid var(--ui-border);border-radius:var(--ui-radius);color:var(--ui-ink-2);font-family:var(--ui-sans);font-size:.78rem;font-weight:600;text-decoration:none;transition:color .15s,border-color .15s,background .15s}
 .ui-nav-link:hover{color:var(--ui-ink);border-color:var(--ui-border-strong);background:var(--ui-panel)}
@@ -35,7 +37,7 @@ button,input,select{font-family:inherit}
   :root{--ui-gutter:12px;--ui-sticky-top:0px}
   .ui-topbar{position:static}
   .ui-topbar-inner{padding:12px 0}
-  .ui-date{margin-left:0}
+  .ui-date{margin-left:0;align-items:flex-start}
   .ui-nav{order:3;width:100%;margin-left:0;overflow-x:auto}
   .ui-nav-link{min-height:44px;padding:5px 12px}
 }
@@ -64,15 +66,33 @@ _STICKY_TOP_JS = (
 )
 
 
-def render_topbar(title: str, active_href: str, date_html: str = "") -> str:
-    """統一頁首：頁名 h1、資料日期、切頁按鈕。date_html 由呼叫端組好（可含 <b>），不做跳脫。"""
+# 右上資料狀態：跟 index.html 同一套字（index_generator.py 的 mode_label）
+MODE_LABELS = {"close": "收盤快照", "intraday": "盤中資料，尚未收盤確認"}
+_WEEKDAYS = "一二三四五六日"
+
+
+def format_data_date(data_date, generated_at: datetime | None = None, note: str = "") -> str:
+    """「2026-10-22（週四）15:01」：跟 index.html 右上第二行同格式。data_date 可為 date 或 'YYYY-MM-DD…' 字串。"""
+    d = data_date if isinstance(data_date, date) else date.fromisoformat(str(data_date)[:10])
+    t = (generated_at or datetime.now()).strftime("%H:%M")
+    return f"{d.isoformat()}（週{_WEEKDAYS[d.weekday()]}）{t}{note}"
+
+
+def render_topbar(title: str, active_href: str, data_date=None, data_mode: str = "close",
+                  generated_at: datetime | None = None, note: str = "") -> str:
+    """統一頁首：頁名 h1、右上資料狀態（第一行「收盤快照／盤中資料」、第二行「日期（週幾）時間」，跟 index.html 一樣）、切頁按鈕。
+    note 接在第二行後面（例：逆轟頁指數日期跟行情不同天時）；呼叫端要先跳脫。2026-10-26 Cody：各頁日期文字要統一。"""
     links = "".join(
         f'<a class="ui-nav-link active" href="{href}" aria-current="page">{label}</a>'
         if href == active_href
         else f'<a class="ui-nav-link" href="{href}">{label}</a>'
         for href, label in NAV_PAGES
     )
-    date_part = f'<span class="ui-date">{date_html}</span>' if date_html else '<span class="ui-date"></span>'
+    if data_date:
+        date_part = (f'<div class="ui-date"><strong>{MODE_LABELS.get(data_mode, MODE_LABELS["close"])}</strong>'
+                     f'<span>{format_data_date(data_date, generated_at, note)}</span></div>')
+    else:
+        date_part = '<div class="ui-date"></div>'
     return (
         '<header class="ui-topbar"><div class="ui-topbar-inner">'
         f'<div class="ui-brand"><span class="ui-kicker">TW SECTOR TRACKER</span><h1 class="ui-title">{_html_escape(title)}</h1></div>'

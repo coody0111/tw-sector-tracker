@@ -1229,6 +1229,7 @@ def run(trade_date: date = None, realtime: bool = False, push: bool = True, summ
                     chips_df=index_chips_df,
                     oliver_analysis=oliver_analysis,
                     market_context=market_context,
+                    data_mode="intraday" if realtime else "close",
                 )
                 logger.info("HTML generated → docs/watchlist.html")
             except Exception as exc:
@@ -1373,6 +1374,7 @@ def run(trade_date: date = None, realtime: bool = False, push: bool = True, summ
             trade_date, meta_chips, stock_chips,
             inst_scan=inst_results, margin_divergence=margin_div, cum_data=cum_data,
             meta_signals=meta_signals, shareholder_data=sh_rows, insider_data=insider_rows,
+            data_mode="intraday" if realtime else "close",
         )
         if chips_html_written:
             logger.info("HTML generated → docs/chips.html")
@@ -1388,7 +1390,8 @@ def run(trade_date: date = None, realtime: bool = False, push: bool = True, summ
             for row in inst_results:
                 if row["stock_id"] in comp_map:
                     row["composite_score"] = comp_map[row["stock_id"]]
-            generate_patterns_html(trade_date, pattern_results, "docs/patterns.html")
+            generate_patterns_html(trade_date, pattern_results, "docs/patterns.html",
+                                   data_mode="intraday" if realtime else "close")
             logger.info("HTML generated → docs/patterns.html")
         except Exception as exc:
             logger.warning("patterns 掃描/產 HTML 失敗: %s", exc)
@@ -1425,6 +1428,7 @@ def run(trade_date: date = None, realtime: bool = False, push: bool = True, summ
                     index_date=market_regime.get("taiex_date") if market_regime else None,
                     price_date=trade_date.isoformat(),
                     chips_date=trade_date.isoformat(),
+                    data_mode="intraday" if realtime else "close",
                 )
             except Exception as exc:
                 logger.warning("逆轟策略頁產生失敗: %s", exc)

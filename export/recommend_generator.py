@@ -468,7 +468,6 @@ PAGE_JS = r"""
 
 def render(payload: dict) -> str:
     p = payload
-    date_html = f'資料日 <b>{_e(p.get("trade_date"))}</b> 收盤'
     js = (PAGE_JS.replace("%KEY%", f'"{CAPITAL_KEY}"').replace("%RISK%", str(RISK)).replace("%STOP%", str(STOP)))
     body = (
         _market(p.get("header"), p.get("taiex_above_ma20"), p.get("taiex_ma20_gap"))
@@ -483,7 +482,7 @@ def render(payload: dict) -> str:
         '<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
         f'<title>個股推薦 {_e(p.get("trade_date"))}</title><style>{SHARED_CSS}{PAGE_CSS}</style></head><body>'
-        f'{render_topbar("個股推薦", "recommend.html", date_html)}'
+        f'{render_topbar("個股推薦", "recommend.html", p.get("trade_date"))}'
         f'<main class="ui-main">{body}</main><script>{js}</script></body></html>'
     )
 

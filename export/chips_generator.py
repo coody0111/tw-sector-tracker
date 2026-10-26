@@ -1323,6 +1323,7 @@ def generate(
     shareholder_data: list = None,
     insider_data: list = None,
     output_path: str = "docs/chips.html",
+    data_mode: str = "close",
 ) -> bool:
     """回傳是否實際寫入了 output_path；meta_chips/stock_chips 兩者皆空時不寫檔、回傳 False，
     讓呼叫端可以分辨「真的產生成功」跟「靜默跳過」，不要無條件記成功。"""
@@ -1339,10 +1340,9 @@ def generate(
     date_str = trade_date.strftime("%Y-%m-%d")
     chips_date = stock_chips.get("chips_date", date_str)
     try:
-        chips_weekday = date.fromisoformat(str(chips_date)[:10]).weekday()
+        header_date = date.fromisoformat(str(chips_date)[:10])
     except (TypeError, ValueError):
-        chips_weekday = trade_date.weekday()
-    weekday = ["一", "二", "三", "四", "五", "六", "日"][chips_weekday]
+        header_date = trade_date
 
     s1_html = _build_section1(meta_chips, cum_ranks)
     s2_html = _build_section2(stock_chips)
@@ -1410,7 +1410,7 @@ def generate(
 <body>
   <a class="skip-link" href="#main-content">跳到籌碼內容</a>
   <div class="app-shell">
-  {render_topbar("籌碼分析", "chips.html", f"籌碼資料 <b>{chips_date}（週{weekday}）</b>")}
+  {render_topbar("籌碼分析", "chips.html", header_date, data_mode)}
   <div class="workspace">
     <aside class="section-nav" aria-label="籌碼分析視角">
       <div class="section-nav-inner">

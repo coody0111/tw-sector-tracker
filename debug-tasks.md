@@ -5609,3 +5609,19 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 
 ### 請 Debugger 驗證
 - [ ] 全套 pytest；推薦／籌碼頁頁首 53px；chips 的 workspace 高度計算正常
+
+## [2026-10-27] 各分頁右上日期文字統一成族群績效格式
+
+### 改了什麼
+- 異動檔案：export/ui_theme.py（render_topbar 改收 data_date／data_mode／note，新增 MODE_LABELS、format_data_date；.ui-date 兩行樣式）、
+  export/{chips,patterns,momentum,recommend,watchlist}_generator.py（各頁改傳日期與 data_mode）、main.py（四頁傳 data_mode）、
+  tests/test_ui_theme.py、tests/test_momentum_generator.py
+- 依據：Cody「什麼資料日 還有 收盤 個股行情 bar 上面的文字不太統一」。原本各頁寫「籌碼資料／個股行情／資料日…收盤」各不相同
+  - 全部跟 index.html 右上一樣：第一行金色「收盤快照」（盤中跑是「盤中資料，尚未收盤確認」）、第二行「2026-10-22（週四）15:01」
+  - 籌碼頁用籌碼資料日；逆轟頁用個股行情日，指數／籌碼不同天才在後面補「・指數 10-21」
+  - 網站上的頁面都是收盤流程推的（盤中 --no-push），所以線上一律是收盤快照
+
+### 請 Debugger 驗證
+- [ ] 全套 pytest
+- [ ] 重產各頁：右上兩行跟 index.html 同字級、同位置（1440、375）
+- [ ] realtime 模式產生的頁面寫「盤中資料，尚未收盤確認」

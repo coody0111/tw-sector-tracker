@@ -402,7 +402,7 @@ function applyFilters(btn){
 """
 
 
-def generate(trade_date: date, results: list[dict], output_path: str) -> None:
+def generate(trade_date: date, results: list[dict], output_path: str, data_mode: str = "close") -> None:
     date_str = trade_date.strftime("%Y-%m-%d")
 
     # Classify
@@ -477,7 +477,7 @@ def generate(trade_date: date, results: list[dict], output_path: str) -> None:
 <style>{_CSS}</style>
 </head>
 <body>
-{render_topbar("形態掃描", "patterns.html", f"個股行情 <b>{date_str}</b>")}
+{render_topbar("形態掃描", "patterns.html", trade_date, data_mode)}
 <main id="main-content" class="ui-main">
 <div class="filter-bar">
   <button class="exch-btn active" data-exch="" onclick="applyFilters(this)">全部</button>

@@ -104,6 +104,7 @@ def generate(
     oliver_analysis: Optional[dict] = None,
     market_context: Optional[dict] = None,
     output_path: str = "docs/watchlist.html",
+    data_mode: str = "close",
 ) -> None:
     """Generate a static page; the browser supplies the user's local selection."""
     catalog = []
@@ -153,7 +154,7 @@ main{{max-width:1400px;margin:0 auto;padding:24px}}.intro{{display:flex;align-it
 .card-actions{{display:flex;gap:8px;margin-top:10px}}.empty{{padding:48px 20px;text-align:center;border:1px dashed var(--border);border-radius:7px;color:var(--muted)}}
 @media(max-width:600px){{main{{padding:14px}}.metrics{{grid-template-columns:repeat(2,1fr)}}.market-context{{grid-template-columns:1fr}}}}
 </style></head><body>
-{render_topbar("自選股", "watchlist.html", f"個股行情 <b>{escape(generated)}</b>")}
+{render_topbar("自選股", "watchlist.html", trade_date, data_mode)}
 <main><div class="intro"><div><div class="eyebrow">OLIVER-INSPIRED WATCHLIST</div><h2>只看你挑選的股票</h2><p>週線看背景，日線看週期；資料不足時保留不確定性。</p></div><span class="count" id="count"></span></div>
 <section id="market-context" class="market-context" aria-label="大盤週線 Market Context"></section>
 <section id="watchlist" class="grid" aria-live="polite"></section></main>

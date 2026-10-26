@@ -590,6 +590,7 @@ def generate(
     price_date: str = None,
     chips_date: str = None,
     output_path: str = "docs/momentum.html",
+    data_mode: str = "close",
 ) -> bool:
     """
     產生 docs/momentum.html。decision_table 為空時不寫檔、回傳 False（比照
@@ -604,14 +605,11 @@ def generate(
     divergence_text = _esc(market_permission_data.get("divergence_text", ""))
     advice_text = _esc(market_permission_data.get("advice_text", ""))
 
-    sources = [(label, str(d)) for label, d in (("指數", index_date), ("個股行情", price_date), ("籌碼", chips_date)) if d]
-    if len({d for _, d in sources}) == 1:
-        # 三個來源同一天就只寫一次（2026-10-26：統一頁首後 1024 寬三段日期會把頁首擠成兩行）
-        freshness_html = f"資料日 <b>{_esc(sources[0][1])}</b>"
-    elif sources:
-        freshness_html = " · ".join(f"{label} <b>{_esc(d)}</b>" for label, d in sources)
-    else:
-        freshness_html = f"<b>{date_str}</b>"
+    # 頁首日期跟其他頁同格式（以個股行情日為準）；指數／籌碼跟它不同天才在後面補一句（2026-10-26 統一）
+    header_date = str(price_date or date_str)
+    lagging = [f"{label} {str(d)[5:10]}" for label, d in (("指數", index_date), ("籌碼", chips_date))
+               if d and str(d)[:10] != header_date[:10]]
+    header_note = _esc(f"・{'・'.join(lagging)}") if lagging else ""
 
     risk_zone_html = _risk_zone_html(risk_zone) if permission == "defensive" else ""
     risk_count = len(risk_zone.get("resilient", [])) + len(risk_zone.get("limit_down", []))
@@ -632,7 +630,7 @@ def generate(
 </head>
 <body>
 <a class="skip-link" href="#main-content">跳到主要內容</a>
-{render_topbar("逆轟動能策略", "momentum.html", freshness_html)}
+{render_topbar("逆轟動能策略", "momentum.html", header_date, data_mode, note=header_note)}
 <main id="main-content" class="ui-main">
 <div class="notice">本頁為全市場動能掃描與決策支援，不是自動交易或個人化投資建議。所有分數與門檻標記為實驗性，尚未回測校準。</div>
 {page_summary}

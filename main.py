@@ -389,18 +389,48 @@ def backfill_yf(months: int = 19, workers: int = 3) -> None:
 def backfill_official_cli(start: date) -> None:
     """官方逐日全市場行情回補（實際成交價），跑完（含被擋中途停下）都重新匯入 DB。"""
     from scrapers.official_prices import backfill_official_prices
+    from scrapers.twse_events import load_event_refs
     from screener.database import reimport_db
     if not UNIVERSE_PATH.exists():
         logger.error("找不到 stock_universe.csv，請先確認資料目錄。")
         return
     universe_df = pd.read_csv(UNIVERSE_PATH, encoding="utf-8-sig", dtype={"stock_id": str})
     logger.info("=== 官方逐日行情回補：%s 起 ===", start.isoformat())
-    stats = backfill_official_prices(universe_df["stock_id"].tolist(), start)
+    _refresh_twse_events(start)
+    stats = backfill_official_prices(universe_df["stock_id"].tolist(), start, event_refs=load_event_refs())
     if stats["written"] or stats["holidays"]:
         init_db()
         logger.info("DuckDB 重新匯入：共 %d 筆", reimport_db())
     if stats["stopped"]:
         logger.warning("被擋停在 %s，過一段時間再跑同一行指令會接著做", stats["stopped"])
+
+
+def _refresh_twse_events(start: date) -> bool:
+    """抓上市除權息／減資／變更面額官方參考價進事件表；失敗只警告（回補退回前收算法），回傳是否成功。"""
+    from scrapers.twse_events import update_events
+    try:
+        update_events(start, date.today())
+        return True
+    except Exception as exc:
+        logger.warning("上市事件參考價抓取失敗（這次用既有事件表；沒有的退回前收算漲跌）：%s: %s",
+                       type(exc).__name__, exc)
+        return False
+
+
+def repair_ex_rights_cli(start: date = date(2020, 1, 1)) -> None:
+    """一次性修復（bug-reports 2026-10-26 🟡1）：上市事件日的漲跌改用官方參考價算，修完重新匯入 DB。
+    只改 change／change_pct，不重抓行情；改之前整份備份 data/daily_prices。"""
+    from scrapers.official_prices import repair_event_changes
+    from scrapers.twse_events import load_event_refs
+    from screener.database import reimport_db
+    logger.info("=== 上市事件日漲跌修復：%s 起 ===", start.isoformat())
+    if not _refresh_twse_events(start):
+        logger.error("抓不到官方事件參考價，這次不修（過一段時間再跑同一行指令）")
+        return
+    stats = repair_event_changes(load_event_refs())
+    if stats["rows"]:
+        init_db()
+        logger.info("DuckDB 重新匯入：共 %d 筆", reimport_db())
 
 
 def backtest_recommend_cli(start: str = "2025-01-01", split: str = "2026-01-01") -> None:
@@ -1379,6 +1409,8 @@ if __name__ == "__main__":
     parser.add_argument("--backfill-official", type=str, default=None, metavar="YYYY-MM-DD",
                         help="從指定日期起逐日抓官方全市場行情（上市 TWSE MI_INDEX＋上櫃 TPEx 每日收盤），"
                              "實際成交價；會先備份 CSV、逐日覆寫，被擋就停，重跑會從沒做完的日子接著做")
+    parser.add_argument("--repair-ex-rights", action="store_true",
+                        help="一次性修復：上市除權息／減資／變更面額日的漲跌改用官方參考價算（先備份 CSV，修完重新匯入）")
     parser.add_argument("--update-calendar", type=str, default=None, metavar="YYYY-MM",
                         help="從指定月份起抓 TWSE FMTQIK 建立／補齊官方交易日行事曆 data/trading_calendar.csv"
                              "（已整月確認的月份會跳過；回補到 2020 前先跑 --update-calendar 2020-01）")
@@ -1438,6 +1470,8 @@ if __name__ == "__main__":
         backtest_recommend_cli()
     elif args.backfill_official:
         backfill_official_cli(date.fromisoformat(args.backfill_official))
+    elif args.repair_ex_rights:
+        repair_ex_rights_cli()
     elif args.update_calendar:
         from scrapers.trading_calendar import update_calendar
         y, m = (int(x) for x in args.update_calendar.split("-"))

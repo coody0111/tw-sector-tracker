@@ -5390,3 +5390,33 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 ### 請 Debugger 驗證
 - [ ] 375px scrollWidth ≤ 視窗寬（表格在 .table-wrap 內捲動）
 - [ ] 全套 pytest
+
+## [2026-10-26] 修：上市除權息／減資／變更面額日假漲跌（🟡1 最小做法）
+
+### 改了什麼
+- 新增：scrapers/twse_events.py（TWT49U／TWTAUU／TWTB8U 半年一查 → data/corporate_events.csv）、tests/test_twse_events.py
+- 異動：scrapers/official_prices.py（finalize_rows 有事件參考價就以它為基準；新 repair_event_changes；
+  backfill_official_prices 多 event_refs 參數）、main.py（新 `--repair-ex-rights`；`--backfill-official` 先更新事件表）、
+  tests/test_official_prices.py、tests/test_main.py
+- 邏輯說明：
+  - Cody 決定「趕快修」（經 Debugger 轉達），照 bug-reports 916467d 的最小做法：只修 change／change_pct，還原價留 0-3。
+  - 事件表：日期兩種格式（「115年09月02日」、「110/10/08」）都轉 ISO；代號 strip；參考價缺的跳過；
+    同股同日只留一筆（後抓的蓋前面）。
+  - 漲跌優先序：事件參考價 → 官方漲跌 → 前一天次日參考價（上櫃）→ 前收。有事件參考價時一律用它（官方有給數字時兩者本來就一致）。
+  - `--repair-ex-rights`：抓 2020-01-01 起事件表（約 42 個請求）→ 整份備份 data/daily_prices（daily_prices_backup/<時間>/）
+    → 只改事件日 CSV 裡事件股的 change／change_pct → reimport。抓不到事件表就整個不修。
+  - `--backfill-official` 開跑前也會更新事件表；抓失敗只警告，用既有事件表，沒有的退回前收。
+
+### 資料來源相關（如有異動）
+- 上市資料（TWSE）：新增三張官方事件表；行情本身不重抓
+- 上櫃資料（TPEx）：不動（已有次日參考價）
+
+### 請 Debugger 驗證
+- [ ] 全套 pytest
+- [ ] 在 DB／CSV 複本上跑 repair（例如把 `repair_event_changes` 的 output_dir 指到複本）：6669 2026-09-02 → −0.19%、
+      2364 2021-10-08 → −9.83%、4968 2021-09-23 → −7.22%；2,933 列事件日全部 = (close−ref)/ref
+- [ ] 非事件列、非事件日的 CSV 沒被改；備份有建立
+- [ ] 修完的漲停判斷（features.limit_up）在除權息日變正確（你報告裡的 6 筆除息日真漲停）
+
+### 特別注意
+- 正式資料由 Cody 跑：`python main.py --repair-ex-rights`（驗證通過後）。

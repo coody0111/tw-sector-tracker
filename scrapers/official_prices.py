@@ -14,7 +14,8 @@
 - 無成交（收盤 '--'）的股票不寫列（停牌期間不再出現假列）。
 - 漲跌：官方有正負號就用官方（以參考價為基準）。除權息日官方不給數字（上市 'X'、上櫃 '除息'）：
   上櫃用前一天的「次日參考價」算（參考價口徑，CSV 多存一欄 next_ref）；上市 MI_INDEX 沒有參考價，
-  只能用前一交易日收盤反推（前收口徑，跟官方差約 0.3 個百分點，高殖利率股更多）。
+  用 scrapers/twse_events.py 的官方事件參考價（除權息／減資／變更面額，2026-10-26 起）；
+  事件表沒有的才退回前一交易日收盤反推。
 - 休市判斷以交易日行事曆為準：官方兩邊都回空、但行事曆說是交易日（還沒公布或 API 偶發空回應）就不刪。
 """
 import logging
@@ -189,15 +190,19 @@ def _bases_from_rows(rows: list) -> dict:
     return {r["stock_id"]: (r.get("next_ref") or r["close"]) for r in rows}
 
 
-def finalize_rows(rows: list, prev_base: dict, universe: set) -> list:
-    """只留股票池；補上缺的漲跌（前一天的次日參考價，沒有就前一日收盤）並算漲跌幅。回傳新 list，不改 rows。"""
+def finalize_rows(rows: list, prev_base: dict, universe: set, day_refs: dict | None = None) -> list:
+    """只留股票池；有官方事件參考價（day_refs：{股號: 參考價}）的漲跌一律以它為基準，其餘補上缺的漲跌
+    （前一天的次日參考價，沒有就前一日收盤）並算漲跌幅。回傳新 list，不改 rows。"""
+    day_refs = day_refs or {}
     out = []
     for r in rows:
         if r["stock_id"] not in universe:
             continue
         change = r["change"]
         prev = prev_base.get(r["stock_id"])
-        if change is None:
+        if r["stock_id"] in day_refs:
+            change = round(r["close"] - day_refs[r["stock_id"]], 2)
+        elif change is None:
             change = round(r["close"] - prev, 2) if prev else 0.0
         base = r["close"] - change
         out.append({
@@ -209,14 +214,52 @@ def finalize_rows(rows: list, prev_base: dict, universe: set) -> list:
     return out
 
 
+def _refs_by_day(event_refs: dict) -> dict:
+    """{(日期, 股號): 參考價} → {日期: {股號: 參考價}}。"""
+    out: dict = {}
+    for (day, sid), ref in event_refs.items():
+        out.setdefault(day, {})[sid] = ref
+    return out
+
+
+def repair_event_changes(event_refs: dict, output_dir: str = "data/daily_prices") -> dict:
+    """一次性修復（bug-reports 2026-10-26 🟡1）：事件日 CSV 的 change／change_pct 改成以官方參考價為基準，
+    其他欄位不動。改之前整份備份。回傳 {"files": 改了幾個 CSV, "rows": 改了幾列}。"""
+    from scrapers.backfill import backup_price_csvs
+
+    out_dir = Path(output_dir)
+    targets = [(out_dir / f"{d}.csv", refs) for d, refs in sorted(_refs_by_day(event_refs).items())
+               if (out_dir / f"{d}.csv").exists()]
+    stats = {"files": 0, "rows": 0}
+    if not targets:
+        return stats
+    backup_price_csvs(out_dir)
+    for path, refs in targets:
+        df = pd.read_csv(path, dtype={"stock_id": str})
+        hit = df["stock_id"].isin(refs.keys())
+        if not hit.any():
+            continue
+        ref = df.loc[hit, "stock_id"].map(refs)
+        diff = df.loc[hit, "close"] - ref
+        df.loc[hit, "change"] = diff.round(2)
+        df.loc[hit, "change_pct"] = (diff / ref * 100).round(2)
+        df.to_csv(path, index=False, encoding="utf-8-sig")
+        stats["files"] += 1
+        stats["rows"] += int(hit.sum())
+    logger.info("事件日漲跌修復：改了 %d 個 CSV、%d 列", stats["files"], stats["rows"])
+    return stats
+
+
 def backfill_official_prices(
     stock_ids: list,
     start: date,
     end: date = None,
     output_dir: str = "data/daily_prices",
     sleep_sec: float = 4.0,
+    event_refs: dict | None = None,
 ) -> dict:
-    """由 start 到 end 逐日抓官方全市場行情寫 CSV。回傳 {"written", "skipped", "holidays", "partial", "stopped"}。"""
+    """由 start 到 end 逐日抓官方全市場行情寫 CSV。event_refs＝上市事件參考價（scrapers.twse_events.load_event_refs）。
+    回傳 {"written", "skipped", "holidays", "partial", "stopped"}。"""
     from config import is_trading_day
     from scrapers.backfill import backup_price_csvs
 
@@ -224,6 +267,7 @@ def backfill_official_prices(
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     universe = set(stock_ids)
+    refs_by_day = _refs_by_day(event_refs or {})
     # 會逐日覆寫既有 CSV，先整份複製一份；已經有官方 CSV 代表是續跑，不再備份
     # （每次都備份會把「開跑前的原始狀態」輪替掉，備份只留最近幾份）
     if not any(_is_official_csv(p) for p in out_dir.glob("*.csv")):
@@ -267,7 +311,7 @@ def backfill_official_prices(
             prev_close.update(_bases_from_rows(twse or tpex))
             stats["partial"] += 1
         else:
-            rows = finalize_rows(twse + tpex, prev_close, universe)
+            rows = finalize_rows(twse + tpex, prev_close, universe, refs_by_day.get(d.isoformat()))
             pd.DataFrame(rows).to_csv(path, index=False, encoding="utf-8-sig")
             prev_close.update(_bases_from_rows(rows))
             stats["written"] += 1

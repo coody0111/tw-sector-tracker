@@ -523,3 +523,28 @@ def test_update_recommend_skips_realtime_and_swallows_errors(monkeypatch):
     warnings = []
     assert m._update_recommend(False, date(2026, 10, 22), warnings=warnings) is None
     assert warnings == ["個股推薦產生失敗"]
+
+
+def test_repair_ex_rights_cli_skips_when_events_unavailable_and_reimports_after_repair(monkeypatch):
+    import main as m
+    import scrapers.official_prices as op
+    import scrapers.twse_events as te
+    import screener.database as db
+    calls = []
+    monkeypatch.setattr(te, "update_events", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("被擋")))
+    monkeypatch.setattr(op, "repair_event_changes", lambda refs: calls.append("repair") or {"files": 1, "rows": 2})
+    m.repair_ex_rights_cli()
+    assert calls == []                                   # 拿不到參考價就不修
+    monkeypatch.setattr(te, "update_events", lambda *a, **k: None)
+    monkeypatch.setattr(te, "load_event_refs", lambda: {("2021-10-08", "2364"): 24.01})
+    monkeypatch.setattr(m, "init_db", lambda: None)
+    monkeypatch.setattr(db, "reimport_db", lambda: calls.append("reimport") or 10)
+    m.repair_ex_rights_cli()
+    assert calls == ["repair", "reimport"]
+
+
+def test_backfill_official_cli_passes_event_refs():
+    import inspect
+    from main import backfill_official_cli
+    src = inspect.getsource(backfill_official_cli)
+    assert "_refresh_twse_events(start)" in src and "event_refs=load_event_refs()" in src

@@ -9,6 +9,7 @@ from scrapers.official_prices import (
     backfill_official_prices,
     finalize_rows,
     parse_tpex_daily_quotes,
+    repair_event_changes,
     parse_twse_mi_index,
 )
 
@@ -190,3 +191,48 @@ def test_backfill_official_stops_instead_of_crashing_on_network_error(tmp_path):
         stats = backfill_official_prices(["2330"], date(2026, 10, 20), date(2026, 10, 22),
                                          output_dir=str(out), sleep_sec=0)
     assert stats["stopped"] == "2026-10-20"
+
+
+def _px(sid, close, change=None):
+    return {"stock_id": sid, "stock_name": sid, "open": close, "high": close, "low": close, "close": close,
+            "change": change, "volume": 1, "next_ref": None}
+
+
+def test_finalize_rows_uses_official_event_ref_over_prev_close():
+    """減資恢復（2364 2021-10-08 前收 3.04、參考價 24.01）、除權（4968 2021-09-23 參考價 277）：
+    以參考價算，不是前收（舊算法 2364 會變 +612%）。"""
+    rows = [_px("2364", 21.65), _px("4968", 257.0), _px("2330", 600.0), _px("2412", 120.0, 1.0)]
+    out = {r["stock_id"]: r for r in finalize_rows(rows, {"2364": 3.04, "4968": 300.0, "2330": 590.0, "2412": 119.0},
+                                                    {"2364", "4968", "2330", "2412"},
+                                                    {"2364": 24.01, "4968": 277.0})}
+    assert (out["2364"]["change"], out["2364"]["change_pct"]) == (-2.36, -9.83)
+    assert (out["4968"]["change"], out["4968"]["change_pct"]) == (-20.0, -7.22)
+    assert out["2330"]["change"] == 10.0                      # 沒事件、官方沒給漲跌 → 照舊用前收
+    assert out["2412"]["change"] == 1.0                       # 官方有漲跌就用官方
+
+
+def test_repair_event_changes_only_touches_event_rows_and_backs_up(tmp_path):
+    out = tmp_path / "daily_prices"
+    out.mkdir()
+    pd.DataFrame([
+        {"stock_id": "2364", "close": 21.65, "change": 18.61, "change_pct": 612.17, "source": "official"},
+        {"stock_id": "2330", "close": 600.0, "change": 10.0, "change_pct": 1.69, "source": "official"},
+    ]).to_csv(out / "2021-10-08.csv", index=False, encoding="utf-8-sig")
+    pd.DataFrame([{"stock_id": "2330", "close": 601.0, "change": 1.0, "change_pct": 0.17}]).to_csv(
+        out / "2021-10-11.csv", index=False, encoding="utf-8-sig")
+    stats = repair_event_changes({("2021-10-08", "2364"): 24.01, ("2021-12-01", "9999"): 10.0}, str(out))
+    assert stats == {"files": 1, "rows": 1}
+    df = pd.read_csv(out / "2021-10-08.csv", dtype={"stock_id": str}).set_index("stock_id")
+    assert (df.loc["2364", "change"], df.loc["2364", "change_pct"]) == (-2.36, -9.83)
+    assert df.loc["2330", "change"] == 10.0 and df.loc["2330", "source"] == "official"
+    backups = list((tmp_path / "daily_prices_backup").iterdir())
+    assert len(backups) == 1 and (backups[0] / "2021-10-08.csv").exists()
+
+
+def test_backfill_official_passes_event_refs_to_that_day(tmp_path):
+    out = tmp_path / "p"
+    with patch("scrapers.official_prices.fetch_twse_day", return_value=[_px("2364", 21.65)]),          patch("scrapers.official_prices.fetch_tpex_day", return_value=[_px("6488", 450.0, 5.0)]),          patch("scrapers.official_prices.time.sleep"):
+        backfill_official_prices(["2364", "6488"], date(2021, 10, 8), date(2021, 10, 8), output_dir=str(out),
+                                 event_refs={("2021-10-08", "2364"): 24.01})
+    df = pd.read_csv(out / "2021-10-08.csv", dtype={"stock_id": str}).set_index("stock_id")
+    assert df.loc["2364", "change_pct"] == -9.83

@@ -5600,3 +5600,12 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 - [ ] 全套 pytest
 - [ ] 推薦頁 1440：頁首高度跟 index 一致（約 53～57px）；375 不橫向捲動
 - [ ] 逆轟頁 1024 頁首一行
+
+## [2026-10-26] 小修：共用頁首最低高度 56→52，跟族群績效同高
+
+### 改了什麼
+- 異動檔案：export/ui_theme.py（--ui-topbar-h 52px）、tests/test_ui_theme.py
+- 依據：上份報告推薦頁頁首 57px vs index 53px；index＝padding 10×2＋按鈕 32＋底線 1
+
+### 請 Debugger 驗證
+- [ ] 全套 pytest；推薦／籌碼頁頁首 53px；chips 的 workspace 高度計算正常

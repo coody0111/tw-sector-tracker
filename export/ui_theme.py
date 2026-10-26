@@ -12,8 +12,8 @@ SHARED_CSS = r"""
 /* 頁面骨架（2026-10-21 統一）：頁首、頁名、左右留白、內容寬度、字型。各頁 CSS 不要再自訂 body / 頁首。
    2026-10-26 Cody：「這幾個分頁都要整合成一樣的吧 參照族群績效」→ 頁首照 index.html：左邊 TW SECTOR TRACKER 小字＋襯線頁名、
    資料日期靠右、導覽在最右；頁首撐滿寬度、內容寬 1560、左右留白 26（index_generator.py 的 .topbar／.page-shell）。 */
-/* --ui-sticky-top：頁內 sticky 元素（分頁籤、工具列）要讓出的高度＝頁首實際高度；render_topbar() 附的 script 會依實際量到的值覆寫（頁首折行時會超過 56px）。 */
-:root{--ui-sans:"Public Sans",-apple-system,"PingFang TC","Microsoft JhengHei","Noto Sans TC","Segoe UI",sans-serif;--ui-mono:ui-monospace,"Cascadia Code","Roboto Mono",monospace;--ui-serif:Georgia,"Iowan Old Style","Source Serif 4","Noto Serif TC",serif;--ui-topbar-h:56px;--ui-sticky-top:var(--ui-topbar-h);--ui-gutter:26px;--ui-max:1612px}
+/* --ui-sticky-top：頁內 sticky 元素（分頁籤、工具列）要讓出的高度＝頁首實際高度；render_topbar() 附的 script 會依實際量到的值覆寫（頁首折行時會超過 52px）。 */
+:root{--ui-sans:"Public Sans",-apple-system,"PingFang TC","Microsoft JhengHei","Noto Sans TC","Segoe UI",sans-serif;--ui-mono:ui-monospace,"Cascadia Code","Roboto Mono",monospace;--ui-serif:Georgia,"Iowan Old Style","Source Serif 4","Noto Serif TC",serif;--ui-topbar-h:52px;--ui-sticky-top:var(--ui-topbar-h);--ui-gutter:26px;--ui-max:1612px}
 body{margin:0;background:var(--ui-bg);color:var(--ui-ink);font-family:var(--ui-sans);font-size:14px;line-height:1.55}
 button,input,select{font-family:inherit}
 .ui-topbar{position:sticky;top:0;z-index:20;padding:0 var(--ui-gutter);border-bottom:1px solid var(--ui-border);background:rgba(8,11,18,.94);backdrop-filter:blur(12px)}

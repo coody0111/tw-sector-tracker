@@ -23,3 +23,8 @@ def test_watchlist_uses_shared_topbar_with_all_pages(tmp_path):
     html = out.read_text(encoding="utf-8")
     assert 'class="ui-topbar"' in html and 'href="watchlist.html" aria-current="page"' in html
     assert 'href="recommend.html"' in html and ">族群總覽</a>" not in html   # 舊頁首的連結文字；空清單提示裡的「族群總覽」不算
+
+
+def test_topbar_min_height_matches_index():
+    """index.html 頁首＝上下 padding 10＋按鈕 32＝52（＋1px 底線）；共用頁首最低高度也要 52，不能比它高（2026-10-26 量到 57 vs 53）。"""
+    assert "--ui-topbar-h:52px" in SHARED_CSS

@@ -526,3 +526,16 @@ def test_generate_renders_empty_state_for_tabs_with_no_matching_stocks(tmp_path)
 
     html = output_path.read_text(encoding="utf-8")
     assert html.count("目前沒有符合的股票") == 5  # 除了進場候選，其餘5個標籤都是空的
+
+
+def test_header_date_collapses_when_all_sources_same_day(tmp_path):
+    """統一頁首後 1024 寬三段日期會把頁首擠成兩行：三個來源同一天只寫一次（2026-10-26）。"""
+    permission = {"permission": "normal", "tier_text": "小漲", "divergence_text": "", "advice_text": ""}
+    out = tmp_path / "m.html"
+    generate(date(2026, 10, 22), permission, [], [_sample_decision_row()], {}, [],
+             index_date="2026-10-22", price_date="2026-10-22", chips_date="2026-10-22", output_path=str(out))
+    html = out.read_text(encoding="utf-8")
+    assert "資料日 <b>2026-10-22</b>" in html and "籌碼 <b>" not in html
+    generate(date(2026, 10, 22), permission, [], [_sample_decision_row()], {}, [],
+             index_date="2026-10-22", price_date="2026-10-22", chips_date="2026-10-21", output_path=str(out))
+    assert "籌碼 <b>2026-10-21</b>" in out.read_text(encoding="utf-8")

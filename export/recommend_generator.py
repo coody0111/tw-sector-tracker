@@ -63,8 +63,8 @@ def _alerts(c: dict) -> str:
 def _market(header: dict, taiex_above, taiex_gap) -> str:
     h = header or {}
     fail = h.get("fail_rate")
-    fail_html = (f'<strong class="num">{_ratio(fail)}</strong><small class="num">近 10 日 {h.get("fail_n", 0)} 筆訊號</small>'
-                 if fail is not None else f'<strong class="muted">樣本不足</strong><small class="num">{h.get("fail_n", 0)} 筆</small>')
+    fail_html = (f'<strong class="num">{_ratio(fail)}</strong><small>近 10 日 <span class="num">{h.get("fail_n", 0)}</span> 筆訊號</small>'
+                 if fail is not None else f'<strong class="muted">樣本不足</strong><small><span class="num">{h.get("fail_n", 0)}</span> 筆</small>')
     if taiex_above is None:
         taiex_html = '<strong class="muted">—</strong><small>資料不足</small>'
     else:
@@ -86,7 +86,7 @@ def _market(header: dict, taiex_above, taiex_gap) -> str:
 def _capital() -> str:
     return (
         '<div class="capital"><div class="capital-inner">'
-        f'<div><label for="capital">總資金</label><br><input id="capital" type="text" inputmode="numeric" '
+        f'<div class="capital-field"><label for="capital">總資金</label><input id="capital" type="text" inputmode="numeric" '
         f'value="{DEFAULT_CAPITAL:,}" aria-describedby="capital-hint"></div>'
         f'<div class="rule"><span>每筆風險 <b class="num">{RISK:.0%}</b> ＝ <b class="num" id="risk">'
         f'{DEFAULT_CAPITAL * RISK:,.0f}</b> 元</span><span>停損 <b class="num">{STOP:.0%}</b></span>'
@@ -344,6 +344,7 @@ def _score_section(summary: dict, rows: list) -> str:
 # ── 組頁 ──────────────────────────────────────────────────
 
 PAGE_CSS = r"""
+*{box-sizing:border-box}
 .num{font-family:var(--ui-mono);font-variant-numeric:tabular-nums}
 .up{color:var(--ui-up)}.down{color:var(--ui-down)}.muted{color:var(--ui-ink-2)}.small{font-size:.72rem}
 .market{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;background:var(--ui-border);border:1px solid var(--ui-border);border-radius:var(--ui-radius);overflow:hidden}
@@ -354,11 +355,12 @@ PAGE_CSS = r"""
 .market-note{margin:6px 0 0;color:var(--ui-ink-3);font-size:.7rem}
 .capital{position:sticky;top:var(--ui-sticky-top);z-index:5;margin-top:16px;background:var(--ui-bg);border-bottom:1px solid var(--ui-border)}
 .capital-inner{display:flex;flex-wrap:wrap;align-items:center;gap:10px 22px;padding-block:10px}
+.capital-field{display:flex;align-items:center;gap:10px}
 .capital label{color:var(--ui-ink-2);font-size:.78rem;font-weight:600}
 .capital input{width:150px;min-height:40px;padding:6px 10px;border:1px solid var(--ui-border-strong);border-radius:var(--ui-radius);background:var(--ui-panel-2);color:var(--ui-ink);font:600 1rem var(--ui-mono)}
 .capital input:focus-visible{outline:2px solid var(--ui-accent);outline-offset:1px}
 .rule{display:flex;gap:16px;flex-wrap:wrap;color:var(--ui-ink-2);font-size:.78rem}.rule b{color:var(--ui-ink)}
-.capital-hint{color:var(--ui-ink-3);font-size:.7rem}
+.capital-hint{flex-basis:100%;margin-top:-4px;color:var(--ui-ink-3);font-size:.7rem}
 section{margin-top:28px}
 .sec-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:10px}
 .sec-head h2{margin:0;font-size:1rem;font-weight:750}

@@ -5581,3 +5581,22 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 - [ ] 全套 pytest
 - [ ] 重產各頁（或用既有 docs/*.html 對照）：1440／1024／375 寬度下頁首跟 index.html 看起來一致；手機導覽列可橫向捲動、頁面不橫向捲動
 - [ ] chips.html 的 sticky 分頁籤（--ui-sticky-top）仍貼在頁首下方
+
+## [2026-10-26] 修：頁首統一後的 2 個測試、逆轟日期過長；推薦頁對齊
+
+### 改了什麼
+- 異動檔案：tests/test_watchlist_generator.py、tests/test_ui_theme.py、export/momentum_generator.py、tests/test_momentum_generator.py、
+  export/recommend_generator.py
+- 回應 bug-reports 2026-10-26 🔴（2 failed）：
+  - test_watchlist：合法的 </script> 多了共用頁首量高度那個 → 測試把它也排除，仍檢查資料 JSON 有跳脫
+  - test_ui_theme：改成檢查舊連結 `>族群總覽</a>`，空清單提示的文字不算
+- 🟡 逆轟頁 1024 寬日期過長：指數／個股行情／籌碼三個日期相同時只寫「資料日 <b>日期</b>」；不同時才分開列（分隔改成「 · 」）
+- 推薦頁（Cody：「總覺得沒有對齊」，我用 headless Chrome 截圖量測）：
+  - 推薦頁漏了 `*{box-sizing:border-box}`（其他頁都有）→ 導覽按鈕 32px 變 44px、頁首 77px（index 53px）。補上
+  - 總資金：標題跟輸入框同一行、規則對齊、說明改到下一行
+  - 大盤條「近 10 日 N 筆訊號」只有數字用等寬字
+
+### 請 Debugger 驗證
+- [ ] 全套 pytest
+- [ ] 推薦頁 1440：頁首高度跟 index 一致（約 53～57px）；375 不橫向捲動
+- [ ] 逆轟頁 1024 頁首一行

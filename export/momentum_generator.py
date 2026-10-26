@@ -604,12 +604,14 @@ def generate(
     divergence_text = _esc(market_permission_data.get("divergence_text", ""))
     advice_text = _esc(market_permission_data.get("advice_text", ""))
 
-    freshness_bits = [
-        f"{label} <b>{_esc(str(d))}</b>"
-        for label, d in (("指數", index_date), ("個股行情", price_date), ("籌碼", chips_date))
-        if d
-    ]
-    freshness_html = "　·　".join(freshness_bits) if freshness_bits else f"<b>{date_str}</b>"
+    sources = [(label, str(d)) for label, d in (("指數", index_date), ("個股行情", price_date), ("籌碼", chips_date)) if d]
+    if len({d for _, d in sources}) == 1:
+        # 三個來源同一天就只寫一次（2026-10-26：統一頁首後 1024 寬三段日期會把頁首擠成兩行）
+        freshness_html = f"資料日 <b>{_esc(sources[0][1])}</b>"
+    elif sources:
+        freshness_html = " · ".join(f"{label} <b>{_esc(d)}</b>" for label, d in sources)
+    else:
+        freshness_html = f"<b>{date_str}</b>"
 
     risk_zone_html = _risk_zone_html(risk_zone) if permission == "defensive" else ""
     risk_count = len(risk_zone.get("resilient", [])) + len(risk_zone.get("limit_down", []))

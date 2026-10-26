@@ -93,4 +93,7 @@ def test_generate_escapes_stock_names_and_includes_watchlist_contract(tmp_path):
     assert "normal-research" in html
     assert "EMA Crossback 向上" in html
     assert "EMA Crossback 向下警訊" in html
-    assert "</script>" not in html.replace("</script></body></html>", "")
+    # 資料 JSON 裡的 </ 要跳脫；合法的 </script> 只有頁尾那個和共用頁首量高度的那個（2026-10-26 改用 render_topbar）
+    from export.ui_theme import _STICKY_TOP_JS
+    rest = html.replace("</script></body></html>", "").replace(f"<script>{_STICKY_TOP_JS}</script>", "")
+    assert "</script>" not in rest

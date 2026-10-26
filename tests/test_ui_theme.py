@@ -22,4 +22,4 @@ def test_watchlist_uses_shared_topbar_with_all_pages(tmp_path):
              pd.DataFrame(), output_path=str(out))
     html = out.read_text(encoding="utf-8")
     assert 'class="ui-topbar"' in html and 'href="watchlist.html" aria-current="page"' in html
-    assert 'href="recommend.html"' in html and "族群總覽" not in html
+    assert 'href="recommend.html"' in html and ">族群總覽</a>" not in html   # 舊頁首的連結文字；空清單提示裡的「族群總覽」不算

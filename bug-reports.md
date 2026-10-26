@@ -5074,3 +5074,24 @@ index.html 用 master 現有檔；Chrome headless 截 1440 與 375 頁首。
 ### 結論
 - [x] 需要修改後再確認（測試寫到真的 data/）
 - [ ] 可以繼續下一個任務
+
+## [2026-10-27] 報告 - 修：測試不能寫入真的基本面戳記（53e787a）
+
+### 🔴 數據問題（需立刻修）
+- 無
+
+### 🔴 程式問題（需立刻修）
+- 無
+
+### 🟡 建議改善
+- 無
+
+### ✅ 驗證通過
+- 開始前 debug、master 的 data/ 都沒有 `fundamentals_last_update.txt`（debug 那份上一則已刪）。
+- 全套 `pytest -q` **連跑兩次**：877 passed、877 passed；每次跑完 debug 的 data/ 都沒有出現戳記檔（上一版第一次跑就會寫出來）。
+- 只跑 `tests/test_main.py -k fundamentals`（5 個）也通過、也沒寫檔。
+- master 的 data/ 仍沒有 `fundamentals_last_update.txt`，今天收盤會正常抓月營收／季報。
+
+### 結論
+- [ ] 需要修改後再確認
+- [x] 可以繼續下一個任務

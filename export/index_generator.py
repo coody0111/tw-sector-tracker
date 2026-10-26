@@ -1473,6 +1473,7 @@ def generate(
     is_intraday = data_mode == "intraday"
     generated_at = generated_at or datetime.now()
     updated_time = generated_at.strftime("%H:%M")
+    updated_stamp = generated_at.strftime("%m/%d %H:%M")   # 右上「｜更新 10/27 00:39」，跟 ui_theme.format_data_date 同格式
     mode_label = "盤中資料，尚未收盤確認" if is_intraday else "收盤快照"
 
     cards = build_heatgrid_cards(meta_perf, meta_signals, meta_chips, heatgrid_windows, cum_data)
@@ -1567,7 +1568,7 @@ def generate(
       aria-label="搜尋股票代號、名稱或族群" oninput="searchStocks(this.value)" onblur="setTimeout(hideSearch,200)" autocomplete="off">
     <div id="search-dropdown" class="search-dropdown" hidden></div>
   </div>
-  <div class="updated"><strong>{mode_label}</strong><span>{date_str}（週{weekday}）{updated_time}</span></div>
+  <div class="updated"><strong>{mode_label}</strong><span>{date_str}（週{weekday}）｜更新 {updated_stamp}</span></div>
   <nav class="nav-links" aria-label="主要功能">
     <a class="nav-link active" href="index.html" aria-current="page">族群績效</a>
     <a class="nav-link" href="chips.html">籌碼分析</a>

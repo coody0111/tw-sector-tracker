@@ -538,4 +538,4 @@ def test_header_date_uses_shared_format_and_notes_lagging_sources(tmp_path):
     assert "<strong>收盤快照</strong><span>2026-10-22（週四）" in html and "・籌碼" not in html
     generate(date(2026, 10, 22), permission, [], [_sample_decision_row()], {}, [],
              index_date="2026-10-22", price_date="2026-10-22", chips_date="2026-10-21", output_path=str(out))
-    assert "・籌碼 10-21</span>" in out.read_text(encoding="utf-8")
+    assert "（週四）・籌碼 10-21｜更新 " in out.read_text(encoding="utf-8")

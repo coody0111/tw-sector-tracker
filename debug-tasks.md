@@ -5625,3 +5625,14 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 - [ ] 全套 pytest
 - [ ] 重產各頁：右上兩行跟 index.html 同字級、同位置（1440、375）
 - [ ] realtime 模式產生的頁面寫「盤中資料，尚未收盤確認」
+
+## [2026-10-27] 修：頁首測試；右上時間改「｜更新 MM/DD HH:MM」
+
+### 改了什麼
+- 異動檔案：tests/test_ui_theme.py、export/ui_theme.py（format_data_date）、export/index_generator.py、tests/test_momentum_generator.py
+- 回應 bug-reports 2026-10-27 🔴：test_topbar_matches_index_layout 改成檢查 .ui-date 規則裡有 margin-left:auto
+- 回應 🟡（Cody 選「分開寫」）：第二行「2026-10-22（週四）｜更新 10/27 00:39」；族群績效頁（index）一起改；逆轟的「・指數 10-21」接在資料日後、更新時間前
+
+### 請 Debugger 驗證
+- [ ] 全套 pytest
+- [ ] 各頁＋index 右上第二行格式一致；1440 不會把頁首擠成兩行、375 正常

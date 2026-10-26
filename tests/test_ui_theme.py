@@ -11,10 +11,10 @@ def test_topbar_matches_index_layout():
     assert '<span class="ui-kicker">TW SECTOR TRACKER</span><h1 class="ui-title">個股推薦</h1>' in html
     assert html.index('class="ui-date"') < html.index('class="ui-nav"')
     # 右上跟 index.html 同格式：第一行狀態、第二行日期（週幾）時間
-    assert '<div class="ui-date"><strong>收盤快照</strong><span>2026-10-22（週四）15:01</span></div>' in html
+    assert '<div class="ui-date"><strong>收盤快照</strong><span>2026-10-22（週四）｜更新 10/22 15:01</span></div>' in html
     for href, label in NAV_PAGES:
         assert f'href="{href}"' in html and label in html
-    assert ".ui-date{margin-left:auto" in SHARED_CSS and "--ui-serif" in SHARED_CSS
+    assert "margin-left:auto" in SHARED_CSS.split(".ui-date{", 1)[1].split("}", 1)[0] and "--ui-serif" in SHARED_CSS   # 日期靠右
 
 
 def test_watchlist_uses_shared_topbar_with_all_pages(tmp_path):
@@ -34,7 +34,7 @@ def test_topbar_min_height_matches_index():
 
 def test_intraday_label_matches_index():
     html = render_topbar("籌碼分析", "chips.html", date(2026, 10, 27), "intraday", generated_at=datetime(2026, 10, 27, 10, 30))
-    assert "<strong>盤中資料，尚未收盤確認</strong><span>2026-10-27（週二）10:30</span>" in html
+    assert "<strong>盤中資料，尚未收盤確認</strong><span>2026-10-27（週二）｜更新 10/27 10:30</span>" in html
 
 
 def test_all_pages_pass_data_mode_from_main():
@@ -42,3 +42,10 @@ def test_all_pages_pass_data_mode_from_main():
     import main
     src = inspect.getsource(main.run)
     assert src.count('data_mode="intraday" if realtime else "close"') >= 4   # 籌碼、形態、逆轟、自選股
+
+
+def test_index_header_uses_same_update_stamp():
+    import inspect
+    from export import index_generator
+    src = inspect.getsource(index_generator)
+    assert "｜更新 {updated_stamp}" in src

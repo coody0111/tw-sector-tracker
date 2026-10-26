@@ -72,10 +72,11 @@ _WEEKDAYS = "一二三四五六日"
 
 
 def format_data_date(data_date, generated_at: datetime | None = None, note: str = "") -> str:
-    """「2026-10-22（週四）15:01」：跟 index.html 右上第二行同格式。data_date 可為 date 或 'YYYY-MM-DD…' 字串。"""
+    """「2026-10-22（週四）｜更新 10/27 00:39」：資料日跟產生時間分開寫（2026-10-27 Cody：原本「…（週四）00:39」會被誤讀成資料日的時間）。
+    index.html 右上第二行同格式。data_date 可為 date 或 'YYYY-MM-DD…' 字串；note 接在資料日後面。"""
     d = data_date if isinstance(data_date, date) else date.fromisoformat(str(data_date)[:10])
-    t = (generated_at or datetime.now()).strftime("%H:%M")
-    return f"{d.isoformat()}（週{_WEEKDAYS[d.weekday()]}）{t}{note}"
+    t = (generated_at or datetime.now()).strftime("%m/%d %H:%M")
+    return f"{d.isoformat()}（週{_WEEKDAYS[d.weekday()]}）{note}｜更新 {t}"
 
 
 def render_topbar(title: str, active_href: str, data_date=None, data_mode: str = "close",

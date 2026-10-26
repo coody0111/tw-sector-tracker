@@ -4877,3 +4877,42 @@ Developer 轉 Cody 的問題，只評估、不改 code、不動 DB。數字都�
 ### 結論
 - [ ] 需要修改後再確認
 - [x] 可以繼續下一個任務（Cody 要用系統管理員重跑 install_scheduler.ps1 才會生效）
+
+## [2026-10-26] 報告 - 各分頁頁首統一成族群績效（index.html）樣式（114870c）
+
+測試方式：chips／patterns／momentum 用 master 現有 docs/*.html，把舊 SHARED_CSS 換成新版、頁首換成新版 `render_topbar` 輸出；
+recommend、watchlist 用新版 generator 在 scratchpad 重產；index.html 原檔。Chrome headless 截 1440／1024 頁首、375 用 iframe 量寬度。
+
+### 🔴 數據問題（需立刻修）
+- 無
+
+### 🔴 程式問題（需立刻修）
+- 問題：**全套 pytest 有 2 個失敗（master 上一樣失敗）**
+  重現方式：`python -m pytest -q` → 2 failed, 864 passed
+  1. `tests/test_ui_theme.py::test_watchlist_uses_shared_topbar_with_all_pages`：斷言頁面不含「族群總覽」，
+     但自選股空清單提示文字是「目前還沒有自選股。請從**族群總覽**的個股明細加入。」（watchlist_generator 的 JS 字串）。
+     → 要嘛把提示改成「族群績效」，要嘛斷言只檢查 `<nav>` 裡面。
+  2. `tests/test_watchlist_generator.py::test_generate_escapes_stock_names_and_includes_watchlist_contract`：
+     `assert "</script>" not in html.replace("</script></body></html>", "")`——新頁首帶了 `<script>{_STICKY_TOP_JS}</script>`，
+     頁面多一個 `</script>`。這個斷言原本是防股票名稱把 `<script>` 提早關掉（XSS），頁首那段是固定字串、不是漏洞；
+     建議改成「拿掉頁首 script 後只剩結尾那一個」，或直接檢查惡意名稱有被跳脫。
+
+### 🟡 建議改善
+- **逆轟策略頁在 1024 寬度頁首會折成兩行**：日期是「指數 … · 個股行情 … · 籌碼 …」三段，太長，導覽被擠到第二行（頁首高 81px，其他頁 57px）；
+  index 在 1024 仍是一行。建議這頁日期只留一個（或縮成「資料 2026-10-22」）。1440 正常。
+- index 頁名是「族群總覽」，導覽按鈕是「族群績效」，名稱不一致（原本就這樣，這次沒動）。
+- 任務清單寫「chips.html 的 sticky 分頁籤」：chips 其實沒有 `.ui-sticky-tabs`；用到的是 patterns、momentum（見下）。
+
+### ✅ 驗證通過
+- 1440／1024：chips、patterns、momentum、recommend、watchlist 頁首都是「金色 TW SECTOR TRACKER 小字＋襯線頁名、金色等寬日期靠右、導覽最右」，
+  跟 index.html 同一排版（index 多一個搜尋框、日期兩行，是它自己的內容）；頁首撐滿寬度、左右留白一致。
+- 自選股頁改用共用頁首，6 個分頁都在（原本只有 3 個舊連結）。
+- 375px：6 頁 `scrollWidth` 都 ≤ 375（index／chips／momentum／recommend 360、patterns／watchlist 375），超出視窗的只有導覽列連結
+  （在 `.ui-nav{overflow-x:auto}` 裡捲）和 index 的側拉抽屜（關閉時在畫面外）。手機版頁名、日期、導覽依序排列，跟 index 一致。
+- sticky 分頁籤：`--ui-sticky-top` 跟頁首實際高度一致——patterns 1440／1024 都是 57px（頁首 bottom 57）；
+  momentum 1024 頁首折兩行時是 81px（JS 有跟著改），375 頁首改 static、變數 0px。
+- 截圖時 chips、patterns 開頁會自動捲動一段（舊版頁面一樣），跟這次改動無關。
+
+### 結論
+- [x] 需要修改後再確認（2 個測試）
+- [ ] 可以繼續下一個任務

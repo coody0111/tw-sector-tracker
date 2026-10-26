@@ -4939,3 +4939,25 @@ recommend、watchlist 用新版 generator 在 scratchpad 重產；index.html 原
 ### 結論
 - [ ] 需要修改後再確認
 - [x] 可以繼續下一個任務
+
+## [2026-10-26] 報告 - 小修：共用頁首最低高度 56→52，跟族群績效同高（ac6ad11）
+
+### 🔴 數據問題（需立刻修）
+- 無
+
+### 🔴 程式問題（需立刻修）
+- 無
+
+### 🟡 建議改善
+- chips `.workspace{min-height:calc(100dvh - var(--ui-topbar-h))}`：頁首實際 53px（52＋1px 底線），所以短內容時頁面會多 1px 可捲動
+  （900 高視窗：workspace 848＋頁首 53＝901）。改之前 56／57 也一樣，肉眼看不到，可不修；要修可把底線算進去或改用 `--ui-sticky-top`。
+
+### ✅ 驗證通過
+- 頁首高度（新版 SHARED_CSS 重產）：1440 寬 index／recommend／chips／patterns／momentum 全部 **53px**；1024 寬 index／recommend／momentum 也都是 53px。
+- chips：`--ui-topbar-h` 52px、`--ui-sticky-top` 53px（script 量到實際高度）；往下捲後工具列貼在 65px（53＋12）、左側分析視角在 73px（53＋20），正確。
+- 375px：recommend、momentum `scrollWidth` 360、patterns 375，不橫向捲動。
+- 全套 `pytest -q`：868 passed。
+
+### 結論
+- [ ] 需要修改後再確認
+- [x] 可以繼續下一個任務

@@ -74,9 +74,10 @@ def test_generate_writes_file(tmp_path):
 
 
 def test_main_generates_and_pushes_recommend_page():
+    """推薦頁改由 publish_recommend（資料到齊才發布）產生並推送，收盤流程不產（2026-10-27）。"""
     import main
-    src = inspect.getsource(main.run)
-    assert "generate_recommend_html(recommend_payload)" in src
+    src = inspect.getsource(main._run_and_publish)
+    assert "generate_recommend_html(payload)" in src and "_push_html(day)" in src
     assert '"docs/recommend.html"' in inspect.getsource(main._push_html)
 
 

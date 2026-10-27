@@ -5710,3 +5710,13 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 - [ ] DB 複本：missing_inputs(2026-10-27) 現在應缺上市／上櫃三大法人與外資持股（籌碼還沒補）；補了之後為空
 - [ ] DB 複本模擬今晚：prev＝今天 15:00 的 payload（沒有 inputs_complete）→ 重跑 10/27、added／withdrawn 合理；再跑一次跳過
 - [ ] 收盤流程（run）不再呼叫 run_daily、不再產 recommend.html、不再發推薦訊息
+
+## [2026-10-27] 修：推薦頁測試改看 publish 流程
+
+### 改了什麼
+- 異動檔案：tests/test_recommend_page.py
+- 回應 bug-reports 2026-10-27 🔴：test_main_generates_and_pushes_recommend_page 改成檢查 `_run_and_publish` 產頁＋推送（run() 已不產推薦頁）
+- 🟡（集保拖到週一收盤後、首發標題「收盤」）先不改，已轉告 Cody
+
+### 請 Debugger 驗證
+- [ ] 全套 pytest

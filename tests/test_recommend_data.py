@@ -69,3 +69,13 @@ def test_load_panel_attaches_adj_from_events(tmp_path):
     p = load_panel(db_path=db, universe_path=uni, events_path=str(ev))
     assert list(p["adj"].round(6)) == [0.9, 0.9, 1.0] and list(p["close"]) == [100, 110, 111]   # 原始價不動
     assert (load_panel(db_path=db, universe_path=uni)["adj"] == 1.0).all()             # 沒有事件表
+
+
+def test_asymmetric_event_uses_change_base_not_reference():
+    """現金增資除權（如 6225）：漲跌基準是開盤競價基準，不是參考價；還原因子要跟 change_pct 同基準，否則當天出現假大漲。"""
+    from recommend.data import event_factors
+    px = pd.DataFrame({"stock_id": "6225", "date": pd.to_datetime(["2026-08-17", "2026-08-18"]), "close": [30.0, 48.8]})
+    ev = pd.DataFrame([{"stock_id": "6225", "date": "2026-08-18", "pre_close": 30.0, "ref": 18.0, "base": 44.4},
+                       {"stock_id": "9999", "date": "2026-08-18", "pre_close": 10.0, "ref": 9.0, "base": None}])
+    f = event_factors(ev, px).set_index("stock_id")["factor"]
+    assert round(f["6225"], 4) == round(44.4 / 30.0, 4) and round(f["9999"], 4) == 0.9   # base 缺退回參考價

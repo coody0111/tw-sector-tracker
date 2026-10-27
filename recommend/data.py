@@ -9,9 +9,12 @@ EVENTS_PATH = "data/corporate_events.csv"   # scrapers/twse_events.py：上市�
 
 
 def event_factors(events: pd.DataFrame, px: pd.DataFrame) -> pd.DataFrame:
-    """每筆除權息／減資／變更面額事件的還原因子＝參考價 ÷ 事件前收盤（規格 §11 報酬用還原價）。
-    前收缺（TWT84U 補的那幾筆）用行情裡事件日前一筆收盤。回傳 stock_id, date, factor。"""
-    ev = events[["stock_id", "date", "pre_close", "ref"]].copy()
+    """每筆除權息／減資／變更面額事件的還原因子＝漲跌基準 ÷ 事件前收盤（規格 §11 報酬用還原價）。
+    漲跌基準 base 跟 change_pct 同一個（scrapers/twse_events.py：官方漲停價對得上參考價就是參考價，現金增資等
+    不對稱事件是開盤競價基準）；用參考價的話不對稱事件還原後當天會出現假大漲（Debugger 2026-10-27：6225 08-18 +62.5%）。
+    base 缺（舊事件表）退回參考價。前收缺（TWT84U 補的那幾筆）用行情裡事件日前一筆收盤。回傳 stock_id, date, factor。"""
+    ev = events[["stock_id", "date", "pre_close", "ref"] + (["base"] if "base" in events.columns else [])].copy()
+    ev["base"] = ev["base"].fillna(ev["ref"]) if "base" in ev.columns else ev["ref"]
     ev["date"] = pd.to_datetime(ev["date"]).astype("datetime64[ns]")
     need = ev["pre_close"].isna()
     if need.any():
@@ -19,7 +22,7 @@ def event_factors(events: pd.DataFrame, px: pd.DataFrame) -> pd.DataFrame:
         prev = pd.merge_asof(ev[need].reset_index().sort_values("date"), prices, on="date", by="stock_id",
                              direction="backward", allow_exact_matches=False)     # 事件日「之前」最後一筆收盤
         ev.loc[prev["index"], "pre_close"] = prev["close"].to_numpy()
-    ev["factor"] = ev["ref"] / ev["pre_close"]
+    ev["factor"] = ev["base"] / ev["pre_close"]
     ev = ev[np.isfinite(ev["factor"]) & (ev["factor"] > 0)]
     return ev.drop_duplicates(["stock_id", "date"], keep="last")[["stock_id", "date", "factor"]]
 

@@ -75,13 +75,16 @@ def _day_table(f: pd.DataFrame, days: list, i: int) -> pd.DataFrame:
     return t.sort_values("rank").reset_index(drop=True)
 
 
-def _members(f: pd.DataFrame, day, sector: str) -> list:
-    """成員依近 21 日（還原）漲幅排行，給展開與「帶頭 3 檔」。"""
-    m = f[(f["meta_sector"] == sector) & f["liq"].fillna(False).astype(bool)]
+def _members(f: pd.DataFrame, days: list, sector: str) -> list:
+    """成員依近 21 日（還原）漲幅排行，給展開與「帶頭 3 檔」。
+    成員＝今天有流動性的族群股；價格用整段 22 個交易日（不逐日看流動性，同 leaders._window；
+    Debugger 2026-10-27：逐日過濾會取錯基準日、漏掉近期才有量的股，6925 意藍 +92.9% 沒出現）。"""
+    day, window = days[-1], days[-22:]
+    ids = f.loc[(f["date"] == day) & (f["meta_sector"] == sector) & f["liq"].fillna(False).astype(bool), "stock_id"]
     out = []
-    for sid, s in m[m["date"] <= day].groupby("stock_id"):
+    for sid, s in f[f["stock_id"].isin(set(ids)) & f["date"].isin(window)].groupby("stock_id"):
         s = s.sort_values("date")
-        if s["date"].iloc[-1] != day or len(s) < 22:
+        if len(s) < 22:
             continue
         c = s["_ac"].to_numpy()
         out.append({"stock_id": sid, "stock_name": s["stock_name"].iloc[-1], "close": float(s["close"].iloc[-1]),
@@ -105,7 +108,7 @@ def sector_heat(features: pd.DataFrame, day) -> dict:
     prev_rank = dict(zip(before["sector"], before["rank"])) if not before.empty else {}
     sectors = []
     for r in now.to_dict("records"):
-        members = _members(f, day, r["sector"])
+        members = _members(f, days, r["sector"])
         sectors.append({
             "sector": r["sector"], "rank": int(r["rank"]), "prev_rank": prev_rank.get(r["sector"]),
             "score": round(float(r["score"]), 1), "n": r["n"],

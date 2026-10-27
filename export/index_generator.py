@@ -1733,9 +1733,11 @@ function applySectorView() {{
     const currentRank = _numAttr(tile, 'currentRank');
     const showingClose = sectorView.rankMode === 'close' && previousRank !== null;
     // 依熱度排序時，#名次＝熱度名次（今日漲跌名次與它的升降箭頭先藏起來，免得兩種名次混在一起）
-    const byHeat = sectorView.sort === 'heat' && _numAttr(tile, 'heat') !== null && !showingClose;
-    rankValue.textContent = byHeat ? `#${{i + 1}}` : `#${{showingClose ? previousRank : currentRank}}`;
-    if (rankDelta) rankDelta.hidden = sectorView.rankMode === 'close' || byHeat;
+    const heatSort = sectorView.sort === 'heat' && !showingClose;
+    const hasHeat = _numAttr(tile, 'heat') !== null;
+    // 沒有熱度的族群（不到 5 檔有流動性）排在最後、名次顯示「—」，免得「顯示全部」時跟熱度名次重複
+    rankValue.textContent = heatSort ? (hasHeat ? `#${{i + 1}}` : '#—') : `#${{showingClose ? previousRank : currentRank}}`;
+    if (rankDelta) rankDelta.hidden = sectorView.rankMode === 'close' || heatSort;
   }});
   const matching = tiles.filter(_matchesSectorFilters);
   const visibleLimit = sectorView.showAll ? matching.length : 10;

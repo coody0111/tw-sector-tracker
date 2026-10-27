@@ -5849,3 +5849,13 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 - [ ] DB 複本 run_daily(10-27)：heat 前 10 合理（抽一個族群手算 21 日漲幅、法人買超占比）；heat.html 1440／375 版面；展開成員
 - [ ] 重產 index.html（或 generate 帶 heat）：預設依熱度、名次顯示熱度名次、切回今日漲跌正常
 - [ ] Telegram 訊息「族群熱度前 5」與熱度頁一致
+
+## [2026-10-27] 修：熱度成員用今天流動性＋整段 22 天價格；無熱度磚名次顯示「—」
+
+### 改了什麼
+- 異動檔案：recommend/sector_heat.py（_members 照 leaders._window：今天 liq 決定成員、價格用整段 22 個交易日）、
+  export/index_generator.py（依熱度排序時沒有熱度的磚名次「#—」）、tests/test_recommend_sector_heat.py
+- 回應 bug-reports 2026-10-27 🔴＋🟡。實測 10-27：軟體/雲端第 1 名 6925 意藍 +92.9%；1569 濱川 +55.4%
+
+### 請 Debugger 驗證
+- [ ] 全套 pytest；10-27 複本 members 漏列與漲幅（你那 12 檔／74 檔）都對；「顯示全部」名次不重複

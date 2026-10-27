@@ -58,3 +58,14 @@ def test_missing_chip_columns_or_short_history_returns_empty():
     p = _panel()
     assert sector_heat(p.drop(columns=["foreign_net"]), DAYS[-1])["sectors"] == []
     assert sector_heat(p, DAYS[15])["top"] == []
+
+
+def test_member_with_liquidity_only_today_uses_full_22_day_window():
+    """Debugger 2026-10-27：成員＝今天有流動性；21 日漲幅用整段價格，不逐日看流動性（6925 意藍曾被漏掉）。"""
+    p = _panel()
+    late = _stock("H9", "熱族群", [100.0] * 18 + [100.0 * 2 ** (k / 21) for k in range(1, 23)])
+    late["liq"] = [False] * 39 + [True]                       # 今天才有流動性
+    h = sector_heat(pd.concat([p, late], ignore_index=True), DAYS[-1])
+    hot = next(s for s in h["sectors"] if s["sector"] == "熱族群")
+    top = hot["members"][0]
+    assert top["stock_id"] == "H9" and top["ret21"] == pytest.approx(100.0, abs=0.1)   # 21 日前 → 今天剛好翻倍

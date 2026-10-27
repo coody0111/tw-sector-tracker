@@ -1192,6 +1192,7 @@ table.stock-list-table{width:100%;border-collapse:collapse}
 .badge.foreign{background:rgba(212,162,78,.16);color:var(--accent);border:1px solid rgba(212,162,78,.3)}
 .ht-rank-delta{font-size:.6rem;font-weight:700}
 .ht-rank-delta.up{color:var(--up)}
+.signal-chip.heat{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 45%,var(--border))}
 .ht-rank-delta.down{color:var(--down)}
 .history-wrap{margin-top:16px}
 .history-summary{font-family:var(--serif);font-size:.92rem;color:var(--ink);margin-bottom:10px;
@@ -1311,6 +1312,7 @@ def _filter_attrs(card: Dict[str, Any], bucket: str = "") -> str:
         previous_rank = card["rank"] + card["rank_delta"]
     values = {
         "pct": card.get("pct"),
+        "heat": card.get("heat_score"),
         "cum5": card.get("cum5"),
         "rank_delta": card.get("rank_delta"),
         "vol_ratio": card.get("vol_ratio"),
@@ -1354,6 +1356,9 @@ def _heatgrid_html(cards: List[Dict[str, Any]]) -> str:
         temp_html = ""
         if temp:
             temp_html = f'<span class="signal-chip temp {temp["key"]}">{_esc(temp["label"])}</span>'
+        if card.get("heat_score") is not None:
+            temp_html += (f'<span class="signal-chip heat" title="族群熱度：近 21 日漲幅＋法人買超占比的百分位平均（0～100）">'
+                          f'熱度 {card["heat_score"]:.0f}</span>')
 
         safe_name = _esc(card["meta_name"])
         pct_color = "var(--up)" if card["pct"] >= 0 else "var(--down)"
@@ -1442,6 +1447,7 @@ def generate(
     generated_at: Optional[datetime] = None,
     update_error: Optional[str] = None,
     output_path: str = "docs/index.html",
+    heat: Optional[Dict[str, Any]] = None,
 ) -> None:
     """
     產生 docs/index.html（族群總覽頁熱區格版面）。meta_perf 為空時不寫檔（比照舊
@@ -1477,6 +1483,11 @@ def generate(
     mode_label = "盤中資料，尚未收盤確認" if is_intraday else "收盤快照"
 
     cards = build_heatgrid_cards(meta_perf, meta_signals, meta_chips, heatgrid_windows, cum_data)
+    # 族群熱度（recommend/sector_heat.py，最近一次 20:00 資料到齊時算的）：預設依熱度排序（2026-10-27 Cody）
+    heat_scores = {s["sector"]: s["score"] for s in (heat or {}).get("sectors") or []}
+    heat_date = (heat or {}).get("date") or ""
+    for c in cards:
+        c["heat_score"] = heat_scores.get(c["meta_name"])
     anomaly_cards = find_anomaly_cards(meta_perf, meta_signals, heatgrid_windows)
     research_buckets = build_research_buckets(cards, anomaly_cards, rank_history)
     bucket_by_name = {
@@ -1571,6 +1582,7 @@ def generate(
   <div class="updated"><strong>{mode_label}</strong><span>{date_str}（週{weekday}）｜更新 {updated_stamp}</span></div>
   <nav class="nav-links" aria-label="主要功能">
     <a class="nav-link active" href="index.html" aria-current="page">族群績效</a>
+    <a class="nav-link" href="heat.html">族群熱度</a>
     <a class="nav-link" href="chips.html">籌碼分析</a>
     <a class="nav-link" href="patterns.html">形態掃描</a>
     <a class="nav-link" href="momentum.html">逆轟策略</a>
@@ -1603,7 +1615,7 @@ def generate(
       </label>
       <label class="control-field compact"><span>排序</span>
         <select id="sectorSort" onchange="applySectorView()">
-          <option value="pct">今日漲跌</option><option value="cum5">近 5 日報酬</option>
+          <option value="heat">熱度{f"（{heat_date[5:7]}/{heat_date[8:10]}）" if heat_date else ""}</option><option value="pct">今日漲跌</option><option value="cum5">近 5 日報酬</option>
           <option value="rankDelta">排名變化</option><option value="volRatio">量比</option>
         </select>
       </label>
@@ -1652,9 +1664,9 @@ const CARD_META = {card_meta_js};
 const STOCK_INDEX = {stock_index_js};
 const META_INDEX = {meta_index_js};
 const DATA_MODE = '{"intraday" if is_intraday else "close"}';
-const SECTOR_VIEW_KEY = 'tw-sector-index-view-v1';
+const SECTOR_VIEW_KEY = 'tw-sector-index-view-v2';   // v2：預設排序改熱度，舊的「今日漲跌」記憶不沿用
 const DEFAULT_SECTOR_VIEW = {{
-  showAll:false, bucket:'', name:'', sort:'pct', rankMode:'live', advancedActive:false,
+  showAll:false, bucket:'', name:'', sort:'heat', rankMode:'live', advancedActive:false,
   tier:'', minVol:1.5, minRank:10, foreign:false, trust:false
 }};
 let sectorView = {{...DEFAULT_SECTOR_VIEW}};
@@ -1700,7 +1712,7 @@ function _sortSectorTiles(a, b) {{
     if (bv === null) return -1;
     return av - bv;
   }}
-  const key = {{pct:'pct', cum5:'cum5', rankDelta:'rankDelta', volRatio:'volRatio'}}[sectorView.sort] || 'pct';
+  const key = {{heat:'heat', pct:'pct', cum5:'cum5', rankDelta:'rankDelta', volRatio:'volRatio'}}[sectorView.sort] || 'heat';
   const av = _numAttr(a, key), bv = _numAttr(b, key);
   if (av === null) return 1;
   if (bv === null) return -1;
@@ -1714,14 +1726,16 @@ function applySectorView() {{
   const grid = document.getElementById('heatgrid');
   const tiles = [...grid.querySelectorAll('.heat-tile')].sort(_sortSectorTiles);
   tiles.forEach(tile => grid.appendChild(tile));
-  tiles.forEach(tile => {{
+  tiles.forEach((tile, i) => {{
     const rankValue = tile.querySelector('.rank-value');
     const rankDelta = tile.querySelector('.ht-rank-delta');
     const previousRank = _numAttr(tile, 'prevRank');
     const currentRank = _numAttr(tile, 'currentRank');
     const showingClose = sectorView.rankMode === 'close' && previousRank !== null;
-    rankValue.textContent = `#${{showingClose ? previousRank : currentRank}}`;
-    if (rankDelta) rankDelta.hidden = sectorView.rankMode === 'close';
+    // 依熱度排序時，#名次＝熱度名次（今日漲跌名次與它的升降箭頭先藏起來，免得兩種名次混在一起）
+    const byHeat = sectorView.sort === 'heat' && _numAttr(tile, 'heat') !== null && !showingClose;
+    rankValue.textContent = byHeat ? `#${{i + 1}}` : `#${{showingClose ? previousRank : currentRank}}`;
+    if (rankDelta) rankDelta.hidden = sectorView.rankMode === 'close' || byHeat;
   }});
   const matching = tiles.filter(_matchesSectorFilters);
   const visibleLimit = sectorView.showAll ? matching.length : 10;

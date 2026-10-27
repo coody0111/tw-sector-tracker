@@ -22,6 +22,7 @@ from storage.csv_writer import CsvWriter
 from export.index_generator import generate as generate_index_html
 from export.watchlist_generator import generate as generate_watchlist_html
 from export.recommend_generator import generate as generate_recommend_html
+from export.heat_generator import generate as generate_heat_html
 from export.chips_generator import generate as generate_chips_html
 from export.momentum_generator import (
     market_permission, classify_sector_state, build_sector_priority,
@@ -297,6 +298,8 @@ def _push_html(trade_date: date) -> bool:
             files_to_add.append("docs/watchlist.html")
         if os.path.exists("docs/recommend.html"):
             files_to_add.append("docs/recommend.html")
+        if os.path.exists("docs/heat.html"):
+            files_to_add.append("docs/heat.html")
         subprocess.run(["git", "add"] + files_to_add, check=True)
         # 只看這幾個產出檔有沒有變動（限定範圍，不受其他 staged 變更影響判斷）
         result = subprocess.run(["git", "diff", "--cached", "--quiet", "--"] + files_to_add)
@@ -561,6 +564,14 @@ def _update_fundamentals() -> None:
 RECOMMEND_PAYLOAD_PATH = Path("data/recommend_payload.json")
 
 
+def _latest_heat() -> dict | None:
+    """最近一次推薦發布時算的族群熱度（族群績效頁預設依它排序；收盤 15:00 時是前一個訊號日的）。"""
+    try:
+        return json.loads(RECOMMEND_PAYLOAD_PATH.read_text(encoding="utf-8")).get("heat")
+    except Exception:
+        return None
+
+
 def _taiex_vs_ma20(day: date) -> dict:
     """推薦頁頁首的加權指數 vs MA20（收盤流程不再跑推薦，這裡自己抓；失敗就留空）。"""
     try:
@@ -629,6 +640,8 @@ def _run_and_publish(day: date, prev: dict | None, push: bool) -> dict:
     RECOMMEND_PAYLOAD_PATH.parent.mkdir(parents=True, exist_ok=True)
     RECOMMEND_PAYLOAD_PATH.write_text(json.dumps(payload, ensure_ascii=False, default=str), encoding="utf-8")
     generate_recommend_html(payload)
+    if payload.get("heat"):
+        generate_heat_html(payload["heat"])                 # 族群熱度頁跟推薦同一時間、同一份資料
     logger.info("個股推薦 %s 發布（%s）：新訊號 %d 檔、有效中 %d、失效 %d；比前一版多 %s、撤回 %s",
                 day, "第一次" if first else "資料更新", sum(g["count"] for g in payload["new"]),
                 len(payload["active"]), len(payload["invalid"]), added or "無", [w["stock_id"] for w in withdrawn] or "無")
@@ -1228,7 +1241,8 @@ def run(trade_date: date = None, realtime: bool = False, push: bool = True, summ
                                  avg20_map=avg20_map,
                                  shareholder_df=index_shareholder_df,
                                  fundamentals_df=index_fundamentals_df,
-                                 data_mode="intraday" if realtime else "close")
+                                 data_mode="intraday" if realtime else "close",
+                                 heat=_latest_heat())
             logger.info("HTML generated → docs/index.html")
             try:
                 generate_watchlist_html(

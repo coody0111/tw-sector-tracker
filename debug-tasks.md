@@ -5830,3 +5830,22 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 
 ### 請 Debugger 驗證
 - [ ] （可選）抽查 36 檔名單與股票池交集
+
+## [2026-10-27] 族群熱度報告 docs/heat.html＋族群績效預設依熱度排序
+
+### 改了什麼
+- 新增：recommend/sector_heat.py、export/heat_generator.py、docs/superpowers/specs/2026-10-27-sector-heat-report.md、
+  tests/test_recommend_sector_heat.py、tests/test_heat_page.py
+- 異動：recommend/daily.py（payload["heat"]）、main.py（_run_and_publish 產 heat.html；_push_html 加 heat.html；run() 族群績效頁傳
+  heat=_latest_heat()）、export/index_generator.py（data-heat、熱度標籤、預設排序 heat、localStorage v2、依熱度排序時 #名次用熱度名次）、
+  export/ui_theme.py（導覽加「族群熱度」）、recommend/telegram_format.py（族群前 5 改熱度前 5＋熱度頁連結）、
+  tests/test_{recommend_telegram,ui_theme,index_generator}.py、規格 §13.17 晶睿說明（你上份 🟡）
+- 依據：Cody「摘要要提供我最近很紅的族群，要做成一頁報告」；熱度＝近 21 日漲幅＋法人買超占比的百分位平均（scratchpad bt_sector_heat.py：
+  組合 IC 0.127，前 20% 族群之後 20 日 +5.6% vs 全體 +4.0%）；大戶週增、外資持股變化只顯示（族群層級 IC ≈0／0.07）。Cody 選 A
+- 「族群績效預設也改熱度」：10/27 先進封裝設備第 3 名只是因為預設依今日漲跌、大盤弱時 +0.40% 就排第三
+
+### 請 Debugger 驗證
+- [ ] 全套 pytest
+- [ ] DB 複本 run_daily(10-27)：heat 前 10 合理（抽一個族群手算 21 日漲幅、法人買超占比）；heat.html 1440／375 版面；展開成員
+- [ ] 重產 index.html（或 generate 帶 heat）：預設依熱度、名次顯示熱度名次、切回今日漲跌正常
+- [ ] Telegram 訊息「族群熱度前 5」與熱度頁一致

@@ -41,11 +41,21 @@ SECTOR_ROWS = 5
 
 
 def _sector_lines(payload: dict) -> list:
-    """近 21 天最強族群前 5（2026-10-27 Cody：Telegram 要有族群摘要）：「1. 銅箔基板 +6.6% 拉回中」。"""
+    """族群摘要前 5（2026-10-27 Cody）：有族群熱度就用熱度（「1. 軟體/雲端 熱度98 21日+15.1% 法人+0.36% 上攻中」），
+    沒有才退回近 21 天最強族群（「1. 銅箔基板 +6.6% 拉回中」）。"""
+    heat = ((payload.get("heat") or {}).get("top") or [])[:SECTOR_ROWS]
+    if heat:
+        return ["族群熱度前 5："] + [
+            f"{s['rank']}. {s['sector']} 熱度{s['score']:.0f} 21日{_fmt(s.get('ret21'), '%', 1)} "
+            f"法人{_fmt(s.get('inst_ratio'), '%', 2)} {s['status']}" for s in heat]
     sectors = ((payload.get("leaders") or {}).get("sectors") or [])[:SECTOR_ROWS]
     if not sectors:
         return []
     return ["近 21 天最強族群："] + [f"{s['rank']}. {s['sector']} {s['ret21']:+.1f}% {s['status']}" for s in sectors]
+
+
+def _fmt(v, unit: str, nd: int) -> str:
+    return "—" if v is None else f"{v:+.{nd}f}{unit}"
 
 
 def compose_recommend_message(payload: dict, taiex_above_ma20: bool | None, site_url: str, label: str = "",
@@ -79,6 +89,8 @@ def compose_recommend_message(payload: dict, taiex_above_ma20: bool | None, site
     body = f"<pre>{escape(chr(10).join(lines))}</pre>" if total else escape("今天沒有新訊號")
     head = escape(f"{_title(d, label)}\n{'｜'.join(market)}")
     sectors = _sector_lines(payload) if include_sectors else []
+    if sectors and (payload.get("heat") or {}).get("top"):
+        sectors.append("熱度頁：" + site_url.replace("recommend.html", "heat.html"))
     extra = escape("\n".join(sectors)) + "\n" if sectors else ""
     tail = escape(f"新 {total} 檔｜有效中 {len(payload['active'])} 檔｜失效 {len(payload['invalid'])} 檔\n{site_url}")
     return f"{head}\n\n{body}\n\n{extra}{tail}"

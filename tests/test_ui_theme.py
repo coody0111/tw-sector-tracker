@@ -49,3 +49,8 @@ def test_index_header_uses_same_update_stamp():
     from export import index_generator
     src = inspect.getsource(index_generator)
     assert "｜更新 {updated_stamp}" in src
+
+
+def test_nav_has_heat_page_after_index():
+    hrefs = [h for h, _ in NAV_PAGES]
+    assert hrefs.index("heat.html") == hrefs.index("index.html") + 1

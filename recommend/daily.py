@@ -8,6 +8,7 @@ from recommend.features import add_chip_features, add_price_features
 from recommend.leaders import leaders
 from recommend.market import market_header
 from recommend.scorecard import detail, ensure_table, record_signals, refresh, summary
+from recommend.sector_heat import sector_heat
 from recommend.strategies import ALL_STRATEGIES
 from recommend.withdraw import mark_withdrawn, withdraw_reasons
 
@@ -49,6 +50,7 @@ def build_payload(features: pd.DataFrame, day: pd.Timestamp, keep_days: int = KE
         "active": sorted([c for c in valid if c["day_n"] > 1], key=lambda c: (c["day_n"], c["stock_id"])),
         "invalid": [c for c in cards if c["status"] == "失效"],
         "leaders": lead,
+        "heat": sector_heat(features, day),          # 族群熱度（docs/heat.html、Telegram 前 5、族群績效排序）
         "signals": signals,
     }
 

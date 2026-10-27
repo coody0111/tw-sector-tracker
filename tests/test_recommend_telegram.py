@@ -81,3 +81,13 @@ def test_message_lists_top5_sectors_and_handles_no_new_signal():
     assert "<pre>" not in none and "今天沒有新訊號" in none and "近 21 天最強族群" in none
     upd = compose_recommend_message(p, taiex_above_ma20=None, site_url="u", label="資料更新", include_sectors=False)
     assert "近 21 天最強族群" not in upd
+
+
+def test_heat_top5_replaces_21d_sectors_with_link():
+    p = _payload(3)
+    p["heat"] = {"top": [{"rank": i, "sector": f"族群{i}", "score": 99 - i, "ret21": 10.0, "inst_ratio": 0.36,
+                          "status": "上攻中"} for i in range(1, 8)]}
+    p["leaders"] = {"sectors": [{"rank": 1, "sector": "舊排行", "n": 7, "ret21": 1.0, "status": "整理中"}]}
+    msg = compose_recommend_message(p, taiex_above_ma20=None, site_url="https://x/recommend.html")
+    assert "族群熱度前 5：" in msg and "1. 族群1 熱度98 21日+10.0% 法人+0.36% 上攻中" in msg and "6. 族群6" not in msg
+    assert "舊排行" not in msg and "熱度頁：https://x/heat.html" in msg

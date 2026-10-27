@@ -2024,3 +2024,23 @@ def test_today_breakout_html_returns_empty_string_when_no_items():
     assert _today_breakout_html([]) == ""
 
 
+
+
+def test_generate_defaults_to_heat_sort_with_heat_chip(tmp_path):
+    """2026-10-27 Cody：族群績效預設改依族群熱度排序（最近一次 20:00 算的），磚上顯示熱度。"""
+    output_path = tmp_path / "index.html"
+    heat = {"date": "2026-10-27", "sectors": [{"sector": "測試族群", "score": 87.5}]}
+    generate(date(2026, 10, 28), _sample_meta_perf(), _sample_universe_df(), {}, {}, _sample_prices_df(), {},
+             output_path=str(output_path), heat=heat)
+    html = output_path.read_text(encoding="utf-8")
+    assert 'data-heat="87.5"' in html and "熱度 88" in html
+    assert '<option value="heat">熱度（10/27）</option>' in html
+    assert "sort:'heat'" in html and "tw-sector-index-view-v2" in html
+
+
+def test_generate_without_heat_still_works(tmp_path):
+    output_path = tmp_path / "index.html"
+    generate(date(2026, 10, 28), _sample_meta_perf(), _sample_universe_df(), {}, {}, _sample_prices_df(), {},
+             output_path=str(output_path))
+    html = output_path.read_text(encoding="utf-8")
+    assert 'data-heat=""' in html and '<option value="heat">熱度</option>' in html

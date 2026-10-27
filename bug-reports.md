@@ -5166,3 +5166,22 @@ index.html 用 master 現有檔；Chrome headless 截 1440 與 375 頁首。
 ### 結論
 - [x] 需要修改後再確認（1 個測試）
 - [ ] 可以繼續下一個任務
+
+## [2026-10-27] 報告 - 修：推薦頁測試改看 publish 流程（2a3fde6）
+
+### 🔴 數據問題（需立刻修）
+- 無
+
+### 🔴 程式問題（需立刻修）
+- 無
+
+### 🟡 建議改善
+- 上一則兩個 🟡（集保拖到週一收盤後、首發標題「收盤」）Developer 已轉告 Cody，這次沒動。
+
+### ✅ 驗證通過
+- 測試改成檢查 `_run_and_publish` 裡有 `generate_recommend_html(payload)` 與 `_push_html(day)`，跟上一則複本實測的流程一致。
+- 全套 `pytest -q`：883 passed；跑完 data/ 沒有 fundamentals_last_update.txt。
+
+### 結論
+- [ ] 需要修改後再確認
+- [x] 可以繼續下一個任務

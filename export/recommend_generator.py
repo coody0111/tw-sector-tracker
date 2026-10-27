@@ -155,6 +155,14 @@ def _new_section(groups: list, withdrawn: list | None = None, shareholder_date=N
 
 # ── 仍有效／已失效 ─────────────────────────────────────────
 
+def _sig_close(c: dict) -> str:
+    """推薦日收盤（原始價）；之後有除權息時下面加一行換算後的價位，推薦後漲跌與失效線用它。"""
+    adj = c.get("signal_close_adj")
+    if adj is None:
+        return _price(c["signal_close"])
+    return f'{_price(c["signal_close"])}<br><small class="muted" title="推薦後遇到除權息，換算成今天的價位；停損線跟著它">除權息後 {_price(adj)}</small>'
+
+
 def _active_section(active: list, invalid: list) -> str:
     head = ('<div class="sec-head"><h2 id="active-h">前幾天的推薦，仍有效</h2>'
             f'<span class="count">{len(active)} 檔</span><span class="hint">保留 3 個交易日；股數和停損用現價重算</span></div>')
@@ -163,7 +171,7 @@ def _active_section(active: list, invalid: list) -> str:
             f'<tr class="row-price" data-price="{c["close"]}"><td><span class="num">{_e(c["signal_date"][5:])}</span> '
             f'<span class="dayn">第 {c["day_n"]} 天</span></td><td>{_e(c["stock_id"])} {_e(c["stock_name"])}</td>'
             f'<td>{_e(_type_label(c.get("type")))}</td>'
-            f'<td class="r num">{_price(c["signal_close"])}</td><td class="r num">{_price(c["close"])}</td>'
+            f'<td class="r num">{_sig_close(c)}</td><td class="r num">{_price(c["close"])}</td>'
             f'<td class="r num">{_signed(c.get("since_signal_pct"))}</td>'
             f'<td class="r num shares">{_shares(float(c["close"])):,}</td>'
             f'<td class="r num stop">{float(c["close"]) * (1 - STOP):.2f}</td><td>{_alerts(c)}</td></tr>'
@@ -177,7 +185,7 @@ def _active_section(active: list, invalid: list) -> str:
     if invalid:
         rows = "".join(
             f'<tr><td class="num">{_e(c["signal_date"][5:])}</td><td>{_e(c["stock_id"])} {_e(c["stock_name"])}</td>'
-            f'<td class="r num">{_price(c["signal_close"])}</td><td class="r num">{_price(c["close"])}</td>'
+            f'<td class="r num">{_sig_close(c)}</td><td class="r num">{_price(c["close"])}</td>'
             f'<td class="r num">{_signed(c.get("since_signal_pct"))}</td></tr>' for c in invalid)
         inv = (f'<details class="invalid"><summary>已失效 {len(invalid)} 檔（跌破推薦日收盤 −{STOP:.0%}）</summary>'
                '<div class="table-wrap"><table><thead><tr><th>推薦日</th><th>股票</th><th class="r">推薦日收盤</th>'

@@ -3,6 +3,8 @@
 （原本假設它在醞釀下一段，不成立）。頁面改把重點標在拉回中（2026-10-26 Cody）。"""
 import pandas as pd
 
+from recommend.features import adjusted
+
 WINDOW = 21                 # 近 21 個交易日
 TOP_STOCKS, TOP_SECTORS = 20, 10
 MIN_MEMBERS = 5             # 族群至少 5 檔有流動性的成員才排（2026-10-27 Cody：成交值 1 億池變小，3 檔族群易被單一股票拉動）
@@ -32,13 +34,14 @@ def _window(features: pd.DataFrame, day: pd.Timestamp) -> tuple:
     liquid = set(w.loc[(w["date"] == days[-1]) & w["liq"].fillna(False).astype(bool), "stock_id"])
     full = w.groupby("stock_id")["date"].count()
     keep = liquid & set(full[full == len(days)].index)
-    return w[w["stock_id"].isin(keep)].sort_values(["stock_id", "date"]), days
+    w = w[w["stock_id"].isin(keep)].sort_values(["stock_id", "date"])
+    return w.assign(_ac=adjusted(w)), days            # 還原價：除權息不算跌（2026-10-27）
 
 
 def _stock_rows(w: pd.DataFrame) -> list:
     rows = []
     for sid, s in w.groupby("stock_id", sort=False):
-        c, v = s["close"].to_numpy(), s["volume"].to_numpy()
+        c, v = s["_ac"].to_numpy(), s["volume"].to_numpy()
         last5, vol20 = c[-5:], v[-20:].mean()
         from_high = c[-1] / c[-WINDOW:].max() - 1
         rng5 = last5.max() / last5.min() - 1
@@ -54,7 +57,7 @@ def _stock_rows(w: pd.DataFrame) -> list:
 
 def _sector_rows(w: pd.DataFrame) -> list:
     """族群指數＝成員等權平均的日報酬（單日 ±11% 截斷）連乘。"""
-    closes = w.pivot(index="date", columns="stock_id", values="close").sort_index()
+    closes = w.pivot(index="date", columns="stock_id", values="_ac").sort_index()
     rets = closes.pct_change().iloc[1:].clip(-DAILY_CLIP, DAILY_CLIP)
     sectors = w.drop_duplicates("stock_id").set_index("stock_id")["meta_sector"]
     rows = []

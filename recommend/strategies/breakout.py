@@ -26,8 +26,9 @@ class BreakoutStrategy:
         n_routes = sum(h.astype(int) for h in hits.values())
         box = f["rng20"] < BOX_MAX
         cont = (f["rng20"] >= BOX_MAX) & (f["rng20"] < CONT_MAX) & (f["ret20_prev"] >= CONT_MIN_RUN)
-        # 創新高天數 90（hi90，見 recommend.features；13.9：60～150 日差距屬雜訊）
-        ok = f["limit_up"] & (f["close"] > f["hi90"]) & f["liq"] & (n_routes >= 1) & (box | cont)
+        # 創新高天數 90（hi90，見 recommend.features；13.9：60～150 日差距屬雜訊）；用還原價比（2026-10-27）
+        close = f["aclose"] if "aclose" in f.columns else f["close"]
+        ok = f["limit_up"] & (close > f["hi90"]) & f["liq"] & (n_routes >= 1) & (box | cont)
         out = f.loc[ok, ["stock_id", "date"]].copy()
         out["strategy"] = self.name
         out["type"] = np.where(box[ok], "整理", "續攻")

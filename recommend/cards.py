@@ -2,27 +2,32 @@
 import pandas as pd
 
 from recommend.exits import STOP
+from recommend.features import adjusted
 
 BIAS_HOT = 0.30   # MA10 乖離 ≥ 30% 顯示「乖離大」（13.10：當規則會變差，只提醒）
 
 
 def build_cards(features: pd.DataFrame, signals: pd.DataFrame, day: pd.Timestamp) -> list:
-    """每筆訊號一張卡：現價、推薦後漲跌、乖離、季線、提醒、是否失效（現價 ≤ 推薦日收盤 × 0.94）。"""
-    f = features.sort_values(["stock_id", "date"])
-    g = f.groupby("stock_id")["close"]
+    """每筆訊號一張卡：現價、推薦後漲跌、乖離、季線、提醒、是否失效（現價 ≤ 推薦日收盤 × 0.94）。
+    顯示用原始價；推薦後漲跌、失效、乖離、季線用還原價（2026-10-27 Cody：顯示原始價，除權息後停損價自動調）。
+    推薦日到今天之間有除權息時，signal_close_adj＝推薦日收盤換算成今天的價位，停損線跟著它走。"""
+    f = features.sort_values(["stock_id", "date"]).assign(_ac=lambda x: adjusted(x))
+    g = f.groupby("stock_id")["_ac"]
     f = f.assign(ma10=g.transform(lambda s: s.rolling(10).mean()), ma60=g.transform(lambda s: s.rolling(60).mean()))
     today = f[f["date"] == day].set_index("stock_id")
     closes = f.set_index(["stock_id", "date"])["close"]
+    acloses = f.set_index(["stock_id", "date"])["_ac"]
     cards = []
     for s in signals.itertuples(index=False):
         if s.stock_id not in today.index:
             continue
         t = today.loc[s.stock_id]
         sig_close = float(closes.loc[(s.stock_id, s.date)])
+        sig_adj = float(acloses.loc[(s.stock_id, s.date)]) / float(t["_ac"]) * float(t["close"])   # 換算成今天價位
         close = float(t["close"])
-        since = close / sig_close - 1
-        bias10 = close / t["ma10"] - 1 if pd.notna(t["ma10"]) else None
-        below60 = bool(pd.notna(t["ma60"]) and close < t["ma60"])
+        since = close / sig_adj - 1
+        bias10 = float(t["_ac"]) / t["ma10"] - 1 if pd.notna(t["ma10"]) else None
+        below60 = bool(pd.notna(t["ma60"]) and float(t["_ac"]) < t["ma60"])
         alerts = []
         if bias10 is not None and bias10 >= BIAS_HOT:
             alerts.append("乖離大")
@@ -33,12 +38,13 @@ def build_cards(features: pd.DataFrame, signals: pd.DataFrame, day: pd.Timestamp
             "stock_id": s.stock_id, "stock_name": t["stock_name"], "meta_sector": t["meta_sector"],
             "strategy": s.strategy, "type": s.type, "routes": s.routes, "n_routes": int(s.n_routes),
             "signal_date": pd.Timestamp(s.date).date().isoformat(), "signal_close": sig_close,
+            "signal_close_adj": None if abs(sig_adj - sig_close) < 1e-6 else round(sig_adj, 2),
             "close": close, "change_pct": round((close / prev - 1) * 100, 2) if prev else None,
             "since_signal_pct": round(since * 100, 2), "bias10": None if bias10 is None else round(bias10 * 100, 1),
             "below_ma60": below60, "alerts": alerts,
             "vr": _round(t.get("vr"), 2), "rng20": _round(t.get("rng20"), 3, 100),
             "ret20_prev": _round(t.get("ret20_prev"), 3, 100),
-            "status": "失效" if close <= sig_close * (1 - STOP) else "有效",
+            "status": "失效" if close <= sig_adj * (1 - STOP) else "有效",
         })
     return cards
 

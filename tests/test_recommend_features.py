@@ -87,3 +87,14 @@ def test_chip_windows_and_percentiles():
     assert a["big1w"] == 1.0 and b["big1w"] == -1.0
     assert a["big1w_pr"] == 1.0
     assert pd.isna(f[f["stock_id"] == "A"].iloc[0]["big1w"])      # 第一週沒有前一週
+
+
+def test_price_features_use_adjusted_close_for_high_and_range():
+    """除權息前的高價要還原：原始 hi90 會被除權前價格墊高、漏掉真突破（2026-10-27）。"""
+    closes = [200.0] * 30 + [100.0] * 60 + [105.0]           # 第 31 天 1:2 除權（參考價 100）
+    p = _panel(closes)
+    p["adj"] = [0.5] * 30 + [1.0] * 61
+    f = add_price_features(p)
+    last = f.iloc[-1]
+    assert last["hi90"] == 100.0 and last["aclose"] == 105.0   # 還原後前 90 日最高 100 → 105 是新高
+    assert add_price_features(_panel(closes)).iloc[-1]["hi90"] == 200.0

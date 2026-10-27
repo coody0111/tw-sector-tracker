@@ -5749,3 +5749,26 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 
 ### 請 Debugger 驗證
 - [ ] （可選）用 DB 複本重算一兩個情境，數字對得上即可
+
+## [2026-10-27] 還原價（策略判斷、回測、出場用還原價；顯示原始價）
+
+### 改了什麼
+- 異動：recommend/data.py（event_factors、adj_multiplier、load_panel 加 adj；事件表路徑執行時才讀）、recommend/features.py（aopen／aclose、
+  hi90／rng20／ret20_prev 用還原價；adjusted()）、recommend/strategies/breakout.py（還原價比 hi90）、recommend/exits.py（path_columns；
+  停損／回落／報酬用還原價，entry／exit_price 回原始價）、recommend/backtest.py（run_trades、winner_episodes、blowup 用還原價）、
+  recommend/scorecard.py、recommend/cards.py（推薦後漲跌／失效／乖離／季線用還原價；signal_close_adj）、recommend/leaders.py、
+  recommend/market.py、export/recommend_generator.py（有除權息時推薦日收盤下加「除權息後 X」）、scrapers/twse_events.py（上櫃 exDailyQ）、
+  main.py（publish_recommend 先更新近 40 天事件）、tests/conftest.py（測試不讀真的事件表）、
+  tests/test_recommend_{data,features,exits,cards}.py、tests/test_twse_events.py、tests/test_main.py、規格 §13.16
+- 依據：規格 §11「報酬用還原價【決定】」；Cody 選「顯示原始價，除權息後停損價自動調」
+- 還原因子＝參考價 ÷ 事件前收盤（前收缺用事件日前一筆收盤）；事件當天不乘自己
+- 回測（目前事件表只有上市）：2,066 筆、+1.09R、PF 2.03（原始價 2,059、+1.07R、PF 2.01）；6669 09-01 7800 還原 2615、09-02 收 2610
+
+### 資料來源相關
+- 上櫃新增 bulletin/exDailyQ（第 3 欄前收、4 參考價、9 漲停、11 開始交易基準價）；`--repair-ex-rights` 會一併抓上櫃事件並修上櫃除權息日漲跌
+
+### 請 Debugger 驗證
+- [ ] 全套 pytest
+- [ ] DB 複本：先在複本跑 update_events（含上櫃）＋repair_event_changes，再回測：數字、必考題；上櫃除權息日漲跌是否變正確
+- [ ] 抽幾檔手算還原價（6669、2364 減資、8101、一檔上櫃除息）
+- [ ] run_daily 複本：卡片 signal_close_adj、頁面「除權息後 X」顯示正確

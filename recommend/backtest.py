@@ -2,7 +2,8 @@
 import numpy as np
 import pandas as pd
 
-from recommend.exits import FEE, TAX, simulate_trade
+from recommend.exits import FEE, TAX, path_columns, simulate_trade
+from recommend.features import adjusted
 
 CASES = [("6672", "2026-09-24"), ("6213", "2026-09-24")]   # §6 C2、C5 必考題
 WIN_GAIN, WIN_HORIZON, WIN_DEDUP = 1.0, 30, 40            # 飆股：30 日內 ≥ +100%，同股 40 日內只留一段
@@ -15,7 +16,7 @@ def run_trades(features: pd.DataFrame, signals: pd.DataFrame, exclude_dates=()) 
     excl = set(pd.to_datetime(list(exclude_dates)))
     sig = signals[~signals["date"].isin(excl)]
     paths = {sid: g.reset_index(drop=True) for sid, g in
-             features[["stock_id", "date", "open", "close", "one_word"]].groupby("stock_id", sort=False)}
+             features[path_columns(features)].groupby("stock_id", sort=False)}
     rows = []
     for s in sig.itertuples(index=False):
         path = paths.get(s.stock_id)
@@ -75,7 +76,8 @@ def winner_episodes(features: pd.DataFrame, start: str, end: str) -> pd.DataFram
     rows = []
     for sid, g in features.groupby("stock_id", sort=False):
         g = g.sort_values("date").reset_index(drop=True)
-        fwd = g["close"][::-1].rolling(WIN_HORIZON, min_periods=1).max()[::-1].shift(-1) / g["close"] - 1
+        c = adjusted(g)                                   # 還原價：除權息不算跌
+        fwd = c[::-1].rolling(WIN_HORIZON, min_periods=1).max()[::-1].shift(-1) / c - 1
         cand = g.index[(fwd >= WIN_GAIN) & g["date"].between(pd.Timestamp(start), pd.Timestamp(end))]
         taken = []
         for i in sorted(cand, key=lambda i: -fwd[i]):
@@ -104,10 +106,11 @@ def blowup_rate(signals: pd.DataFrame, features: pd.DataFrame, exclude_dates=())
     """訊號後隔天開盤進、第 20 個交易日收盤出（扣成本）≤ −15% 的比例。
     口徑跟 run_trades 一致：排除 exclude_dates 的訊號，隔天一字漲停買不到的不算。"""
     excl = set(pd.to_datetime(list(exclude_dates)))
-    f = features[["stock_id", "date", "open", "close", "one_word"]].sort_values(["stock_id", "date"]).reset_index(drop=True)
+    f = features[path_columns(features)].sort_values(["stock_id", "date"]).reset_index(drop=True)
+    f["_o"], f["_c"] = adjusted(f, "open"), adjusted(f)
     g = f.groupby("stock_id", sort=False)
-    entry = g["open"].shift(-1)
-    exit_ = g["close"].shift(-BLOWUP_DAYS)
+    entry = g["_o"].shift(-1)
+    exit_ = g["_c"].shift(-BLOWUP_DAYS)
     f["a20"] = exit_ * (1 - FEE - TAX) / (entry * (1 + FEE)) - 1
     f.loc[g["one_word"].shift(-1, fill_value=False).astype(bool), "a20"] = np.nan
     sig = signals[~signals["date"].isin(excl)]

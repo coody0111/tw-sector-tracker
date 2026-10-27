@@ -2,6 +2,7 @@
 import pandas as pd
 
 from recommend.exits import STOP
+from recommend.features import adjusted
 from recommend.ticks import limit_down_price
 
 FAIL_LOOKBACK = 10   # 近 10 個交易日的突破訊號
@@ -9,8 +10,8 @@ FAIL_MIN_N = 5       # 樣本少於 5 筆不算失敗率
 
 
 def market_header(features: pd.DataFrame, signals: pd.DataFrame, day: pd.Timestamp) -> dict:
-    f = features.sort_values(["stock_id", "date"])
-    ma20 = f.groupby("stock_id")["close"].transform(lambda s: s.rolling(20).mean())
+    f = features.sort_values(["stock_id", "date"]).assign(_ac=lambda x: adjusted(x), _ao=lambda x: adjusted(x, "open"))
+    ma20 = f.groupby("stock_id")["_ac"].transform(lambda s: s.rolling(20).mean())   # 還原價
     is_today = f["date"] == day
     today = f[is_today].assign(ma20=ma20[is_today])
     pool = today[today["liq"]]
@@ -18,7 +19,7 @@ def market_header(features: pd.DataFrame, signals: pd.DataFrame, day: pd.Timesta
     down = today["close"] <= ref.map(lambda r: limit_down_price(r) if r > 0 else -1) + 1e-6
     fail_rate, fail_n = _fail_rate(f, signals, day)
     return {
-        "above_ma20_pct": float((pool["close"] > pool["ma20"]).mean()) if len(pool) else None,
+        "above_ma20_pct": float((pool["_ac"] > pool["ma20"]).mean()) if len(pool) else None,
         "limit_up": int(today["limit_up"].sum()),
         "limit_down": int(down.sum()),
         "fail_rate": fail_rate,
@@ -35,8 +36,8 @@ def _fail_rate(f: pd.DataFrame, signals: pd.DataFrame, day: pd.Timestamp) -> tup
         p = f[(f["stock_id"] == s.stock_id) & (f["date"] > s.date) & (f["date"] <= day)]
         if p.empty:
             continue
-        entry = p["open"].iloc[0]
-        fails.append(bool((p["close"] <= entry * (1 - STOP)).any()))
+        entry = p["_ao"].iloc[0]
+        fails.append(bool((p["_ac"] <= entry * (1 - STOP)).any()))
     if len(fails) < FAIL_MIN_N:
         return None, len(fails)
     return sum(fails) / len(fails), len(fails)

@@ -591,6 +591,7 @@ def publish_recommend(push: bool = True, summary_path: str | None = None) -> dic
         ids = pd.read_csv(UNIVERSE_PATH, dtype=str, encoding="utf-8-sig")["stock_id"].tolist()
         _update_chips_db(date.today(), ids)
         _backfill_shareholder(weeks=2)
+        _refresh_twse_events(date.today() - timedelta(days=40))   # 新的除權息／減資事件 → 還原價（失敗只警告）
         day = latest_price_date()
         prev = json.loads(RECOMMEND_PAYLOAD_PATH.read_text(encoding="utf-8")) if RECOMMEND_PAYLOAD_PATH.exists() else None
         same_day = prev is not None and prev.get("trade_date") == day.isoformat()

@@ -4,7 +4,7 @@ from datetime import datetime
 import pandas as pd
 
 from recommend.backtest import _core
-from recommend.exits import simulate_trade
+from recommend.exits import path_columns, simulate_trade
 
 _DDL = """
 CREATE TABLE IF NOT EXISTS recommendations (
@@ -45,7 +45,7 @@ def refresh(con, features: pd.DataFrame) -> int:
     open_rows = con.execute("SELECT strategy, stock_id, signal_date FROM recommendations "
                             "WHERE exit_reason IS NULL OR exit_reason = '持有中'").df()
     paths = {sid: g.reset_index(drop=True) for sid, g in
-             features[["stock_id", "date", "open", "close", "one_word"]].sort_values("date").groupby("stock_id")}
+             features[path_columns(features)].sort_values("date").groupby("stock_id")}
     for r in open_rows.itertuples(index=False):
         path = paths.get(r.stock_id)
         if path is None:

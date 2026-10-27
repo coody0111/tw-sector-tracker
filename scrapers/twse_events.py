@@ -25,7 +25,7 @@ from pathlib import Path
 import pandas as pd
 
 from recommend.ticks import limit_up_price
-from scrapers.chips import _HEADERS_TWSE, _check_twse_response
+from scrapers.chips import _HEADERS_TPEX, _HEADERS_TWSE, TPExBlockedError, _check_twse_response
 
 logger = logging.getLogger(__name__)
 
@@ -87,11 +87,36 @@ def _half_years(start: date, end: date):
         d = stop + timedelta(days=1)
 
 
+# 上櫃除權除息計算結果表（2026-10-27 加，給還原價用）：欄位同上市 TWT49U 的前 5 欄；
+# 第 9 欄漲停價、第 11 欄開始交易基準價（漲停用）。日期「110/07/01」，半年一查（實測 2025 上半年 507 筆）。
+TPEX_EX_URL = "https://www.tpex.org.tw/www/zh-tw/bulletin/exDailyQ"
+TPEX_SRC, TPEX_I_LIMIT, TPEX_I_OPEN = "上櫃除權息", 9, 11
+
+
+def parse_tpex_events(data: dict) -> list:
+    if str(data.get("stat", "")).lower() != "ok" or not data.get("tables"):
+        return []
+    return parse_events({"stat": "OK", "data": data["tables"][0].get("data") or []}, TPEX_SRC, TPEX_I_LIMIT, TPEX_I_OPEN)
+
+
+def _fetch_tpex_events(a: date, b: date) -> list:
+    from scrapers.official_prices import _get_with_retry
+
+    resp = _get_with_retry(TPEX_EX_URL, {"startDate": a.strftime("%Y/%m/%d"), "endDate": b.strftime("%Y/%m/%d"),
+                                         "response": "json"}, _HEADERS_TPEX)
+    if resp.status_code != 200 or "json" not in resp.headers.get("Content-Type", "").lower():
+        raise TPExBlockedError(f"TPEx 除權息表疑似封鎖（status={resp.status_code}）")
+    return parse_tpex_events(resp.json())
+
+
 def fetch_events(start: date, end: date, sleep_sec: float = 4.0) -> list:
-    """start～end 三張表全抓；被擋或網路錯誤直接拋出（呼叫端決定要不要停）。"""
+    """start～end：上市三張表＋上櫃除權息表；被擋或網路錯誤直接拋出（呼叫端決定要不要停）。"""
     from scrapers.official_prices import _get_with_retry
 
     rows = []
+    for a, b in _half_years(start, end):
+        rows += _fetch_tpex_events(a, b)
+        time.sleep(sleep_sec)
     for path, src, i_limit, i_open in EVENT_SOURCES:
         for a, b in _half_years(start, end):
             resp = _get_with_retry(_URL.format(path=path), {"startDate": a.strftime("%Y%m%d"),

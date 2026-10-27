@@ -37,3 +37,16 @@ def test_group_by_sector_orders_by_count():
     cards = [{"meta_sector": "散熱"}, {"meta_sector": "銅箔基板"}, {"meta_sector": "銅箔基板"}]
     g = group_by_sector(cards)
     assert [(x["sector"], x["count"]) for x in g] == [("銅箔基板", 2), ("散熱", 1)]
+
+
+def test_card_uses_adjusted_since_and_shows_adjusted_signal_close():
+    """推薦後除息：原始價 110 → 100（除息 10），還原後沒跌 → 不失效；顯示推薦日收盤 110、除權息後 100（2026-10-27）。"""
+    f = _feat([100.0] * 70 + [110.0, 100.0])
+    f["adj"] = [100 / 110] * 71 + [1.0]
+    f["aclose"] = f["close"] * f["adj"]
+    sig_day, today = f["date"].iloc[-2], f["date"].iloc[-1]
+    c = build_cards(f, _sig("6672", sig_day), today)[0]
+    assert c["status"] == "有效" and c["signal_close"] == 110.0 and c["signal_close_adj"] == 100.0
+    assert c["since_signal_pct"] == 0.0
+    plain = build_cards(_feat([100.0] * 70 + [110.0, 100.0]), _sig("6672", sig_day), today)[0]
+    assert plain["status"] == "失效" and plain["signal_close_adj"] is None

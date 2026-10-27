@@ -13,8 +13,7 @@ def add_price_features(panel: pd.DataFrame) -> pd.DataFrame:
     df = panel.sort_values(["stock_id", "date"]).reset_index(drop=True).copy()
     g = df.groupby("stock_id", sort=False)
     # 參考價＝收盤 − 官方漲跌（官方漲跌以參考價為基準）。
-    # ⚠️ 上市除權息日官方不給漲跌，回補時用前一日收盤反推（scrapers/official_prices.py），這天的 ref 是前收、
-    # 不是除權息參考價 → 漲停可能漏判；上櫃有「次日參考價」已校正。要等階段 0-3 除權息資料才能補正。
+    # 漲停一律用原始價判斷（官方漲跌在 2026-10-26 已改成以事件參考價為基準，scrapers/official_prices.py）。
     ref = df["close"] - df["change"].fillna(0)
     limit = ref.map(lambda r: limit_up_price(r) if r > 0 else np.inf)
     seq = g.cumcount()
@@ -29,12 +28,18 @@ def add_price_features(panel: pd.DataFrame) -> pd.DataFrame:
     base = r20.groupby(df["stock_id"]).transform(lambda s: s.ffill().shift(1))
     df["vr"] = df["volume"] / base
 
-    prev_close = g["close"].shift(1)
-    df["hi90"] = g["close"].transform(lambda s: s.shift(1).rolling(90).max())
-    hi20 = g["close"].transform(lambda s: s.shift(1).rolling(20).max())
-    lo20 = g["close"].transform(lambda s: s.shift(1).rolling(20).min())
+    # 價格路徑用還原價（規格 §11；2026-10-27）：除權息那天的下跳不能算成跌破、區間或報酬。
+    # adj 由 recommend.data.load_panel 依事件表算；沒有（測試資料）就是原始價。顯示價格仍用原始價。
+    adj = df["adj"] if "adj" in df.columns else 1.0
+    df["aclose"] = df["close"] * adj
+    df["aopen"] = df["open"] * adj
+    ga = df.groupby("stock_id", sort=False)["aclose"]
+    prev_close = ga.shift(1)
+    df["hi90"] = ga.transform(lambda s: s.shift(1).rolling(90).max())
+    hi20 = ga.transform(lambda s: s.shift(1).rolling(20).max())
+    lo20 = ga.transform(lambda s: s.shift(1).rolling(20).min())
     df["rng20"] = hi20 / lo20 - 1
-    df["ret20_prev"] = prev_close / g["close"].shift(21) - 1
+    df["ret20_prev"] = prev_close / ga.shift(21) - 1
     turnover = df["volume"] * 1000 * df["close"]            # 張 × 1000 股 × 收盤
     df["liq"] = turnover.groupby(df["stock_id"]).transform(lambda s: s.shift(1).rolling(20).mean()) >= MIN_TURNOVER20
     return df
@@ -54,3 +59,9 @@ def add_chip_features(panel: pd.DataFrame) -> pd.DataFrame:
     for col in ("inst5", "fpct5", "big1w"):
         df[f"{col}_pr"] = df.groupby("date")[col].rank(pct=True)
     return df
+
+
+def adjusted(df: pd.DataFrame, col: str = "close") -> pd.Series:
+    """還原價欄（aclose／aopen）；還沒算 add_price_features 的資料（測試用）就回原始價。"""
+    a = "a" + col
+    return df[a] if a in df.columns else df[col]

@@ -58,7 +58,7 @@ def test_fetch_events_queries_three_tables_per_half_year():
     with patch("scrapers.official_prices._get_with_retry", return_value=resp) as get, \
          patch("scrapers.twse_events._check_twse_response"), patch("scrapers.twse_events.time.sleep"):
         rows = fetch_events(date(2021, 1, 1), date(2021, 12, 31))
-    assert get.call_count == 3 * 2
+    assert get.call_count == 3 * 2 + 2                      # 上市三張表＋上櫃除權息表，各兩個半年
     assert {r["src"] for r in rows} == {"除權息", "減資", "變更面額"}
     assert pd.DataFrame(rows)["stock_id"].eq("2364").all()
 
@@ -94,3 +94,14 @@ def test_fetch_outlier_bases_one_request_per_day_and_filters_stocks():
         rows = fetch_outlier_bases([("2024-11-19", "8101")])
     assert get.call_count == 1 and get.call_args[0][1]["date"] == "20241119"
     assert [(r["stock_id"], r["base"]) for r in rows] == [("8101", 9.5)]
+
+
+def test_parse_tpex_events_uses_reference_and_start_base():
+    """櫃買 bulletin/exDailyQ（8097 常珵 2021-07-01 現金增資除權：參考價 30.80、漲停 37.80 用開始交易基準價 34.40）。"""
+    from scrapers.twse_events import parse_tpex_events
+    row = ["110/07/01", "8097", "常珵", "34.40", "30.80", "3.599289", "0.000000", "3.599289", "除權", "37.80", "27.75",
+           "34.40", "34.40"]
+    out = parse_tpex_events({"stat": "ok", "tables": [{"data": [row]}]})
+    assert out == [{"stock_id": "8097", "date": "2021-07-01", "pre_close": 34.4, "ref": 30.8, "limit_up": 37.8,
+                    "open_base": 34.4, "base": 34.4, "src": "上櫃除權息"}]
+    assert parse_tpex_events({"stat": "error"}) == []

@@ -553,6 +553,7 @@ def _publish_env(monkeypatch, tmp_path, prev, waiting=(), sh_asof="2026-10-16", 
     calls = []
     monkeypatch.setattr(m, "_update_chips_db", lambda d, ids, warnings=None: calls.append("chips"))
     monkeypatch.setattr(m, "_backfill_shareholder", lambda weeks=4: calls.append("shareholder"))
+    monkeypatch.setattr(m, "_refresh_twse_events", lambda start: True)
     monkeypatch.setattr(m, "generate_recommend_html", lambda p: calls.append("html"))
     monkeypatch.setattr(m, "_push_html", lambda d: calls.append(("push", d.isoformat())) or True)
     monkeypatch.setattr(m, "_taiex_vs_ma20", lambda d: {"taiex_above_ma20": False, "taiex_ma20_gap": -0.039})

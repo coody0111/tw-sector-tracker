@@ -525,3 +525,13 @@ def test_first_publish_without_new_signal_still_sends_sector_summary(monkeypatch
            "leaders": {"sectors": [{"rank": 1, "sector": "銅箔基板", "n": 14, "ret21": 6.6, "status": "拉回中"}]}}
     sr.send_preopen_message({"recommend": rec, "first": True}, "https://x/")
     assert len(sent) == 1 and "今天沒有新訊號" in sent[0] and "1. 銅箔基板 +6.6% 拉回中" in sent[0]
+
+
+def test_first_publish_with_withdrawn_also_sends_withdraw_note(monkeypatch):
+    sent = []
+    monkeypatch.setattr(sr, "send_telegram_message", lambda text, **kw: sent.append(text) or True)
+    rec = {"trade_date": "2026-10-27", "header": {}, "active": [], "invalid": [],
+           "new": [{"sector": "PCB", "count": 1, "cards": [_card("4526")]}]}
+    sr.send_preopen_message({"recommend": rec, "first": True,
+                             "withdrawn": [{"stock_id": "1569", "stock_name": "濱川", "reason": "法人…"}]}, "https://x/")
+    assert len(sent) == 2 and sent[0].startswith("10/27 推薦\n") and "撤回 1 檔" in sent[1]

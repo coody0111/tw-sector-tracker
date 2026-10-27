@@ -623,15 +623,17 @@ def _run_and_publish(day: date, prev: dict | None, push: bool) -> dict:
     payload.update(_taiex_vs_ma20(day))
     added = sorted(_new_ids(payload) - _new_ids(prev)) if prev else []
     payload["update_added"] = added
+    # 前一版沒有 inputs_complete＝舊流程（收盤 15:00、籌碼晚一天）出的，Cody 沒看過完整版 → 當第一次發完整訊息（2026-10-27）
+    first = prev is None or not prev.get("inputs_complete")
     withdrawn = payload.get("withdrawn") or []
     RECOMMEND_PAYLOAD_PATH.parent.mkdir(parents=True, exist_ok=True)
     RECOMMEND_PAYLOAD_PATH.write_text(json.dumps(payload, ensure_ascii=False, default=str), encoding="utf-8")
     generate_recommend_html(payload)
     logger.info("個股推薦 %s 發布（%s）：新訊號 %d 檔、有效中 %d、失效 %d；比前一版多 %s、撤回 %s",
-                day, "第一次" if prev is None else "資料更新", sum(g["count"] for g in payload["new"]),
+                day, "第一次" if first else "資料更新", sum(g["count"] for g in payload["new"]),
                 len(payload["active"]), len(payload["invalid"]), added or "無", [w["stock_id"] for w in withdrawn] or "無")
     pushed = _push_html(day) if push else False
-    return {"mode": "publish", "updated": True, "first": prev is None, "added": added, "withdrawn": withdrawn,
+    return {"mode": "publish", "updated": True, "first": first, "added": added, "withdrawn": withdrawn,
             "waiting": [], "recommend": payload, "git_pushed": pushed}
 
 

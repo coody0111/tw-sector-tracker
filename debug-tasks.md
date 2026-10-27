@@ -5808,3 +5808,15 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 ### 請 Debugger 驗證
 - [ ] 全套 pytest
 - [ ] 10-27 複本 payload 產訊息：族群 5 行內容與推薦頁族群前 10 前 5 名一致；HTML 跳脫正常
+
+## [2026-10-27] 舊版推薦重算時當第一次發完整訊息
+
+### 改了什麼
+- 異動檔案：main.py（_run_and_publish：first＝prev 為 None 或 prev 沒有 inputs_complete）、scripts/run_scheduled.py（first 時若有 withdrawn 另發撤回訊息）、
+  tests/test_main.py、tests/test_scheduled_runner.py
+- 回應 bug-reports 2026-10-27 🟡（Cody 選「讓明早補發完整版」）：正式 payload 是 15:00 舊版 → 明早 08:00 重算 10/27 時發完整推薦＋族群摘要；
+  集保更新等同一訊號日重跑仍只發差異
+
+### 請 Debugger 驗證
+- [ ] 全套 pytest
+- [ ] 正式 payload 複本模擬明早：first=True、會發完整訊息（10/27 推薦、族群 5 行）

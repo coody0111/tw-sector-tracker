@@ -266,6 +266,10 @@ def send_preopen_message(summary: dict, site_url: str) -> None:
         return
     if summary.get("first"):
         send_recommend_message(summary, site_url)
+        if summary.get("withdrawn"):                       # 舊版推薦重算後撤回的，也要讓 Cody 知道
+            msg = compose_preopen_message(rec, [], summary["withdrawn"], site_url.rstrip("/") + "/recommend.html")
+            if msg:
+                send_telegram_message(msg, parse_mode="HTML")
         logger.info("推薦發布：%s 第一次發布，新訊號 %d 檔", rec.get("trade_date"), sum(g["count"] for g in rec.get("new") or []))
         return
     msg = compose_preopen_message(rec, summary.get("added") or [], summary.get("withdrawn") or [],

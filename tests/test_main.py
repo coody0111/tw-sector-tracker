@@ -603,17 +603,19 @@ def test_publish_skips_when_already_published_with_complete_inputs(monkeypatch, 
 
 
 def test_publish_reruns_old_close_version_and_reports_added_withdrawn(monkeypatch, tmp_path):
-    """舊版收盤推薦（沒有 inputs_complete，籌碼晚一天）或集保更新 → 同一訊號日重跑，比對新增／撤回。"""
+    """舊版收盤推薦（沒有 inputs_complete，籌碼晚一天）或集保更新 → 同一訊號日重跑，比對新增／撤回。
+    舊版 → first=True（Cody 沒看過完整版，發完整訊息，2026-10-27）；集保更新 → first=False（只發差異）。"""
     days, prev_cards = [], []
     withdrawn = [{"stock_id": "3537", "reason": "法人…"}]
     m, path, calls = _publish_env(monkeypatch, tmp_path, _prev_payload(inputs_complete=None))
     _fake_run_daily(monkeypatch, days, prev_cards, withdrawn=withdrawn)
     out = m.publish_recommend()
-    assert out["updated"] and not out["first"] and out["added"] == ["6672"] and out["withdrawn"] == withdrawn
+    assert out["updated"] and out["first"] and out["added"] == ["6672"] and out["withdrawn"] == withdrawn
     assert prev_cards == [[{"stock_id": "6213", "stock_name": "聯茂"}]]
     m2, _, _ = _publish_env(monkeypatch, tmp_path, _prev_payload(), sh_asof="2026-10-23")      # 集保更新
     _fake_run_daily(monkeypatch, days, prev_cards)
-    assert m2.publish_recommend()["updated"]
+    out2 = m2.publish_recommend()
+    assert out2["updated"] and not out2["first"]
 
 
 def test_fundamentals_fetched_once_per_day(monkeypatch, tmp_path):

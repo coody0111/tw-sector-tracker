@@ -68,3 +68,16 @@ def test_preopen_message_added_table_and_withdrawn_reasons():
     only = compose_preopen_message(p, [], w, "u")
     assert "<pre>" not in only and "撤回 1 檔" in only
     assert compose_preopen_message(p, [], [], "u") is None
+
+
+def test_message_lists_top5_sectors_and_handles_no_new_signal():
+    """2026-10-27 Cody：Telegram 推薦附近 21 天最強族群前 5；沒有新訊號也發（不放空表格）。"""
+    p = _payload(3)
+    p["leaders"] = {"sectors": [{"rank": i, "sector": f"族群{i}", "n": 7, "ret21": 10.0 - i, "status": "拉回中"}
+                                for i in range(1, 8)]}
+    msg = compose_recommend_message(p, taiex_above_ma20=None, site_url="u")
+    assert "近 21 天最強族群：" in msg and "1. 族群1 +9.0% 拉回中" in msg and "5. 族群5" in msg and "6. 族群6" not in msg
+    none = compose_recommend_message({**p, "new": []}, taiex_above_ma20=None, site_url="u")
+    assert "<pre>" not in none and "今天沒有新訊號" in none and "近 21 天最強族群" in none
+    upd = compose_recommend_message(p, taiex_above_ma20=None, site_url="u", label="資料更新", include_sectors=False)
+    assert "近 21 天最強族群" not in upd

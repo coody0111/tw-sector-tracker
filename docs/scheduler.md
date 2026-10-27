@@ -116,7 +116,7 @@ python main.py --publish-recommend --summary-json logs/latest_summary.json
 - D＝DB 最新行情日；`recommend.publish.missing_inputs(D)` 檢查：上市／上櫃三大法人、外資持股都有 D；
   D 是當週最後一個交易日（集保資料日）時，集保也要到 D
 - 還缺 → 不發布，等下次排程（週五的推薦通常週末集保公布後才出，最晚週一 08:00）
-- 第一次發布 D → 跑推薦、寫成績單、產 `docs/recommend.html`、推送，Telegram 發完整推薦表格（沒有新訊號就不發）
+- 第一次發布 D → 跑推薦、寫成績單、產 `docs/recommend.html`、推送，Telegram 發完整推薦表格＋近 21 天最強族群前 5（沒有新訊號也發，寫「今天沒有新訊號」；2026-10-27 Cody 要族群摘要）
 - D 已發布過但輸入變了（舊版沒有 `inputs_complete`、或集保更新）→ 同一訊號日重跑，Telegram 只發新增與**撤回**（附理由：哪條籌碼路線、
   現在數字、門檻），成績單標「撤回」不計成績（2026-10-26 Cody：「需要有撤回理由」）
 - D 已用完整資料發布過、沒有新資料 → 什麼都不做

@@ -5794,3 +5794,17 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 
 ### 請 Debugger 驗證
 - [ ] 全套 pytest；（可選）正式 DB 唯讀重跑回測數字
+
+## [2026-10-27] Telegram 推薦附近 21 天最強族群前 5
+
+### 改了什麼
+- 異動檔案：recommend/telegram_format.py（_sector_lines；compose_recommend_message 加 include_sectors、沒有新訊號時不放表格）、
+  scripts/run_scheduled.py（send_recommend_message：有新訊號或有族群排行就發）、docs/scheduler.md、
+  tests/test_recommend_telegram.py、tests/test_scheduled_runner.py
+- 依據：Cody 問「哪裡可以給出我族群摘要？」→ 選「推薦訊息加近 21 天最強族群」
+  - 第一次發布：表格（有新訊號時）＋「近 21 天最強族群：1. 銅箔基板 +6.6% 拉回中」前 5 行；沒有新訊號也發
+  - 資料更新訊息（新增／撤回）不附族群
+
+### 請 Debugger 驗證
+- [ ] 全套 pytest
+- [ ] 10-27 複本 payload 產訊息：族群 5 行內容與推薦頁族群前 10 前 5 名一致；HTML 跳脫正常

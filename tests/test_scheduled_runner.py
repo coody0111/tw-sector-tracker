@@ -516,3 +516,12 @@ def test_close_mode_no_longer_sends_recommend(monkeypatch, tmp_path):
     src = inspect.getsource(sr.main)
     close_branch = src[src.index("else:  # close"):]
     assert "send_recommend_message(" not in close_branch.split("except TelegramConfigError")[0]
+
+
+def test_first_publish_without_new_signal_still_sends_sector_summary(monkeypatch):
+    sent = []
+    monkeypatch.setattr(sr, "send_telegram_message", lambda text, **kw: sent.append(text) or True)
+    rec = {"trade_date": "2026-10-28", "header": {}, "active": [], "invalid": [], "new": [],
+           "leaders": {"sectors": [{"rank": 1, "sector": "銅箔基板", "n": 14, "ret21": 6.6, "status": "拉回中"}]}}
+    sr.send_preopen_message({"recommend": rec, "first": True}, "https://x/")
+    assert len(sent) == 1 and "今天沒有新訊號" in sent[0] and "1. 銅箔基板 +6.6% 拉回中" in sent[0]

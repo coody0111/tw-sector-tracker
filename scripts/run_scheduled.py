@@ -243,9 +243,9 @@ def compose_close_message(summary: dict, site_url: str) -> str:
 
 
 def send_recommend_message(summary: dict, site_url: str) -> None:
-    """收盤後的個股推薦表格（規格 E21）；沒有新訊號就不發。"""
+    """個股推薦表格（規格 E21）＋近 21 天最強族群前 5；新訊號和族群排行都沒有才不發（2026-10-27：沒有新訊號也要看族群摘要）。"""
     rec = summary.get("recommend")
-    if not rec or not rec.get("new"):
+    if not rec or not (rec.get("new") or (rec.get("leaders") or {}).get("sectors")):
         return
     url = site_url.rstrip("/") + "/recommend.html"
     try:

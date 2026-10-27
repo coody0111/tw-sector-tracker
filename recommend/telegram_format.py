@@ -37,8 +37,21 @@ def _title(d: str, label: str = "") -> str:
     return f"{d[5:7]}/{d[8:10]} 推薦" + (f" {label}" if label else "")
 
 
-def compose_recommend_message(payload: dict, taiex_above_ma20: bool | None, site_url: str, label: str = "") -> str:
-    """parse_mode=HTML：表格放 <pre>，所有內容都做 HTML 跳脫。label：空白（第一次發布）或「資料更新」。"""
+SECTOR_ROWS = 5
+
+
+def _sector_lines(payload: dict) -> list:
+    """近 21 天最強族群前 5（2026-10-27 Cody：Telegram 要有族群摘要）：「1. 銅箔基板 +6.6% 拉回中」。"""
+    sectors = ((payload.get("leaders") or {}).get("sectors") or [])[:SECTOR_ROWS]
+    if not sectors:
+        return []
+    return ["近 21 天最強族群："] + [f"{s['rank']}. {s['sector']} {s['ret21']:+.1f}% {s['status']}" for s in sectors]
+
+
+def compose_recommend_message(payload: dict, taiex_above_ma20: bool | None, site_url: str, label: str = "",
+                              include_sectors: bool = True) -> str:
+    """parse_mode=HTML：表格放 <pre>，所有內容都做 HTML 跳脫。label：空白（第一次發布）或「資料更新」。
+    沒有新訊號時不放表格、寫「今天沒有新訊號」；include_sectors 附近 21 天最強族群前 5（資料更新訊息不附）。"""
     d = payload["trade_date"]
     h = payload["header"]
     market = [f"MA20上 {_pct(h.get('above_ma20_pct'))}", f"失敗率 {_pct(h.get('fail_rate'))}"]
@@ -63,10 +76,12 @@ def compose_recommend_message(payload: dict, taiex_above_ma20: bool | None, site
     lines.append(rule)
     if total > shown:
         lines.append(f"另 {total - shown} 檔見頁面")
-    table = escape("\n".join(lines))
+    body = f"<pre>{escape(chr(10).join(lines))}</pre>" if total else escape("今天沒有新訊號")
     head = escape(f"{_title(d, label)}\n{'｜'.join(market)}")
+    sectors = _sector_lines(payload) if include_sectors else []
+    extra = escape("\n".join(sectors)) + "\n" if sectors else ""
     tail = escape(f"新 {total} 檔｜有效中 {len(payload['active'])} 檔｜失效 {len(payload['invalid'])} 檔\n{site_url}")
-    return f"{head}\n\n<pre>{table}</pre>\n{tail}"
+    return f"{head}\n\n{body}\n\n{extra}{tail}"
 
 
 def compose_preopen_message(payload: dict, added: list, withdrawn: list, site_url: str) -> str | None:
@@ -78,7 +93,8 @@ def compose_preopen_message(payload: dict, added: list, withdrawn: list, site_ur
     if added:
         groups = [{**g, "count": len(cs), "cards": cs} for g in payload.get("new") or []
                   if (cs := [c for c in g["cards"] if c["stock_id"] in added])]
-        msg = compose_recommend_message({**payload, "new": groups}, payload.get("taiex_above_ma20"), site_url, label)
+        msg = compose_recommend_message({**payload, "new": groups}, payload.get("taiex_above_ma20"), site_url, label,
+                                        include_sectors=False)
     else:
         d = payload["trade_date"]
         msg = escape(f"{_title(d, label)}\n{site_url}")

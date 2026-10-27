@@ -5674,3 +5674,18 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 
 ### 請 Debugger 驗證
 - [ ] 全套 pytest 通過；跑完後 debug 與 master 的 data/ 都沒有 fundamentals_last_update.txt
+
+## [2026-10-27] 流動性門檻改成前 20 日平均成交值 ≥ 1 億
+
+### 改了什麼
+- 異動檔案：recommend/features.py（MIN_VMA20 300 張 → MIN_TURNOVER20 1e8 元；liq＝(張×1000×收盤) 前 20 日均值，不含當天）、
+  export/recommend_generator.py（頁首說明、BACKTEST_REF 改 1 億後：勝率 26%、賺賠比 5.71、+1.07R、PF 2.01）、
+  tests/test_recommend_features.py、docs/superpowers/specs/…design.md（§3、§10.1、§13.14、A5）
+- 依據（§13.14，scratchpad bt_turnover.py）：Cody「應該是股價乘上張數變成成交值才對」；成交值 1 億以下的訊號整體虧損，
+  門檻 1～3 億 PF 1.96～2.01；1 億：2,059 筆、+1.07R（2025 +1.00／2026 +1.09）、PF 2.01、總 R 最高。Cody 交給我依回測定 → 1 億
+- 影響：突破策略訊號、近 21 天最強個股／族群池、頁首站上 MA20 比例都用新池
+
+### 請 Debugger 驗證
+- [ ] 全套 pytest
+- [ ] DB 複本 `--backtest-recommend`（或同等）：訊號／已出場約 2,059 筆、+1.07R、PF 2.01，必考題 6672、6213 仍命中
+- [ ] run_daily(10-27) 複本：新訊號、近 21 天前 20 合理；liq 用成交值（抽一檔手算）

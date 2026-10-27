@@ -4,7 +4,8 @@ import pandas as pd
 
 from recommend.ticks import limit_up_price
 
-MIN_VMA20 = 300        # 張；§3 排除低流動性
+MIN_TURNOVER20 = 1e8   # 元；§3 排除低流動性：前 20 日平均成交值 ≥ 1 億（13.14：原 300 張依股價差很多；
+                       # 1 億以下的訊號整體虧損，門檻 1～3 億 PF 都 1.96～2.01，2026-10-27 改）
 NEW_LISTING_DAYS = 5   # 新上市前 5 個交易日無漲跌幅限制，不判定漲停
 
 
@@ -34,7 +35,8 @@ def add_price_features(panel: pd.DataFrame) -> pd.DataFrame:
     lo20 = g["close"].transform(lambda s: s.shift(1).rolling(20).min())
     df["rng20"] = hi20 / lo20 - 1
     df["ret20_prev"] = prev_close / g["close"].shift(21) - 1
-    df["liq"] = g["volume"].transform(lambda s: s.shift(1).rolling(20).mean()) >= MIN_VMA20
+    turnover = df["volume"] * 1000 * df["close"]            # 張 × 1000 股 × 收盤
+    df["liq"] = turnover.groupby(df["stock_id"]).transform(lambda s: s.shift(1).rolling(20).mean()) >= MIN_TURNOVER20
     return df
 
 

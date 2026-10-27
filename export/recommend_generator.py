@@ -12,8 +12,8 @@ RISK = 0.01                      # 每筆風險＝總資金 1%（規格 §11）
 DEFAULT_CAPITAL = 1_000_000
 CAPITAL_KEY = "tw-recommend-capital-v1"
 STRATEGY = "突破策略"
-# 回測對照：官方行情＋除權息／減資漲跌修正後（2026-10-26 Cody 跑 --backtest-recommend，2025-01 起，已出場 2,392 筆）
-BACKTEST_REF = {"win_rate": 0.25, "payoff": 5.35, "mean_r": 0.86, "pf": 1.81}
+# 回測對照：流動性改成交值 ≥ 1 億後（規格 13.14，2025-01 起，已出場 2,059 筆；2026-10-27）
+BACKTEST_REF = {"win_rate": 0.26, "payoff": 5.71, "mean_r": 1.07, "pf": 2.01}
 ROUTE_LABELS = (("法人", "法人大買"), ("外資", "外資大增"), ("投信", "投信持續"), ("大戶", "大戶大增"))
 TYPE_LABELS = {"整理": ("整理型", "box"), "續攻": ("續攻型", "run")}
 
@@ -74,7 +74,7 @@ def _market(header: dict, taiex_above, taiex_gap) -> str:
     return (
         '<div class="market" aria-label="大盤資訊">'
         f'<div class="mcell"><label>股票池站上 MA20</label><strong class="num">{_ratio(h.get("above_ma20_pct"))}</strong>'
-        '<small>20 日均量 ≥ 300 張的股票</small></div>'
+        '<small>20 日均成交值 ≥ 1 億的股票</small></div>'
         f'<div class="mcell"><label>近 10 日突破失敗率</label>{fail_html}</div>'
         f'<div class="mcell"><label>加權指數</label>{taiex_html}</div>'
         f'<div class="mcell"><label>今日漲停／跌停</label><strong class="num"><span class="up">{h.get("limit_up", "—")}</span>'

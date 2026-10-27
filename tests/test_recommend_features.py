@@ -54,11 +54,14 @@ def test_high_range_and_prior_return_exclude_today():
     assert last["ret20_prev"] == closes[-2] / closes[-22] - 1
 
 
-def test_liquidity_threshold_300_lots():
-    f = add_price_features(_panel([100.0] * 21, volumes=[299] * 20 + [5000]))
+def test_liquidity_threshold_turnover_100m():
+    """前 20 日平均成交值 ≥ 1 億（不含當天）：100 元 × 1000 張 ＝ 1 億剛好過；同樣 1000 張、股價 10 元只有 1000 萬（13.14）。"""
+    f = add_price_features(_panel([100.0] * 21, volumes=[999] * 20 + [50000]))
     assert not f["liq"].iloc[-1]
-    f = add_price_features(_panel([100.0] * 21, volumes=[300] * 20 + [5000]))
+    f = add_price_features(_panel([100.0] * 21, volumes=[1000] * 20 + [1]))
     assert f["liq"].iloc[-1]
+    f = add_price_features(_panel([10.0] * 21, volumes=[1000] * 21))
+    assert not f["liq"].iloc[-1]
 
 
 def _chip_panel():

@@ -503,7 +503,7 @@ def test_first_publish_sends_full_recommend_table(monkeypatch):
     rec = {"trade_date": "2026-10-27", "header": {}, "active": [], "invalid": [], "taiex_above_ma20": False,
            "new": [{"sector": "PCB", "count": 1, "cards": [_card("4526")]}]}
     sr.send_preopen_message({"recommend": rec, "first": True, "added": [], "withdrawn": []}, "https://x/")
-    assert len(sent) == 1 and sent[0].startswith("個股推薦 10/27 收盤") and "4526" in sent[0]
+    assert len(sent) == 1 and sent[0].startswith("10/27 推薦\n") and "4526" in sent[0]
     sent.clear()
     sr.send_preopen_message({"recommend": {**rec, "new": []}, "first": True}, "https://x/")   # 沒有新訊號不發
     sr.send_preopen_message({"recommend": None, "waiting": ["上櫃外資持股"]}, "https://x/")   # 還在等資料不發

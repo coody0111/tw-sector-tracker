@@ -17,7 +17,7 @@ def _payload(n_new):
 
 def test_message_has_table_groups_and_escaping():
     msg = compose_recommend_message(_payload(3), taiex_above_ma20=True, site_url="https://x/recommend.html")
-    assert msg.startswith("個股推薦 10/22 收盤")
+    assert msg.startswith("10/22 推薦\n")
     assert "MA20上 61%｜失敗率 33%｜加權&gt;MA20｜漲停 18 跌停 3" in msg
     assert "<pre>" in msg and "[銅箔基板 2檔]" in msg and "[散熱 1檔]" in msg
     assert "乖離大" in msg and "名&lt;稱&gt;" in msg
@@ -55,7 +55,7 @@ def test_solo_alert_is_shortened_and_keeps_alignment():
 
 def test_label_for_preopen_update():
     msg = compose_recommend_message(_payload(3), taiex_above_ma20=None, site_url="u", label="資料更新")
-    assert msg.startswith("個股推薦 10/22 資料更新")
+    assert msg.startswith("10/22 推薦 資料更新")
 
 
 def test_preopen_message_added_table_and_withdrawn_reasons():
@@ -63,7 +63,7 @@ def test_preopen_message_added_table_and_withdrawn_reasons():
     p = _payload(3)
     w = [{"stock_id": "3537", "stock_name": "晶<相>光", "reason": "法人買超占股本排名前 12%（需前 10%）"}]
     msg = compose_preopen_message(p, ["1000"], w, "u")
-    assert msg.startswith("個股推薦 10/22 資料更新") and "[銅箔基板 1檔]" in msg and "1001" not in msg.split("</pre>")[0]
+    assert msg.startswith("10/22 推薦 資料更新") and "[銅箔基板 1檔]" in msg and "1001" not in msg.split("</pre>")[0]
     assert "撤回 1 檔" in msg and "晶&lt;相&gt;光：法人買超占股本排名前 12%（需前 10%）" in msg
     only = compose_preopen_message(p, [], w, "u")
     assert "<pre>" not in only and "撤回 1 檔" in only

@@ -5720,3 +5720,13 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 
 ### 請 Debugger 驗證
 - [ ] 全套 pytest
+
+## [2026-10-27] Telegram 推薦標題改「MM/DD 推薦」
+
+### 改了什麼
+- 異動檔案：recommend/telegram_format.py（_title：第一次發布「10/28 推薦」、重跑「10/28 推薦 資料更新」；label 預設空白）、
+  tests/test_recommend_telegram.py、tests/test_scheduled_runner.py
+- 依據：推薦改晚上資料到齊才發，標題不再寫「收盤」；Cody：「標題改一下 不用括弧那個」
+
+### 請 Debugger 驗證
+- [ ] 全套 pytest

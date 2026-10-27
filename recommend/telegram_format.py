@@ -32,8 +32,13 @@ def _card_row(c: dict) -> str:
                  (str(c["stock_name"]), 0, False)])
 
 
-def compose_recommend_message(payload: dict, taiex_above_ma20: bool | None, site_url: str, label: str = "收盤") -> str:
-    """parse_mode=HTML：表格放 <pre>，所有內容都做 HTML 跳脫。label：「收盤」或「集保更新」。"""
+def _title(d: str, label: str = "") -> str:
+    """「10/28 推薦」／「10/28 推薦 資料更新」（2026-10-27 Cody：推薦改晚上資料到齊才發，標題不再寫「收盤」）。"""
+    return f"{d[5:7]}/{d[8:10]} 推薦" + (f" {label}" if label else "")
+
+
+def compose_recommend_message(payload: dict, taiex_above_ma20: bool | None, site_url: str, label: str = "") -> str:
+    """parse_mode=HTML：表格放 <pre>，所有內容都做 HTML 跳脫。label：空白（第一次發布）或「資料更新」。"""
     d = payload["trade_date"]
     h = payload["header"]
     market = [f"MA20上 {_pct(h.get('above_ma20_pct'))}", f"失敗率 {_pct(h.get('fail_rate'))}"]
@@ -59,7 +64,7 @@ def compose_recommend_message(payload: dict, taiex_above_ma20: bool | None, site
     if total > shown:
         lines.append(f"另 {total - shown} 檔見頁面")
     table = escape("\n".join(lines))
-    head = escape(f"個股推薦 {d[5:7]}/{d[8:10]} {label}\n{'｜'.join(market)}")
+    head = escape(f"{_title(d, label)}\n{'｜'.join(market)}")
     tail = escape(f"新 {total} 檔｜有效中 {len(payload['active'])} 檔｜失效 {len(payload['invalid'])} 檔\n{site_url}")
     return f"{head}\n\n<pre>{table}</pre>\n{tail}"
 
@@ -76,7 +81,7 @@ def compose_preopen_message(payload: dict, added: list, withdrawn: list, site_ur
         msg = compose_recommend_message({**payload, "new": groups}, payload.get("taiex_above_ma20"), site_url, label)
     else:
         d = payload["trade_date"]
-        msg = escape(f"個股推薦 {d[5:7]}/{d[8:10]} {label}\n{site_url}")
+        msg = escape(f"{_title(d, label)}\n{site_url}")
     if withdrawn:
         lines = [f"撤回 {len(withdrawn)} 檔（資料更新後不再符合，開盤先不要買）："]
         lines += [f"{w['stock_id']} {w.get('stock_name') or ''}：{w['reason']}" for w in withdrawn]

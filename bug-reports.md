@@ -5384,3 +5384,31 @@ index.html 用 master 現有檔；Chrome headless 截 1440 與 375 頁首。
 ### 結論
 - [ ] 需要修改後再確認
 - [x] 可以繼續下一個任務（明早是否要發完整版請 Cody 決定）
+
+## [2026-10-27] 報告 - 舊版推薦重算時當第一次發完整訊息（082e771）
+
+測試方式：把正式的 `data/recommend_payload.json`（15:00 舊流程版，trade_date 10-27、無 inputs_complete、new＝1569、4526）複製到 scratchpad `wd1027/`
+（DB 複本已有 10-27 籌碼、上市＋上櫃事件），`_push_html` 換成會報錯、`_refresh_twse_events`／`_backfill_shareholder` 換成空函式，
+跑 `publish_recommend(push=False)`＋`run_scheduled.send_preopen_message`（Telegram 換成收集器）模擬明早 08:00。
+
+### 🔴 數據問題（需立刻修）
+- 無
+
+### 🔴 程式問題（需立刻修）
+- 無
+
+### 🟡 建議改善
+- 無
+
+### ✅ 驗證通過
+- 明早情境：`updated=True、first=True`、added／withdrawn 都空、payload `inputs_complete=True`；log「個股推薦 2026-10-27 發布（第一次）」。
+- **會發 1 則完整訊息**：標題「10/27 推薦」、大盤列、新訊號表格（4526 東台、1569 濱川，條數 3，用完整籌碼後比 15:00 版多 1 條）、
+  「近 21 天最強族群」5 行（軟體/雲端 +15.1% 上攻中、銅箔基板 +11.4% 拉回中、軟板/FPC +9.2% 拉回中、PCB +6.5% 上攻中、面板 +5.2% 整理中，
+  都是新門檻：成交值 1 億、族群 ≥ 5 檔，「電信」已不在）、推薦頁連結。沒有撤回所以沒有第二則。
+- 再跑一次：「已用完整資料發布過、沒有新資料，跳過」，不重發。
+- push=False 沒有呼叫 push。first 時有撤回會另發撤回訊息（單元測試涵蓋）。
+- 全套 `pytest -q`：895 passed。
+
+### 結論
+- [ ] 需要修改後再確認
+- [x] 可以繼續下一個任務（明早 08:00 會補發 10/27 完整版）

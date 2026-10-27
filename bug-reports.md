@@ -5126,3 +5126,43 @@ index.html 用 master 現有檔；Chrome headless 截 1440 與 375 頁首。
 ### 結論
 - [ ] 需要修改後再確認
 - [x] 可以繼續下一個任務
+
+## [2026-10-27] 報告 - 推薦改成「訊號日資料到齊才發布」（時間對齊回測）（15d86d9）
+
+測試方式：20:27 從正式 DB 複製的 scratchpad `wd1027/`（10-27 收盤後、籌碼還沒補），放入正式的 15:00 版 `recommend_payload.json`，
+`_push_html` 換成會報錯的函式，`publish_recommend(push=False)` 實際打 TWSE／TPEx／TDCC 補籌碼（只寫進複本）。
+註：今晚 20:00 的排程已經用舊碼跑過（log「集保沒有比收盤版新…推薦不變」），新碼 21:09 才 commit，**第一次真正用新流程是明早 08:00**。
+
+### 🔴 數據問題（需立刻修）
+- 無
+
+### 🔴 程式問題（需立刻修）
+- 問題：**全套 pytest 1 個失敗（master 一樣）**
+  重現方式：`python -m pytest -q` → 1 failed, 882 passed
+  說明：`tests/test_recommend_page.py::test_main_generates_and_pushes_recommend_page` 還在檢查 `run()` 原始碼裡有
+  `generate_recommend_html(recommend_payload)`，這次收盤不再產推薦頁，測試要改成檢查 `_run_and_publish` 會產頁、`_push_html` 仍會帶上 recommend.html。
+
+### 🟡 建議改善
+- **週五的推薦如果集保拖到下週一收盤後才公布，會整天跳過**：週五 D 要等集保；週一 15:00 收盤寫進週一行情後，最新行情日變成週一，
+  `publish_recommend` 只看最新行情日，週五那份就永遠不會發。實務上集保週六就有、週六／日 20:00 與週一 08:00 都會試，機率很低；
+  要保險可以在週一 08:00 那次若集保仍沒到就先用上週集保發布、標「集保未到」。
+- 第一次發布的 Telegram 標題仍是「個股推薦 10/27 **收盤**」（沿用收盤 label），實際是 20:00／08:00 發的；可考慮改「資料到齊」或拿掉。
+- 2026 春節週：集保資料日是 02-13（非交易日），週最後交易日是 02-11。規則用「DB 集保最新日 ≥ D」所以不會卡住；
+  但 `run_daily` 用 ≤ D 的集保（02-06），跟回測一致，記錄一下。其他 44 週集保日都＝週最後交易日（用正式行事曆核對；
+  debug 資料夾沒有 data/trading_calendar.csv，會把 07-10 誤判成交易日，只是我這邊驗證環境的差異）。
+
+### ✅ 驗證通過
+- `missing_inputs(2026-10-27)`：補籌碼前＝上市三大法人、上櫃三大法人、上市外資持股、上櫃外資持股（15:00 還沒公布，跟 Developer 說的一致）；
+  `publish_recommend` 內 `_update_chips_db` 補進 10-27 後＝空；10-27 是週二，不需要集保。
+- 今晚情境（prev＝15:00 版，沒有 inputs_complete）：重跑 10-27 → `updated=True、first=False`，新訊號仍是 4526 東台、1569 濱川，
+  **用完整籌碼後 added、withdrawn 都是空**（條數從 2 變 3，結果不變）；payload `inputs_complete=True`、加權 vs MA20 自己抓（低於 MA20 3.9%）；
+  因為沒有新增／撤回，Telegram **不發**。
+- 再跑一次：「已用完整資料發布過、沒有新資料，跳過」，不發、不 push。
+- 第一次發布情境（沒有 payload）：`first=True` → 發完整推薦表格（2 檔、表格對齊、連結到推薦頁）。
+- push=False 全程沒有呼叫 `_push_html`。
+- 收盤流程：`run()` 已不呼叫 `run_daily`、不產 recommend.html、run_scheduled 收盤不發推薦（grep 確認；只剩 `_push_html` 會順帶 push 既有的 recommend.html）。
+- 其餘 882 個測試通過。
+
+### 結論
+- [x] 需要修改後再確認（1 個測試）
+- [ ] 可以繼續下一個任務

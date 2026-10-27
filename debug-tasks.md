@@ -5730,3 +5730,13 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 
 ### 請 Debugger 驗證
 - [ ] 全套 pytest
+
+## [2026-10-27] 族群前 10 至少 5 檔才排
+
+### 改了什麼
+- 異動檔案：recommend/leaders.py（MIN_MEMBERS 3 → 5）、tests/test_recommend_leaders.py、docs/superpowers/specs/…design.md §10.1
+- 依據：你上份報告 🟡（成交值 1 億池變小，族群前 10 出現只有 3 檔的電信、電腦周邊）；Cody 選 5
+
+### 請 Debugger 驗證
+- [ ] 全套 pytest
+- [ ] 10-27 複本：族群前 10 每個族群 n ≥ 5

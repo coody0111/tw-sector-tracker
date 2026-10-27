@@ -37,7 +37,8 @@ def test_stock_leaders_rank_and_status():
     assert out["stocks"][0]["rank"] == 1
 
 
-def test_sector_needs_three_members_and_clips_fake_jumps():
+def test_sector_needs_min_members_and_clips_fake_jumps(monkeypatch):
+    monkeypatch.setattr("recommend.leaders.MIN_MEMBERS", 3)          # 測試資料族群只有 3 檔
     f, d = _panel()
     out = leaders(f, d[-1])
     assert [s["sector"] for s in out["sectors"]] == ["銅箔基板"]        # 冷門只有 1 檔
@@ -53,10 +54,18 @@ def test_not_enough_history_returns_empty():
     assert leaders(f, d[10]) == {"stocks": [], "sectors": []}
 
 
-def test_sector_members_ranked_by_21d_return():
+def test_sector_members_ranked_by_21d_return(monkeypatch):
     """推薦頁點族群展開成員排行（2026-10-27 Cody）。"""
+    monkeypatch.setattr("recommend.leaders.MIN_MEMBERS", 3)
     f, d = _panel()
     sec = leaders(f, d[-1])["sectors"][0]
     assert [m["stock_id"] for m in sec["members"]] == ["B", "A", "C"]
     assert sec["members"][0]["rank"] == 1 and sec["members"][2]["status"] == "拉回中"
     assert set(sec["members"][0]) == {"rank", "stock_id", "stock_name", "ret21", "from_high", "rng5", "status"}
+
+
+def test_default_requires_five_members():
+    """2026-10-27 Cody：族群至少 5 檔才排（成交值 1 億池變小，3 檔族群易被單一股票拉動）。"""
+    from recommend.leaders import MIN_MEMBERS
+    f, d = _panel()                                                     # 銅箔基板只有 3 檔
+    assert MIN_MEMBERS == 5 and leaders(f, d[-1])["sectors"] == []

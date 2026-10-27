@@ -5,7 +5,7 @@ import pandas as pd
 
 WINDOW = 21                 # 近 21 個交易日
 TOP_STOCKS, TOP_SECTORS = 20, 10
-MIN_MEMBERS = 3             # 族群至少 3 檔有流動性的成員才排
+MIN_MEMBERS = 5             # 族群至少 5 檔有流動性的成員才排（2026-10-27 Cody：成交值 1 億池變小，3 檔族群易被單一股票拉動）
 DAILY_CLIP = 0.11           # 族群指數單日報酬上限：擋掉上市除權／減資日的假漲跌（bug-reports 2026-10-26 🟡1）
 STOCK_RULE = {"rng5": 0.08, "pullback": -0.10}    # 整理中：5 日區間 ≤ 8%、量縮；拉回中：離高點 ≤ −10%
 SECTOR_RULE = {"rng5": 0.05, "pullback": -0.08}   # 族群：5 日區間 ≤ 5%；拉回中：離高點 ≤ −8%

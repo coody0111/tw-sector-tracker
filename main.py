@@ -561,54 +561,51 @@ def _update_fundamentals() -> None:
 RECOMMEND_PAYLOAD_PATH = Path("data/recommend_payload.json")
 
 
-def _update_recommend(realtime: bool, trade_date: date, warnings: list | None = None) -> dict | None:
-    """收盤後跑個股推薦（規格 §10）：策略訊號、成績單、payload（存 data/recommend_payload.json 給推薦頁）。
-    盤中不跑；失敗只記 warning，不擋其他流程。"""
-    if realtime:
-        return None
+def _taiex_vs_ma20(day: date) -> dict:
+    """推薦頁頁首的加權指數 vs MA20（收盤流程不再跑推薦，這裡自己抓；失敗就留空）。"""
     try:
-        from recommend.daily import run_daily
-        payload = run_daily(day=trade_date)
-        RECOMMEND_PAYLOAD_PATH.parent.mkdir(parents=True, exist_ok=True)
-        RECOMMEND_PAYLOAD_PATH.write_text(json.dumps(payload, ensure_ascii=False, default=str), encoding="utf-8")
-        logger.info("個股推薦：新訊號 %d 檔，有效中 %d、失效 %d",
-                    sum(g["count"] for g in payload["new"]), len(payload["active"]), len(payload["invalid"]))
-        return payload
+        hist = [r for r in fetch_taiex_history(day, months=2) if str(r["date"])[:10] <= day.isoformat()]
+        if len(hist) < 20:
+            return {}
+        closes = [r["close"] for r in hist[-20:]]
+        ma20 = sum(closes) / 20
+        return {"taiex_above_ma20": closes[-1] > ma20, "taiex_ma20_gap": closes[-1] / ma20 - 1}
     except Exception as exc:
-        logger.warning("個股推薦產生失敗（不影響其他產出）：%s", exc)
-        if warnings is not None:
-            warnings.append("個股推薦產生失敗")
-        return None
+        logger.warning("推薦頁加權指數 MA20 抓取失敗（頁首顯示 —）：%s", exc)
+        return {}
 
 
-def _shareholder_latest_date() -> str | None:
-    import duckdb
-    con = duckdb.connect("data/screener.db", read_only=True)
+def publish_recommend(push: bool = True, summary_path: str | None = None) -> dict:
+    """個股推薦發布（2026-10-27 Cody：「時間一定要對齊」）：收盤 15:00 當天籌碼還沒公布，回測卻用當天籌碼，
+    所以推薦不在收盤出；排程每天 20:00＋平日 08:00 跑這裡：補籌碼、補集保，訊號日 D（最新行情日）的資料
+    到齊（recommend.publish.missing_inputs 為空）才跑推薦、寫成績單、產頁面、push。
+    - 第一次發布 D → first=True（排程發完整推薦訊息）
+    - D 已發布過、但輸入變了（舊版收盤推薦沒有 inputs_complete，或集保更新）→ 重跑，added／withdrawn 給排程發更新
+    - D 已用完整資料發布過、沒有新資料 → 什麼都不做
+    回傳（也寫進 summary_path）{"mode", "updated", "first", "added", "withdrawn", "waiting", "recommend"}。"""
+    from config import is_trading_day
+    from recommend.publish import latest_price_date, missing_inputs, shareholder_asof
+    out = {"mode": "publish", "updated": False, "first": False, "added": [], "withdrawn": [], "waiting": [],
+           "recommend": None}
     try:
-        d = con.execute("SELECT max(date) FROM shareholder").fetchone()[0]
-    finally:
-        con.close()
-    return None if d is None else pd.Timestamp(d).date().isoformat()
-
-
-def preopen_recommend(push: bool = True, summary_path: str | None = None) -> dict:
-    """集保更新推薦（排程每天 20:00＋平日 08:00；規格 §3 大戶路線）：集保資料日 D 的資料 D+1 才公布，收盤版拿不到；
-    這裡先補集保，若比收盤版用的集保新，就用同一個訊號日重跑推薦、重產推薦頁並 push。
-    回傳（也寫進 summary_path）{"mode", "updated", "added", "recommend"}；added＝比收盤版多出來的新訊號股號。"""
-    prev = json.loads(RECOMMEND_PAYLOAD_PATH.read_text(encoding="utf-8")) if RECOMMEND_PAYLOAD_PATH.exists() else None
-    out = {"mode": "preopen", "updated": False, "added": [], "recommend": None}
-    if prev is None:
-        logger.warning("集保更新：找不到收盤版推薦（%s），跳過", RECOMMEND_PAYLOAD_PATH)
-    else:
+        ids = pd.read_csv(UNIVERSE_PATH, dtype=str, encoding="utf-8-sig")["stock_id"].tolist()
+        _update_chips_db(date.today(), ids)
         _backfill_shareholder(weeks=2)
-        latest, used = _shareholder_latest_date(), prev.get("shareholder_date")
-        if latest is None or (used is not None and latest <= used):
-            logger.info("集保更新：集保沒有比收盤版新（DB %s／收盤版 %s），推薦不變", latest, used)
+        day = latest_price_date()
+        prev = json.loads(RECOMMEND_PAYLOAD_PATH.read_text(encoding="utf-8")) if RECOMMEND_PAYLOAD_PATH.exists() else None
+        same_day = prev is not None and prev.get("trade_date") == day.isoformat()
+        waiting = missing_inputs(day, is_trading_day)
+        if waiting:
+            logger.info("個股推薦 %s 還在等資料：%s（下次排程再試）", day, "、".join(waiting))
+            out["waiting"] = waiting
+        elif same_day and prev.get("inputs_complete") and prev.get("shareholder_date") == shareholder_asof(day):
+            logger.info("個股推薦 %s 已用完整資料發布過、沒有新資料，跳過", day)
         else:
-            out = _rerun_recommend(prev, push)
-    if summary_path:
-        Path(summary_path).parent.mkdir(parents=True, exist_ok=True)
-        Path(summary_path).write_text(json.dumps(out, ensure_ascii=False, default=str), encoding="utf-8")
+            out = _run_and_publish(day, prev if same_day else None, push)
+    finally:
+        if summary_path:
+            Path(summary_path).parent.mkdir(parents=True, exist_ok=True)
+            Path(summary_path).write_text(json.dumps(out, ensure_ascii=False, default=str), encoding="utf-8")
     return out
 
 
@@ -616,21 +613,25 @@ def _new_ids(payload: dict) -> set:
     return {c["stock_id"] for g in payload.get("new") or [] for c in g["cards"]}
 
 
-def _rerun_recommend(prev: dict, push: bool) -> dict:
+def _run_and_publish(day: date, prev: dict | None, push: bool) -> dict:
+    """prev＝同一訊號日先前發布的版本（沒有就是第一次發布）。"""
     from recommend.daily import run_daily
-    payload = run_daily(day=prev["trade_date"], prev_new=[c for g in prev.get("new") or [] for c in g["cards"]])
-    for k in ("taiex_above_ma20", "taiex_ma20_gap"):
-        payload[k] = prev.get(k)
-    added = sorted(_new_ids(payload) - _new_ids(prev))
-    payload["preopen_added"] = added
+    prev_new = [c for g in prev.get("new") or [] for c in g["cards"]] if prev else None
+    payload = run_daily(day=day.isoformat(), prev_new=prev_new)
+    payload["inputs_complete"] = True
+    payload.update(_taiex_vs_ma20(day))
+    added = sorted(_new_ids(payload) - _new_ids(prev)) if prev else []
+    payload["update_added"] = added
     withdrawn = payload.get("withdrawn") or []
+    RECOMMEND_PAYLOAD_PATH.parent.mkdir(parents=True, exist_ok=True)
     RECOMMEND_PAYLOAD_PATH.write_text(json.dumps(payload, ensure_ascii=False, default=str), encoding="utf-8")
     generate_recommend_html(payload)
-    logger.info("集保更新：集保 %s，新訊號 %d 檔（比收盤版多 %s、撤回 %s）", payload.get("shareholder_date"),
-                sum(g["count"] for g in payload["new"]), added or "無", [w["stock_id"] for w in withdrawn] or "無")
-    pushed = _push_html(date.fromisoformat(prev["trade_date"])) if push else False
-    return {"mode": "preopen", "updated": True, "added": added, "withdrawn": withdrawn, "recommend": payload,
-            "git_pushed": pushed}
+    logger.info("個股推薦 %s 發布（%s）：新訊號 %d 檔、有效中 %d、失效 %d；比前一版多 %s、撤回 %s",
+                day, "第一次" if prev is None else "資料更新", sum(g["count"] for g in payload["new"]),
+                len(payload["active"]), len(payload["invalid"]), added or "無", [w["stock_id"] for w in withdrawn] or "無")
+    pushed = _push_html(day) if push else False
+    return {"mode": "publish", "updated": True, "first": prev is None, "added": added, "withdrawn": withdrawn,
+            "waiting": [], "recommend": payload, "git_pushed": pushed}
 
 
 FUNDAMENTALS_STAMP_PATH = Path("data/fundamentals_last_update.txt")
@@ -1020,8 +1021,8 @@ def run(trade_date: date = None, realtime: bool = False, push: bool = True, summ
     # 6.3 官方基本面（月營收/季報）：bulk API成本低，收盤模式每天跑一次。
     _update_fundamentals_db(realtime, warnings=_run_warnings)
 
-    # 6.4 個股推薦（收盤模式）：籌碼已寫入 DB 才跑；失敗只記 warning
-    recommend_payload = _update_recommend(realtime, trade_date, warnings=_run_warnings)
+    # 6.4 個股推薦不在這裡跑（2026-10-27 Cody：「時間一定要對齊」）：收盤時當天籌碼還沒公布，
+    #     改由排程 20:00＋平日 08:00 的 publish_recommend() 在資料到齊後發布。
 
     # 6.5 行情連續性體檢：daily_prices 缺交易日時，所有「近N日」指標都會跨過那些洞、
     # 算出偏大的漲跌幅（2026-08-28 金居 8358 顯示「5日 +100%」實為近一個月）。
@@ -1060,11 +1061,6 @@ def run(trade_date: date = None, realtime: bool = False, push: bool = True, summ
             taiex_history = fetch_taiex_history(trade_date, months=4)
             market_context = analyze_market_history(pd.DataFrame(taiex_history), as_of=trade_date)
             taiex = taiex_history[-1] if taiex_history else None
-            if recommend_payload is not None and len(taiex_history) >= 20:
-                closes = [r["close"] for r in taiex_history[-20:]]
-                ma20 = sum(closes) / 20
-                recommend_payload["taiex_above_ma20"] = closes[-1] > ma20
-                recommend_payload["taiex_ma20_gap"] = closes[-1] / ma20 - 1
             # 順手更新官方交易日行事曆（同一份 FMTQIK，不多打 API）
             try:
                 from scrapers.trading_calendar import merge_trading_days
@@ -1247,14 +1243,6 @@ def run(trade_date: date = None, realtime: bool = False, push: bool = True, summ
                 logger.warning("自選股頁產生失敗: %s", exc)
         else:
             logger.warning("universe_df 未載入（data/stock_universe.csv 不存在），本次不產生 docs/index.html")
-
-        # 個股推薦頁只在收盤跑（_update_recommend 盤中回 None），盤中保留上一次收盤版
-        if recommend_payload is not None:
-            try:
-                generate_recommend_html(recommend_payload)
-                logger.info("HTML generated → docs/recommend.html")
-            except Exception as exc:
-                logger.warning("個股推薦頁產生失敗: %s", exc)
 
         try:
             inst_results = scan_institutional(trade_date.isoformat(), lookback=40)
@@ -1507,8 +1495,8 @@ if __name__ == "__main__":
     parser.add_argument("--backfill-official", type=str, default=None, metavar="YYYY-MM-DD",
                         help="從指定日期起逐日抓官方全市場行情（上市 TWSE MI_INDEX＋上櫃 TPEx 每日收盤），"
                              "實際成交價；會先備份 CSV、逐日覆寫，被擋就停，重跑會從沒做完的日子接著做")
-    parser.add_argument("--preopen-recommend", action="store_true",
-                        help="集保更新個股推薦：補集保，比收盤版新就用同一訊號日重跑、重產推薦頁並 push（排程每天 20:00＋平日 08:00）")
+    parser.add_argument("--publish-recommend", action="store_true",
+                        help="發布個股推薦：補籌碼／集保，最新行情日的資料到齊才跑推薦、產推薦頁並 push（排程每天 20:00＋平日 08:00）")
     parser.add_argument("--repair-ex-rights", action="store_true",
                         help="一次性修復：上市除權息／減資／變更面額日的漲跌改用官方參考價算（先備份 CSV，修完重新匯入）")
     parser.add_argument("--update-calendar", type=str, default=None, metavar="YYYY-MM",
@@ -1620,7 +1608,7 @@ if __name__ == "__main__":
         logger.info("=== reimport 完成：%d 筆 ===", n)
     elif args.full_rebuild:
         _full_rebuild(months=args.months, workers=args.workers)
-    elif args.preopen_recommend:
-        preopen_recommend(push=not args.no_push, summary_path=args.summary_json)
+    elif args.publish_recommend:
+        publish_recommend(push=not args.no_push, summary_path=args.summary_json)
     else:
         run(realtime=args.realtime, push=not args.no_push, summary_path=args.summary_json)

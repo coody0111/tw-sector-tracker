@@ -511,19 +511,10 @@ def test_build_run_summary_includes_recommend_only_in_close_mode():
     assert "recommend" not in _build_run_summary(realtime=True, recommend=rec, **common)
 
 
-def test_run_calls_recommend_daily_in_close_mode():
+def test_close_run_does_not_publish_recommend():
+    """收盤 15:00 當天籌碼還沒公布 → 推薦改由 publish_recommend 在資料到齊後發布（2026-10-27 Cody：時間一定要對齊）。"""
     source = inspect.getsource(run)
-    assert "_update_recommend(" in source
-
-
-def test_update_recommend_skips_realtime_and_swallows_errors(monkeypatch):
-    import main as m
-    assert m._update_recommend(True, date(2026, 10, 22)) is None
-    import recommend.daily as rd
-    monkeypatch.setattr(rd, "run_daily", lambda day=None: (_ for _ in ()).throw(RuntimeError("壞了")))
-    warnings = []
-    assert m._update_recommend(False, date(2026, 10, 22), warnings=warnings) is None
-    assert warnings == ["個股推薦產生失敗"]
+    assert "run_daily(" not in source and "generate_recommend_html(" not in source
 
 
 def test_repair_ex_rights_cli_skips_when_events_unavailable_and_reimports_after_repair(monkeypatch):
@@ -552,55 +543,76 @@ def test_backfill_official_cli_passes_event_refs():
     assert "_refresh_twse_events(start)" in src and "event_refs=load_event_refs()" in src
 
 
-def _preopen_env(monkeypatch, tmp_path, prev, latest):
+def _publish_env(monkeypatch, tmp_path, prev, waiting=(), sh_asof="2026-10-16", day="2026-10-23"):
+    import recommend.publish as pub
     import main as m
     path = tmp_path / "recommend_payload.json"
     if prev is not None:
         path.write_text(json.dumps(prev, ensure_ascii=False), encoding="utf-8")
     monkeypatch.setattr(m, "RECOMMEND_PAYLOAD_PATH", path)
     calls = []
+    monkeypatch.setattr(m, "_update_chips_db", lambda d, ids, warnings=None: calls.append("chips"))
     monkeypatch.setattr(m, "_backfill_shareholder", lambda weeks=4: calls.append("shareholder"))
-    monkeypatch.setattr(m, "_shareholder_latest_date", lambda: latest)
     monkeypatch.setattr(m, "generate_recommend_html", lambda p: calls.append("html"))
     monkeypatch.setattr(m, "_push_html", lambda d: calls.append(("push", d.isoformat())) or True)
+    monkeypatch.setattr(m, "_taiex_vs_ma20", lambda d: {"taiex_above_ma20": False, "taiex_ma20_gap": -0.039})
+    monkeypatch.setattr(pub, "latest_price_date", lambda: date.fromisoformat(day))
+    monkeypatch.setattr(pub, "missing_inputs", lambda d, f: list(waiting))
+    monkeypatch.setattr(pub, "shareholder_asof", lambda d: sh_asof)
     return m, path, calls
 
 
-def _prev_payload():
+def _prev_payload(**kw):
     card = {"stock_id": "6213", "stock_name": "聯茂"}
-    return {"trade_date": "2026-10-23", "shareholder_date": "2026-10-16", "taiex_above_ma20": True,
-            "taiex_ma20_gap": 0.02, "new": [{"sector": "銅箔基板", "count": 1, "cards": [card]}]}
+    return {"trade_date": "2026-10-23", "shareholder_date": "2026-10-16", "inputs_complete": True,
+            "new": [{"sector": "銅箔基板", "count": 1, "cards": [card]}], **kw}
 
 
-def test_preopen_skips_when_shareholder_not_newer(monkeypatch, tmp_path):
-    m, path, calls = _preopen_env(monkeypatch, tmp_path, _prev_payload(), "2026-10-16")
-    out = m.preopen_recommend(summary_path=str(tmp_path / "s.json"))
-    assert out["updated"] is False and calls == ["shareholder"]
-    assert json.loads((tmp_path / "s.json").read_text(encoding="utf-8"))["mode"] == "preopen"
-
-
-def test_preopen_reruns_same_signal_day_and_reports_added(monkeypatch, tmp_path):
+def _fake_run_daily(monkeypatch, days, prev_cards, new_ids=("6213", "6672"), withdrawn=()):
     import recommend.daily as rd
-    m, path, calls = _preopen_env(monkeypatch, tmp_path, _prev_payload(), "2026-10-23")
-    days = []
-    new = {"trade_date": "2026-10-23", "shareholder_date": "2026-10-23", "header": {}, "active": [], "invalid": [],
-           "new": [{"sector": "銅箔基板", "count": 2, "cards": [{"stock_id": "6213"}, {"stock_id": "6672"}]}]}
-    prev_cards = []
-    withdrawn = [{"stock_id": "3537", "reason": "法人…"}]
+    payload = {"trade_date": "2026-10-23", "shareholder_date": "2026-10-16", "header": {}, "active": [], "invalid": [],
+               "new": [{"sector": "銅箔基板", "count": len(new_ids), "cards": [{"stock_id": s} for s in new_ids]}],
+               "withdrawn": list(withdrawn)}
     monkeypatch.setattr(rd, "run_daily", lambda day=None, prev_new=None: days.append(day) or prev_cards.append(prev_new)
-                        or {**new, "withdrawn": withdrawn})
-    out = m.preopen_recommend()
-    assert days == ["2026-10-23"] and out["updated"] and out["added"] == ["6672"]
-    assert prev_cards == [[{"stock_id": "6213", "stock_name": "聯茂"}]]          # 收盤版新訊號卡片傳進去比對撤回
-    assert out["withdrawn"] == withdrawn
+                        or dict(payload))
+
+
+def test_publish_waits_until_inputs_complete(monkeypatch, tmp_path):
+    m, path, calls = _publish_env(monkeypatch, tmp_path, None, waiting=["上市三大法人", "集保"])
+    out = m.publish_recommend(summary_path=str(tmp_path / "s.json"))
+    assert out["updated"] is False and out["waiting"] == ["上市三大法人", "集保"]
+    assert calls == ["chips", "shareholder"] and not path.exists()
+    assert json.loads((tmp_path / "s.json").read_text(encoding="utf-8"))["mode"] == "publish"
+
+
+def test_publish_first_time_for_new_signal_day(monkeypatch, tmp_path):
+    days, prev_cards = [], []
+    m, path, calls = _publish_env(monkeypatch, tmp_path, _prev_payload(trade_date="2026-10-22"))   # 前一天的版本
+    _fake_run_daily(monkeypatch, days, prev_cards)
+    out = m.publish_recommend()
+    assert out["updated"] and out["first"] and out["added"] == [] and days == ["2026-10-23"] and prev_cards == [None]
     saved = json.loads(path.read_text(encoding="utf-8"))
-    assert saved["taiex_above_ma20"] is True and saved["preopen_added"] == ["6672"]   # 大盤欄位沿用收盤版
-    assert calls == ["shareholder", "html", ("push", "2026-10-23")]
+    assert saved["inputs_complete"] is True and saved["taiex_above_ma20"] is False and saved["taiex_ma20_gap"] == -0.039
+    assert calls == ["chips", "shareholder", "html", ("push", "2026-10-23")]
 
 
-def test_preopen_without_close_payload_does_nothing(monkeypatch, tmp_path):
-    m, path, calls = _preopen_env(monkeypatch, tmp_path, None, "2026-10-23")
-    assert m.preopen_recommend()["updated"] is False and calls == []
+def test_publish_skips_when_already_published_with_complete_inputs(monkeypatch, tmp_path):
+    m, path, calls = _publish_env(monkeypatch, tmp_path, _prev_payload())
+    assert m.publish_recommend()["updated"] is False and calls == ["chips", "shareholder"]
+
+
+def test_publish_reruns_old_close_version_and_reports_added_withdrawn(monkeypatch, tmp_path):
+    """舊版收盤推薦（沒有 inputs_complete，籌碼晚一天）或集保更新 → 同一訊號日重跑，比對新增／撤回。"""
+    days, prev_cards = [], []
+    withdrawn = [{"stock_id": "3537", "reason": "法人…"}]
+    m, path, calls = _publish_env(monkeypatch, tmp_path, _prev_payload(inputs_complete=None))
+    _fake_run_daily(monkeypatch, days, prev_cards, withdrawn=withdrawn)
+    out = m.publish_recommend()
+    assert out["updated"] and not out["first"] and out["added"] == ["6672"] and out["withdrawn"] == withdrawn
+    assert prev_cards == [[{"stock_id": "6213", "stock_name": "聯茂"}]]
+    m2, _, _ = _publish_env(monkeypatch, tmp_path, _prev_payload(), sh_asof="2026-10-23")      # 集保更新
+    _fake_run_daily(monkeypatch, days, prev_cards)
+    assert m2.publish_recommend()["updated"]
 
 
 def test_fundamentals_fetched_once_per_day(monkeypatch, tmp_path):

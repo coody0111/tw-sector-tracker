@@ -130,13 +130,13 @@ def _card(c: dict) -> str:
 
 
 def _withdrawn_block(withdrawn: list, shareholder_date) -> str:
-    """集保更新後撤回（不再符合）：附理由，提醒開盤先不要買。"""
+    """資料更新後撤回（同一訊號日重跑後不再符合）：附理由，提醒開盤先不要買。"""
     if not withdrawn:
         return ""
     rows = "".join(f'<li><b class="num">{_e(w["stock_id"])}</b> {_e(w.get("stock_name"))}：{_e(w["reason"])}</li>'
                    for w in withdrawn)
-    when = f"（集保 {_e(shareholder_date)} 更新後不再符合，開盤先不要買）" if shareholder_date else "（集保更新後不再符合）"
-    return f'<div class="withdrawn"><strong>集保更新後撤回 {len(withdrawn)} 檔</strong>{when}<ul>{rows}</ul></div>'
+    when = "（籌碼／集保補齊後不再符合，開盤先不要買）"
+    return f'<div class="withdrawn"><strong>資料更新後撤回 {len(withdrawn)} 檔</strong>{when}<ul>{rows}</ul></div>'
 
 
 def _new_section(groups: list, withdrawn: list | None = None, shareholder_date=None) -> str:

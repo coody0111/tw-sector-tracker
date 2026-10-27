@@ -98,25 +98,29 @@ python main.py --summary-json logs/latest_summary.json
   不含任何評分/排名邏輯的訊號）
 - 資料不完整時在通知中明確標示
 
-### 2.2b 集保更新 `preopen`（2026-10-26 加）
+### 2.2b 推薦發布 `preopen`（2026-10-26 加；10-27 改成「資料到齊才發布」）
 
-執行時間：**每天 20:00（含週末）＋週一至週五 08:00**（工作名稱 `TW-Sector-Preopen`，`install_scheduler.ps1` 會建立）。
-原本只有 08:00，Cody：「感覺我前一天就會研究了」→ 週五集保多半週末公布，週末晚上就更新（2026-10-26）
+執行時間：**每天 20:00（含週末）＋週一至週五 08:00**（工作名稱 `TW-Sector-Preopen`，`install_scheduler.ps1` 會建立；模式名稱沿用 preopen，不用重裝）。
 
 內部呼叫：
 
 ```powershell
-python main.py --preopen-recommend --summary-json logs/latest_summary.json
+python main.py --publish-recommend --summary-json logs/latest_summary.json
 ```
 
-行為（個股推薦規格 §3 大戶路線）：
+為什麼（2026-10-27 Cody：「時間一定要對齊」）：回測用訊號日 D 當天的三大法人／外資持股與含 D 的最近一份集保；
+收盤 15:00 這些都還沒公布（10/27 T86、MI_QFIIS 都回「沒有資料」），15:00 出推薦等於用前一天的籌碼（回測少 16% 訊號）。
+所以**收盤流程不再跑推薦**，改由這支排程：
 
-- 集保資料日（通常週五）的資料隔天才公布，收盤版推薦拿不到 → 先補集保（`_backfill_shareholder(weeks=2)`）
-- DB 集保最新日 > 收盤版 payload 的 `shareholder_date` 才用**同一個訊號日**重跑推薦、重產 `docs/recommend.html` 並推送；否則什麼都不改
-- 比收盤版多出新訊號才傳 Telegram（只列新增的那幾檔，標題「個股推薦 MM/DD 集保更新」）；沒有新增不傳
-- 收盤版推薦過、集保更新版已不符合的（新一週集保進來，大戶週增換成當週數字 → 大戶路線掉出前 10%）＝**撤回**：Telegram 與推薦頁列出
-  理由（哪條籌碼路線、現在數字、門檻），成績單標「撤回」不計成績（2026-10-26 Cody：「需要有撤回理由」）。約一週最多一次、1～2 檔
-- 不看交易日（沒有新集保時本身不做事）；逾時上限 50 分鐘
+- 補籌碼（`_update_chips_db`：backfill_chips＋TPEx）、補集保（`_backfill_shareholder(weeks=2)`）
+- D＝DB 最新行情日；`recommend.publish.missing_inputs(D)` 檢查：上市／上櫃三大法人、外資持股都有 D；
+  D 是當週最後一個交易日（集保資料日）時，集保也要到 D
+- 還缺 → 不發布，等下次排程（週五的推薦通常週末集保公布後才出，最晚週一 08:00）
+- 第一次發布 D → 跑推薦、寫成績單、產 `docs/recommend.html`、推送，Telegram 發完整推薦表格（沒有新訊號就不發）
+- D 已發布過但輸入變了（舊版沒有 `inputs_complete`、或集保更新）→ 同一訊號日重跑，Telegram 只發新增與**撤回**（附理由：哪條籌碼路線、
+  現在數字、門檻），成績單標「撤回」不計成績（2026-10-26 Cody：「需要有撤回理由」）
+- D 已用完整資料發布過、沒有新資料 → 什麼都不做
+- 不看交易日；逾時上限 50 分鐘
 
 ### 2.3 通知測試 `test-notify`
 

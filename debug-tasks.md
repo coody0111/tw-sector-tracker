@@ -5689,3 +5689,24 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 - [ ] 全套 pytest
 - [ ] DB 複本 `--backtest-recommend`（或同等）：訊號／已出場約 2,059 筆、+1.07R、PF 2.01，必考題 6672、6213 仍命中
 - [ ] run_daily(10-27) 複本：新訊號、近 21 天前 20 合理；liq 用成交值（抽一檔手算）
+
+## [2026-10-27] 推薦改成「訊號日資料到齊才發布」（時間對齊回測）
+
+### 改了什麼
+- 新增：recommend/publish.py（is_week_last_trading_day、latest_price_date、shareholder_asof、missing_inputs）、tests/test_recommend_publish.py
+- 異動：main.py（拿掉收盤的 _update_recommend／推薦頁產生／taiex 寫入；preopen_recommend → publish_recommend＋_run_and_publish＋
+  _taiex_vs_ma20；CLI --preopen-recommend → --publish-recommend）、scripts/run_scheduled.py（preopen 模式改呼叫 --publish-recommend；
+  第一次發布發完整推薦表格、重跑才發新增／撤回；收盤不再發推薦；發送結果寫 log）、recommend/telegram_format.py（更新訊息標題「資料更新」）、
+  export/recommend_generator.py（撤回區塊文字）、docs/scheduler.md §2.2b、docs/superpowers/specs/…design.md §5.3、
+  tests/test_{main,scheduled_runner,recommend_telegram,recommend_page}.py
+- 依據：10/27 收盤 15:00 實測當天 T86／MI_QFIIS／TPEx 都還沒公布 → 推薦用的是 10/22 的籌碼；回測「籌碼晚一天」1,721 筆、PF 2.04（少 16%）。
+  Cody：「不 時間一定要對齊」→ 選「等籌碼公布後才出推薦」，回測不改
+  - 可發布條件：D（最新行情日）上市／上櫃三大法人、外資持股都有 D；D 是週最後交易日時集保也要到 D
+  - 第一次發布 D → first=True；D 已發布但沒有 inputs_complete（今天 15:00 的舊版）或集保更新 → 同日重跑、比對新增／撤回；已完整發布 → 跳過
+  - 排程沿用 TW-Sector-Preopen（每天 20:00＋平日 08:00），不用重裝
+
+### 請 Debugger 驗證
+- [ ] 全套 pytest
+- [ ] DB 複本：missing_inputs(2026-10-27) 現在應缺上市／上櫃三大法人與外資持股（籌碼還沒補）；補了之後為空
+- [ ] DB 複本模擬今晚：prev＝今天 15:00 的 payload（沒有 inputs_complete）→ 重跑 10/27、added／withdrawn 合理；再跑一次跳過
+- [ ] 收盤流程（run）不再呼叫 run_daily、不再產 recommend.html、不再發推薦訊息

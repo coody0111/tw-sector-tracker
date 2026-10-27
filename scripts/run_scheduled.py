@@ -6,7 +6,7 @@
 Usage:
     python scripts/run_scheduled.py intraday
     python scripts/run_scheduled.py close
-    python scripts/run_scheduled.py preopen      # 每天 20:00＋平日 08:00：補集保，有新的就更新個股推薦
+    python scripts/run_scheduled.py preopen      # 每天 20:00＋平日 08:00：資料到齊才發布個股推薦（main.py --publish-recommend）
     python scripts/run_scheduled.py test-notify
 """
 import hashlib
@@ -123,7 +123,7 @@ def run_main_py(mode: str, summary_path: str, timeout: int = _INTRADAY_TIMEOUT_S
     if mode == "intraday":
         cmd += ["--realtime", "--no-push"]
     elif mode == "preopen":
-        cmd += ["--preopen-recommend"]
+        cmd += ["--publish-recommend"]
     cmd += ["--summary-json", summary_path]
 
     result = subprocess.run(
@@ -258,17 +258,25 @@ def send_recommend_message(summary: dict, site_url: str) -> None:
 
 
 def send_preopen_message(summary: dict, site_url: str) -> None:
-    """集保更新：比收盤版多出來的新訊號、撤回（附理由）才發；都沒有就不發。"""
+    """推薦發布（main.publish_recommend）：第一次發布訊號日 → 完整推薦表格（沒有新訊號就不發）；
+    同一訊號日資料更新重跑 → 只發多出來的新訊號與撤回（附理由）；還在等資料 → 不發。"""
     rec = summary.get("recommend")
     if not rec:
+        logger.info("推薦發布：沒有發布（等待資料：%s）", "、".join(summary.get("waiting") or []) or "無／已發布過")
+        return
+    if summary.get("first"):
+        send_recommend_message(summary, site_url)
+        logger.info("推薦發布：%s 第一次發布，新訊號 %d 檔", rec.get("trade_date"), sum(g["count"] for g in rec.get("new") or []))
         return
     msg = compose_preopen_message(rec, summary.get("added") or [], summary.get("withdrawn") or [],
                                   site_url.rstrip("/") + "/recommend.html")
     if msg:
         send_telegram_message(msg, parse_mode="HTML")
+        logger.info("推薦發布：%s 資料更新，多 %s、撤回 %s", rec.get("trade_date"), summary.get("added"),
+                    [w["stock_id"] for w in summary.get("withdrawn") or []])
 
 
-_MODE_LABELS = {"intraday": "盤中監控", "close": "收盤更新", "preopen": "集保更新"}
+_MODE_LABELS = {"intraday": "盤中監控", "close": "收盤更新", "preopen": "推薦發布"}
 
 
 def compose_failure_message(mode: str, error: str, duration_seconds: float) -> str:
@@ -312,7 +320,7 @@ def main() -> int:
     if mode == "intraday" and not is_market_hours(now):
         logger.info("非盤中時間，%s 模式跳過", mode)
         return 0
-    # preopen（集保更新）不看交易日：週五的集保多半週末公布，Cody 前一天晚上就要看到（2026-10-26）；沒有新集保時本身不做事
+    # preopen（推薦發布）不看交易日：週五的集保多半週末公布，週五的推薦要等它（2026-10-27 時間對齊）；資料沒到齊或已發布過時本身不做事
     if mode == "close" and not is_trading_day(now.date()):
         logger.info("非交易日，%s 模式跳過", mode)
         return 0
@@ -386,7 +394,7 @@ def main() -> int:
                 site_url = os.environ.get("SITE_URL", "https://coody0111.github.io/tw-sector-tracker/")
                 try:
                     send_telegram_message(compose_close_message(summary, site_url))
-                    send_recommend_message(summary, site_url)
+                    # 個股推薦不在收盤發（當天籌碼還沒公布），改由 preopen（推薦發布）排程發
                 except TelegramConfigError as exc:
                     logger.error("Telegram 設定缺失，無法通知：%s", exc)
         except Exception as exc:

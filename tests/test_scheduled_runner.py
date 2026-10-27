@@ -431,14 +431,14 @@ def test_recommend_message_failure_is_logged_not_raised(monkeypatch):
     rs.send_recommend_message({"recommend": {"new": [{"sector": "x", "count": 1, "cards": []}]}}, "https://x/")
 
 
-# ── 集保更新 preopen（2026-10-26）──────────────────────────
+# ── 推薦發布 preopen（2026-10-26；10-27 改成資料到齊才發布）──────────────────────────
 
 def _card(sid):
     return {"stock_id": sid, "stock_name": sid, "type": "整理", "n_routes": 1, "close": 10.0, "change_pct": 9.9,
             "alerts": []}
 
 
-def test_run_main_py_preopen_mode_calls_preopen_recommend(monkeypatch, tmp_path):
+def test_run_main_py_preopen_mode_calls_publish_recommend(monkeypatch, tmp_path):
     captured = {}
 
     class FakeCompleted:
@@ -446,7 +446,7 @@ def test_run_main_py_preopen_mode_calls_preopen_recommend(monkeypatch, tmp_path)
 
     monkeypatch.setattr("subprocess.run", lambda cmd, **kw: captured.setdefault("cmd", cmd) and FakeCompleted())
     run_main_py("preopen", str(tmp_path / "s.json"))
-    assert "--preopen-recommend" in captured["cmd"] and "--realtime" not in captured["cmd"]
+    assert "--publish-recommend" in captured["cmd"] and "--realtime" not in captured["cmd"]
 
 
 def test_preopen_message_lists_only_added_and_skips_when_none(monkeypatch):
@@ -456,7 +456,7 @@ def test_preopen_message_lists_only_added_and_skips_when_none(monkeypatch):
            "new": [{"sector": "銅箔基板", "count": 2, "cards": [_card("6213"), _card("6672")]}]}
     sr.send_preopen_message({"recommend": rec, "added": ["6672"]}, "https://x/")
     assert len(sent) == 1 and sent[0][1]["parse_mode"] == "HTML"
-    assert "集保更新" in sent[0][0] and "6672" in sent[0][0] and "6213" not in sent[0][0]
+    assert "資料更新" in sent[0][0] and "6672" in sent[0][0] and "6213" not in sent[0][0]
     assert "[銅箔基板 1檔]" in sent[0][0]
     sent.clear()
     sr.send_preopen_message({"recommend": rec, "added": []}, "https://x/")
@@ -481,11 +481,11 @@ def test_main_preopen_runs_even_on_weekend_and_sends_on_added(monkeypatch, tmp_p
     monkeypatch.setattr(sys, "argv", ["run_scheduled.py", "preopen"])
     monkeypatch.setattr(sr, "is_trading_day", lambda d: False)      # 週末也要跑：週五集保多半週末公布
     assert sr.main() == 0
-    assert calls == [("preopen", sr._PREOPEN_TIMEOUT_SEC)] and len(sent) == 1 and "集保更新" in sent[0]
+    assert calls == [("preopen", sr._PREOPEN_TIMEOUT_SEC)] and len(sent) == 1 and "資料更新" in sent[0]
 
 
 def test_failure_message_labels_preopen():
-    assert "模式：集保更新" in compose_failure_message("preopen", "x", 1.0)
+    assert "模式：推薦發布" in compose_failure_message("preopen", "x", 1.0)
 
 
 def test_preopen_message_sent_for_withdrawn_only(monkeypatch):
@@ -495,3 +495,24 @@ def test_preopen_message_sent_for_withdrawn_only(monkeypatch):
     sr.send_preopen_message({"recommend": rec, "added": [],
                              "withdrawn": [{"stock_id": "3537", "stock_name": "晶相光", "reason": "法人…"}]}, "https://x/")
     assert len(sent) == 1 and "撤回 1 檔" in sent[0]
+
+
+def test_first_publish_sends_full_recommend_table(monkeypatch):
+    sent = []
+    monkeypatch.setattr(sr, "send_telegram_message", lambda text, **kw: sent.append(text) or True)
+    rec = {"trade_date": "2026-10-27", "header": {}, "active": [], "invalid": [], "taiex_above_ma20": False,
+           "new": [{"sector": "PCB", "count": 1, "cards": [_card("4526")]}]}
+    sr.send_preopen_message({"recommend": rec, "first": True, "added": [], "withdrawn": []}, "https://x/")
+    assert len(sent) == 1 and sent[0].startswith("個股推薦 10/27 收盤") and "4526" in sent[0]
+    sent.clear()
+    sr.send_preopen_message({"recommend": {**rec, "new": []}, "first": True}, "https://x/")   # 沒有新訊號不發
+    sr.send_preopen_message({"recommend": None, "waiting": ["上櫃外資持股"]}, "https://x/")   # 還在等資料不發
+    assert not sent
+
+
+def test_close_mode_no_longer_sends_recommend(monkeypatch, tmp_path):
+    """推薦改由 preopen（推薦發布）排程在資料到齊後發；收盤只發收盤摘要（2026-10-27）。"""
+    import inspect
+    src = inspect.getsource(sr.main)
+    close_branch = src[src.index("else:  # close"):]
+    assert "send_recommend_message(" not in close_branch.split("except TelegramConfigError")[0]

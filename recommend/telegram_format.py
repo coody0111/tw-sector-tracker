@@ -65,11 +65,11 @@ def compose_recommend_message(payload: dict, taiex_above_ma20: bool | None, site
 
 
 def compose_preopen_message(payload: dict, added: list, withdrawn: list, site_url: str) -> str | None:
-    """集保更新（每天 20:00、平日 08:00 檢查）：只列比收盤版多出來的新訊號（表格）＋撤回的股票與理由；兩者都沒有回 None（不發）。"""
+    """資料更新（同一訊號日重跑：舊版推薦補齊籌碼、或集保更新）：只列比前一版多出來的新訊號（表格）＋撤回的股票與理由；兩者都沒有回 None（不發）。"""
     added = set(added or [])
     if not added and not withdrawn:
         return None
-    label = "集保更新"
+    label = "資料更新"
     if added:
         groups = [{**g, "count": len(cs), "cards": cs} for g in payload.get("new") or []
                   if (cs := [c for c in g["cards"] if c["stock_id"] in added])]
@@ -78,7 +78,7 @@ def compose_preopen_message(payload: dict, added: list, withdrawn: list, site_ur
         d = payload["trade_date"]
         msg = escape(f"個股推薦 {d[5:7]}/{d[8:10]} {label}\n{site_url}")
     if withdrawn:
-        lines = [f"撤回 {len(withdrawn)} 檔（集保更新後不再符合，開盤先不要買）："]
+        lines = [f"撤回 {len(withdrawn)} 檔（資料更新後不再符合，開盤先不要買）："]
         lines += [f"{w['stock_id']} {w.get('stock_name') or ''}：{w['reason']}" for w in withdrawn]
         msg += "\n\n" + escape("\n".join(lines))
     return msg

@@ -80,8 +80,12 @@ Write-Host "已建立 TW-Sector-DailyClose"
 $PreopenAction = New-ScheduledTaskAction -Execute $PythonwPath `
     -Argument "`"$RunnerPath`" preopen" -WorkingDirectory $ProjectRoot
 
+# 2026-10-29 加 22:00、23:30：證交所外資持股（MI_QFIIS）常常 20:00 還沒公布（10/28 20:00 等不到、10/27 23:16 才有），
+# 已發布過或資料沒到齊時本身不做事，多跑無妨。
 $PreopenTriggers = @(
     (New-ScheduledTaskTrigger -Daily -At "20:00"),
+    (New-ScheduledTaskTrigger -Daily -At "22:00"),
+    (New-ScheduledTaskTrigger -Daily -At "23:30"),
     (New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday,Tuesday,Wednesday,Thursday,Friday -At "08:00")
 )
 
@@ -90,7 +94,7 @@ $PreopenSettings = New-ScheduledTaskSettingsSet `
 
 Register-ScheduledTask -TaskName "TW-Sector-Preopen" `
     -Action $PreopenAction -Trigger $PreopenTriggers -Settings $PreopenSettings `
-    -Description "台股集保更新個股推薦（補集保），每天 20:00＋週一至週五 08:00 執行" -Force
+    -Description "台股個股推薦發布（籌碼／集保到齊才發），每天 20:00、22:00、23:30＋週一至週五 08:00 執行" -Force
 
 Write-Host "已建立 TW-Sector-Preopen"
 Write-Host ""

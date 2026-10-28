@@ -5859,3 +5859,13 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 
 ### 請 Debugger 驗證
 - [ ] 全套 pytest；10-27 複本 members 漏列與漲幅（你那 12 檔／74 檔）都對；「顯示全部」名次不重複
+
+## [2026-10-29] 推薦發布排程加 22:00、23:30
+
+### 改了什麼
+- 異動檔案：scripts/install_scheduler.ps1（TW-Sector-Preopen 多兩個每日觸發 22:00、23:30）、docs/scheduler.md
+- 依據：10/28 20:00 run.log「個股推薦 2026-10-28 還在等資料：上市外資持股」，推薦頁停在 10/27；Cody 選「加」
+- 已發布或資料沒到齊時本身不做事；Cody 要用系統管理員重跑 install_scheduler.ps1
+
+### 請 Debugger 驗證
+- [ ] ps1 語法（不用真的註冊）；全套 pytest

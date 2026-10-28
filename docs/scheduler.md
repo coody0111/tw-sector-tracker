@@ -100,7 +100,7 @@ python main.py --summary-json logs/latest_summary.json
 
 ### 2.2b 推薦發布 `preopen`（2026-10-26 加；10-27 改成「資料到齊才發布」）
 
-執行時間：**每天 20:00（含週末）＋週一至週五 08:00**（工作名稱 `TW-Sector-Preopen`，`install_scheduler.ps1` 會建立；模式名稱沿用 preopen，不用重裝）。
+執行時間：**每天 20:00、22:00、23:30（含週末）＋週一至週五 08:00**（2026-10-29 加 22:00／23:30：證交所外資持股常在 20:00 後才公布）（工作名稱 `TW-Sector-Preopen`，`install_scheduler.ps1` 會建立；模式名稱沿用 preopen，不用重裝）。
 
 內部呼叫：
 

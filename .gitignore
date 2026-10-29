@@ -8,7 +8,8 @@ __pycache__/
 notes/
 .env
 .superpowers/
-.claude/
+.claude/*
+!.claude/skills/
 .cursor/
 
 # 每個 worktree 各自本地維護（Developer/Debugger 角色不同），不進 git 追蹤，

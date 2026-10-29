@@ -963,6 +963,12 @@ def run(trade_date: date = None, realtime: bool = False, push: bool = True, summ
         prices_are_new = False
         if quote_day < trade_date:
             trade_date = quote_day
+        # 重跑過去的交易日（半夜、盤前、假日）：頁面改用那天已存好的完整收盤檔，不用這次的即時報價。
+        # 2026-10-30 00:49 Cody 手動跑：mis 13 批逾時 6 批只拿到 560／1,035 檔，族群績效頁一半個股「無行情」並推上網站。
+        saved_csv = Path(f"data/daily_prices/{trade_date.isoformat()}.csv")
+        if saved_csv.exists():
+            prices_df = pd.read_csv(saved_csv, dtype={"stock_id": str})
+            logger.info("改用已存的 %s 收盤行情（%d 檔）產頁", trade_date, len(prices_df))
     if prices_are_new and not realtime and prices_df is not None and not prices_df.empty:
         prev_day = _prev_trading_day(trade_date)
         prev_csv = Path(f"data/daily_prices/{prev_day.isoformat()}.csv")

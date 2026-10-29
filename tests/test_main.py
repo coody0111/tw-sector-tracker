@@ -643,3 +643,13 @@ def test_fundamentals_failure_does_not_write_stamp(monkeypatch, tmp_path):
     warnings = []
     m._update_fundamentals_db(False, warnings=warnings)
     assert not stamp.exists() and warnings == ["官方基本面（月營收/季報）更新失敗"]
+
+
+def test_rerun_of_past_trading_day_uses_saved_close_csv_for_pages():
+    """2026-10-30 00:49：盤前重跑時 mis 逾時只拿到 560／1,035 檔 → 族群績效頁一半「無行情」被推上網站。
+    報價日期 ≠ 今天時改讀當天已存的完整收盤檔產頁。"""
+    source = inspect.getsource(run)
+    guard = source[source.index("_quote_trade_date(prices_df)"):]
+    block = guard[:guard.index("if prices_are_new and not realtime")]
+    assert 'saved_csv = Path(f"data/daily_prices/{trade_date.isoformat()}.csv")' in block
+    assert "prices_df = pd.read_csv(saved_csv" in block

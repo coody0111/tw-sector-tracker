@@ -114,6 +114,23 @@ def _clamp_to_day_range(price: float, high: float | None, low: float | None) -> 
     return min(max(price, low), high)
 
 
+BATCH_RETRY_WAITS = (2, 5)   # 失敗批次重試前等待秒數（2026-10-30：mis 逾時變多，10-27～10-29 每天 41～49 批失敗且不重試）
+
+
+def _get_batch(session, ex_ch: str, bi: int, total: int):
+    """抓一批；網路錯誤、逾時、回應不是 JSON 時重試 len(BATCH_RETRY_WAITS) 次，全失敗回 None。"""
+    for attempt, wait in enumerate((*BATCH_RETRY_WAITS, None), 1):
+        try:
+            resp = session.get(_REALTIME_URL, params={"ex_ch": ex_ch, "json": "1", "delay": "0"},
+                               headers=_HEADERS, timeout=10)
+            return resp.json()
+        except Exception as exc:
+            if wait is None:
+                logger.warning("即時行情第 %d/%d 批失敗（已重試 %d 次）: %s", bi, total, attempt - 1, exc)
+                return None
+            time.sleep(wait)
+
+
 def fetch_realtime_prices(stock_ids: List[str]) -> pd.DataFrame:
     """
     批次查詢即時行情，回傳 DataFrame 欄位：
@@ -133,16 +150,8 @@ def fetch_realtime_prices(stock_ids: List[str]) -> pd.DataFrame:
         # 每支股票帶兩個前綴，讓 API 自行對應正確市場
         ex_ch = "|".join(f"tse_{sid}.tw|otc_{sid}.tw" for sid in batch)
 
-        try:
-            resp = session.get(
-                _REALTIME_URL,
-                params={"ex_ch": ex_ch, "json": "1", "delay": "0"},
-                headers=_HEADERS,
-                timeout=10,
-            )
-            data = resp.json()
-        except Exception as exc:
-            logger.warning("即時行情第 %d/%d 批失敗: %s", bi, total_batches, exc)
+        data = _get_batch(session, ex_ch, bi, total_batches)
+        if data is None:
             continue
 
         seen = set()

@@ -114,3 +114,30 @@ def test_best_price_skips_zero_and_falls_back():
     assert _best_price({"z": "-", "b": "-", "a": "-", "h": "12.4"}) == 12.4
     assert _best_price({"z": "-", "b": "-", "a": "-", "h": "-", "o": "12.0"}) == 12.0
     assert _best_price({"z": "-", "b": "-", "a": "-", "h": "-", "o": "-"}) is None
+
+
+def _item(sid="2330"):
+    return {"c": sid, "n": "測試", "z": "100", "o": "99", "h": "101", "l": "98", "y": "98",
+            "v": "10", "t": "13:30:00", "d": "20261030"}
+
+
+def test_failed_batch_is_retried_then_succeeds():
+    """2026-10-30：mis 逾時變多，失敗批次要重試（原本直接跳過，少抓一批就少 ~80 檔）。"""
+    import requests
+    resp = MagicMock()
+    resp.json.return_value = {"msgArray": [_item()]}
+    session = MagicMock()
+    session.get.side_effect = [MagicMock(), requests.exceptions.ReadTimeout("slow"), resp]   # 初始化、逾時、成功
+    with patch("scrapers.realtime.requests.Session", return_value=session), \
+         patch("scrapers.realtime.time.sleep") as slept:
+        df = fetch_realtime_prices(["2330"])
+    assert list(df["stock_id"]) == ["2330"] and slept.call_args_list[0].args[0] == 2
+
+
+def test_batch_gives_up_after_retries():
+    import requests
+    session = MagicMock()
+    session.get.side_effect = [MagicMock()] + [requests.exceptions.ReadTimeout("slow")] * 3
+    with patch("scrapers.realtime.requests.Session", return_value=session), patch("scrapers.realtime.time.sleep"):
+        df = fetch_realtime_prices(["2330"])
+    assert df.empty and session.get.call_count == 1 + 3          # 初始化＋1 次＋重試 2 次

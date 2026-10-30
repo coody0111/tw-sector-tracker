@@ -5895,3 +5895,12 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 
 ### 請 Debugger 驗證
 - [ ] 全套 pytest
+
+## [2026-10-30] 小修：即時行情重試加總時間上限 90 秒
+
+### 改了什麼
+- 異動檔案：scrapers/realtime.py（RETRY_BUDGET_SEC=90：整輪超過 90 秒後失敗批次不再重試）、tests/test_realtime.py
+- 回應 bug-reports 🟡（13 批全逾時 481 秒）；最壞約 90＋剩餘批次 × 10 秒
+
+### 請 Debugger 驗證
+- [ ] 全套 pytest；13 批全逾時模擬耗時

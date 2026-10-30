@@ -141,3 +141,15 @@ def test_batch_gives_up_after_retries():
     with patch("scrapers.realtime.requests.Session", return_value=session), patch("scrapers.realtime.time.sleep"):
         df = fetch_realtime_prices(["2330"])
     assert df.empty and session.get.call_count == 1 + 3          # 初始化＋1 次＋重試 2 次
+
+
+def test_no_more_retries_after_budget_used_up():
+    """整輪超過 RETRY_BUDGET_SEC 後失敗批次不再重試（Debugger 2026-10-30：最壞耗時 481 秒）。"""
+    import requests
+    session = MagicMock()
+    session.get.side_effect = [MagicMock()] + [requests.exceptions.ReadTimeout("slow")] * 10
+    clock = iter([0.0, 1000.0, 1000.0, 1000.0])                   # 開始 → 第一批時已超過預算
+    with patch("scrapers.realtime.requests.Session", return_value=session), \
+         patch("scrapers.realtime.time.sleep"), patch("scrapers.realtime.time.monotonic", side_effect=lambda: next(clock)):
+        fetch_realtime_prices(["2330"])
+    assert session.get.call_count == 1 + 1                          # 初始化＋只試 1 次

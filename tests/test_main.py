@@ -590,6 +590,26 @@ def test_taiex_ma60_needs_sixty_days(monkeypatch):
     assert out["taiex_above_ma60"] is None and out["taiex_above_ma20"] is False
 
 
+def test_taiex_ma60_available_early_month_after_lunar_new_year(monkeypatch):
+    from datetime import date, timedelta
+    import main as m
+    from scrapers.taiex import _month_start_offset
+    closed = {date(2025, 1, 1), date(2025, 2, 28), date(2025, 4, 3), date(2025, 4, 4)}
+    closed |= {date(2025, 1, 23) + timedelta(i) for i in range(9)}              # 農曆年
+
+    def fake_history(end, months):                                              # 跟真的一樣以日曆月為單位
+        d, rows = _month_start_offset(end, months - 1), []
+        while d <= end:
+            if d.weekday() < 5 and d not in closed:
+                rows.append({"date": d.isoformat(), "close": 100.0})
+            d += timedelta(1)
+        rows[-1]["close"] = 80.0
+        return rows
+
+    monkeypatch.setattr(m, "fetch_taiex_history", fake_history)
+    assert m._taiex_vs_ma20(date(2025, 4, 8))["taiex_above_ma60"] is False
+
+
 def test_publish_waits_until_inputs_complete(monkeypatch, tmp_path):
     m, path, calls = _publish_env(monkeypatch, tmp_path, None, waiting=["上市三大法人", "集保"])
     monkeypatch.setattr("recommend.publish.past_deadline", lambda *a: False)     # 訊號日是固定舊日期，不然會走暫定發布

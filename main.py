@@ -578,7 +578,8 @@ def _latest_heat() -> dict | None:
 def _taiex_vs_ma20(day: date) -> dict:
     """推薦頁頁首的加權指數 vs MA20（收盤流程不再跑推薦，這裡自己抓；失敗就留空）。"""
     try:
-        hist = [r for r in fetch_taiex_history(day, months=4) if str(r["date"])[:10] <= day.isoformat()]
+        # months 是含當月的日曆月：4 個月在過年後的月初湊不滿 60 筆（2025-04-08 只有 59 筆），5 個月歷史最少 72 筆
+        hist = [r for r in fetch_taiex_history(day, months=5) if str(r["date"])[:10] <= day.isoformat()]
         if len(hist) < 20:
             return {}
         closes = [r["close"] for r in hist[-20:]]

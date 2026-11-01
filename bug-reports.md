@@ -5769,3 +5769,27 @@ Telegram 用正式 payload 換上這份 heat；Chrome headless 看 1440／375。
 - [x] 需要修改後再確認
 - [ ] 可以繼續下一個任務
 - 占位檔 docs/weekly/2026-10-30.html 請維持到上面兩項修好再刪，否則排程會發布。
+
+## [2026-11-01] 報告 - 修每週籌碼報告 🔴 2 項（deafbc3）
+
+### 🟡 建議改善
+- `NOTIFIED_PATH`、`WEEKLY_PATH` 是相對路徑，run_scheduled 的 `_STATE_PATH`、`_SUMMARY_PATH` 都用 `_PROJECT_ROOT`。排程的 WorkingDirectory 是專案根目錄，所以目前沒問題；但從別的資料夾跑 run_scheduled 時，mark_notified 會寫到別處，同一週會重發。建議改成以專案根目錄為準。
+- data/weekly_chips.json 壞掉時 `json.loads` 例外被接住，回傳 None，之後每次排程都不產也不發，要手動刪檔才恢復（模擬確認）。寫入中斷才會發生，機率低。
+
+### ✅ 驗證通過
+- pytest 938 passed；上次失敗的測試已修
+- 上次 🔴「通知補不回來」已修。用暫存路徑模擬完整流程（真的走 `_publish_weekly_chips`、summary JSON、`send_weekly_message`，只替換發送與 push）：
+  - 手動跑：頁面產生、未發、未記錄
+  - 下次排程 Telegram 回 False：有發送嘗試、不記錄、頁面不重產
+  - 再下次成功：記錄 2026-10-30；之後再跑回 None，不重發
+  - main 非 0 後（報告已存、未記錄）：下次補發
+  - 占位檔還在但沒有 weekly_chips.json、未通知：會重產，蓋掉占位檔
+- 含 numpy 值的報告經 JSON 來回後 Telegram 內容正常
+- 排程三個任務的 WorkingDirectory 都是 tw-sector-tracker；`import scripts.run_scheduled` 0.65 秒，新 import 不影響 intraday／close（只多載入模組）
+- 頁面註記已加；報告內容計算邏輯這次沒動，上一則對帳仍有效
+- 正式的 data/weekly_notified.txt（2026-10-30）與占位檔都沒有動過
+- **未測**：實際 push、實際發 Telegram、`weekly/index.json` 的 fetch 與歷史頁切換；push 失敗時通知照發，已列為規格的已知限制
+
+### 結論
+- [ ] 需要修改後再確認
+- [x] 可以繼續下一個任務

@@ -46,6 +46,7 @@ button,input,select{font-family:inherit}
 
 # 頁首切頁按鈕：(檔名, 顯示名稱)。順序與名稱跟 index.html 的導覽一致。
 NAV_PAGES = (
+    ("report.html", "每日報告"),
     ("index.html", "族群績效"),
     ("heat.html", "族群熱度"),
     ("chips.html", "籌碼分析"),

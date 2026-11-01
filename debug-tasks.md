@@ -5904,3 +5904,25 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 
 ### 請 Debugger 驗證
 - [ ] 全套 pytest；13 批全逾時模擬耗時
+
+## [2026-11-01] 每日報告＋Telegram 改版＋23:45 暫定發布
+
+### 改了什麼
+- 異動檔案：recommend/report.py（新）、export/report_generator.py（新）、recommend/publish.py（past_deadline）、main.py（publish_recommend、_run_and_publish、_build_report、_taiex_vs_ma20、_push_html）、recommend/telegram_format.py（compose_report_message）、scripts/run_scheduled.py、scripts/install_scheduler.ps1（加 23:45）、export/ui_theme.py、export/index_generator.py（導覽加每日報告）、tests/test_daily_report.py（新）、docs（規格、CONTEXT、scheduler、設計稿）
+- 邏輯：推薦發布時同時產 docs/report.html 與 docs/reports/日期.html（同日覆蓋）；Telegram 第一次發布改發今日重點＋連結；下一個交易日前一晚 23:40 後資料仍缺就發暫定（payload["missing"]、inputs_complete=False），缺項變動或到齊再重跑；報告失敗不擋推薦，退回舊訊息
+- 規格：docs/superpowers/specs/2026-11-01-daily-report.md
+
+### 資料來源相關
+- 上市／上櫃：只讀 institutional、margin、daily_prices，無新抓取；金額為股票池合計
+
+### 請 Debugger 驗證
+- [ ] 全套 pytest（tests/test_daily_report.py 為新測試；我只編譯＋用 10/30 真資料渲染到暫存夾，未跑測試）
+- [ ] 暫定流程模擬：暫定發布→缺項沒變跳過→到齊重跑 first=False、added/withdrawn 正確；成績單 record_signals／mark_withdrawn 沒有重複或誤標
+- [ ] 暫定時缺外資持股，add_chip_features 是否真的只用已到資料（不會把舊資料當當天、不會整批誤判）
+- [ ] 手機 320／375 版面、日期選單（歷史頁 base href、reports/index.json）、總資金帶逗號時股數正確
+- [ ] 籌碼金額單位抽查（foreign_net 股 × 收盤、margin_change 張）；外資 −1,080 億與 chips 頁對照
+- [ ] 舊 payload 沒有 missing／report 時 Telegram 與 first 判斷正常
+
+### 特別注意
+- 尚未產生實際 report.html，Cody 跑 python main.py --publish-recommend 才會有；排程要重裝才有 23:45
+- 暫定若 08:00 後才到齊不會回頭更新（已寫進規格）

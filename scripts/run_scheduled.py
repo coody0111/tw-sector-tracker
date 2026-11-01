@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 
 # 模組層級 import：sys.path 已在上面修好，不需要延到 main() 內才 import。
 from notifications.telegram import send_telegram_message, TelegramConfigError  # noqa: E402
-from recommend.telegram_format import compose_preopen_message, compose_recommend_message  # noqa: E402
+from recommend.telegram_format import compose_preopen_message, compose_recommend_message, compose_report_message  # noqa: E402
 
 _MARKET_OPEN = dt_time(9, 0)
 _MARKET_CLOSE = dt_time(13, 30)  # TWSE 正式收盤時間，僅供參考語意，不直接拿來判斷排程窗口
@@ -245,11 +245,14 @@ def compose_close_message(summary: dict, site_url: str) -> str:
 def send_recommend_message(summary: dict, site_url: str) -> None:
     """個股推薦表格（規格 E21）＋近 21 天最強族群前 5；新訊號和族群排行都沒有才不發（2026-10-27：沒有新訊號也要看族群摘要）。"""
     rec = summary.get("recommend")
-    if not rec or not (rec.get("new") or (rec.get("leaders") or {}).get("sectors")):
+    report = (rec or {}).get("report")
+    if not rec or not (report or rec.get("new") or (rec.get("leaders") or {}).get("sectors")):
         return
     url = site_url.rstrip("/") + "/recommend.html"
     try:
-        send_telegram_message(compose_recommend_message(rec, rec.get("taiex_above_ma20"), url), parse_mode="HTML")
+        msg = (compose_report_message(report, site_url.rstrip("/") + "/report.html") if report
+               else compose_recommend_message(rec, rec.get("taiex_above_ma20"), url))
+        send_telegram_message(msg, parse_mode="HTML")
     except TelegramConfigError:
         raise
     except Exception as exc:

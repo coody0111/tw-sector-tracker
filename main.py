@@ -6,7 +6,7 @@ import subprocess
 import sys
 import time
 import pandas as pd
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from scrapers.moneydj import scrape_industry_sectors
@@ -23,6 +23,7 @@ from export.index_generator import generate as generate_index_html
 from export.watchlist_generator import generate as generate_watchlist_html
 from export.recommend_generator import generate as generate_recommend_html
 from export.heat_generator import generate as generate_heat_html
+from export.report_generator import generate as generate_report_html
 from export.chips_generator import generate as generate_chips_html
 from export.momentum_generator import (
     market_permission, classify_sector_state, build_sector_priority,
@@ -300,6 +301,8 @@ def _push_html(trade_date: date) -> bool:
             files_to_add.append("docs/recommend.html")
         if os.path.exists("docs/heat.html"):
             files_to_add.append("docs/heat.html")
+        if os.path.exists("docs/report.html"):
+            files_to_add += ["docs/report.html", "docs/reports"]
         subprocess.run(["git", "add"] + files_to_add, check=True)
         # 只看這幾個產出檔有沒有變動（限定範圍，不受其他 staged 變更影響判斷）
         result = subprocess.run(["git", "diff", "--cached", "--quiet", "--"] + files_to_add)
@@ -580,7 +583,8 @@ def _taiex_vs_ma20(day: date) -> dict:
             return {}
         closes = [r["close"] for r in hist[-20:]]
         ma20 = sum(closes) / 20
-        return {"taiex_above_ma20": closes[-1] > ma20, "taiex_ma20_gap": closes[-1] / ma20 - 1}
+        return {"taiex_above_ma20": closes[-1] > ma20, "taiex_ma20_gap": closes[-1] / ma20 - 1, "taiex_close": closes[-1],
+                "taiex_change": hist[-1].get("change"), "taiex_change_pct": hist[-1].get("change_pct")}
     except Exception as exc:
         logger.warning("推薦頁加權指數 MA20 抓取失敗（頁首顯示 —）：%s", exc)
         return {}
@@ -593,9 +597,10 @@ def publish_recommend(push: bool = True, summary_path: str | None = None) -> dic
     - 第一次發布 D → first=True（排程發完整推薦訊息）
     - D 已發布過、但輸入變了（舊版收盤推薦沒有 inputs_complete，或集保更新）→ 重跑，added／withdrawn 給排程發更新
     - D 已用完整資料發布過、沒有新資料 → 什麼都不做
+    - 2026-11-01 Cody：下一個交易日前一晚 23:45 資料還沒齊 → 用已到資料發「暫定」（payload["missing"]），之後缺項有變再更新
     回傳（也寫進 summary_path）{"mode", "updated", "first", "added", "withdrawn", "waiting", "recommend"}。"""
     from config import is_trading_day
-    from recommend.publish import latest_price_date, missing_inputs, shareholder_asof
+    from recommend.publish import latest_price_date, missing_inputs, past_deadline, shareholder_asof
     out = {"mode": "publish", "updated": False, "first": False, "added": [], "withdrawn": [], "waiting": [],
            "recommend": None}
     try:
@@ -607,13 +612,16 @@ def publish_recommend(push: bool = True, summary_path: str | None = None) -> dic
         prev = json.loads(RECOMMEND_PAYLOAD_PATH.read_text(encoding="utf-8")) if RECOMMEND_PAYLOAD_PATH.exists() else None
         same_day = prev is not None and prev.get("trade_date") == day.isoformat()
         waiting = missing_inputs(day, is_trading_day)
-        if waiting:
+        if waiting and not past_deadline(datetime.now(), day, is_trading_day):
             logger.info("個股推薦 %s 還在等資料：%s（下次排程再試）", day, "、".join(waiting))
             out["waiting"] = waiting
-        elif same_day and prev.get("inputs_complete") and prev.get("shareholder_date") == shareholder_asof(day):
+        elif waiting and same_day and prev.get("missing") == waiting:
+            logger.info("個股推薦 %s 已發布暫定版、缺項沒變（%s），跳過", day, "、".join(waiting))
+            out["waiting"] = waiting
+        elif not waiting and same_day and prev.get("inputs_complete") and prev.get("shareholder_date") == shareholder_asof(day):
             logger.info("個股推薦 %s 已用完整資料發布過、沒有新資料，跳過", day)
         else:
-            out = _run_and_publish(day, prev if same_day else None, push)
+            out = _run_and_publish(day, prev if same_day else None, push, waiting)
     finally:
         if summary_path:
             Path(summary_path).parent.mkdir(parents=True, exist_ok=True)
@@ -625,29 +633,43 @@ def _new_ids(payload: dict) -> set:
     return {c["stock_id"] for g in payload.get("new") or [] for c in g["cards"]}
 
 
-def _run_and_publish(day: date, prev: dict | None, push: bool) -> dict:
-    """prev＝同一訊號日先前發布的版本（沒有就是第一次發布）。"""
+def _build_report(payload: dict) -> dict | None:
+    """每日報告失敗不能擋住推薦發布：記 log，Telegram 退回舊版推薦訊息。"""
+    from recommend.report import build_report, chips_summary
+    try:
+        report = build_report(payload, chips_summary(payload["trade_date"]))
+        generate_report_html(report)
+        return report
+    except Exception as exc:
+        logger.error("每日報告產生失敗：%s", exc)
+        return None
+
+
+def _run_and_publish(day: date, prev: dict | None, push: bool, missing: list | None = None) -> dict:
+    """prev＝同一訊號日先前發布的版本（沒有就是第一次發布）；missing＝暫定發布時缺的資料。"""
     from recommend.daily import run_daily
     prev_new = [c for g in prev.get("new") or [] for c in g["cards"]] if prev else None
     payload = run_daily(day=day.isoformat(), prev_new=prev_new)
-    payload["inputs_complete"] = True
+    payload["inputs_complete"] = not missing
+    payload["missing"] = missing or []
     payload.update(_taiex_vs_ma20(day))
     added = sorted(_new_ids(payload) - _new_ids(prev)) if prev else []
     payload["update_added"] = added
     # 前一版沒有 inputs_complete＝舊流程（收盤 15:00、籌碼晚一天）出的，Cody 沒看過完整版 → 當第一次發完整訊息（2026-10-27）
-    first = prev is None or not prev.get("inputs_complete")
+    first = prev is None or not (prev.get("inputs_complete") or prev.get("missing"))
     withdrawn = payload.get("withdrawn") or []
     RECOMMEND_PAYLOAD_PATH.parent.mkdir(parents=True, exist_ok=True)
     RECOMMEND_PAYLOAD_PATH.write_text(json.dumps(payload, ensure_ascii=False, default=str), encoding="utf-8")
     generate_recommend_html(payload)
     if payload.get("heat"):
         generate_heat_html(payload["heat"])                 # 族群熱度頁跟推薦同一時間、同一份資料
+    payload["report"] = _build_report(payload)
     logger.info("個股推薦 %s 發布（%s）：新訊號 %d 檔、有效中 %d、失效 %d；比前一版多 %s、撤回 %s",
                 day, "第一次" if first else "資料更新", sum(g["count"] for g in payload["new"]),
                 len(payload["active"]), len(payload["invalid"]), added or "無", [w["stock_id"] for w in withdrawn] or "無")
     pushed = _push_html(day) if push else False
     return {"mode": "publish", "updated": True, "first": first, "added": added, "withdrawn": withdrawn,
-            "waiting": [], "recommend": payload, "git_pushed": pushed}
+            "waiting": missing or [], "recommend": payload, "git_pushed": pushed}
 
 
 FUNDAMENTALS_STAMP_PATH = Path("data/fundamentals_last_update.txt")

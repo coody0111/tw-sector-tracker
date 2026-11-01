@@ -1582,6 +1582,7 @@ def generate(
   <div class="updated"><strong>{mode_label}</strong><span>{date_str}（週{weekday}）｜更新 {updated_stamp}</span></div>
   <nav class="nav-links" aria-label="主要功能">
     <a class="nav-link active" href="index.html" aria-current="page">族群績效</a>
+    <a class="nav-link" href="report.html">每日報告</a>
     <a class="nav-link" href="heat.html">族群熱度</a>
     <a class="nav-link" href="chips.html">籌碼分析</a>
     <a class="nav-link" href="patterns.html">形態掃描</a>

@@ -6,13 +6,14 @@
 - 三大法人、外資持股：上市、上櫃都要有 D 這天
 - 集保：資料日是每週最後一個交易日（通常週五，遇假日提前），D 是週最後交易日時要等那週集保公布（通常週末）
 """
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
 
 import duckdb
 import pandas as pd
 
 from recommend.data import DB_PATH, UNIVERSE_PATH
 
+DEADLINE = time(23, 40)
 _CHIP_TABLES = (("institutional", "三大法人"), ("foreign_holdings", "外資持股"))
 _MARKETS = (("TWSE", "上市"), ("TPEx", "上櫃"))
 
@@ -25,6 +26,16 @@ def is_week_last_trading_day(day: date, is_trading_day) -> bool:
             return d.isocalendar()[:2] != day.isocalendar()[:2]
         d += timedelta(days=1)
     return True
+
+
+def past_deadline(now: datetime, day: date, is_trading_day) -> bool:
+    """D 的下一個交易日前一晚 23:40 之後＝該出報告了（排程 23:45 觸發）。週五 D 的期限是週日晚上。"""
+    d = day + timedelta(days=1)
+    for _ in range(14):
+        if is_trading_day(d.isoformat()):
+            break
+        d += timedelta(days=1)
+    return now >= datetime.combine(d - timedelta(days=1), DEADLINE)
 
 
 def _connect(db_path: str):

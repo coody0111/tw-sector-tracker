@@ -1,0 +1,57 @@
+<title>台股每日報告</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;600;700;800&family=Noto+Sans+TC:wght@400;600;800&family=Noto+Serif+TC:wght@600;800&display=swap">
+<style>
+/* 版面：一份由上往下讀的晚間報告；結論最大，細節依序收小。沿用 export/ui_theme.py 深色 token。 */
+:root{--bg:#080B12;--panel:#0F1420;--panel2:#161D2C;--line:#293346;--line2:#37435C;--ink:#DADFE8;--ink2:#98A0B4;--ink3:#7A8398;--up:#E6432F;--down:#37B25C;--accent:#F0BB55;
+--sans:"Public Sans","Noto Sans TC","Microsoft JhengHei",sans-serif;--serif:"Noto Serif TC",Georgia,serif;color-scheme:dark}
+*{box-sizing:border-box}body{background:var(--bg);color:var(--ink);font:15px/1.65 var(--sans)}
+.top{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;padding-block:12px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));border-bottom:1px solid var(--line)}
+.top small{color:var(--accent);font-size:.62rem;font-weight:700;letter-spacing:.16em}.top strong{font:600 1.08rem var(--serif)}
+.date{margin-left:auto;display:flex;align-items:center;gap:8px;color:var(--ink2);font-size:.8rem}select{min-height:44px;padding:0 10px;color:var(--ink);background:var(--panel);border:1px solid var(--line2);border-radius:6px;font:inherit;cursor:pointer}select:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+main{max-width:980px;margin:0 auto;padding-block:30px 72px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:grid;gap:40px}
+section{min-width:0}h2{margin:0 0 14px;padding-bottom:7px;border-bottom:1px solid var(--line);font:800 1.1rem var(--sans)}
+.tone{display:inline-block;padding:2px 9px;border:1px solid var(--down);border-radius:4px;color:var(--down);font-size:.76rem;font-weight:700}
+h1{margin:10px 0 16px;font:800 clamp(1.7rem,5vw,2.5rem)/1.25 var(--serif);text-wrap:balance}
+.points{margin:0;padding:0;list-style:none;display:grid;gap:9px;max-width:68ch}.points li{padding-left:13px;border-left:2px solid var(--line2)}.points b{font-variant-numeric:tabular-nums}
+.up{color:var(--up)}.down{color:var(--down)}
+.stats{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:18px 22px}.stat span{display:block;color:var(--ink2);font-size:.76rem}.stat b{display:block;font:800 1.35rem/1.3 var(--sans);font-variant-numeric:tabular-nums}.stat b i{font-style:normal}.stat em{font-style:normal;font-size:.76rem;color:var(--ink2)}
+.sum{display:flex;flex-wrap:wrap;gap:6px 26px;margin-bottom:16px;font-variant-numeric:tabular-nums}.sum b{font-size:1.05rem}
+.cols{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px}h3{margin:0 0 8px;color:var(--ink2);font-size:.8rem;font-weight:700}
+.bar{display:grid;grid-template-columns:5.5em minmax(0,1fr) 3.8em;gap:8px;align-items:center;min-height:27px;font-size:.84rem}.bar b{text-align:right;font-variant-numeric:tabular-nums}.track{height:9px;background:var(--panel2);border-radius:2px;overflow:hidden}.track i{display:block;height:100%}.track i.up{background:var(--up)}.track i.down{background:var(--down)}
+.note{margin:10px 0 0;color:var(--ink3);font-size:.76rem}
+.tw{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:.86rem;font-variant-numeric:tabular-nums}th,td{padding:8px 10px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}thead th{color:var(--ink3);font-size:.74rem;font-weight:600}tbody th{font-weight:700}.r{text-align:right}thead th.r{text-align:right}.hot{color:var(--accent);font-weight:800}.lead{color:var(--ink2)}
+.empty{padding:13px 14px;background:var(--panel);border:1px dashed var(--line2);border-radius:6px}.chip{display:inline-block;margin-left:5px;padding:0 6px;border:1px solid var(--accent);border-radius:4px;color:var(--accent);font-size:.72rem}.sub{margin-top:16px}
+.tg{max-width:430px;padding:14px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;font-size:.88rem;white-space:pre-wrap;overflow-wrap:anywhere}
+.mock{margin:0;color:var(--ink3);font-size:.76rem}
+@media(max-width:760px){.stats{grid-template-columns:repeat(2,minmax(0,1fr))}.cols{grid-template-columns:minmax(0,1fr)}.date{margin-left:0}}
+</style>
+<header class="top"><div><small>TW SECTOR TRACKER</small><br><strong>每日報告</strong></div><label class="date" for="day">報告日期<select id="day"><option>2026-10-30（週五）</option><option>2026-10-29（週四）</option><option>2026-10-28（週三）</option></select></label></header>
+<main>
+<section aria-labelledby="h1"><span class="tone">大盤偏空</span>
+<h1 id="h1">大盤轉弱，今天沒有新訊號</h1>
+<ul class="points"><li>加權 <b>45,211.83</b>，跌 <b class="down">2.49%</b>，低於 20 日線 <b>5.3%</b>。只有 <b>13.8%</b> 的股票站上 20 日線。</li>
+<li>外資賣超 <b class="down">1,080 億</b>，投信買超 <b class="up">232 億</b>。賣壓集中在晶圓代工、電源供應器。</li>
+<li>新訊號 <b>0</b> 檔，有效中 <b>1</b> 檔。近期突破失敗率 <b>82%</b>（22 筆）。</li></ul></section>
+<section aria-labelledby="m"><h2 id="m">大盤</h2><div class="stats">
+<div class="stat"><span>加權收盤</span><b class="down">45,211.83</b><em>−1,156.50（−2.49%）</em></div>
+<div class="stat"><span>對 20 日線</span><b class="down">−5.3%</b><em>在 20 日線下</em></div>
+<div class="stat"><span>站上 20 日線</span><b>13.8%</b><em>股票池</em></div>
+<div class="stat"><span>突破失敗率</span><b>82%</b><em>近 22 筆</em></div>
+<div class="stat"><span>漲停／跌停</span><b><i class="up">12</i> / <i class="down">18</i></b><em>股票池</em></div></div></section>
+<section aria-labelledby="c"><h2 id="c">籌碼</h2><div class="sum"><span>外資 <b class="down">−1,080 億</b></span><span>投信 <b class="up">+232 億</b></span><span>融資 <b class="down">減 115,364 張</b></span></div>
+<div class="cols"><div><h3>買超最多的族群（億）</h3><div class="bar"><span class="n">電信</span><span class="track"><i class="up" style="width:9.0%"></i></span><b class="up">+19.3</b></div><div class="bar"><span class="n">通訊IC</span><span class="track"><i class="up" style="width:7.5%"></i></span><b class="up">+16.0</b></div><div class="bar"><span class="n">光學/相機</span><span class="track"><i class="up" style="width:3.6%"></i></span><b class="up">+7.7</b></div><div class="bar"><span class="n">光通訊</span><span class="track"><i class="up" style="width:2.6%"></i></span><b class="up">+5.6</b></div><div class="bar"><span class="n">遊戲/電競</span><span class="track"><i class="up" style="width:2.5%"></i></span><b class="up">+5.3</b></div></div><div><h3>賣超最多的族群（億）</h3><div class="bar"><span class="n">晶圓代工</span><span class="track"><i class="down" style="width:100.0%"></i></span><b class="down">-213.3</b></div><div class="bar"><span class="n">電源供應器</span><span class="track"><i class="down" style="width:70.9%"></i></span><b class="down">-151.3</b></div><div class="bar"><span class="n">被動元件</span><span class="track"><i class="down" style="width:56.4%"></i></span><b class="down">-120.2</b></div><div class="bar"><span class="n">AI晶片</span><span class="track"><i class="down" style="width:49.6%"></i></span><b class="down">-105.9</b></div><div class="bar"><span class="n">銅箔基板</span><span class="track"><i class="down" style="width:32.3%"></i></span><b class="down">-68.8</b></div></div></div>
+<p class="note">股票池合計，約 1,036 檔，不是全市場官方總額。族群金額為外資＋投信。</p></section>
+<section aria-labelledby="s"><h2 id="s">族群熱度前 5</h2><div class="tw"><table><thead><tr><th class="r">#</th><th>族群</th><th class="r">熱度</th><th class="r">21 日</th><th class="r">法人買超占比</th><th>狀態</th><th>帶頭</th></tr></thead><tbody><tr><td class="r">1</td><th scope="row">LED</th><td class="r hot">88</td><td class="r up">+1.0%</td><td class="r up">+0.28%</td><td>上攻中</td><td class="lead">冠西電、億光、佰鴻</td></tr><tr><td class="r">2</td><th scope="row">軟體/雲端</th><td class="r hot">86</td><td class="r up">+14.1%</td><td class="r up">+0.04%</td><td>整理中</td><td class="lead">意藍、大綜、晉泰</td></tr><tr><td class="r">3</td><th scope="row">電子製造服務</th><td class="r hot">84</td><td class="r down">-0.6%</td><td class="r up">+0.24%</td><td>拉回中</td><td class="lead">濱川、州巧、柏騰</td></tr><tr><td class="r">4</td><th scope="row">通訊IC</th><td class="r hot">83</td><td class="r down">-1.7%</td><td class="r up">+0.47%</td><td>上攻中</td><td class="lead">威鋒電子、瑞昱、祥碩</td></tr><tr><td class="r">5</td><th scope="row">AI伺服器</th><td class="r hot">74</td><td class="r down">-1.2%</td><td class="r up">+0.08%</td><td>上攻中</td><td class="lead">大眾控、台表科、佳世達</td></tr></tbody></table></div></section>
+<section aria-labelledby="r"><h2 id="r">個股推薦</h2><div class="empty">今天沒有新訊號。</div>
+<h3 class="sub">有效中 1 檔</h3><div class="tw"><table><thead><tr><th>股票</th><th>族群</th><th>型態</th><th class="r">訊號日</th><th class="r">收盤</th><th class="r">訊號後</th><th>提醒</th></tr></thead><tbody><tr><th scope="row">4526 東台</th><td>PCB</td><td>續攻</td><td class="r">10/28</td><td class="r">56.00</td><td class="r up">+12.8%</td><td><span class="chip">乖離大</span><span class="chip">族群獨漲</span></td></tr></tbody></table></div>
+<p class="note">撤回 0 檔。失效 4 檔見個股推薦頁。</p></section>
+<section aria-labelledby="w"><h2 id="w">明日觀察</h2><ul class="points"><li>東台已是第 3 天，下個交易日起不再列入有效名單。</li><li>大盤在 20 日線下、失敗率偏高，新倉位要保守。</li><li>資料已到齊，這份不會再更新。</li></ul></section>
+<section aria-labelledby="t"><h2 id="t">Telegram 長這樣</h2><div class="tg">10/30 每日報告（大盤偏空）
+加權 45,211.83 −2.49%，低於 20 日線 5.3%，站上比例 13.8%
+外資 −1,080 億，投信 +232 億，賣壓在晶圓代工、電源供應器
+新訊號 0 檔，有效中 1 檔，突破失敗率 82%
+
+報告：https://…/report.html</div></section>
+<p class="mock">設計稿。數字是資料庫 10/30 的實際資料；「偏空」的判定規則實作時定案；日期選單此稿不能切換。</p>
+</main>

@@ -96,6 +96,18 @@ def compose_recommend_message(payload: dict, taiex_above_ma20: bool | None, site
     return f"{head}\n\n{body}\n\n{extra}{tail}"
 
 
+def compose_report_message(report: dict, site_url: str) -> str:
+    """每日報告通知（2026-11-01）：今日重點＋報告連結，表格都在報告裡。"""
+    d = report["date"]
+    title = f"{d[5:7]}/{d[8:10]} 每日報告"
+    if report.get("tone"):
+        title += f"（大盤{report['tone']}）"
+    lines = [title]
+    if report.get("missing"):
+        lines.append(f"暫定：缺{'、'.join(report['missing'])}，資料到齊後更新")
+    return escape("\n".join(lines + report["points"] + ["", f"報告：{site_url}"]))
+
+
 def compose_preopen_message(payload: dict, added: list, withdrawn: list, site_url: str) -> str | None:
     """資料更新（同一訊號日重跑：舊版推薦補齊籌碼、或集保更新）：只列比前一版多出來的新訊號（表格）＋撤回的股票與理由；兩者都沒有回 None（不發）。"""
     added = set(added or [])

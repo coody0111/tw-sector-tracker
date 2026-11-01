@@ -9,6 +9,14 @@ FAIL_LOOKBACK = 10   # 近 10 個交易日的突破訊號
 FAIL_MIN_N = 5       # 樣本少於 5 筆不算失敗率
 
 
+def ma60_note(payload: dict) -> str | None:
+    """加權收在季線下的提醒（Cody 2026-11-01 選「標」）：只提醒、不擋訊號，成績單照記；缺資料不提醒。"""
+    if payload.get("taiex_above_ma60") is not False:
+        return None
+    gap = payload.get("taiex_ma60_gap")
+    return "加權在季線下，暫停新倉。" if gap is None else f"加權在季線下（低 {abs(gap) * 100:.1f}%），暫停新倉。"
+
+
 def market_header(features: pd.DataFrame, signals: pd.DataFrame, day: pd.Timestamp) -> dict:
     f = features.sort_values(["stock_id", "date"]).assign(_ac=lambda x: adjusted(x), _ao=lambda x: adjusted(x, "open"))
     ma20 = f.groupby("stock_id")["_ac"].transform(lambda s: s.rolling(20).mean())   # 還原價

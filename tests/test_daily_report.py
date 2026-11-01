@@ -2,10 +2,12 @@
 import inspect
 from datetime import date, datetime
 
+from export.recommend_generator import render as render_recommend
 from export.report_generator import generate, render
 from recommend.publish import past_deadline
+from recommend.market import ma60_note
 from recommend.report import build_report, chips_summary, market_tone
-from recommend.telegram_format import compose_report_message
+from recommend.telegram_format import compose_recommend_message, compose_report_message
 
 CHIPS = {"foreign": -1080.0, "trust": 232.0, "margin_change": -115364,
          "buy": [{"sector": "電信", "net": 19.3}], "sell": [{"sector": "晶圓代工", "net": -213.3}, {"sector": "AI晶片", "net": -105.9}]}
@@ -36,6 +38,28 @@ def test_points_use_same_numbers_as_tables():
     assert r["points"][0] == "加權 45,211.83，跌 2.49%，低於 20 日線 5.3%。13.8% 的股票站上 20 日線。"
     assert r["points"][1] == "外資賣超 1,080 億，投信買超 232 億。賣壓集中在晶圓代工、AI晶片。"
     assert r["points"][2] == "新訊號 0 檔，有效中 0 檔。近期突破失敗率 82%（22 筆）。"
+
+
+def test_below_ma60_note_is_first_point_and_reaches_telegram():
+    r = build_report(_payload(taiex_above_ma60=False, taiex_ma60_gap=-0.0286), CHIPS)
+    assert r["points"][0] == "加權在季線下（低 2.9%），暫停新倉。"
+    assert "加權在季線下（低 2.9%），暫停新倉。" in compose_report_message(r, "u")
+
+
+def test_no_ma60_note_when_above_or_unknown():
+    assert ma60_note(_payload(taiex_above_ma60=True, taiex_ma60_gap=0.01)) is None
+    assert ma60_note(_payload(taiex_above_ma60=None)) is None
+    assert ma60_note(_payload()) is None                                       # 舊 payload 沒這個欄位
+
+
+def test_ma60_note_on_recommend_page_and_fallback_message_keeps_signals():
+    card = {**_card(), "routes": "法人", "n_routes": 1, "signal_close": 95.0, "change_pct": 9.9, "strategy": "突破策略",
+            "bias10": 5.0, "vr": 2.0, "rng20": 10.0, "ret20_prev": 3.0, "top21": False, "status": "有效"}
+    p = _payload(taiex_above_ma60=False, taiex_ma60_gap=-0.0286, new=[{"sector": "晶圓代工", "count": 1, "cards": [card]}])
+    assert "暫停新倉" in render_recommend(p) and "台積電" in render_recommend(p)
+    msg = compose_recommend_message(p, False, "u")
+    assert "暫停新倉" in msg and "台積電" in msg
+    assert "暫停新倉" not in render_recommend(_payload(taiex_above_ma60=True, new=p["new"]))
 
 
 def test_missing_chips_still_builds_report():

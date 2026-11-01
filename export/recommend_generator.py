@@ -7,6 +7,7 @@ from pathlib import Path
 
 from export.ui_theme import SHARED_CSS, render_topbar
 from recommend.exits import MAX_HOLD, STOP, TRAIL
+from recommend.market import ma60_note
 
 RISK = 0.01                      # 每筆風險＝總資金 1%（規格 §11）
 DEFAULT_CAPITAL = 1_000_000
@@ -60,7 +61,7 @@ def _alerts(c: dict) -> str:
 
 # ── 頁首大盤條 ─────────────────────────────────────────────
 
-def _market(header: dict, taiex_above, taiex_gap) -> str:
+def _market(header: dict, taiex_above, taiex_gap, note: str | None = None) -> str:
     h = header or {}
     fail = h.get("fail_rate")
     fail_html = (f'<strong class="num">{_ratio(fail)}</strong><small>近 10 日 <span class="num">{h.get("fail_n", 0)}</span> 筆訊號</small>'
@@ -79,7 +80,8 @@ def _market(header: dict, taiex_above, taiex_gap) -> str:
         f'<div class="mcell"><label>加權指數</label>{taiex_html}</div>'
         f'<div class="mcell"><label>今日漲停／跌停</label><strong class="num"><span class="up">{h.get("limit_up", "—")}</span>'
         f' ／ <span class="down">{h.get("limit_down", "—")}</span></strong><small>全部股票</small></div>'
-        '</div><p class="market-note">大盤資訊只給你參考，不會擋掉訊號。</p>'
+        '</div>' + (f'<p class="ma60-note">{escape(note)}</p>' if note else '')
+        + '<p class="market-note">大盤資訊只給你參考，不會擋掉訊號。</p>'
     )
 
 
@@ -379,6 +381,7 @@ PAGE_CSS = r"""
 .mcell strong{display:block;margin-top:2px;font-size:1.05rem}
 .mcell small{color:var(--ui-ink-3);font-size:.68rem}
 .market-note{margin:6px 0 0;color:var(--ui-ink-3);font-size:.7rem}
+.ma60-note{margin:8px 0 0;color:#E39A3B;font-size:.82rem;font-weight:700}
 .capital{position:sticky;top:var(--ui-sticky-top);z-index:5;margin-top:16px;background:var(--ui-bg);border-bottom:1px solid var(--ui-border)}
 .capital-inner{display:flex;flex-wrap:wrap;align-items:center;gap:10px 22px;padding-block:10px}
 .capital-field{display:flex;align-items:center;gap:10px}
@@ -508,7 +511,7 @@ def render(payload: dict) -> str:
     p = payload
     js = (PAGE_JS.replace("%KEY%", f'"{CAPITAL_KEY}"').replace("%RISK%", str(RISK)).replace("%STOP%", str(STOP)))
     body = (
-        _market(p.get("header"), p.get("taiex_above_ma20"), p.get("taiex_ma20_gap"))
+        _market(p.get("header"), p.get("taiex_above_ma20"), p.get("taiex_ma20_gap"), ma60_note(p))
         + _capital()
         + _new_section(p.get("new") or [], p.get("withdrawn"), p.get("shareholder_date"))
         + _active_section(p.get("active") or [], p.get("invalid") or [])

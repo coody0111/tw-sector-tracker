@@ -578,12 +578,15 @@ def _latest_heat() -> dict | None:
 def _taiex_vs_ma20(day: date) -> dict:
     """推薦頁頁首的加權指數 vs MA20（收盤流程不再跑推薦，這裡自己抓；失敗就留空）。"""
     try:
-        hist = [r for r in fetch_taiex_history(day, months=2) if str(r["date"])[:10] <= day.isoformat()]
+        hist = [r for r in fetch_taiex_history(day, months=4) if str(r["date"])[:10] <= day.isoformat()]
         if len(hist) < 20:
             return {}
         closes = [r["close"] for r in hist[-20:]]
         ma20 = sum(closes) / 20
+        ma60 = sum(r["close"] for r in hist[-60:]) / 60 if len(hist) >= 60 else None
         return {"taiex_above_ma20": closes[-1] > ma20, "taiex_ma20_gap": closes[-1] / ma20 - 1, "taiex_close": closes[-1],
+                "taiex_above_ma60": None if ma60 is None else closes[-1] > ma60,
+                "taiex_ma60_gap": None if ma60 is None else closes[-1] / ma60 - 1,
                 "taiex_change": hist[-1].get("change"), "taiex_change_pct": hist[-1].get("change_pct")}
     except Exception as exc:
         logger.warning("推薦頁加權指數 MA20 抓取失敗（頁首顯示 —）：%s", exc)

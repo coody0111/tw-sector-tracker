@@ -5939,3 +5939,22 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 ### 請 Debugger 驗證
 - [ ] 全套 pytest
 - [ ] 重跑 10-27 缺上市三大法人模擬：Telegram 不再出現部分金額；融資缺一邊顯示「—」
+
+## [2026-11-01] 加權季線提醒（標）
+
+### 改了什麼
+- 異動檔案：main.py、recommend/market.py、recommend/report.py、recommend/telegram_format.py、export/recommend_generator.py、tests/test_daily_report.py、tests/test_main.py、spec 2026-11-01-daily-report.md
+- 邏輯：_taiex_vs_ma20 改抓 4 個月，payload 多 taiex_above_ma60／taiex_ma60_gap（不足 60 筆為 None）。加權收在 60 日線下時，今日重點第一句、推薦頁大盤區、舊版 Telegram 訊息都寫「加權在季線下（低 X%），暫停新倉。」
+- 只提醒，不擋訊號，成績單照記（Cody 選「標」）
+
+### 資料來源相關
+- 上市／上櫃：無異動。加權仍走 TWSE FMTQIK，每次多抓 2 個月份
+
+### 請 Debugger 驗證
+- [ ] 全套 pytest（新測試在 tests/test_daily_report.py、tests/test_main.py；我只編譯加 import，未跑測試）
+- [ ] 用 10/30 真資料算 MA60，應約 46,541、低約 2.9%（yfinance ^TWII 算的，可和 FMTQIK 對）
+- [ ] 手機寬度看推薦頁提醒排版；舊 payload 沒有新欄位時不顯示、不報錯
+- [ ] recommend/telegram_format 新 import recommend.market 後沒有循環 import，也沒有拖慢排程
+
+### 特別注意
+- 提醒第一次出現在 11/2 晚上的報告；10/30 已發布，不會重出

@@ -578,6 +578,18 @@ def _fake_run_daily(monkeypatch, days, prev_cards, new_ids=("6213", "6672"), wit
                         or dict(payload))
 
 
+def test_taiex_ma60_needs_sixty_days(monkeypatch):
+    from datetime import date
+    import main as m
+    rows = [{"date": f"2026-{i:03d}", "close": 100.0} for i in range(59)] + [{"date": "2026-10-30", "close": 90.0}]
+    monkeypatch.setattr(m, "fetch_taiex_history", lambda d, months: rows)
+    out = m._taiex_vs_ma20(date(2026, 10, 30))
+    assert out["taiex_above_ma60"] is False and round(out["taiex_ma60_gap"], 4) == round(90 / 99.8333 - 1, 4)
+    monkeypatch.setattr(m, "fetch_taiex_history", lambda d, months: rows[1:])
+    out = m._taiex_vs_ma20(date(2026, 10, 30))
+    assert out["taiex_above_ma60"] is None and out["taiex_above_ma20"] is False
+
+
 def test_publish_waits_until_inputs_complete(monkeypatch, tmp_path):
     m, path, calls = _publish_env(monkeypatch, tmp_path, None, waiting=["上市三大法人", "集保"])
     monkeypatch.setattr("recommend.publish.past_deadline", lambda *a: False)     # 訊號日是固定舊日期，不然會走暫定發布

@@ -2,6 +2,8 @@
 import unicodedata
 from html import escape
 
+from recommend.market import ma60_note
+
 MAX_ROWS = 15
 SHORT_ALERTS = {"族群獨漲": "獨漲"}   # 提醒欄寬 6（「乖離大」）；「族群獨漲」寬 8 會把名稱欄推歪，Telegram 用簡寫
 
@@ -87,7 +89,8 @@ def compose_recommend_message(payload: dict, taiex_above_ma20: bool | None, site
     if total > shown:
         lines.append(f"另 {total - shown} 檔見頁面")
     body = f"<pre>{escape(chr(10).join(lines))}</pre>" if total else escape("今天沒有新訊號")
-    head = escape(f"{_title(d, label)}\n{'｜'.join(market)}")
+    note = ma60_note(payload)
+    head = escape(f"{_title(d, label)}\n{'｜'.join(market)}" + (f"\n{note}" if note else ""))
     sectors = _sector_lines(payload) if include_sectors else []
     if sectors and (payload.get("heat") or {}).get("top"):
         sectors.append("熱度頁：" + site_url.replace("recommend.html", "heat.html"))

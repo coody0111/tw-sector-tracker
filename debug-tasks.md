@@ -5971,3 +5971,28 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 
 ### 特別注意
 - 「暫停新倉」與「只給你參考」相鄰的措辭待 Cody 決定，這次沒改
+
+## [2026-11-01] 每週籌碼報告自動化
+
+### 改了什麼
+- 新檔：scrapers/taifex.py、recommend/weekly_chips.py、export/weekly_chips_generator.py、tests/test_weekly_chips.py、spec 2026-11-01-weekly-chips.md
+- 異動：main.py（publish_recommend 的 finally 呼叫 _publish_weekly_chips，summary 多 weekly_chips；_push_html 加 docs/weekly）、scripts/run_scheduled.py（send_weekly_message）、scrapers/taiex.py（fetch_tpex_index_history）、recommend/telegram_format.py、export/ui_theme.py、export/index_generator.py（導覽）、tests/test_main.py、docs、CLAUDE-developer.md
+- 邏輯：每次 preopen 存台指期；集保最新資料日 D 沒有 docs/weekly/D.html，且 D 的行情與兩邊融資都到 → 產頁面、push、Telegram。同一 D 只發一次，失敗下次重試
+
+### 資料來源相關
+- 上市／上櫃融資、集保、行情：只讀 DB，無新寫入
+- 新來源：TAIFEX OpenAPI（只有最新一天，存 data/futures_daily.csv）、TPEx 網站櫃買指數月資料
+- 上市與上櫃融資成數分開算（0.6／0.5），exchange 值為 TWSE／TPEx
+
+### 請 Debugger 驗證
+- [ ] 全套 pytest（我只編譯，加上用 10/30 真資料渲染到暫存夾，未跑測試）
+- [ ] 真資料對帳：加權本週 −1.80%、櫃買本週 −2.99%（對 10/22）、外資台指期淨額 −92,241、融資本週 −108,203、大盤維持率 158.2%、低於 130% 4 檔
+- [ ] publish_recommend 任何分支（等資料、跳過、例外）都不會被 _publish_weekly_chips 擋住或重複發
+- [ ] 把 summary 裡的 weekly_chips 寫成 JSON、排程發 Telegram 沒問題（含 numpy 型別）
+- [ ] arg_max(close, date) 取到的是 D 當天收盤；停牌股是否算進維持率（我用區間內最後收盤）
+- [ ] 手機 320／375 表格、日期選單、歷史頁 base href
+- [ ] 模擬 D 當天沒有台指期 CSV：報告照出、頁面寫未到
+
+### 特別注意
+- 排程從這台工作目錄執行：今晚 20:00 就會真的產 10/30 報告、push、發 Telegram，請在那之前驗完；有 🔴 我會先修
+- 台指期歷史要從今天起累積，第一週沒有週變化

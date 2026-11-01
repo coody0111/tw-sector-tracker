@@ -303,6 +303,8 @@ def _push_html(trade_date: date) -> bool:
             files_to_add.append("docs/heat.html")
         if os.path.exists("docs/report.html"):
             files_to_add += ["docs/report.html", "docs/reports"]
+        if os.path.exists("docs/weekly.html"):
+            files_to_add += ["docs/weekly.html", "docs/weekly"]
         subprocess.run(["git", "add"] + files_to_add, check=True)
         # 只看這幾個產出檔有沒有變動（限定範圍，不受其他 staged 變更影響判斷）
         result = subprocess.run(["git", "diff", "--cached", "--quiet", "--"] + files_to_add)
@@ -627,10 +629,44 @@ def publish_recommend(push: bool = True, summary_path: str | None = None) -> dic
         else:
             out = _run_and_publish(day, prev if same_day else None, push, waiting)
     finally:
+        out["weekly_chips"] = _publish_weekly_chips(push)
         if summary_path:
             Path(summary_path).parent.mkdir(parents=True, exist_ok=True)
             Path(summary_path).write_text(json.dumps(out, ensure_ascii=False, default=str), encoding="utf-8")
     return out
+
+
+def _publish_weekly_chips(push: bool) -> dict | None:
+    """每週籌碼報告（2026-11-01 Cody）：集保新資料日還沒出過報告、行情與融資都到了就產一次。
+    回傳報告（排程發 Telegram），沒產生回 None；失敗只記 log，下次排程重試，不影響推薦發布。"""
+    import export.weekly_chips_generator as page
+    import recommend.weekly_chips as wc
+    import scrapers.taiex as taiex
+    import scrapers.taifex as taifex
+    try:
+        snapshot = taifex.fetch_futures_snapshot()
+        if snapshot:
+            wc.save_futures_snapshot(snapshot, wc.FUTURES_PATH)
+    except Exception as exc:
+        logger.warning("台指期抓取失敗（下次排程再存）：%s", exc)
+    try:
+        day = wc.latest_shareholder_date()
+        if not day or (wc.ARCHIVE_DIR / f"{day}.html").exists() or not wc.inputs_ready(day):
+            return None
+        d = date.fromisoformat(day)
+        rows = [("加權", fetch_taiex_history(d, months=5)), ("櫃買", taiex.fetch_tpex_index_history(d, months=5))]
+        indices = [r for r in (wc.index_row(name, x, day) for name, x in rows) if r]
+        prev = json.loads(RECOMMEND_PAYLOAD_PATH.read_text(encoding="utf-8")) if RECOMMEND_PAYLOAD_PATH.exists() else {}
+        sectors = (prev.get("heat") or {}).get("sectors") or [] if prev.get("trade_date") == day else []
+        weekly = wc.build_weekly(day, indices, *wc.load_futures_rows(day, wc.FUTURES_PATH), sectors)
+        page.generate(weekly)
+        logger.info("每週籌碼報告 %s 已產生", day)
+        if push:
+            _push_html(d)
+        return weekly
+    except Exception as exc:
+        logger.error("每週籌碼報告產生失敗（下次排程重試）：%s", exc)
+        return None
 
 
 def _new_ids(payload: dict) -> set:

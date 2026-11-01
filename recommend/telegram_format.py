@@ -111,6 +111,12 @@ def compose_report_message(report: dict, site_url: str) -> str:
     return escape("\n".join(lines + report["points"] + ["", f"報告：{site_url}"]))
 
 
+def compose_weekly_message(weekly: dict, site_url: str) -> str:
+    """每週籌碼報告通知：重點＋連結，表格都在頁面。"""
+    d = weekly["date"]
+    return escape("\n".join([f"{d[5:7]}/{d[8:10]} 每週籌碼報告"] + weekly["points"] + ["", f"報告：{site_url}"]))
+
+
 def compose_preopen_message(payload: dict, added: list, withdrawn: list, site_url: str) -> str | None:
     """資料更新（同一訊號日重跑：舊版推薦補齊籌碼、或集保更新）：只列比前一版多出來的新訊號（表格）＋撤回的股票與理由；兩者都沒有回 None（不發）。"""
     added = set(added or [])

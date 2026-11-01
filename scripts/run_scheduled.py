@@ -42,7 +42,9 @@ logger = logging.getLogger(__name__)
 
 # 模組層級 import：sys.path 已在上面修好，不需要延到 main() 內才 import。
 from notifications.telegram import send_telegram_message, TelegramConfigError  # noqa: E402
-from recommend.telegram_format import compose_preopen_message, compose_recommend_message, compose_report_message  # noqa: E402
+from recommend.telegram_format import (  # noqa: E402
+    compose_preopen_message, compose_recommend_message, compose_report_message, compose_weekly_message,
+)
 
 _MARKET_OPEN = dt_time(9, 0)
 _MARKET_CLOSE = dt_time(13, 30)  # TWSE 正式收盤時間，僅供參考語意，不直接拿來判斷排程窗口
@@ -283,6 +285,14 @@ def send_preopen_message(summary: dict, site_url: str) -> None:
                     [w["stock_id"] for w in summary.get("withdrawn") or []])
 
 
+def send_weekly_message(summary: dict, site_url: str) -> None:
+    """每週籌碼報告：集保更新後第一次產生時才有 weekly_chips。"""
+    weekly = summary.get("weekly_chips")
+    if weekly:
+        send_telegram_message(compose_weekly_message(weekly, site_url.rstrip("/") + "/weekly.html"), parse_mode="HTML")
+        logger.info("每週籌碼報告：%s 已通知", weekly["date"])
+
+
 _MODE_LABELS = {"intraday": "盤中監控", "close": "收盤更新", "preopen": "推薦發布"}
 
 
@@ -395,6 +405,7 @@ def main() -> int:
                 site_url = os.environ.get("SITE_URL", "https://coody0111.github.io/tw-sector-tracker/")
                 try:
                     send_preopen_message(summary, site_url)
+                    send_weekly_message(summary, site_url)
                 except TelegramConfigError as exc:
                     logger.error("Telegram 設定缺失，無法通知：%s", exc)
             else:  # close

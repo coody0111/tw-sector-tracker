@@ -212,6 +212,7 @@ con.close()
 ## 📋 每週籌碼報告（2026-11-01 Cody 要求）
 
 每週集保更新後（週五資料，通常週六晚上公布）就要出籌碼報告給 Cody，讓他週末能看。不用等他問。
+已自動化：`main._publish_weekly_chips`，頁面 `docs/weekly.html`，Telegram 同步通知。規格見 `docs/superpowers/specs/2026-11-01-weekly-chips.md`。
 內容：加權、櫃買、台指期與三大法人台指期未平倉；融資維持率(估)的大盤與個股；大戶增加／減少最多各 10 檔、族群大戶增減、融資增減。
 融資維持率一律標明是估計值。報告要用 `shareholder` 最新資料日，先確認資料已到才出。
 

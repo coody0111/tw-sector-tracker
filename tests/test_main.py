@@ -557,6 +557,7 @@ def _publish_env(monkeypatch, tmp_path, prev, waiting=(), sh_asof="2026-10-16", 
     monkeypatch.setattr(m, "generate_recommend_html", lambda p: calls.append("html"))
     monkeypatch.setattr(m, "_push_html", lambda d: calls.append(("push", d.isoformat())) or True)
     monkeypatch.setattr(m, "_taiex_vs_ma20", lambda d: {"taiex_above_ma20": False, "taiex_ma20_gap": -0.039})
+    monkeypatch.setattr(m, "_publish_weekly_chips", lambda push: None)
     monkeypatch.setattr(pub, "latest_price_date", lambda: date.fromisoformat(day))
     monkeypatch.setattr(pub, "missing_inputs", lambda d, f: list(waiting))
     monkeypatch.setattr(pub, "shareholder_asof", lambda d: sh_asof)

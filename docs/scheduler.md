@@ -108,6 +108,8 @@ python main.py --summary-json logs/latest_summary.json
 python main.py --publish-recommend --summary-json logs/latest_summary.json
 ```
 
+每次跑完還會存台指期到 `data/futures_daily.csv`，並檢查每週籌碼報告：集保新資料日還沒出過報告、行情與融資都到了，就產 `docs/weekly.html` 並發 Telegram，同一資料日只發一次。
+
 為什麼（2026-10-27 Cody：「時間一定要對齊」）：回測用訊號日 D 當天的三大法人／外資持股與含 D 的最近一份集保；
 收盤 15:00 這些都還沒公布（10/27 T86、MI_QFIIS 都回「沒有資料」），15:00 出推薦等於用前一天的籌碼（回測少 16% 訊號）。
 所以**收盤流程不再跑推薦**，改由這支排程：

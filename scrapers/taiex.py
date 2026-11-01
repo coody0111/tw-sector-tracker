@@ -20,6 +20,7 @@ from scrapers.chips import TWSEBlockedError
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 TAIEX_URL = "https://www.twse.com.tw/rwd/zh/afterTrading/FMTQIK"
+TPEX_INDEX_URL = "https://www.tpex.org.tw/www/zh-tw/indexInfo/inx"
 _HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -129,6 +130,22 @@ def fetch_taiex_history(end_date: date, months: int = 4) -> list[dict]:
             if row["date"] <= end_date:
                 by_date[row["date"]] = row
     return [by_date[trade_day] for trade_day in sorted(by_date)]
+
+
+def fetch_tpex_index_history(end_date: date, months: int = 5) -> list[dict]:
+    """櫃買指數月資料（TPEx 網站）；欄位 日期／開／高／低／收／漲跌，回傳到 end_date 為止、由舊到新。"""
+    by_date = {}
+    for offset in range(months):
+        month = _month_start_offset(end_date, offset)
+        resp = requests.get(TPEX_INDEX_URL, params={"date": month.strftime("%Y/%m/%d"), "response": "json"},
+                            headers={"User-Agent": _HEADERS["User-Agent"]}, timeout=30)
+        resp.raise_for_status()
+        for row in resp.json()["tables"][0]["data"]:
+            trade_day = date.fromisoformat(row[0].replace("/", "-"))
+            close = _to_float(row[4])
+            if close is not None and trade_day <= end_date:
+                by_date[trade_day] = {"date": trade_day, "close": close}
+    return [by_date[d] for d in sorted(by_date)]
 
 
 def fetch_taiex_index(trade_date: date) -> dict:

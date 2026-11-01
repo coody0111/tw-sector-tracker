@@ -4,7 +4,7 @@ from datetime import date, datetime
 
 from export.report_generator import generate, render
 from recommend.publish import past_deadline
-from recommend.report import build_report, market_tone
+from recommend.report import build_report, chips_summary, market_tone
 from recommend.telegram_format import compose_report_message
 
 CHIPS = {"foreign": -1080.0, "trust": 232.0, "margin_change": -115364,
@@ -54,6 +54,15 @@ def test_provisional_is_labelled():
 def test_last_valid_day_goes_to_watch():
     r = build_report(_payload(active=[_card(day_n=3)]), CHIPS)
     assert "台積電 已是第 3 天，下個交易日起不再列入有效名單。" in r["watch"]
+
+
+def test_new_signal_on_same_stock_drops_expiry_note():
+    r = build_report(_payload(active=[_card(day_n=3)], new=[{"cards": [_card()]}]), CHIPS)
+    assert not any("已是第" in x for x in r["watch"])
+
+
+def test_partial_institutional_never_shown_as_total():
+    assert chips_summary("2026-10-30", ["上市三大法人", "集保"], db_path="不會被讀到.db") is None
 
 
 def test_deadline_is_night_before_next_trading_day():

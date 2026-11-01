@@ -25,6 +25,7 @@ PAGE_CSS = """
 .provisional{margin-left:6px;border-color:var(--ui-accent);color:var(--ui-accent)}
 .points{margin:0;padding:0;list-style:none;display:grid;gap:9px;max-width:68ch}.points li{padding-left:13px;border-left:2px solid var(--ui-border-strong);font-variant-numeric:tabular-nums}
 .up{color:var(--ui-up)}.down{color:var(--ui-down)}
+.rp a{color:var(--ui-accent)}
 .stats{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:18px 22px}.stat span{display:block;color:var(--ui-ink-2);font-size:.76rem}.stat b{display:block;font-size:1.35rem;font-weight:800;line-height:1.3;font-variant-numeric:tabular-nums}.stat b i{font-style:normal}.stat em{font-style:normal;font-size:.76rem;color:var(--ui-ink-2)}
 .sum{display:flex;flex-wrap:wrap;gap:6px 26px;margin-bottom:16px;font-variant-numeric:tabular-nums}.sum b{font-size:1.05rem}
 .cols{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px}

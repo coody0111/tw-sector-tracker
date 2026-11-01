@@ -5926,3 +5926,16 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 ### 特別注意
 - 尚未產生實際 report.html，Cody 跑 python main.py --publish-recommend 才會有；排程要重裝才有 23:45
 - 暫定若 08:00 後才到齊不會回頭更新（已寫進規格）
+
+## [2026-11-01] 修每日報告 bug-reports 🔴 2 項與 🟡 2 項
+
+### 改了什麼
+- 異動檔案：recommend/report.py、main.py、export/report_generator.py、tests/test_main.py、tests/test_daily_report.py
+- 🔴 缺三大法人（任一邊）時 chips_summary 回 None：頁面顯示「籌碼資料未到」、今日重點跳過這句；融資只到一邊市場時顯示「—」
+- 🔴 test_publish_waits_until_inputs_complete patch past_deadline
+- 🟡1 同股又出新訊號不寫到期提醒；🟡4 連結改 accent 色
+- 其餘 🟡 未處理：2（撤回後又符合，機率低）、5（1000 寬頁首折行）、6（23:30 超時）；另請 Cody 決定是否要做
+
+### 請 Debugger 驗證
+- [ ] 全套 pytest
+- [ ] 重跑 10-27 缺上市三大法人模擬：Telegram 不再出現部分金額；融資缺一邊顯示「—」

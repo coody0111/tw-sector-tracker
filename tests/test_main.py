@@ -580,6 +580,7 @@ def _fake_run_daily(monkeypatch, days, prev_cards, new_ids=("6213", "6672"), wit
 
 def test_publish_waits_until_inputs_complete(monkeypatch, tmp_path):
     m, path, calls = _publish_env(monkeypatch, tmp_path, None, waiting=["上市三大法人", "集保"])
+    monkeypatch.setattr("recommend.publish.past_deadline", lambda *a: False)     # 訊號日是固定舊日期，不然會走暫定發布
     out = m.publish_recommend(summary_path=str(tmp_path / "s.json"))
     assert out["updated"] is False and out["waiting"] == ["上市三大法人", "集保"]
     assert calls == ["chips", "shareholder"] and not path.exists()

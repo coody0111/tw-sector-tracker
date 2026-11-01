@@ -24,9 +24,14 @@ def market_tone(taiex_above_ma20: bool | None, above_ma20_pct: float | None) -> 
     return "中性"
 
 
-def chips_summary(day: str, db_path: str = DB_PATH, universe_path: str = UNIVERSE_PATH) -> dict | None:
-    """當日外資、投信買賣超（億）、族群買賣超前 5、融資增減（張）；當天沒有法人資料回 None。"""
-    uni = pd.read_csv(universe_path, dtype=str, encoding="utf-8-sig")[["stock_id", "meta_sector"]]
+def chips_summary(day: str, missing: list | None = None, db_path: str = DB_PATH,
+                  universe_path: str = UNIVERSE_PATH) -> dict | None:
+    """當日外資、投信買賣超（億）、族群買賣超前 5、融資增減（張）；當天沒有法人資料回 None。
+    暫定版缺一邊市場的三大法人時也回 None：只算另一邊會寫成合計，10-27 實測方向相反（Debugger 2026-11-01）。
+    融資不在發布檢查內，只到一邊市場時融資顯示「—」。"""
+    if any("三大法人" in m for m in missing or []):
+        return None
+    uni = pd.read_csv(universe_path, dtype=str, encoding="utf-8-sig")[["stock_id", "meta_sector", "exchange"]]
     con = duckdb.connect(db_path, read_only=True)
     try:
         inst = con.execute(
@@ -41,11 +46,11 @@ def chips_summary(day: str, db_path: str = DB_PATH, universe_path: str = UNIVERS
     foreign = inst["foreign_net"] * inst["close"] / 1e8
     trust = inst["trust_net"] * inst["close"] / 1e8
     by_sector = (foreign + trust).groupby(inst["meta_sector"]).sum().sort_values()
-    margin = margin[margin["stock_id"].isin(set(uni["stock_id"]))]
+    margin = margin.merge(uni, on="stock_id")
     return {
         "foreign": round(float(foreign.sum()), 1),
         "trust": round(float(trust.sum()), 1),
-        "margin_change": int(margin["margin_change"].sum()) if not margin.empty else None,
+        "margin_change": int(margin["margin_change"].sum()) if margin["exchange"].nunique() == 2 else None,
         "buy": [{"sector": k, "net": round(float(v), 1)}
                 for k, v in by_sector[by_sector > 0].iloc[::-1].head(TOP_SECTORS).items()],
         "sell": [{"sector": k, "net": round(float(v), 1)} for k, v in by_sector[by_sector < 0].head(TOP_SECTORS).items()],
@@ -96,8 +101,9 @@ def _signal_point(p: dict, new_n: int) -> str:
 
 
 def _watch(p: dict, tone: str | None, missing: list) -> list:
+    renewed = {c["stock_id"] for g in p["new"] for c in g["cards"]}      # 同股又出新訊號，舊訊號到期不用提醒
     lines = [f"{c['stock_name']} 已是第 {c['day_n']} 天，下個交易日起不再列入有效名單。"
-             for c in p["active"] if c["day_n"] >= KEEP_DAYS]
+             for c in p["active"] if c["day_n"] >= KEEP_DAYS and c["stock_id"] not in renewed]
     if tone == "偏空":
         lines.append("大盤在 20 日線下、站上比例偏低，新倉位要保守。")
     lines.append(f"暫定：缺{'、'.join(missing)}。資料到齊後會更新這份報告。" if missing else "資料已到齊。")

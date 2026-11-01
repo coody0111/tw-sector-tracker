@@ -637,7 +637,7 @@ def _build_report(payload: dict) -> dict | None:
     """每日報告失敗不能擋住推薦發布：記 log，Telegram 退回舊版推薦訊息。"""
     from recommend.report import build_report, chips_summary
     try:
-        report = build_report(payload, chips_summary(payload["trade_date"]))
+        report = build_report(payload, chips_summary(payload["trade_date"], payload.get("missing")))
         generate_report_html(report)
         return report
     except Exception as exc:

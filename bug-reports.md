@@ -5729,3 +5729,43 @@ Telegram 用正式 payload 換上這份 heat；Chrome headless 看 1440／375。
 ### 結論
 - [ ] 需要修改後再確認
 - [x] 可以繼續下一個任務
+
+## [2026-11-01] 報告 - 每週籌碼報告自動化（e03d2a0）
+
+### 🔴 程式問題（需立刻修）
+- 問題：全套 pytest 有 1 個失敗（936 passed，1 failed）
+  重現方式：`python -m pytest tests/test_weekly_chips.py::test_index_row_week_base_is_last_close_before_monday`
+  說明：測試資料是 28＋28＋3＝59 筆，不滿 60，`ma60_pct` 正確回傳 None，但測試斷言它不是 None。錯的是測試資料，不是 `index_row`；補 1 筆就好。
+
+- 問題：頁面產生後才發 Telegram，通知失敗就永遠補不回來，和交接寫的「失敗下次重試」不符
+  位置：main.py `_publish_weekly_chips`（`page.generate` 寫出 docs/weekly/D.html 就算發過）、scripts/run_scheduled.py `send_weekly_message`
+  說明：歷史頁一存在，下次就不會再回傳 weekly_chips。以下情況都收不到這週通知：
+  - 手動跑 `python main.py --publish-recommend`：這條路不發 Telegram，但歷史頁已產生，之後排程也不再發。上線步驟正好要 Cody 手動跑這個指令。
+  - 同一次的推薦發布拋例外：finally 照樣產週報，但 main.py 回傳非 0，run_scheduled 走失敗分支，不發週報。
+  - main.py 逾時，或 `send_preopen_message` 先失敗。
+  - Telegram 發送失敗：`send_weekly_message` 沒看回傳值，之後也不會重發。
+  另外 `_push_html` 失敗只回傳 False，通知照發，連結會暫時 404，要等下一次 push。
+  建議：另存「已通知的資料日」（例如 data/ 下的狀態檔），由排程發送成功後才寫入，不要用歷史頁是否存在判斷是否已通知。
+
+### 🟡 建議改善
+- 集保不是週五出（10/08、10/22 都是週四）時，大戶增減是「集保日對集保日」，指數和融資卻是「週一起算」，下一週的兩段區間會差一天。頁面沒說明，資料本身沒錯，可在頁面加註。
+
+### ✅ 驗證通過
+- 真資料對帳（DB 複本，資料日 10/30）：
+  - 加權 −1.80%（46,041.43→45,211.83，FMTQIK），櫃買 −2.99%（381.69→370.26，TPEx 原始列確認第 5 欄是收盤）
+  - 10/23、10/26 指數、行情、融資都沒有資料，所以基準是 10/22，融資也只加總 10/27～10/30
+  - 外資台指期 −92,241、投信 +89,211、自營 +1,736：期交所 OpenAPI 原始列逐欄相同
+  - 融資 −108,203：獨立用餘額差算 10/22→10/30 為 −108,233（兩日都有的 997 檔），差 30 張，應來自只有一天有餘額的股票，未逐檔確認
+  - 大盤維持率（估）158.2%、低於 130% 4 檔（貿聯-KY、蔚華科、台達電、嘉晶）；3 檔個股用上市 0.6 成數手算相符
+  - 大戶 week_chg 和兩期 lv12_15_pct 相減，1,031 檔全部一致
+- `arg_max(close, date)` 取到 D 當天收盤；10/30 有融資的股票沒有一檔缺當天行情。區間內停牌股用最後收盤（實際沒有案例，未實測）
+- 無 close≤0；summary 寫 JSON 成功，無 NaN，futures CSV 來回讀寫後可序列化
+- 台指期 CSV：同日重存覆蓋、上週比較值正確（模擬 −2,241）；D 沒有台指期時頁面寫「台指期資料未到」，報告照出
+- publish_recommend 等資料、跳過、例外分支都會走到 finally，`_publish_weekly_chips` 內的抓取與產頁例外都接住，不會擋推薦（程式閱讀，未逐分支實跑）
+- 手機 320／375：頁面無橫向溢出（scrollWidth 305／360），寬表格在 `.tw` 內捲動
+- **未測**：`weekly/index.json` 的 fetch、歷史頁 base href 與日期選單實際切換（沒有本機 server）；實際 push 與真的發 Telegram（沒有執行）
+
+### 結論
+- [x] 需要修改後再確認
+- [ ] 可以繼續下一個任務
+- 占位檔 docs/weekly/2026-10-30.html 請維持到上面兩項修好再刪，否則排程會發布。

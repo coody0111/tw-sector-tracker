@@ -637,8 +637,9 @@ def publish_recommend(push: bool = True, summary_path: str | None = None) -> dic
 
 
 def _publish_weekly_chips(push: bool) -> dict | None:
-    """每週籌碼報告（2026-11-01 Cody）：集保新資料日還沒出過報告、行情與融資都到了就產一次。
-    回傳報告（排程發 Telegram），沒產生回 None；失敗只記 log，下次排程重試，不影響推薦發布。"""
+    """每週籌碼報告（2026-11-01 Cody）：集保新資料日還沒通知過就回傳報告給排程發 Telegram，
+    發送成功才由排程寫 NOTIFIED_PATH（手動跑、逾時、發送失敗都能在下次排程補發）。頁面已產生就不重產。
+    回傳 None 代表這次不用通知；失敗只記 log，不影響推薦發布。"""
     import export.weekly_chips_generator as page
     import recommend.weekly_chips as wc
     import scrapers.taiex as taiex
@@ -651,7 +652,12 @@ def _publish_weekly_chips(push: bool) -> dict | None:
         logger.warning("台指期抓取失敗（下次排程再存）：%s", exc)
     try:
         day = wc.latest_shareholder_date()
-        if not day or (wc.ARCHIVE_DIR / f"{day}.html").exists() or not wc.inputs_ready(day):
+        if not day or wc.notified_date(wc.NOTIFIED_PATH) == day:
+            return None
+        saved = wc.load_weekly(day, wc.WEEKLY_PATH)
+        if saved and (wc.ARCHIVE_DIR / f"{day}.html").exists():
+            return saved
+        if not wc.inputs_ready(day):
             return None
         d = date.fromisoformat(day)
         rows = [("加權", fetch_taiex_history(d, months=5)), ("櫃買", taiex.fetch_tpex_index_history(d, months=5))]
@@ -660,6 +666,7 @@ def _publish_weekly_chips(push: bool) -> dict | None:
         sectors = (prev.get("heat") or {}).get("sectors") or [] if prev.get("trade_date") == day else []
         weekly = wc.build_weekly(day, indices, *wc.load_futures_rows(day, wc.FUTURES_PATH), sectors)
         page.generate(weekly)
+        wc.save_weekly(weekly, wc.WEEKLY_PATH)
         logger.info("每週籌碼報告 %s 已產生", day)
         if push:
             _push_html(d)

@@ -1,6 +1,7 @@
 """每週籌碼報告資料（規格 docs/superpowers/specs/2026-11-01-weekly-chips.md）。
 集保資料日 D 到齊後產一次：指數、台指期、融資維持率(估)的大盤與個股、大戶與融資增減。
 融資維持率是估計值（docs/adr/0002-margin-maintenance-ratio-is-an-estimate.md），融資與大戶都是股票池合計。"""
+import json
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -11,6 +12,8 @@ from recommend.data import DB_PATH, UNIVERSE_PATH
 
 FUTURES_PATH = Path("data/futures_daily.csv")
 ARCHIVE_DIR = Path("docs/weekly")
+WEEKLY_PATH = Path("data/weekly_chips.json")          # 最新一份報告，通知失敗時下次排程直接重發
+NOTIFIED_PATH = Path("data/weekly_notified.txt")      # 已成功通知的資料日；只有排程發送成功才寫
 TOP_HOLDERS = 10
 TOP_SECTORS = 5
 TOP_MARGIN = 5
@@ -19,6 +22,27 @@ AVG_DAYS = 20
 DANGER = 130
 WATCH = 150
 FINANCING = {"TWSE": 0.6, "TPEx": 0.5}      # 注意股、處置股的例外成數不處理，同 export/index_generator.py
+
+
+def notified_date(path: Path = NOTIFIED_PATH) -> str | None:
+    return path.read_text(encoding="utf-8").strip() if path.exists() else None
+
+
+def mark_notified(day: str, path: Path = NOTIFIED_PATH) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(day, encoding="utf-8")
+
+
+def save_weekly(weekly: dict, path: Path = WEEKLY_PATH) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(weekly, ensure_ascii=False, default=str), encoding="utf-8")
+
+
+def load_weekly(day: str, path: Path = WEEKLY_PATH) -> dict | None:
+    if not path.exists():
+        return None
+    weekly = json.loads(path.read_text(encoding="utf-8"))
+    return weekly if weekly.get("date") == day else None
 
 
 def save_futures_snapshot(row: dict, path: Path = FUTURES_PATH) -> None:

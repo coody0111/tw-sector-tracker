@@ -41,7 +41,7 @@ def test_futures_csv_overwrites_same_day_and_finds_last_week(tmp_path):
 
 
 def test_index_row_week_base_is_last_close_before_monday():
-    rows = [{"date": f"2026-08-{d:02d}", "close": 100.0} for d in range(1, 29)] + \
+    rows = [{"date": f"2026-08-{d:02d}", "close": 100.0} for d in range(1, 30)] + \
            [{"date": f"2026-09-{d:02d}", "close": 100.0} for d in range(1, 29)] + \
            [{"date": "2026-10-22", "close": 200.0}, {"date": "2026-10-29", "close": 210.0}, {"date": "2026-10-30", "close": 189.0}]
     r = index_row("加權", rows, "2026-10-30")
@@ -100,6 +100,8 @@ def _env(monkeypatch, tmp_path, ready=True):
     import scrapers.taifex as tf
     monkeypatch.setattr(wc, "ARCHIVE_DIR", tmp_path)
     monkeypatch.setattr(wc, "FUTURES_PATH", tmp_path / "f.csv")
+    monkeypatch.setattr(wc, "WEEKLY_PATH", tmp_path / "w.json")
+    monkeypatch.setattr(wc, "NOTIFIED_PATH", tmp_path / "n.txt")
     monkeypatch.setattr(wc, "latest_shareholder_date", lambda: "2026-10-30")
     monkeypatch.setattr(wc, "inputs_ready", lambda d: ready)
     monkeypatch.setattr(wc, "build_weekly", lambda *a: _weekly())
@@ -113,11 +115,26 @@ def _env(monkeypatch, tmp_path, ready=True):
     return m, built, pushed
 
 
-def test_publish_once_per_shareholder_date(monkeypatch, tmp_path):
+def test_unsent_report_is_resent_without_rebuilding_until_marked(monkeypatch, tmp_path):
+    import recommend.weekly_chips as wc
     m, built, pushed = _env(monkeypatch, tmp_path)
     assert m._publish_weekly_chips(True)["date"] == "2026-10-30" and len(built) == len(pushed) == 1
     (tmp_path / "2026-10-30.html").write_text("x", encoding="utf-8")
+    assert m._publish_weekly_chips(True)["points"] and len(built) == 1          # 手動跑或發送失敗：下次補發
+    wc.mark_notified("2026-10-30", wc.NOTIFIED_PATH)
     assert m._publish_weekly_chips(True) is None and len(built) == 1
+
+
+def test_scheduler_marks_only_after_successful_send(monkeypatch):
+    import scripts.run_scheduled as sr
+    marks = []
+    monkeypatch.setattr(sr, "mark_notified", marks.append)
+    monkeypatch.setattr(sr, "send_telegram_message", lambda *a, **k: False)
+    sr.send_weekly_message({"weekly_chips": _weekly()}, "https://x/")
+    assert marks == []
+    monkeypatch.setattr(sr, "send_telegram_message", lambda *a, **k: True)
+    sr.send_weekly_message({"weekly_chips": _weekly()}, "https://x/")
+    assert marks == ["2026-10-30"]
 
 
 def test_publish_waits_for_inputs(monkeypatch, tmp_path):

@@ -117,7 +117,8 @@ def render(w: dict, dates: list, base: str = "") -> str:
         f'<select id="w-day">{options}</select></label>'
         f'<section aria-labelledby="w-t"><h2 id="w-t" class="rp-h1">本週籌碼報告</h2><ul class="points">{points}</ul></section>'
         f'{_market(w)}{_futures(w)}{_maintenance(w["maintenance"])}{_big(w)}{_margin(w)}'
-        '<p class="note">融資與大戶都是股票池合計（約 1,036 檔），不是全市場官方總額。排行沒有過濾流動性，'
+        '<p class="note">指數與融資從本週一起算，大戶是集保資料日對上一個資料日。'
+        '融資與大戶都是股票池合計（約 1,036 檔），不是全市場官方總額。排行沒有過濾流動性，'
         '小型股可能因為總股數少而變動較大。本報告只描述籌碼變化，沒有回測過是否能當買賣依據。</p>'
         f'</div></main>{_script(d, dates)}</body></html>')
 

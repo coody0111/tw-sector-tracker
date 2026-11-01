@@ -5996,3 +5996,20 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 ### 特別注意
 - 排程從這台工作目錄執行：今晚 20:00 就會真的產 10/30 報告、push、發 Telegram，請在那之前驗完；有 🔴 我會先修
 - 台指期歷史要從今天起累積，第一週沒有週變化
+
+## [2026-11-01] 修每週籌碼報告 🔴 2 項
+
+### 改了什麼
+- 異動檔案：recommend/weekly_chips.py、main.py、scripts/run_scheduled.py、export/weekly_chips_generator.py、tests/test_weekly_chips.py、spec
+- 測試資料補到 60 筆
+- 改用 data/weekly_notified.txt 判斷是否通知過，排程發送成功才寫；報告存 data/weekly_chips.json，頁面已在時下次排程直接補發，不重產
+- 🟡 頁面加註：指數與融資從週一起算，大戶是集保資料日對上一個資料日
+- push 失敗時通知照發，寫進規格的已知限制，未修
+
+### 請 Debugger 驗證
+- [ ] 全套 pytest（我只編譯，未跑測試）
+- [ ] 手動跑 publish、Telegram 回 False、main 非 0 三種情況，下次排程都會補發，成功後不再發
+- [ ] run_scheduled 新 import recommend.weekly_chips 不影響 intraday／close
+
+### 特別注意
+- 目前用 data/weekly_notified.txt（內容 2026-10-30）暫擋發布，占位檔 docs/weekly/2026-10-30.html 也還在。驗證請改用暫存路徑，不要刪這兩個檔；全部 ✅ 後由我刪

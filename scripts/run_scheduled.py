@@ -42,6 +42,7 @@ logger = logging.getLogger(__name__)
 
 # 模組層級 import：sys.path 已在上面修好，不需要延到 main() 內才 import。
 from notifications.telegram import send_telegram_message, TelegramConfigError  # noqa: E402
+from recommend.weekly_chips import mark_notified  # noqa: E402
 from recommend.telegram_format import (  # noqa: E402
     compose_preopen_message, compose_recommend_message, compose_report_message, compose_weekly_message,
 )
@@ -286,11 +287,15 @@ def send_preopen_message(summary: dict, site_url: str) -> None:
 
 
 def send_weekly_message(summary: dict, site_url: str) -> None:
-    """每週籌碼報告：集保更新後第一次產生時才有 weekly_chips。"""
+    """每週籌碼報告：還沒通知過的資料日才有 weekly_chips；發送成功才記錄，失敗下次排程重發。"""
     weekly = summary.get("weekly_chips")
-    if weekly:
-        send_telegram_message(compose_weekly_message(weekly, site_url.rstrip("/") + "/weekly.html"), parse_mode="HTML")
+    if not weekly:
+        return
+    if send_telegram_message(compose_weekly_message(weekly, site_url.rstrip("/") + "/weekly.html"), parse_mode="HTML"):
+        mark_notified(weekly["date"])
         logger.info("每週籌碼報告：%s 已通知", weekly["date"])
+    else:
+        logger.warning("每週籌碼報告通知未成功送出，下次排程重發")
 
 
 _MODE_LABELS = {"intraday": "盤中監控", "close": "收盤更新", "preopen": "推薦發布"}

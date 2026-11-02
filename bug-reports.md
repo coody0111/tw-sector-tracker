@@ -6031,3 +6031,36 @@ Telegram 用正式 payload 換上這份 heat；Chrome headless 看 1440／375。
 ### 結論
 - [ ] 需要修改後再確認
 - [x] 可以繼續下一個任務（DB 鎖那項 🟡 已轉給 Cody 決定）
+
+## [2026-11-03] 報告 - 排程寫入 DuckDB 遇到鎖自動重試（83461c9）
+
+### 🔴 程式問題（需立刻修）
+- 問題：Windows 上真正的鎖衝突**完全不會重試**，跟改之前一樣立刻失敗。
+  位置：storage/duck.py `_is_lock_error`（`"lock" in str(exc).lower()`）
+  說明：本機（Windows、duckdb 1.5.3）另一個程序開著唯讀連線時，寫入端拿到的例外是 `duckdb.IOException`，
+  訊息全文是：
+  `IO Error: Cannot open file "...\small.db": 程序無法存取檔案，因為檔案正由另一個程序使用。\r\n\nFile is already open in \n...\python.exe (PID 19968)`
+  訊息裡**沒有 "lock"**（`Could not set lock on file` 是 Linux/macOS 的寫法；測試 `_flaky` 用的就是這個假訊息，所以單元測試過、實機不過）。
+  中間那段是 Windows 系統語系訊息（會隨語系變），但 `File is already open in` 是 DuckDB 自己加的英文、不隨語系變。
+  重現方式（scratchpad 的 DB 複本，沒碰正式 DB）：子程序 `duckdb.connect(db, read_only=True)` 持有 1.5 秒／15 秒，同時主程序 `connect_rw(db)`
+  → 兩種情況都是 **0.1 秒就拋 IOException**，沒有任何「秒後重試」log。6.5 GB 正式 DB 複本（tg2/s.db）持有 2 秒結果相同。
+  建議：判斷改成 `"lock" in msg or "already open" in msg`（兩種平台都涵蓋），測試補一個真訊息
+  （或用 subprocess 持有唯讀連線的整合測試，才抓得到這種平台差異）。
+  驗證這個改法可行：我只在測試腳本裡把 `_is_lock_error` 換成上面那個判斷（沒動程式碼），結果：
+  - 持有 1.5 秒 → 第一次失敗記 info「DuckDB 被其他程序佔用…0.5 秒後重試」，**1.7 秒後連上並成功寫入一列**
+  - 持有 15 秒 → **10.7 秒後**拋出原本的 IOException（符合 20 次 × 0.5 秒）
+  - 6.5 GB DB 複本持有 2 秒 → 2.3 秒後成功寫入（驗完已 drop 測試表）
+
+### 🟡 建議改善
+- `_is_lock_error` 用整個訊息字串比對，路徑本身若含 "lock"（例如資料夾叫 `...\blocks\`）會把「路徑錯」誤判成鎖、白等 10 秒。影響很小，改判斷時可順便只比對固定片段。
+
+### ✅ 驗證通過
+- pytest：967 passed（含 tests/test_duck_retry.py 5 個）
+- 改用 connect_rw 的範圍：全專案（tests 除外）`duckdb.connect(` 不帶 read_only 的只剩 recommend/data.py:54（同程序已有讀寫連線時的退回，只做 SELECT，不會碰到別的程序的鎖，同意不動）；main.py 的 `_ddb.connect` 三處都是 read_only。我上次點名的寫入點全部已改。
+- 其他 IOException（非鎖）不重試、最後一次拋原例外、第一次才記 log：程式碼與測試一致。
+- 查股端 `handle()` 用 `except duckdb.Error` 回「資料庫正在更新」，不依賴訊息文字，Windows 上沒有同樣問題。
+- 各檔只在 import 區加一行 + connect 改名，沒有其他行為改變。
+
+### 結論
+- [x] 需要修改後再確認（🔴 Windows 鎖訊息判斷不到，目前等於沒有重試）
+- [ ] 可以繼續下一個任務

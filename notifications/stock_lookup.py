@@ -133,7 +133,7 @@ def _window_note(con, table: str, days: list, peers: set, price_day: str) -> str
     if not days:
         return ""
     gaps = sum(not market_day_complete(con, table, d, peers) for d in days)
-    return "  ".join(x for x in (_asof(days[0], price_day), f"缺 {gaps} 天" if gaps else "") if x)
+    return " ".join(x for x in (_asof(days[0], price_day), f"缺{gaps}天" if gaps else "") if x)   # 縮短：兩個備註並列時 2303 會到 41 格，手機可能換行
 
 
 def _lots(n: int) -> str:
@@ -194,7 +194,7 @@ def stock_card(row: pd.Series, con, payload: dict, events_path: str = EVENTS_PAT
 
 
 def _asof(d, price_day: str) -> str:
-    return "" if _md(d) == price_day else f"至 {_md(d)}"
+    return "" if _md(d) == price_day else f"至{_md(d)}"
 
 
 def lookup(query: str, db_path: str = DB_PATH, universe_path: str = UNIVERSE_PATH,

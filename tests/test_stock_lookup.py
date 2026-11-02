@@ -163,4 +163,4 @@ def test_window_note_counts_market_missing_days(tmp_path):
     con.close()
     out = handle("3147", db, uni, payload)
     line = next(l for l in out.split("\n") if l.startswith("法人 5 日"))
-    assert line.endswith("缺 1 天") and "+280 張" in line
+    assert line.endswith("缺1天") and "+280 張" in line

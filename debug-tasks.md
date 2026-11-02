@@ -6247,3 +6247,14 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 - [ ] pytest 全跑（test_window_note_counts_market_missing_days）
 - [ ] DB 複本刪掉某天整個上櫃法人 → 上櫃股查股出現「缺 1 天」；上市股不受影響
 - [ ] 備註變長時分割線跟著加長、不換行（最長行寬多少請回報）
+
+## [2026-11-03] 查股備註縮短
+
+### 改了什麼
+- 異動檔案：notifications/stock_lookup.py、tests/test_stock_lookup.py
+- 回應 bug-reports 2026-11-03 🟡1：「至 10/30  缺 1 天」改成「至10/30 缺1天」，兩個備註並列時少 4 格。
+- 🟡2（落後檢查依賴交易日曆更新）：轉告 Cody，不改。
+
+### 請 Debugger 驗證
+- [ ] pytest 全跑
+- [ ] DB 複本造兩個備註並列的情況，回報 2303 最長一行寬度

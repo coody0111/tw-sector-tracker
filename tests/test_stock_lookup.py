@@ -147,7 +147,20 @@ def test_wide_values_widen_column_and_divider(tmp_path):
     con.close()
     out = handle("3147", db, uni, payload)
     body = out[out.index("<pre>") + 5:out.index("</pre>")].split("\n")
-    assert "法人 5 日  -206,512 張" in body
+    assert any(l.startswith("法人 5 日  -206,512 張") for l in body)
     assert max(_width(l) for l in body) == _width(next(l for l in body if l.startswith("-")))
     seps = [l for l in body if l.startswith("-")]
     assert len(seps) == 3 and len(set(seps)) == 1
+
+
+def test_window_note_counts_market_missing_days(tmp_path):
+    """窗口內有一天整個上櫃都沒有法人資料：加總照算，但備註要標「缺 1 天」，不能默默當 0（code review 2026-11-03 #6）。"""
+    db, uni, payload = _setup(tmp_path)
+    con = duckdb.connect(db)
+    days = [r[0] for r in con.execute("SELECT DISTINCT date FROM daily_prices ORDER BY date DESC LIMIT 30").fetchall()]
+    con.execute("INSERT INTO institutional SELECT '7819', date, 1000, 0 FROM daily_prices WHERE date = ANY(?)", [days])
+    con.execute("DELETE FROM institutional WHERE date = ?", [days[2]])
+    con.close()
+    out = handle("3147", db, uni, payload)
+    line = next(l for l in out.split("\n") if l.startswith("法人 5 日"))
+    assert line.endswith("缺 1 天") and "+280 張" in line

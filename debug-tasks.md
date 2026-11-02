@@ -6235,3 +6235,15 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 - [ ] pytest 全跑
 - [ ] DB 複本刪掉某天上櫃一半法人 → missing_inputs 列「上櫃三大法人」；刪掉兩天融資 → chips_freshness 有警告
 - [ ] main.run 時間沒有明顯變長（每表最多掃 15 天）
+
+## [2026-11-03] 數據檢驗 3：查股 5 日窗口標「缺 N 天」（code review #6）
+
+### 改了什麼
+- 異動檔案：notifications/stock_lookup.py、tests/test_stock_lookup.py
+- 法人、融資 5 日：窗口內每一天用 screener.data_integrity.market_day_complete 檢查該市場是否到齊，沒到齊的天數在備註標「缺 N 天」（跟「至 MM/DD」並列，半形空白分隔）。加總照算，不再默默把缺資料當成 0 張而沒提示。
+- 真 DB 查 3147、8272：沒有缺，備註跟以前一樣。
+
+### 請 Debugger 驗證
+- [ ] pytest 全跑（test_window_note_counts_market_missing_days）
+- [ ] DB 複本刪掉某天整個上櫃法人 → 上櫃股查股出現「缺 1 天」；上市股不受影響
+- [ ] 備註變長時分割線跟著加長、不換行（最長行寬多少請回報）

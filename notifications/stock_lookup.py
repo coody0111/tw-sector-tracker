@@ -12,6 +12,7 @@ import pandas as pd
 
 from recommend.data import DB_PATH, EVENTS_PATH, UNIVERSE_PATH, adj_multiplier, event_factors
 from recommend.telegram_format import _pad, _width
+from screener.data_integrity import market_day_complete
 
 PAYLOAD_PATH = Path("data/recommend_payload.json")
 SITE_URL = os.environ.get("SITE_URL", "https://coody0111.github.io/tw-sector-tracker/").rstrip("/") + "/"
@@ -126,6 +127,15 @@ def _block(groups: list) -> str:
     return f"<pre>{escape(_ascii_minus(text))}</pre>"
 
 
+def _window_note(con, table: str, days: list, peers: set, price_day: str) -> str:
+    """5 日窗口的備註：「至 MM/DD」（籌碼跟行情不同天）＋「缺 N 天」（窗口內有幾天整個市場沒到齊，
+    那幾天的加總是少算的，不是真的 0；code review 2026-11-03 #6）。"""
+    if not days:
+        return ""
+    gaps = sum(not market_day_complete(con, table, d, peers) for d in days)
+    return "  ".join(x for x in (_asof(days[0], price_day), f"缺 {gaps} 天" if gaps else "") if x)
+
+
 def _lots(n: int) -> str:
     return f"{n:+,}".replace("-", "−") if n else "0"
 
@@ -168,11 +178,13 @@ def stock_card(row: pd.Series, con, payload: dict, events_path: str = EVENTS_PAT
     mg = _sum_window(con, "margin", "margin_change", sid, mg_days)
     big = con.execute("SELECT date, week_chg FROM shareholder WHERE stock_id = ? ORDER BY date DESC LIMIT 1", [sid]).df()
     has_big = not big.empty and pd.notna(big["week_chg"].iloc[0])
-    chips = [("法人 5 日", "—" if inst is None else f"{_lots(int(inst / 1000))} 張", _asof(inst_days[0], day) if inst_days else ""),
+    peer_set = set(peers)
+    chips = [("法人 5 日", "—" if inst is None else f"{_lots(int(inst / 1000))} 張",
+              _window_note(con, "institutional", inst_days, peer_set, day)),
              ("外資持股", "—" if None in fh else _pct(fh[0] - fh[1], 2, "pp"), _asof(fh_days[0], day) if fh_days else ""),
              ("大戶週增", _pct(big["week_chg"].iloc[0], 2, "pp") if has_big else "—",
               f"集保 {_md(big['date'].iloc[0])}" if has_big else ""),
-             ("融資 5 日", "—" if mg is None else f"{_lots(int(mg))} 張", _asof(mg_days[0], day) if mg_days else "")]
+             ("融資 5 日", "—" if mg is None else f"{_lots(int(mg))} 張", _window_note(con, "margin", mg_days, peer_set, day))]
     rev = con.execute("SELECT revenue_month, reported_yoy_pct FROM monthly_revenue WHERE stock_id = ? "
                       "ORDER BY revenue_month DESC LIMIT 1", [sid]).df()
     revenue = [("營收年增", "—", "") if rev.empty else

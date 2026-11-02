@@ -5793,3 +5793,29 @@ Telegram 用正式 payload 換上這份 heat；Chrome headless 看 1440／375。
 ### 結論
 - [ ] 需要修改後再確認
 - [x] 可以繼續下一個任務
+
+## [2026-11-02] 報告 - 個股推薦加「一字鎖」（1be8944）
+
+### 🔴 程式問題（需立刻修）
+- 問題：Telegram 平常發的訊息不會出現「一字鎖：…」這行
+  位置：scripts/run_scheduled.py `send_recommend_message`（第 256 行）、recommend/telegram_format.py `compose_report_message`
+  說明：有 report 時排程發的是 `compose_report_message`，內容只有今日重點加連結。2026-11-01 起每次完整發布都有 report，這是主要路徑。一字鎖那行只加在 `compose_recommend_message`，只有沒有 report 的舊路徑，以及資料更新訊息（`compose_preopen_message` 列新增訊號時）才看得到。
+  重現：同一份 payload 帶 one_word，`compose_recommend_message` 有該行，`build_report`＋`compose_report_message` 沒有。新增的測試也只測 `compose_recommend_message`。
+  建議：把一字鎖那行加進 report 訊息，或放進今日重點。放在哪裡請 Cody 決定。
+
+### 🟡 建議改善
+- 卡片同時有兩個提醒（例如「乖離大、一字鎖」，寬 14）時，超過提醒欄寬 6，該列名稱會往右推，和只有一個提醒的列對不齊。名稱是最後一欄，數字欄不受影響；兩個提醒的情況以前就有（乖離大、季線下）。一字鎖股通常乖離也大，這種情況會變多。
+
+### ✅ 驗證通過
+- pytest 947 passed（含 tests/test_recommend_one_word.py）
+- DB 複本（11/2）`one_word_list` 對直接 SQL（開＝高＝低＝收、漲幅 > 9%，近 10 個交易日 10/16～11/2）：都是 14 檔，名單完全相同，次數加總 22 次也一致。
+  - 8099 大世科：10/21、10/22、10/27、10/28 四天，連續 4；10/23、10/26 不在交易日，不算中斷
+  - 開高低收同價、漲幅 5～9% 的股票：0 檔，沒有漏掉的情況
+- 排序（最後一次日期 → 連續 → 次數）、今天收盤、量（張）、20 日均成交值（億，用「張×1000×收盤」）都和 features 單位一致
+- 推薦頁區塊在「今日新訊號」和「仍有效」之間；舊 payload 沒有 one_word 時顯示空狀態；名稱有跳脫
+- 手機 320／375：頁面無橫向溢出（scrollWidth 305／360），表格在 table-wrap 內捲動（604 寬，overflow auto）
+- Telegram 舊路徑：一字鎖那行在表格後，名稱有跳脫；8 檔上限照程式
+
+### 結論
+- [x] 需要修改後再確認
+- [ ] 可以繼續下一個任務

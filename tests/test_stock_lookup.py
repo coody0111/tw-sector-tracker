@@ -53,7 +53,7 @@ def test_card_is_title_pre_block_and_marks(tmp_path):
     assert lines[0] == "<b>3147 大綜</b>  雲端/系統整合" and lines[-1] == "標記：今日新訊號｜一字鎖 近10日2次(連2)｜族群熱度 #1"
     assert out.count("<pre>") == 1 and out.count("</pre>") == 1
     for row in ("收盤    110.00  +10.00%", "成交量      3,000 張  量比 3.0", "季線            站上",
-                "法人 5 日    +350 張", "融資 5 日     −50 張", "大戶週增     +0.60pp  集保 09/25", "營收年增     +287.9%  9 月"):
+                "法人 5 日    +350 張", "融資 5 日     -50 張", "大戶週增     +0.60pp  集保 09/25", "營收年增     +287.9%  9 月"):
         assert row in out, row
 
 

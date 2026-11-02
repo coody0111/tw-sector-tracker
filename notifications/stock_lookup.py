@@ -103,20 +103,27 @@ def _asof_value(con, col: str, table: str, sid: str, d):
 
 LABEL_W = 11        # 標籤欄顯示寬度（中文 2 格）；「11/02 收盤」「離 52 週高」寬 10，留 1 格空白
 VALUE_W = 9         # 數值欄靠右
+CARD_W = 32         # 分割線長度：標籤＋數值＋最長的備註「集保 10/30」
+SEP = "-"           # 用半形；「─」在部分手機字型算 2 格寬，線會比內容長
 
 
 def _line(label: str, value: str, note: str = "") -> str:
     return (_pad(label, LABEL_W) + _pad(value, VALUE_W, right=True) + (f"  {note}" if note else "")).rstrip()
 
 
+def _ascii_minus(text: str) -> str:
+    """<pre> 裡負號用半形：「−」(U+2212) 在部分手機字型算 2 格寬，數字欄會歪。"""
+    return text.replace("−", "-")
+
+
 def _block(groups: list) -> str:
-    """groups：[[(標籤, 數值, 備註), ...], ...]；組跟組之間空一行，整段放 <pre>。"""
-    text = "\n\n".join("\n".join(_line(*r) for r in g) for g in groups)
-    return f"<pre>{escape(text)}</pre>"
+    """groups：[[(標籤, 數值, 備註), ...], ...]；組跟組之間用分割線（2026-11-03 Cody），整段放 <pre>。"""
+    text = f"\n{SEP * CARD_W}\n".join("\n".join(_line(*r) for r in g) for g in groups)
+    return f"<pre>{escape(_ascii_minus(text))}</pre>"
 
 
 def _lots(n: int) -> str:
-    return f"{n:+,}" if n else "0"
+    return f"{n:+,}".replace("-", "−") if n else "0"
 
 
 def _sum_window(con, table: str, col: str, sid: str, days: list):
@@ -166,7 +173,7 @@ def stock_card(row: pd.Series, con, payload: dict, events_path: str = EVENTS_PAT
                       "ORDER BY revenue_month DESC LIMIT 1", [sid]).df()
     revenue = [("營收年增", "—", "") if rev.empty else
                ("營收年增", _pct(rev["reported_yoy_pct"].iloc[0]), f"{int(str(rev['revenue_month'].iloc[0])[5:7])} 月")]
-    body = _block([quote, trend, chips, revenue]).replace("-", "−")
+    body = _block([quote, trend, chips, revenue])          # 負號在 _pct／_lots 就換成 −，分割線保持半形 -
     return f"{title}\n{body}\n標記：{escape(_marks(sid, row['meta_sector'], payload))}"
 
 
@@ -198,7 +205,8 @@ def lookup(query: str, db_path: str = DB_PATH, universe_path: str = UNIVERSE_PAT
 def _table(head: list, rows: list) -> str:
     """head／rows 每格 (文字, 寬度, 靠右)；放 <pre>，中文依顯示寬度對齊。"""
     fmt = lambda cells: " ".join(_pad(t, w, r) for t, w, r in cells).rstrip()
-    return "<pre>" + escape("\n".join([fmt(head)] + [fmt(r) for r in rows])) + "</pre>"
+    line = SEP * (sum(w for _, w, _ in head) + len(head) - 1)          # 表頭下面一條分割線
+    return "<pre>" + escape(_ascii_minus("\n".join([fmt(head), line] + [fmt(r) for r in rows]))) + "</pre>"
 
 
 def _name(s: str, w: int) -> str:
@@ -240,7 +248,7 @@ def _cmd_heat(p: dict) -> str:
     body = _table([("#", 2, True), ("族群", 14, False), ("熱度", 4, True), ("21日", 7, True), ("狀態", 6, False)],
                   [[(str(s["rank"]), 2, True), (_name(s["sector"], 14), 14, False), (f"{s['score']:.0f}", 4, True),
                     (_pct(s.get("ret21")), 7, True), (s["status"], 6, False)] for s in top])
-    return f"<b>族群熱度前 5</b>\n{body.replace('-', '−')}\n{SITE_URL}index.html#heat"
+    return f"<b>族群熱度前 5</b>\n{body}\n{SITE_URL}index.html#heat"
 
 
 def _cmd_report(p: dict) -> str:

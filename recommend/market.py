@@ -100,5 +100,5 @@ def margin_note(payload: dict, always: bool = True) -> str | None:
         return None
     head = f"大盤融資維持率(估) {v:.1f}%（{r['date'][5:7]}/{r['date'][8:10]}）"
     if low:
-        return head + f"：低於 {MARGIN_LOW}%＝斷頭潮，過去 2 次之後 20 日都反彈（樣本少，不是買進訊號）。"
+        return head + f"：低於 {MARGIN_LOW}%＝斷頭潮，2025 年以來 2 次之後 20 日都反彈（樣本少，不是買進訊號）。"
     return head + "。"

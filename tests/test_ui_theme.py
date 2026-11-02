@@ -51,6 +51,5 @@ def test_index_header_uses_same_update_stamp():
     assert "｜更新 {updated_stamp}" in src
 
 
-def test_nav_has_heat_page_after_index():
-    hrefs = [h for h, _ in NAV_PAGES]
-    assert hrefs.index("heat.html") == hrefs.index("index.html") + 1
+def test_heat_page_merged_into_index_not_in_nav():
+    assert "heat.html" not in [h for h, _ in NAV_PAGES]          # 2026-11-02 熱度整合進族群績效

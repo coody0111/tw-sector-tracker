@@ -49,7 +49,6 @@ NAV_PAGES = (
     ("report.html", "每日報告"),
     ("weekly.html", "每週籌碼"),
     ("index.html", "族群績效"),
-    ("heat.html", "族群熱度"),
     ("chips.html", "籌碼分析"),
     ("patterns.html", "形態掃描"),
     ("momentum.html", "逆轟策略"),

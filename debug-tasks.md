@@ -6072,3 +6072,19 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 
 ### 特別注意
 - 族群排名的歷史資料（若有依族群名存的歷史）「軟體/雲端」會在 11/2 斷掉，新 4 族群從今天開始累積。
+
+## [2026-11-02] 族群熱度整合進族群績效（首頁最上方）
+
+### 改了什麼
+- 異動檔案：export/heat_section.py（新）、export/heat_generator.py（改成轉址頁）、export/index_generator.py、export/ui_theme.py、main.py、recommend/telegram_format.py、recommend/daily.py（註解）、tests/test_heat_page.py、tests/test_ui_theme.py、tests/test_recommend_telegram.py、docs/superpowers/specs/2026-10-27-sector-heat-report.md
+- 邏輯說明（2026-11-02 Cody：放首頁最上方、選單拿掉、舊網址轉首頁；「好的留著，重複的丟掉」）：
+  - 留：熱度排行表（13 欄、點族群展開成員）＋進榜／掉出。丟：前 3 名卡片（與表格前 3 列重複）。「轉熱／退燒」改名「進榜／掉出」，避免跟方塊上的「增溫／退燒」（5 日報酬加速度）撞名。方塊上的「熱度 N」標籤與依熱度排序保留。
+  - index 用自己的 token 與 hx- 前綴樣式，不載入推薦頁的 PAGE_CSS（兩邊 .up/.down/.count 等 class 會撞）。
+  - 推薦發布時 `patch_index_heat` 只換 index 裡 `<!--heat-section:start/end-->` 之間；整合前產的舊 index 沒有標記 → 插在 `<div class="page-shell">` 開頭並附樣式（今晚 23:30／23:45 會走這條）。下次重產 index 就是正式版。
+  - heat.html 改成轉址到 index.html#heat；選單與 index 自己的選單都拿掉「族群熱度」；Telegram「熱度：…/index.html#heat」。
+
+### 請 Debugger 驗證
+- [ ] pytest 全跑
+- [ ] 用目前 docs/index.html 的複本跑 patch_index 兩次：第一次插入、第二次只換一段（不重複）
+- [ ] 用真資料重產 index（或用測試 fixture）：熱度區在市場現況之上、展開成員可用、手機 375 不爆版、亮色主題文字看得清楚
+- [ ] 已知取捨：晚上推薦發布後，方塊上的「熱度 N」與排序要等下次重產 index（隔天 09:00 盤中）才更新，跟熱度表可能差一天（整合前就是這樣）

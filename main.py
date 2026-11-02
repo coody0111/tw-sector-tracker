@@ -23,6 +23,7 @@ from export.index_generator import generate as generate_index_html
 from export.watchlist_generator import generate as generate_watchlist_html
 from export.recommend_generator import generate as generate_recommend_html
 from export.heat_generator import generate as generate_heat_html
+from export.heat_section import patch_index as patch_index_heat
 from export.report_generator import generate as generate_report_html
 from export.chips_generator import generate as generate_chips_html
 from export.momentum_generator import (
@@ -709,7 +710,8 @@ def _run_and_publish(day: date, prev: dict | None, push: bool, missing: list | N
     RECOMMEND_PAYLOAD_PATH.write_text(json.dumps(payload, ensure_ascii=False, default=str), encoding="utf-8")
     generate_recommend_html(payload)
     if payload.get("heat"):
-        generate_heat_html(payload["heat"])                 # 族群熱度頁跟推薦同一時間、同一份資料
+        generate_heat_html(payload["heat"])                 # 舊網址 heat.html 只剩轉址
+        patch_index_heat(payload["heat"])                   # 族群績效頁最上方的熱度區（2026-11-02 整合），跟推薦同一份資料
     payload["report"] = _build_report(payload)
     logger.info("個股推薦 %s 發布（%s）：新訊號 %d 檔、有效中 %d、失效 %d；比前一版多 %s、撤回 %s",
                 day, "第一次" if first else "資料更新", sum(g["count"] for g in payload["new"]),

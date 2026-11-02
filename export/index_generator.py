@@ -24,7 +24,9 @@ from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
-_TIER_LABEL = {"super": "超強", "strong": "強", "mid": "整理", "weak": "弱", "superweak": "超弱"}
+from export.heat_section import HEAT_SECTION_CSS, render_section as render_heat_section
+
+_TIER_LABEL ={"super": "超強", "strong": "強", "mid": "整理", "weak": "弱", "superweak": "超弱"}
 
 # 動能五級/溫度變化門檻：視覺spec定的經驗法則草案，沒有回測驗證（見 Global Constraints）。
 _TIER_SUPERWEAK_STREAK = -5
@@ -1568,7 +1570,7 @@ def generate(
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <title>族群總覽 {date_str}</title>
-<style>{_CSS}</style>
+<style>{_CSS}{HEAT_SECTION_CSS}</style>
 </head>
 <body>
 <a class="skip-link" href="#main-content">跳到主要內容</a>
@@ -1584,7 +1586,6 @@ def generate(
     <a class="nav-link active" href="index.html" aria-current="page">族群績效</a>
     <a class="nav-link" href="report.html">每日報告</a>
     <a class="nav-link" href="weekly.html">每週籌碼</a>
-    <a class="nav-link" href="heat.html">族群熱度</a>
     <a class="nav-link" href="chips.html">籌碼分析</a>
     <a class="nav-link" href="patterns.html">形態掃描</a>
     <a class="nav-link" href="momentum.html">逆轟策略</a>
@@ -1595,6 +1596,7 @@ def generate(
 <main id="main-content">
 {update_error_html}
 <div class="page-shell">
+  {render_heat_section(heat)}
   <section class="market-section" aria-label="市場現況">
     {_market_regime_html(market_regime)}
   </section>

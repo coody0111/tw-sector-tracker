@@ -110,7 +110,7 @@ def compose_recommend_message(payload: dict, taiex_above_ma20: bool | None, site
         body += "\n" + escape(lock)
     sectors = _sector_lines(payload) if include_sectors else []
     if sectors and (payload.get("heat") or {}).get("top"):
-        sectors.append("熱度頁：" + site_url.replace("recommend.html", "heat.html"))
+        sectors.append("熱度：" + site_url.replace("recommend.html", "index.html#heat"))
     extra = escape("\n".join(sectors)) + "\n" if sectors else ""
     tail = escape(f"新 {total} 檔｜有效中 {len(payload['active'])} 檔｜失效 {len(payload['invalid'])} 檔\n{site_url}")
     return f"{head}\n\n{body}\n\n{extra}{tail}"

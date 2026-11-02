@@ -56,7 +56,7 @@ def build_payload(features: pd.DataFrame, day: pd.Timestamp, keep_days: int = KE
         "invalid": [c for c in cards if c["status"] == "失效"],
         "leaders": lead,
         "one_word": one_word_list(features, day),
-        "heat": sector_heat(features, day),          # 族群熱度（docs/heat.html、Telegram 前 5、族群績效排序）
+        "heat": sector_heat(features, day),          # 族群熱度（族群績效頁最上方、Telegram 前 5、族群績效排序）
         "signals": signals,
     }
 

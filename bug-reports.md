@@ -6064,3 +6064,32 @@ Telegram 用正式 payload 換上這份 heat；Chrome headless 看 1440／375。
 ### 結論
 - [x] 需要修改後再確認（🔴 Windows 鎖訊息判斷不到，目前等於沒有重試）
 - [ ] 可以繼續下一個任務
+
+## [2026-11-03] 報告 - 修 DuckDB 鎖重試：認得 Windows 的鎖訊息（a2d1ec2）
+
+### 🔴 數據問題（需立刻修）
+- 無
+
+### 🔴 程式問題（需立刻修）
+- 無
+
+### 🟡 建議改善
+- `test_real_lock_from_another_process` 抓不到「退回舊判斷」：pytest 的 tmp 資料夾以測試名命名
+  （`...\pytest-813\test_real_lock_from_another_pr0\a.db`），Windows 錯誤訊息會帶完整路徑，路徑裡就有 "lock"。
+  我把 `_is_lock_error` 換回舊的 `"lock" in msg` 跑這個測試 → **照樣通過**（印出訊息確認是路徑裡的 lock 命中）。
+  回歸防護目前靠 `test_windows_lock_message_is_retried`（換回舊判斷會失敗，確認過）。
+  建議：測試改名不含 lock（例如 `test_real_busy_from_another_process`），或 db 檔放在不含 lock 的子資料夾。
+  這也順便說明上次 🟡 提的「路徑含 lock 會誤判」：新判斷只比對 `could not set lock`／`already open`，已不受路徑影響。
+
+### ✅ 驗證通過
+- pytest：969 passed（test_duck_retry.py 7 passed）
+- 實機（scratchpad 的 DB 複本，沒碰正式 DB），用沒改過的 storage/duck.py：
+  - 另一程序唯讀持有 1.5 秒 → 記 info 一次，1.7 秒後連上並寫入成功
+  - 一直不放（15 秒）→ 10.7 秒後拋原本的 IOException
+  - 6.5 GB DB 複本持有 2 秒 → 2.3 秒後寫入成功（測試表已 drop）
+- 換回舊判斷時 `test_windows_lock_message_is_retried` 會失敗，表示這個測試真的擋得住回歸。
+- 只改 storage/duck.py 的判斷與 docstring、加測試，沒有其他行為改變。
+
+### 結論
+- [ ] 需要修改後再確認
+- [x] 可以繼續下一個任務（🟡 測試命名可順手改）

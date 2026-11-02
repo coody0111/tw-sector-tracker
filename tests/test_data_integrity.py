@@ -206,3 +206,45 @@ def test_main_warning_lists_days():
     msg = main._price_health_warning({"latest": dt.date(2026, 10, 27), "gaps": [1], "missing": [dt.date(2026, 10, 21)],
                                       "stale": [dt.date(2026, 10, 28)], "partial": [(dt.date(2026, 10, 27), 3)]})
     assert "缺 10/21" in msg and "落後 1 個交易日" in msg and "只抓到一部分：10/27" in msg
+
+
+# ── 籌碼到齊與落後（code review #3 #5）──────────────────────────────
+
+def _chips_con(rows):
+    """rows：[(date, n)]，institutional 表在那天塞 n 檔（股號 0..n-1，皆屬同一市場）。"""
+    con = duckdb.connect()
+    con.execute("CREATE TABLE institutional (stock_id VARCHAR, date DATE)")
+    con.executemany("INSERT INTO institutional VALUES (?, ?)", [(str(i), d) for d, n in rows for i in range(n)])
+    return con
+
+
+def test_market_day_complete_rejects_partial_day():
+    from screener.data_integrity import market_day_complete
+    ids = {str(i) for i in range(100)}
+    days = [dt.date(2026, 10, d) for d in (19, 20, 21, 22, 27)]
+    con = _chips_con([(d, 100) for d in days[:-1]] + [(days[-1], 34)])
+    try:
+        assert market_day_complete(con, "institutional", days[-2], ids)
+        assert not market_day_complete(con, "institutional", days[-1], ids)       # 34 筆 < 100 × 80%
+        assert not market_day_complete(con, "institutional", dt.date(2026, 10, 28), ids)
+    finally:
+        con.close()
+
+
+def test_chips_freshness_warns_only_when_lag_over_one_day():
+    from screener.data_integrity import chips_freshness
+    ids = {"TPEx": {str(i) for i in range(50)}}
+    con = _chips_con([(dt.date(2026, 10, d), 50) for d in (26, 27, 28)])
+    try:
+        cal = lambda d: d.weekday() < 5
+        ok = chips_freshness(con, dt.date(2026, 10, 29), ids, cal, tables=(("institutional", "三大法人"),))
+        late = chips_freshness(con, dt.date(2026, 10, 30), ids, cal, tables=(("institutional", "三大法人"),))
+    finally:
+        con.close()
+    assert ok == [] and late == ["上櫃三大法人只到 10/28（落後 2 個交易日）"]
+
+
+def test_main_runs_chips_freshness():
+    import inspect
+    import main
+    assert "chips_freshness(_con, date.today(), _ids)" in inspect.getsource(main.run)

@@ -3,7 +3,7 @@
 回測用的是訊號日 D 當天的完整資料：當天三大法人／外資持股，以及含 D 在內最近一份集保。
 收盤 15:00 這些還沒公布（10/27 實測 T86、MI_QFIIS 都回「沒有資料」），所以推薦不在收盤出，
 改由每天 20:00（＋平日 08:00 保險）的排程檢查：D 的資料都到齊才發布。
-- 三大法人、外資持股：上市、上櫃都要有 D 這天
+- 三大法人、外資持股：上市、上櫃都要有 D 這天，且筆數到門檻（screener.data_integrity.market_day_complete）
 - 集保：資料日是每週最後一個交易日（通常週五，遇假日提前），D 是週最後交易日時要等那週集保公布（通常週末）
 """
 from datetime import date, datetime, time, timedelta
@@ -12,6 +12,7 @@ import duckdb
 import pandas as pd
 
 from recommend.data import DB_PATH, UNIVERSE_PATH
+from screener.data_integrity import market_day_complete
 
 DEADLINE = time(23, 40)
 _CHIP_TABLES = (("institutional", "三大法人"), ("foreign_holdings", "外資持股"))
@@ -68,9 +69,8 @@ def missing_inputs(day: date, is_trading_day, db_path: str = DB_PATH, universe_p
     missing = []
     con = _connect(db_path)
     try:
-        for table, label in _CHIP_TABLES:
-            have = set(con.execute(f"SELECT DISTINCT stock_id FROM {table} WHERE date = ?", [day]).df()["stock_id"])
-            missing += [f"{name}{label}" for ex, name in _MARKETS if not have & market_ids[ex]]
+        for table, label in _CHIP_TABLES:      # 筆數要到門檻才算到齊，只有幾檔＝只抓到一部分（code review 2026-11-03）
+            missing += [f"{name}{label}" for ex, name in _MARKETS if not market_day_complete(con, table, day, market_ids[ex])]
         sh = con.execute("SELECT max(date) FROM shareholder").fetchone()[0]
     finally:
         con.close()

@@ -55,3 +55,26 @@ def test_week_last_day_waits_for_that_weeks_shareholder(tmp_path):
     sub.mkdir()
     db2, uni2 = _db(sub, inst=full, fh=full, sh=[("2330", "2026-10-16")])
     assert missing_inputs(date(2026, 10, 16), _trading, db2, uni2) == []
+
+
+def test_partial_market_counts_as_missing(tmp_path):
+    """上櫃只寫進 1 檔（其他天都有 30 檔）＝只抓到一部分，不能當成到齊（code review 2026-11-03）。"""
+    db = str(tmp_path / "t.db")
+    con = duckdb.connect(db)
+    for t in ("institutional", "foreign_holdings", "shareholder"):
+        con.execute(f"CREATE TABLE {t} (stock_id VARCHAR, date DATE)")
+    tpex = [f"T{i}" for i in range(30)]
+    for d in ("2026-10-20", "2026-10-21", "2026-10-22"):
+        for sid in ["2330"] + tpex:
+            con.execute("INSERT INTO institutional VALUES (?, ?)", [sid, d])
+            con.execute("INSERT INTO foreign_holdings VALUES (?, ?)", [sid, d])
+    for sid in ["2330", "T0"]:
+        con.execute("INSERT INTO institutional VALUES (?, '2026-10-27')", [sid])
+    for sid in ["2330"] + tpex:
+        con.execute("INSERT INTO foreign_holdings VALUES (?, '2026-10-27')", [sid])
+    con.execute("INSERT INTO shareholder VALUES ('2330', '2026-10-22')")
+    con.close()
+    uni = tmp_path / "u.csv"
+    pd.DataFrame([{"stock_id": "2330", "exchange": "TWSE"}] + [{"stock_id": s, "exchange": "TPEx"} for s in tpex]).to_csv(
+        uni, index=False, encoding="utf-8-sig")
+    assert missing_inputs(date(2026, 10, 27), _trading, db, str(uni)) == ["上櫃三大法人"]

@@ -21,6 +21,8 @@ import math
 from datetime import date, timedelta
 from typing import Callable, Iterable, List, Optional, Tuple
 
+import pandas as pd
+
 from scrapers.trading_calendar import calendar_status
 
 logger = logging.getLogger(__name__)
@@ -162,3 +164,47 @@ def check_price_continuity(con, lookback_days: int = 90, is_trading: IsTrading =
 
     return {"ok": not problems, "latest": latest, "gaps": gaps, "missing": missing, "partial": partial,
             "stale": stale, "message": message}
+
+
+# ── 籌碼：某市場某天是否到齊、最新到哪天（2026-11-03 code review #3 #5）──────────────
+
+CHIP_MIN_ROWS = 20            # 同 scrapers/backfill.py：某市場某天至少這麼多「股票池內」的列
+CHIP_HISTORY_DAYS = 20        # 中位數看最近 20 個有資料的日子
+
+
+def market_day_complete(con, table: str, day, ids: set) -> bool:
+    """table 在 day 這天、這個市場（ids＝股票池內該市場股號）是否到齊：
+    筆數 ≥ max(絕對下限, 前 20 個有資料日的每日筆數中位數 × 80%)。只有 1 檔就算到齊會讓「只抓到一部分」的日子過關
+    （官方偶爾只回一部分，例如 2026-10-22 bug-reports 上市融資 06-16 只有 34 筆）。"""
+    if not ids:
+        return False
+    ids_df = pd.DataFrame({"stock_id": sorted(ids)})  # noqa: F841  DuckDB 以變數名參照
+    rows = con.execute(
+        f"SELECT date, count(*) AS n FROM {table} WHERE stock_id IN (SELECT stock_id FROM ids_df) AND date <= ? "
+        f"GROUP BY date ORDER BY date DESC LIMIT {CHIP_HISTORY_DAYS + 1}", [day]).fetchall()
+    today_n = next((n for d, n in rows if str(d)[:10] == str(day)[:10]), 0)
+    history = sorted(n for d, n in rows if str(d)[:10] != str(day)[:10])
+    median = history[len(history) // 2] if history else 0
+    return today_n >= max(min(CHIP_MIN_ROWS, len(ids)), median * PARTIAL_RATIO)
+
+
+def chips_freshness(con, today: date, ids_by_market: dict, is_trading: IsTrading = calendar_status,
+                    tables: Tuple[Tuple[str, str], ...] = (("institutional", "三大法人"), ("margin", "融資"),
+                                                           ("foreign_holdings", "外資持股")),
+                    max_lag: int = 1) -> List[str]:
+    """各籌碼表×市場最新「到齊」的日期落後今天幾個交易日；落後 > max_lag 就回一句警告。
+    今天的籌碼晚上才公布，落後 1 個交易日是正常的。日曆沒涵蓋的日子不計。"""
+    names = {"TWSE": "上市", "TPEx": "上櫃"}
+    out = []
+    for table, label in tables:
+        for ex, ids in ids_by_market.items():
+            dates = [r[0] for r in con.execute(
+                f"SELECT DISTINCT date FROM {table} WHERE date <= ? ORDER BY date DESC LIMIT 15", [today]).fetchall()]
+            latest = next((d for d in dates if market_day_complete(con, table, d, ids)), None)
+            if latest is None:
+                out.append(f"{names.get(ex, ex)}{label}近期沒有完整的資料")
+                continue
+            lag = len(_stale_days(latest, today, is_trading))
+            if lag > max_lag:
+                out.append(f"{names.get(ex, ex)}{label}只到 {latest:%m/%d}（落後 {lag} 個交易日）")
+    return out

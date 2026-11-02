@@ -1154,6 +1154,25 @@ def run(trade_date: date = None, realtime: bool = False, push: bool = True, summ
     except Exception as exc:
         logger.warning("行情連續性體檢失敗（不影響本次產出）：%s", exc)
 
+    # 6.6 籌碼落後體檢（code review 2026-11-03）：回補失敗原本只寫 log，14 天窗口過了就永久缺著也沒人知道。
+    #     三大法人／融資／外資持股 × 上市／上櫃，最新到齊日落後今天超過 1 個交易日就進 Telegram 警告。
+    try:
+        from screener.data_integrity import chips_freshness
+        from screener.database import get_conn
+        if universe_df is not None and "exchange" in universe_df:
+            _ids = {ex: set(universe_df.loc[universe_df["exchange"] == ex, "stock_id"].astype(str)) for ex in ("TWSE", "TPEx")}
+            _con = get_conn()
+            try:
+                _stale_chips = chips_freshness(_con, date.today(), _ids)
+            finally:
+                _con.close()
+            for _w in _stale_chips:
+                logger.warning("籌碼落後：%s", _w)
+            if _stale_chips:
+                _run_warnings.append("籌碼資料" + "；".join(_stale_chips) + "，請確認回補")
+    except Exception as exc:
+        logger.warning("籌碼落後體檢失敗（不影響本次產出）：%s", exc)
+
     # 7. 產生 HTML + 推上 GitHub Pages
     if perf or meta_perf:
         try:

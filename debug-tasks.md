@@ -6222,3 +6222,16 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 - [ ] pytest 全跑：注意 tests/test_database.py::test_get_rolling_returns_price_ratio 等用真實日期的測試現在會吃真日曆（我推算應該照過，請確認）
 - [ ] 用 DB 複本刪掉某一天行情 → check_price_continuity 要列出那天；刪掉某天一半股票 → 列為只抓到一部分
 - [ ] get_rolling_returns 在真 DB 上被擋下的窗口數跟改前比，不應暴增（暴增代表日曆或資料對不上）
+
+## [2026-11-03] 數據檢驗 2：籌碼到齊改用筆數門檻＋籌碼落後警告（code review #3 #5）
+
+### 改了什麼
+- 異動檔案：screener/data_integrity.py（market_day_complete、chips_freshness）、recommend/publish.py、recommend/weekly_chips.py、main.py（6.6）、tests/test_data_integrity.py、tests/test_recommend_publish.py
+- 到齊＝當天該市場（股票池內）筆數 ≥ max(min(20, 檔數), 前 20 個有資料日中位數 × 80%)；推薦 missing_inputs 與週報 inputs_ready（行情＋融資）都改用它，只有幾檔不再算到齊。
+- main 每次跑完檢查三大法人／融資／外資持股 × 上市／上櫃最新到齊日，落後今天 > 1 個交易日進 Telegram 警告。
+- 真 DB：11/2 六組都到齊、無落後警告、inputs_ready(10/30)=True。
+
+### 請 Debugger 驗證
+- [ ] pytest 全跑
+- [ ] DB 複本刪掉某天上櫃一半法人 → missing_inputs 列「上櫃三大法人」；刪掉兩天融資 → chips_freshness 有警告
+- [ ] main.run 時間沒有明顯變長（每表最多掃 15 天）

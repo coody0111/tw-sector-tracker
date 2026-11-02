@@ -9,6 +9,7 @@ import duckdb
 import pandas as pd
 
 from recommend.data import DB_PATH, UNIVERSE_PATH
+from screener.data_integrity import market_day_complete
 
 FUTURES_PATH = Path("data/futures_daily.csv")
 ARCHIVE_DIR = Path("docs/weekly")
@@ -79,15 +80,14 @@ def latest_shareholder_date(db_path: str = DB_PATH) -> str | None:
 
 
 def inputs_ready(day: str, db_path: str = DB_PATH, universe_path: str = UNIVERSE_PATH) -> bool:
-    """D 的行情與兩邊市場的融資都到了才出報告。"""
+    """D 的行情與兩邊市場的融資都到齊（筆數到門檻，不是只有幾檔）才出報告。"""
     uni = pd.read_csv(universe_path, dtype=str, encoding="utf-8-sig")[["stock_id", "exchange"]]
+    ids = {ex: set(uni.loc[uni["exchange"] == ex, "stock_id"]) for ex in ("TWSE", "TPEx")}
     con = duckdb.connect(db_path, read_only=True)
     try:
-        margin = con.execute("SELECT DISTINCT stock_id FROM margin WHERE date = ?", [day]).df()
-        prices = con.execute("SELECT count(*) FROM daily_prices WHERE date = ?", [day]).fetchone()[0]
+        return all(market_day_complete(con, table, day, ids[ex]) for table in ("daily_prices", "margin") for ex in ids)
     finally:
         con.close()
-    return prices > 0 and margin.merge(uni, on="stock_id")["exchange"].nunique() == 2
 
 
 def index_row(name: str, rows: list, day: str) -> dict | None:

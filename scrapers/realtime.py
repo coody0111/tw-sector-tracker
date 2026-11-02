@@ -106,7 +106,7 @@ def _clamp_to_day_range(price: float, high: float | None, low: float | None) -> 
 
     那唯一 1 張成交在 12.4，close 卻取了買方掛單 11.55，change_pct 因此失真。
     只要當天有成交（h/l 才會有值），依定義收盤價必落在 [low, high] 內，所以夾回去
-    是安全的修正；完全沒成交時 h/l 是 None，維持原本的掛單價 fallback 不動。
+    是安全的修正；完全沒成交時（h/l 是 None、量 0）呼叫端整列不寫（2026-11-03 起）。
     （2026-08-31 稽核：全庫 76 筆 close 落在區間外，皆為 volume ≤ 14 的冷門股。）
     """
     if high is None or low is None or high < low:
@@ -170,6 +170,13 @@ def fetch_realtime_prices(stock_ids: List[str]) -> pd.DataFrame:
 
             # 先夾回當日成交區間，change/change_pct 才會跟 OHLC 一致
             day_open, day_high, day_low = (_field(item, k) for k in ("o", "h", "l"))
+            # 整天沒有成交（沒有最高最低、量 0）：不寫列，跟官方回補一致（官方收盤是 ---）。
+            # 原本會拿買方掛單價當收盤，例如 3064 泰偉 11/02 寫成 13.20、−9.59%，其實一張都沒成交
+            # （2026-11-03 bug-reports；10/27 起 47 筆）。鎖漲跌停一定有成交（h/l 有值），不受影響。
+            vol_str = item.get("v", "0")
+            vol = int(float(vol_str.replace(",", ""))) if vol_str and vol_str != "-" else 0
+            if vol == 0 and day_high is None and day_low is None:
+                continue
             price = _clamp_to_day_range(price, day_high, day_low)
 
             y_str = item.get("y", "-")
@@ -179,8 +186,6 @@ def fetch_realtime_prices(stock_ids: List[str]) -> pd.DataFrame:
 
             change = round(price - prev, 2)
             change_pct = round(change / prev * 100, 2)
-            vol_str = item.get("v", "0")
-            vol = int(float(vol_str.replace(",", ""))) if vol_str and vol_str != "-" else 0
 
             rows.append({
                 "stock_id":   sid,

@@ -153,3 +153,16 @@ def test_no_more_retries_after_budget_used_up():
          patch("scrapers.realtime.time.sleep"), patch("scrapers.realtime.time.monotonic", side_effect=lambda: next(clock)):
         fetch_realtime_prices(["2330"])
     assert session.get.call_count == 1 + 1                          # 初始化＋只試 1 次
+
+
+def test_fetch_realtime_prices_skips_stock_with_no_trade_at_all():
+    """整天沒成交（z、o、h、l 都是 -，量 0）：不寫列，不能拿買方掛單 13.20 當收盤（2026-11-03 3064 泰偉）。"""
+    item = {
+        "c": "3064", "n": "泰偉", "z": "-", "b": "13.20_", "a": "14.60_",
+        "o": "-", "h": "-", "l": "-", "y": "14.60", "v": "0", "t": "13:30:00",
+    }
+    traded = {"c": "2330", "n": "台積電", "z": "1000.0", "o": "990.0", "h": "1001.0", "l": "985.0",
+              "y": "995.0", "v": "30000", "t": "13:30:00"}
+    with _patch_session([item, traded]), patch("scrapers.realtime.time.sleep"):
+        df = fetch_realtime_prices(["3064", "2330"])
+    assert list(df["stock_id"]) == ["2330"]

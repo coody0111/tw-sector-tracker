@@ -27,6 +27,7 @@ from scrapers.fundamentals import (
     normalize_monthly_revenue,
     save_monthly_revenue,
 )
+from storage.duck import connect_rw
 
 logger = logging.getLogger(__name__)
 
@@ -247,7 +248,7 @@ def save_monthly_revenue_page(
     page: DownloadedMonthlyPage, db_path: str = _DB_PATH,
 ) -> dict[str, int]:
     """同一 transaction 保存 page/version 並更新 monthly_revenue current projection。"""
-    con = duckdb.connect(db_path)
+    con = connect_rw(db_path)
     transaction_started = False
     counts = {"pages": 0, "versions": 0, "current_rows": 0}
     try:

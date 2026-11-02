@@ -22,6 +22,7 @@ from typing import List
 import urllib3
 import pandas as pd
 import requests
+from storage.duck import connect_rw
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -697,7 +698,7 @@ def _write_chips(db_path: str, table: str, df: pd.DataFrame, d_str: str) -> None
     """只刪「這批股票」當天的舊資料再寫入，不誤刪同一天另一個市場已寫好的資料。"""
     import duckdb
     df = df.drop_duplicates(subset=["stock_id", "date"], keep="last")
-    con = duckdb.connect(db_path)
+    con = connect_rw(db_path)
     try:
         con.execute(
             f"DELETE FROM {table} WHERE date = ? AND stock_id IN (SELECT stock_id FROM df)", [d_str]
@@ -750,7 +751,7 @@ def backfill_chips(
     exchange_ids = _load_exchange_ids(universe_path)
     existing: dict = {}
     try:
-        con = duckdb.connect(db_path)
+        con = connect_rw(db_path)
         for table, _, _ in sources:
             con.execute(_CHIPS_TABLE_SCHEMAS[table])
         for table, exch, _ in sources:

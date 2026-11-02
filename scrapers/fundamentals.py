@@ -14,6 +14,7 @@ from typing import Any, Iterable
 import duckdb
 import pandas as pd
 import requests
+from storage.duck import connect_rw
 
 logger = logging.getLogger(__name__)
 
@@ -450,7 +451,7 @@ def _upsert_financial_facts(con, rows: list[dict[str, Any]]) -> int:
 def _transactional_upsert(
     monthly_rows: list[dict[str, Any]], fact_rows: list[dict[str, Any]], db_path: str,
 ) -> tuple[int, int]:
-    con = duckdb.connect(db_path)
+    con = connect_rw(db_path)
     transaction_started = False
     try:
         con.execute("BEGIN")

@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import List, Optional, Union
 
 from screener.data_integrity import window_is_reliable
+from storage.duck import connect_rw
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +21,7 @@ CSV_GLOB = "data/daily_prices/*.csv"
 
 
 def get_conn() -> duckdb.DuckDBPyConnection:
-    return duckdb.connect(DB_PATH)
+    return connect_rw(DB_PATH)
 
 
 def init_db() -> None:

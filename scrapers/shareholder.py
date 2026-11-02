@@ -10,6 +10,7 @@ from typing import Optional
 
 import duckdb
 import requests
+from storage.duck import connect_rw
 
 logger = logging.getLogger(__name__)
 
@@ -206,7 +207,7 @@ def save_to_db(rows: list[dict]) -> int:
     ]]
     df["date"] = pd.to_datetime(df["date"]).dt.date
 
-    con = duckdb.connect(_DB_PATH)
+    con = connect_rw(_DB_PATH)
     # 計算 week_change 和 streak（只針對合計欄位，見 spec 第 3 節）
     _add_week_change_streak(con, df)
     con.execute("DELETE FROM shareholder WHERE (stock_id, date) IN (SELECT stock_id, date FROM df)")
@@ -287,7 +288,7 @@ def recompute_latest_streak(db_path: str = _DB_PATH) -> int:
     backfill 完成後應呼叫這個函式修正回來。不需要重打 TDCC，lv12_15_pct 已經在
     DB 裡，只是重算 week_chg/streak 兩個衍生欄位。回傳實際更新的股票數。
     """
-    con = duckdb.connect(db_path)
+    con = connect_rw(db_path)
     df = con.execute("""
         WITH ranked AS (
             SELECT stock_id, date, lv12_15_pct, streak,
@@ -347,7 +348,7 @@ def recompute_all_history(db_path: str = _DB_PATH) -> int:
     衍生欄位。回傳實際更新的列數。
     """
     import pandas as pd
-    con = duckdb.connect(db_path)
+    con = connect_rw(db_path)
     # 清洗步驟（#8，Debugger 建議「把清洗寫進 code」）：先就地把離群值 lv12_15_pct(>=99%,
     # TDCC 當週解析異常，例 2380 06-26=100.0) 清成 NULL——不只計算時略過，髒值本身也清掉，
     # 換機重跑 recompute 就自動洗乾淨、不用人工下 SQL 記在腦子裡。清成 NULL 後下面讀回是 NaN，

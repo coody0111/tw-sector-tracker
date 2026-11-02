@@ -12,6 +12,7 @@ from recommend.scorecard import detail, ensure_table, record_signals, refresh, s
 from recommend.sector_heat import sector_heat
 from recommend.strategies import ALL_STRATEGIES
 from recommend.withdraw import mark_withdrawn, withdraw_reasons
+from storage.duck import connect_rw
 
 KEEP_DAYS = 3        # C16：推薦在頁面保留 3 個交易日
 WARMUP_DAYS = 400    # 日曆天；hi90、MA60、籌碼視窗的預熱
@@ -70,7 +71,7 @@ def run_daily(day=None, db_path: str = DB_PATH, keep_days: int = KEEP_DAYS, prev
     feats = add_chip_features(add_price_features(load_panel(db_path=db_path, start=start)))
     day = pd.Timestamp(day) if day is not None else feats["date"].max()
     payload = build_payload(feats, day, keep_days)
-    con = duckdb.connect(db_path)
+    con = connect_rw(db_path)
     try:
         ensure_table(con)
         signals = payload.pop("signals")

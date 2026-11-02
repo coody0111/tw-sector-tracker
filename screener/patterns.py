@@ -7,6 +7,7 @@ import pandas as pd
 import numpy as np
 
 from streak_utils import calc_streak as _calc_streak
+from storage.duck import connect_rw
 
 logger = logging.getLogger(__name__)
 
@@ -1070,7 +1071,7 @@ def scan_and_track(
         本來就會為了 chips.html Section 7 算一次，這裡直接重用同一份結果，不重複查詢
         DB；沒有傳的話（例如舊呼叫端、測試）視同沒有背離資料，composite score 不扣這項分數。
     """
-    con = duckdb.connect(db_path)
+    con = connect_rw(db_path)
 
     con.execute("""
         CREATE TABLE IF NOT EXISTS pattern_signals (

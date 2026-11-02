@@ -10,6 +10,7 @@ from typing import Optional
 
 import duckdb
 import requests
+from storage.duck import connect_rw
 
 logger = logging.getLogger(__name__)
 
@@ -205,7 +206,7 @@ def save_to_db(rows: list[dict], db_path: str = _DB_PATH) -> int:
         return 0
     import pandas as pd
 
-    con = duckdb.connect(db_path)
+    con = connect_rw(db_path)
     sids = [r["stock_id"] for r in rows]
     write_date = max(r["report_date"] for r in rows)
     prev_rows = con.execute("""

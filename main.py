@@ -36,6 +36,7 @@ from screener.database import init_db, import_csv_prices, import_sector_stocks, 
 from screener.institutional import scan_institutional
 from screener.signals import scan_volume_turnover, scan_momentum_health, scan_bullish_alignment_new_high, scan_consecutive_limit_up
 from screener.backtest import run_backtest, print_summary as print_backtest_summary, CHIPS_RULES
+from storage.duck import connect_rw
 
 UNIVERSE_PATH = Path("data/stock_universe.csv")
 
@@ -164,7 +165,7 @@ def _update_chips_db(trade_date: date, stock_ids: list, warnings: list | None = 
             if resp_date != trade_date.isoformat():
                 logger.info("TPEx 三大法人目前是 %s（跟預期交易日 %s 不同天，可能尚未更新）", resp_date, trade_date)
             import duckdb
-            con = duckdb.connect("data/screener.db")
+            con = connect_rw("data/screener.db")
             con.execute(
                 "DELETE FROM institutional WHERE date = ? AND stock_id IN (SELECT stock_id FROM inst_tpex_df)",
                 [resp_date],
@@ -188,7 +189,7 @@ def _update_chips_db(trade_date: date, stock_ids: list, warnings: list | None = 
             if resp_date != trade_date.isoformat():
                 logger.info("TPEx 融資融券目前是 %s（跟預期交易日 %s 不同天，可能尚未更新）", resp_date, trade_date)
             import duckdb
-            con = duckdb.connect("data/screener.db")
+            con = connect_rw("data/screener.db")
             con.execute(
                 "DELETE FROM margin WHERE date = ? AND stock_id IN (SELECT stock_id FROM margin_tpex_df)",
                 [resp_date],
@@ -212,7 +213,7 @@ def _update_chips_db(trade_date: date, stock_ids: list, warnings: list | None = 
                 fh_tpex_df = fh_tpex_df[fh_tpex_df["date"] == max(resp_dates)]
             resp_date = fh_tpex_df["date"].iloc[0]
             import duckdb
-            con = duckdb.connect("data/screener.db")
+            con = connect_rw("data/screener.db")
             con.execute(
                 "DELETE FROM foreign_holdings WHERE date = ? AND stock_id IN (SELECT stock_id FROM fh_tpex_df)",
                 [resp_date],

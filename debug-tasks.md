@@ -6130,3 +6130,16 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 ### 請 Debugger 驗證
 - [ ] pytest 全跑
 - [ ] 用目前 DB 抽 3～5 檔（含上市、上櫃各一，含 8272）手算法人／融資 5 日、外資持股 5 日變化
+
+## [2026-11-02] 排程寫入 DuckDB 遇到鎖自動重試
+
+### 改了什麼
+- 異動檔案：storage/duck.py（新）、main.py、recommend/daily.py、scrapers/backfill.py、scrapers/fundamentals.py、scrapers/insider_holdings.py、scrapers/mops_monthly_revenue.py、scrapers/mops_xbrl.py、scrapers/shareholder.py、screener/database.py、screener/patterns.py、tests/test_duck_retry.py（新）
+- 回應 bug-reports 2026-11-02 🟡(1)，Cody 選「排程寫入時自動重試」：
+  - `connect_rw(db_path)`：IOException 且訊息含 lock 才重試，每 0.5 秒、最多 20 次（約 10 秒），最後一次照原例外拋出；其他錯誤不重試。
+  - 你點名的 17 處讀寫 connect 全部改走它（read_only 的不動；recommend/data.py 第 54 行是同程序退回用的，不會碰到別的程序的鎖，不動）。
+
+### 請 Debugger 驗證
+- [ ] pytest 全跑（tests/test_duck_retry.py）
+- [ ] 實測：另一個程序開 read_only 連線約 1～2 秒，同時用 connect_rw 寫入 → 等到釋放後成功；read_only 一直不放 → 約 10 秒後拋 IOException
+- [ ] 只在 import 區加了一行，沒有其他行為改變

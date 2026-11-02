@@ -27,6 +27,7 @@ import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 from lxml import etree
+from storage.duck import connect_rw
 
 logger = logging.getLogger(__name__)
 
@@ -1006,7 +1007,7 @@ def save_downloaded_archive(
     """以單一 transaction 保存整個 archive；同 SHA 重跑不新增資料。"""
     from scrapers.fundamentals import _upsert_financial_facts
 
-    con = duckdb.connect(db_path)
+    con = connect_rw(db_path)
     transaction_started = False
     counts = {"archives": 0, "filings": 0, "raw_facts": 0, "canonical_facts": 0}
     try:

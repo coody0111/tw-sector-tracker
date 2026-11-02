@@ -574,3 +574,11 @@ TW-Sector-Preopen（2026-10-26 加，見 §2.2b）
 - Token 未出現在 Git、log 或錯誤輸出中
 
 第一版完成後，再評估 LINE Messaging API、圖片通知、Telegram 指令查詢及雲端常駐執行。
+
+## 14. Telegram 查股（2026-11-02）
+
+- 常駐程式 `scripts/telegram_bot.py`，排程 `TW-Sector-TelegramBot` 登入時啟動、當掉每 1 分鐘重啟、不設執行時間上限。安裝：系統管理員 PowerShell 執行 `.\scripts\install_telegram_bot.ps1`。
+- 用 getUpdates 長輪詢；只回 `TELEGRAM_CHAT_ID` 聊天室，其他訊息略過。處理到哪一則記在 `data/telegram_offset.txt`。
+- 打股號或名稱 → 精簡 8 行（`notifications/stock_lookup.py`）；指令 /推薦 /一字鎖 /熱度 /報告 讀 `data/recommend_payload.json`。
+- 只讀 DB；排程正在寫 DB 時回「資料庫正在更新，請 1～2 分鐘後再試」。電腦睡眠時不回，醒來後補回。
+- log 在 `logs/telegram_bot.log`，不寫 Token 和訊息內文。

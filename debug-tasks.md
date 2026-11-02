@@ -6098,3 +6098,22 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 ### 請 Debugger 驗證
 - [ ] pytest 全跑
 - [ ] 熱度區 5 日、21 日、法人、外資、大戶、▲▼ 在暗色／亮色都有紅漲綠跌
+
+## [2026-11-02] Telegram 查股（常駐程式）
+
+### 改了什麼
+- 異動檔案：notifications/stock_lookup.py（新）、scripts/telegram_bot.py（新）、scripts/install_telegram_bot.ps1（新）、tests/test_stock_lookup.py（新）、docs/scheduler.md §14
+- 邏輯說明（2026-11-02 Cody：精簡版、開機常駐、/推薦 /一字鎖 /熱度 /報告）：
+  - 打股號或名稱回 8 行：行情（量比＝當日量÷前 20 日均量）、距 10/20EMA 與季線、離 52 週高與 21 日（這三項用還原價，同 recommend.data）、法人 5 日（外資＋投信，股÷1000）、外資持股 5 日變化、大戶週增（集保日）、融資 5 日、最新月營收年增、系統標記（推薦／一字鎖／熱度名次）。籌碼日期跟行情不同天標「（至 MM/DD）」。
+  - 名稱比對：股號 → 名稱完全相同 → 名稱包含（忽略 *）；多檔列候選最多 8。
+  - 常駐：getUpdates 長輪詢 50 秒，只回 TELEGRAM_CHAT_ID；每筆處理完存 offset（data/telegram_offset.txt）；例外只記類型名稱、5 秒後重試；DB 被鎖回「資料庫正在更新」。
+  - 排程：AtLogOn、IgnoreNew、不限時、失敗每 1 分鐘重啟、電池也跑。**還沒安裝**，要 Cody 用系統管理員 PowerShell 跑 install_telegram_bot.ps1。
+
+### 資料來源相關
+- 只讀 DB 與 data/recommend_payload.json、data/corporate_events.csv；上市上櫃同一套。
+
+### 請 Debugger 驗證
+- [ ] pytest 全跑（tests/test_stock_lookup.py）
+- [ ] 用真 DB 跑 `handle("3147")`、`handle("8272")`、`handle("精誠")`、`handle("精")`，數字抽查對 DB
+- [ ] log 不含 token、不含訊息內文；非指定聊天室的訊息不回
+- [ ] 不要實際啟動常駐程式或呼叫 Telegram API（會跟 Cody 的 bot 搶訊息）

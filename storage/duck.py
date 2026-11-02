@@ -15,7 +15,10 @@ WAIT_SECONDS = 0.5
 
 
 def _is_lock_error(exc: Exception) -> bool:
-    return "lock" in str(exc).lower()
+    """Linux/mac：「Could not set lock」；Windows：「Cannot open file … File is already open in python.exe (PID n)」
+    （中間夾系統語系的訊息，但 already open 是 DuckDB 自己加的英文，不隨語系變；bug-reports 2026-11-02 實測）。"""
+    msg = str(exc).lower()
+    return "could not set lock" in msg or "already open" in msg
 
 
 def connect_rw(db_path: str, attempts: int = ATTEMPTS, wait: float = WAIT_SECONDS,

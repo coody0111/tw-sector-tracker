@@ -6143,3 +6143,14 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 - [ ] pytest 全跑（tests/test_duck_retry.py）
 - [ ] 實測：另一個程序開 read_only 連線約 1～2 秒，同時用 connect_rw 寫入 → 等到釋放後成功；read_only 一直不放 → 約 10 秒後拋 IOException
 - [ ] 只在 import 區加了一行，沒有其他行為改變
+
+## [2026-11-02] 修 DuckDB 鎖重試：認得 Windows 的鎖訊息
+
+### 改了什麼
+- 異動檔案：storage/duck.py、tests/test_duck_retry.py
+- 回應 bug-reports 2026-11-02 🔴：`_is_lock_error` 改認「could not set lock」（Linux/mac）或「already open」（Windows，DuckDB 自己加的英文）。
+- 測試補：Windows 真訊息格式（含中文系統訊息）會重試；另起一個 Python 程序開唯讀連線 1 秒，connect_rw 要等它放掉後成功。
+
+### 請 Debugger 驗證
+- [ ] pytest 全跑（含 subprocess 那個測試）
+- [ ] 用 DB 複本再跑一次你上次的持有 1.5 秒／不放兩個情境

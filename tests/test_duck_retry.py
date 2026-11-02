@@ -64,3 +64,31 @@ def test_scheduled_writers_use_retry():
         src = inspect.getsource(m)
         bare = [l for l in src.splitlines() if "duckdb.connect(" in l and "read_only" not in l and not l.strip().startswith(("#", '"'))]
         assert not bare, (m.__name__, bare)
+
+
+WINDOWS_MSG = ("IO Error: Cannot open file \"x.db\": 程序無法存取檔案，因為檔案正由另一個程序使用。\r\n\r\n"
+               "File is already open in \nC:\\Python311\\pythonw.exe (PID 1234)")
+
+
+def test_windows_lock_message_is_retried(monkeypatch):
+    connect, calls = _flaky(2, WINDOWS_MSG)
+    monkeypatch.setattr(duck.duckdb, "connect", connect)
+    assert duck.connect_rw("x.db", sleep=lambda s: None) == "con" and len(calls) == 3
+
+
+def test_real_lock_from_another_process(tmp_path):
+    """另一個程序開唯讀連線 1 秒：connect_rw 要等它放掉後成功（Windows、Linux 訊息不同，用真的程序測）。"""
+    import subprocess
+    import sys
+    import time
+    db = tmp_path / "a.db"
+    duckdb.connect(str(db)).close()
+    holder = subprocess.Popen([sys.executable, "-c",
+                               "import duckdb,time,sys;c=duckdb.connect(sys.argv[1],read_only=True);print('ok',flush=True);"
+                               "time.sleep(1.0);c.close()", str(db)], stdout=subprocess.PIPE, text=True)
+    assert holder.stdout.readline().strip() == "ok"
+    start = time.time()
+    con = duck.connect_rw(str(db))
+    con.close()
+    holder.wait(timeout=10)
+    assert time.time() - start < 8

@@ -253,7 +253,7 @@ def send_recommend_message(summary: dict, site_url: str) -> None:
         return
     url = site_url.rstrip("/") + "/recommend.html"
     try:
-        msg = (compose_report_message(report, site_url.rstrip("/") + "/report.html") if report
+        msg = (compose_report_message(report, site_url.rstrip("/") + "/report.html", rec) if report
                else compose_recommend_message(rec, rec.get("taiex_above_ma20"), url))
         send_telegram_message(msg, parse_mode="HTML")
     except TelegramConfigError:

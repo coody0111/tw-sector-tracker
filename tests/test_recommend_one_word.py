@@ -4,7 +4,7 @@ import pandas as pd
 from export.recommend_generator import render
 from recommend.daily import build_payload
 from recommend.one_word import locked_keys, one_word_list
-from recommend.telegram_format import _one_word_line, compose_recommend_message
+from recommend.telegram_format import one_word_line, compose_recommend_message
 from tests.test_recommend_daily import _FakeStrategy, _feat
 from tests.test_recommend_page import _payload as _page_payload
 from tests.test_recommend_telegram import _payload as _tg_payload
@@ -72,13 +72,30 @@ def test_page_without_one_word_shows_empty_state():
 
 
 def test_telegram_line_today_streak_and_none_today():
-    assert _one_word_line({"one_word": [_row("8272", "全景軟體"), _row("6865", "偉康科技", streak=1, count=1)]}) \
+    assert one_word_line({"one_word": [_row("8272", "全景軟體"), _row("6865", "偉康科技", streak=1, count=1)]}) \
         == "一字鎖：全景軟體(連2)、偉康科技"
-    assert _one_word_line({"one_word": [_row("8099", "大世科", today=False)]}) == "一字鎖：今天沒有（近 10 日 1 檔見頁面）"
-    assert _one_word_line({}) is None
+    assert one_word_line({"one_word": [_row("8099", "大世科", today=False)]}) == "一字鎖：今天沒有（近 10 日 1 檔見頁面）"
+    assert one_word_line({}) is None
 
 
 def test_telegram_message_includes_escaped_line():
     p = {**_tg_payload(3), "one_word": [_row("8272", "全景<軟體>")]}
     msg = compose_recommend_message(p, taiex_above_ma20=True, site_url="https://x/recommend.html")
     assert "一字鎖：全景&lt;軟體&gt;(連2)" in msg
+
+
+def test_report_message_includes_line():
+    from recommend.telegram_format import compose_report_message
+    report = {"date": "2026-11-02", "tone": "偏空", "points": ["加權跌 2%。"]}
+    msg = compose_report_message(report, "https://x/report.html", {"one_word": [_row("8272", "全景<軟體>")]})
+    assert msg.index("加權跌 2%。") < msg.index("一字鎖：全景&lt;軟體&gt;(連2)") < msg.index("報告：")
+    assert "一字鎖" not in compose_report_message(report, "https://x/report.html")
+
+
+def test_scheduler_passes_payload_to_report_message(monkeypatch):
+    import scripts.run_scheduled as sr
+    sent = []
+    monkeypatch.setattr(sr, "send_telegram_message", lambda msg, **k: sent.append(msg))
+    rec = {"report": {"date": "2026-11-02", "points": ["重點"]}, "one_word": [_row("8272", "全景軟體")]}
+    sr.send_recommend_message({"recommend": rec}, "https://x/")
+    assert "一字鎖：全景軟體(連2)" in sent[0]

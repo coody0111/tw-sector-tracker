@@ -6035,3 +6035,16 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 
 ### 特別注意
 - 卡片提醒的 locked_keys 只看保留期（3 個交易日）內。
+
+## [2026-11-02] 修一字鎖：每日報告 Telegram 也要有那一行
+
+### 改了什麼
+- 異動檔案：recommend/telegram_format.py、scripts/run_scheduled.py、tests/test_recommend_one_word.py
+- 回應 bug-reports 2026-11-02 🔴：Cody 已選「Telegram 列一行」，平常走的是報告訊息，所以放進 `compose_report_message`：今日重點之後、報告連結之前加「一字鎖：…」（跟推薦訊息同一個 `one_word_line`，原 `_one_word_line` 改名公開）。
+- `send_recommend_message` 有 report 時把推薦 payload 一起傳進去；沒有一字鎖時報告訊息跟以前一樣。
+- 🟡 兩個提醒推歪名稱欄：以前就有、名稱是最後一欄，先不改。
+
+### 請 Debugger 驗證
+- [ ] pytest 全跑
+- [ ] 用 11/2 payload 跑 build_report＋compose_report_message，看得到「一字鎖：全景軟體(連2)、偉康科技」
+- [ ] 沒有 one_word 的舊 payload／暫定版訊息不受影響

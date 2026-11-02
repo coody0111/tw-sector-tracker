@@ -43,7 +43,7 @@ SECTOR_ROWS = 5
 ONE_WORD_NAMES = 8
 
 
-def _one_word_line(payload: dict) -> str | None:
+def one_word_line(payload: dict) -> str | None:
     """一字鎖一行（2026-11-02 Cody）：列今天一字鎖的股票，連續 2 天以上標「連N」；今天沒有就只寫近 10 日檔數。"""
     rows = payload.get("one_word") or []
     if not rows:
@@ -105,7 +105,7 @@ def compose_recommend_message(payload: dict, taiex_above_ma20: bool | None, site
     body = f"<pre>{escape(chr(10).join(lines))}</pre>" if total else escape("今天沒有新訊號")
     note = ma60_note(payload)
     head = escape(f"{_title(d, label)}\n{'｜'.join(market)}" + (f"\n{note}" if note else ""))
-    lock = _one_word_line(payload)
+    lock = one_word_line(payload)
     if lock:
         body += "\n" + escape(lock)
     sectors = _sector_lines(payload) if include_sectors else []
@@ -116,8 +116,9 @@ def compose_recommend_message(payload: dict, taiex_above_ma20: bool | None, site
     return f"{head}\n\n{body}\n\n{extra}{tail}"
 
 
-def compose_report_message(report: dict, site_url: str) -> str:
-    """每日報告通知（2026-11-01）：今日重點＋報告連結，表格都在報告裡。"""
+def compose_report_message(report: dict, site_url: str, payload: dict | None = None) -> str:
+    """每日報告通知（2026-11-01）：今日重點＋報告連結，表格都在報告裡。
+    payload：推薦 payload，有一字鎖就在重點後加一行（2026-11-02 Cody）。"""
     d = report["date"]
     title = f"{d[5:7]}/{d[8:10]} 每日報告"
     if report.get("tone"):
@@ -125,7 +126,8 @@ def compose_report_message(report: dict, site_url: str) -> str:
     lines = [title]
     if report.get("missing"):
         lines.append(f"暫定：缺{'、'.join(report['missing'])}，資料到齊後更新")
-    return escape("\n".join(lines + report["points"] + ["", f"報告：{site_url}"]))
+    lock = one_word_line(payload or {})
+    return escape("\n".join(lines + report["points"] + ([lock] if lock else []) + ["", f"報告：{site_url}"]))
 
 
 def compose_weekly_message(weekly: dict, site_url: str) -> str:

@@ -6048,3 +6048,27 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 - [ ] pytest 全跑
 - [ ] 用 11/2 payload 跑 build_report＋compose_report_message，看得到「一字鎖：全景軟體(連2)、偉康科技」
 - [ ] 沒有 one_word 的舊 payload／暫定版訊息不受影響
+
+## [2026-11-02] 族群分類：軟體/雲端拆成 4 個（⚠️ 族群分類調整）
+
+### 改了什麼
+- 異動檔案：config.py（META_PRIORITY_LIST、META_SECTORS）、data/stock_universe.csv（只動原本 meta_sector＝軟體/雲端 的 82 列）
+- 邏輯說明（2026-11-02 Cody 選「拆 4 個」）：
+  - 新族群依優先序：資安（資訊安全）→ 雲端/系統整合（雲端科技、大數據、系統整合、ERP、客戶關係管理）→ 網路服務（INTERNET 兩類、電商、支付、串流、社群、直播、人力網站）→ 軟體（AI、應用/套裝軟體、軟體業、通路代理、VR、區塊鏈、安全監控、智慧卡）。原本 25 個子族群全部有歸屬。
+  - 每檔用 data/sectors/industry_sectors.csv 的全部子族群＋原 sub_sector 判斷，sub_sector 改成新族群裡第一個命中的（同 build_universe 的做法）。
+  - 結果：雲端/系統整合 41、網路服務 22、資安 9（含敦陽科、零壹，因為兩檔也有資訊安全）、軟體 10。
+  - **沒有重跑 build_universe**：industry_sectors.csv 已經跟 universe 有落差（例：全達 8068 現在只剩電子通路），重建會讓其他族群一起變動。全達照原 sub_sector 軟體業歸到「軟體」。
+  - META_SECTORS 多收了 客戶關係管理／安全監控／智慧卡相關（原本 META_PRIORITY_LIST 有、META_SECTORS 漏掉）。
+
+### 資料來源相關
+- 不涉及上市/上櫃資料來源。
+
+### 請 Debugger 驗證
+- [ ] pytest 全跑
+- [ ] stock_universe.csv 只有這 82 列改了，其他 954 列、exchange 欄、BOM、CRLF 都沒變
+- [ ] build_universe 的 get_meta_by_priority 用新 config 跑同樣子族群，跟 CSV 的新分類一致（全達除外，原因如上）
+- [ ] 首頁族群績效、熱度、推薦頁、每週籌碼族群表：新族群名稱正常顯示，沒有殘留「軟體/雲端」
+- [ ] 熱度與近 21 天最強族群要 ≥ 5 檔有流動性的成員：資安、網路服務、軟體目前可能不到 5 檔而不上榜，請確認實際數字並回報
+
+### 特別注意
+- 族群排名的歷史資料（若有依族群名存的歷史）「軟體/雲端」會在 11/2 斷掉，新 4 族群從今天開始累積。

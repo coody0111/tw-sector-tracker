@@ -7,6 +7,7 @@ from recommend.data import DB_PATH, load_panel
 from recommend.features import add_chip_features, add_price_features
 from recommend.leaders import leaders
 from recommend.market import market_header
+from recommend.one_word import ALERT as ONE_WORD_ALERT, locked_keys, one_word_list
 from recommend.scorecard import detail, ensure_table, record_signals, refresh, summary
 from recommend.sector_heat import sector_heat
 from recommend.strategies import ALL_STRATEGIES
@@ -26,7 +27,8 @@ def _sector_counts(features: pd.DataFrame, signals: pd.DataFrame) -> dict:
 
 def build_payload(features: pd.DataFrame, day: pd.Timestamp, keep_days: int = KEEP_DAYS) -> dict:
     """純函式：new（當天、有效，依族群分組）、active（第 2～N 天有效）、invalid（已失效）、header、
-    leaders（近 21 天最強，§10.1）、signals。卡片在近 21 天個股前 20 名時標 top21。"""
+    leaders（近 21 天最強，§10.1）、one_word（近 10 天一字鎖）、signals。卡片在近 21 天個股前 20 名時標 top21，
+    推薦日或今天一字鎖時加提醒「一字鎖」。"""
     day = pd.Timestamp(day)
     trade_days = sorted(features.loc[features["date"] <= day, "date"].unique())
     window = trade_days[-keep_days:]
@@ -37,11 +39,14 @@ def build_payload(features: pd.DataFrame, day: pd.Timestamp, keep_days: int = KE
     lead = leaders(features, day)
     alone = _sector_counts(features, recent)
     top_ids = {r["stock_id"] for r in lead["stocks"]}
+    locked = locked_keys(features, day, keep_days)
     for c in cards:
         c["day_n"] = day_n[pd.Timestamp(c["signal_date"])]
         c["top21"] = c["stock_id"] in top_ids
         if alone.get((c["signal_date"], c["meta_sector"])) == 1:
             c["alerts"].append(SOLO_ALERT)
+        if {(c["stock_id"], c["signal_date"]), (c["stock_id"], day.date().isoformat())} & locked:
+            c["alerts"].append(ONE_WORD_ALERT)
     valid = [c for c in cards if c["status"] == "有效"]
     return {
         "trade_date": day.date().isoformat(),
@@ -50,6 +55,7 @@ def build_payload(features: pd.DataFrame, day: pd.Timestamp, keep_days: int = KE
         "active": sorted([c for c in valid if c["day_n"] > 1], key=lambda c: (c["day_n"], c["stock_id"])),
         "invalid": [c for c in cards if c["status"] == "失效"],
         "leaders": lead,
+        "one_word": one_word_list(features, day),
         "heat": sector_heat(features, day),          # 族群熱度（docs/heat.html、Telegram 前 5、族群績效排序）
         "signals": signals,
     }

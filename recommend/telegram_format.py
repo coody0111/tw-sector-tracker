@@ -40,6 +40,20 @@ def _title(d: str, label: str = "") -> str:
 
 
 SECTOR_ROWS = 5
+ONE_WORD_NAMES = 8
+
+
+def _one_word_line(payload: dict) -> str | None:
+    """一字鎖一行（2026-11-02 Cody）：列今天一字鎖的股票，連續 2 天以上標「連N」；今天沒有就只寫近 10 日檔數。"""
+    rows = payload.get("one_word") or []
+    if not rows:
+        return None
+    today = [r for r in rows if r.get("today")]
+    if not today:
+        return f"一字鎖：今天沒有（近 10 日 {len(rows)} 檔見頁面）"
+    names = [r["stock_name"] + (f"(連{r['streak']})" if r["streak"] > 1 else "") for r in today[:ONE_WORD_NAMES]]
+    more = f" 等 {len(today)} 檔" if len(today) > ONE_WORD_NAMES else ""
+    return f"一字鎖：{'、'.join(names)}{more}"
 
 
 def _sector_lines(payload: dict) -> list:
@@ -91,6 +105,9 @@ def compose_recommend_message(payload: dict, taiex_above_ma20: bool | None, site
     body = f"<pre>{escape(chr(10).join(lines))}</pre>" if total else escape("今天沒有新訊號")
     note = ma60_note(payload)
     head = escape(f"{_title(d, label)}\n{'｜'.join(market)}" + (f"\n{note}" if note else ""))
+    lock = _one_word_line(payload)
+    if lock:
+        body += "\n" + escape(lock)
     sectors = _sector_lines(payload) if include_sectors else []
     if sectors and (payload.get("heat") or {}).get("top"):
         sectors.append("熱度頁：" + site_url.replace("recommend.html", "heat.html"))

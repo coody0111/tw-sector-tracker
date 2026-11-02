@@ -155,6 +155,34 @@ def _new_section(groups: list, withdrawn: list | None = None, shareholder_date=N
     return f'<section aria-labelledby="new-h">{head}{body}</section>'
 
 
+# ── 一字鎖 ─────────────────────────────────────────────────
+
+def _one_word_row(r: dict) -> str:
+    when = '<span class="chip-cons">今天</span>' if r.get("today") else f'<span class="num">{_e(r["last_date"][5:].replace("-", "/"))}</span>'
+    return (
+        f'<tr><td>{_e(r["stock_id"])} {_e(r["stock_name"])}</td><td>{_e(r["meta_sector"])}</td>'
+        f'<td data-v="{_e(r["last_date"])}">{when}</td><td class="r num" data-v="{r["count"]}">{r["count"]}</td>'
+        f'<td class="r num" data-v="{r["streak"]}">{r["streak"]}</td><td class="r num" data-v="{r["close"]}">{_price(r["close"])}</td>'
+        f'<td class="r num" data-v="{r["volume"]}">{r["volume"]:,}</td>'
+        f'<td class="r num" data-v="{r["turnover20"]}">{r["turnover20"]:.2f}</td></tr>'
+    )
+
+
+def _one_word_section(rows: list) -> str:
+    head = ('<div class="sec-head"><h2 id="lock-h">一字鎖</h2>'
+            f'<span class="count">{len(rows)} 檔</span><span class="hint">近 10 個交易日開盤就鎖漲停到收盤（開高低收同價）。'
+            '只列出來，不是策略訊號，也沒有過濾流動性；量小通常買不到</span></div>')
+    if not rows:
+        return f'<section aria-labelledby="lock-h">{head}<div class="ui-empty">近 10 個交易日沒有一字鎖。</div></section>'
+    return (
+        f'<section aria-labelledby="lock-h">{head}<div class="table-wrap"><table class="sortable"><thead><tr>'
+        '<th>股票</th><th>族群</th><th data-sort>最後一次</th><th class="r" data-sort>次數</th>'
+        '<th class="r" data-sort title="最後一次往回數，連續幾個交易日都是一字鎖">連續</th><th class="r" data-sort>收盤</th>'
+        '<th class="r" data-sort>當天量（張）</th><th class="r" data-sort>20 日均成交值（億）</th></tr></thead>'
+        f'<tbody>{"".join(_one_word_row(r) for r in rows)}</tbody></table></div></section>'
+    )
+
+
 # ── 仍有效／已失效 ─────────────────────────────────────────
 
 def _sig_close(c: dict) -> str:
@@ -514,6 +542,7 @@ def render(payload: dict) -> str:
         _market(p.get("header"), p.get("taiex_above_ma20"), p.get("taiex_ma20_gap"), ma60_note(p))
         + _capital()
         + _new_section(p.get("new") or [], p.get("withdrawn"), p.get("shareholder_date"))
+        + _one_word_section(p.get("one_word") or [])
         + _active_section(p.get("active") or [], p.get("invalid") or [])
         + _leaders_section(p.get("leaders"))
         + _score_section((p.get("scorecard") or {}).get(STRATEGY), (p.get("scorecard_rows") or {}).get(STRATEGY) or [])

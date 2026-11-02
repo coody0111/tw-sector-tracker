@@ -6013,3 +6013,25 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 
 ### 特別注意
 - 目前用 data/weekly_notified.txt（內容 2026-10-30）暫擋發布，占位檔 docs/weekly/2026-10-30.html 也還在。驗證請改用暫存路徑，不要刪這兩個檔；全部 ✅ 後由我刪
+
+## [2026-11-02] 個股推薦加「一字鎖」
+
+### 改了什麼
+- 異動檔案：recommend/one_word.py（新）、recommend/daily.py、export/recommend_generator.py、recommend/telegram_format.py、docs/CONTEXT.md、tests/test_recommend_one_word.py（新）
+- 邏輯說明（2026-11-02 Cody 定案）：
+  - payload 新增 `one_word`：近 10 個交易日 features `one_word`（開高低收同價＋漲停）的股票，每檔一列：次數、連續天數（最後一次往回數連續交易日）、最後一次日期、是否今天、當天量（張）、今天收盤、20 日均成交值（億）。排序：最後一次越近越前，再依連續、次數。不過濾流動性。
+  - 訊號卡片：推薦日或今天一字鎖 → alerts 加「一字鎖」（只提醒，不擋）。
+  - 推薦頁：「今日新訊號」下面新增「一字鎖」區（可排序表格）；沒有時顯示空狀態；舊 payload 沒有 one_word 也能產。
+  - Telegram 推薦訊息：表格後加一行「一字鎖：全景軟體(連2)、偉康科技」；今天沒有就寫「今天沒有（近 10 日 N 檔見頁面）」；近 10 日都沒有就不加。最多列 8 檔。
+
+### 資料來源相關
+- 沒有新資料來源；用既有 daily_prices 經 add_price_features 算的 one_word（上市、上櫃同一套）。
+
+### 請 Debugger 驗證
+- [ ] pytest 全跑，tests/test_recommend_one_word.py 通過
+- [ ] 用真實 DB（read-only）跑 one_word_list，跟直接 SQL（open=high=low=close 且漲 >9%）近 10 交易日比對：我這邊 11/2 是 14 檔，8099 大世科連續 4（10/21、10/22、10/27、10/28；10/23、10/26 非交易日）
+- [ ] 推薦頁區塊位置、排序、手機寬度不爆版
+- [ ] Telegram 提醒欄「一字鎖」寬 6，表格對齊沒歪
+
+### 特別注意
+- 卡片提醒的 locked_keys 只看保留期（3 個交易日）內。

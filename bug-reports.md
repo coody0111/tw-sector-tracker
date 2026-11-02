@@ -5819,3 +5819,16 @@ Telegram 用正式 payload 換上這份 heat；Chrome headless 看 1440／375。
 ### 結論
 - [x] 需要修改後再確認
 - [ ] 可以繼續下一個任務
+
+## [2026-11-02] 報告 - 修一字鎖：每日報告 Telegram 也要有那一行（35c652f）
+
+### ✅ 驗證通過
+- pytest 949 passed
+- 用 11/2 真實資料（DB 複本）算 one_word，經 summary JSON 來回後走 `send_recommend_message`（只替換發送）：每日報告訊息在今日重點之後、連結之前出現「一字鎖：全景軟體(連2)、偉康科技」
+- 暫定版（有「暫定：缺上市三大法人」）一樣有這行；payload 沒有 one_word 時訊息和以前相同
+- summary 的 `recommend` 就是完整 payload（main.py 第 719 行），排程確實拿得到 one_word；`compose_report_message` 沒有其他呼叫端
+- 🟡 兩個提醒推歪名稱欄：依 Developer 說明先不改
+
+### 結論
+- [ ] 需要修改後再確認
+- [x] 可以繼續下一個任務

@@ -45,19 +45,30 @@ def test_find_by_id_exact_name_and_partial():
     assert list(find_stocks("尚凡", uni)["stock_id"]) == ["5278"]          # 忽略 *
 
 
-def test_card_has_eight_lines_and_marks(tmp_path):
+def test_card_is_title_pre_block_and_marks(tmp_path):
+    """2026-11-03 排版：粗體標題、<pre> 等寬區塊（標籤對齊）、標記在最後一行。"""
     db, uni, payload = _setup(tmp_path)
-    out = handle("大綜", db, uni, payload).split("\n")
-    assert len(out) == 8 and out[0].startswith("3147 大綜｜雲端/系統整合｜")
-    assert "110.00  +10.00%  量 3,000 張（量比 3.0）" == out[1]
-    assert "季線上" in out[2] and "法人 5 日 +350 張" in out[4] and "融資 5 日 −50 張" in out[5]
-    assert "大戶週增 +0.60pp（集保 09/25）" in out[5] and out[6] == "營收 9 月 年增 +287.9%"
-    assert out[7] == "標記：今日新訊號｜一字鎖 近10日2次(連2)｜族群熱度 #1"
+    out = handle("大綜", db, uni, payload)
+    lines = out.split("\n")
+    assert lines[0] == "<b>3147 大綜</b>  雲端/系統整合" and lines[-1] == "標記：今日新訊號｜一字鎖 近10日2次(連2)｜族群熱度 #1"
+    assert out.count("<pre>") == 1 and out.count("</pre>") == 1
+    for row in ("收盤    110.00  +10.00%", "成交量      3,000 張  量比 3.0", "季線            站上",
+                "法人 5 日    +350 張", "融資 5 日     −50 張", "大戶週增     +0.60pp  集保 09/25", "營收年增     +287.9%  9 月"):
+        assert row in out, row
+
+
+def test_card_escapes_html(tmp_path):
+    db, uni, payload = _setup(tmp_path)
+    u = pd.read_csv(uni, dtype=str, encoding="utf-8-sig")
+    u.loc[u["stock_id"] == "3147", "stock_name"] = "大<綜>"
+    u.to_csv(uni, index=False, encoding="utf-8-sig")
+    out = handle("3147", db, uni, payload)
+    assert "大&lt;綜&gt;" in out and "大<綜>" not in out
 
 
 def test_ambiguous_and_not_found(tmp_path):
     db, uni, payload = _setup(tmp_path)
-    assert handle("精誠", db, uni, payload).startswith("6214 精誠")       # 名稱完全相同，不列候選
+    assert handle("精誠", db, uni, payload).startswith("<b>6214 精誠</b>")       # 名稱完全相同，不列候選
     assert handle("精", db, uni, payload).startswith("有 2 檔符合，請打股號：6214 精誠、7819 精誠金融")
     assert handle("xyz", db, uni, payload) == f"找不到「xyz」。\n{HELP}"
 
@@ -73,9 +84,10 @@ def test_db_locked_returns_busy(tmp_path, monkeypatch):
 
 def test_commands(tmp_path):
     db, uni, payload = _setup(tmp_path)
-    assert "新訊號 1 檔：3147 大綜" in handle("/推薦", db, uni, payload)
-    assert "3147 大綜 10/06 2次 連2 量204張" in handle("一字鎖", db, uni, payload)
-    assert "1. 雲端/系統整合 熱度88 21日+5.0% 上攻中" in handle("/熱度", db, uni, payload)
+    rec = handle("/推薦", db, uni, payload)
+    assert "<pre>股號   名稱       族群" in rec and "新訊號 1｜仍有效 0｜已失效 0" in rec
+    assert "3147   大綜     10/06  2  2     204" in handle("一字鎖", db, uni, payload)
+    assert " 1 雲端/系統整合    88   +5.0% 上攻中" in handle("/熱度", db, uni, payload)
     assert "report.html" in handle("/報告", db, uni, payload) and "weekly.html" in handle("/報告", db, uni, payload)
     assert handle("/start", db, uni, payload) == HELP and handle("  ", db, uni, payload) == HELP
 
@@ -95,8 +107,8 @@ def test_bot_only_replies_to_configured_chat(monkeypatch, tmp_path):
         def json(self):
             return {"result": updates}
     sent = []
-    offset = bot.poll_once("T", "123", 0, send=lambda text, chat_id: sent.append((text, chat_id)), get=lambda *a, **k: Resp())
-    assert sent == [("答:3147", "123")] and offset == 13 and (tmp_path / "o.txt").read_text() == "13"
+    offset = bot.poll_once("T", "123", 0, send=lambda text, chat_id, parse_mode=None: sent.append((text, chat_id, parse_mode)), get=lambda *a, **k: Resp())
+    assert sent == [("答:3147", "123", "HTML")] and offset == 13 and (tmp_path / "o.txt").read_text() == "13"
 
 
 def test_bot_reply_error_is_caught(monkeypatch):
@@ -123,4 +135,4 @@ def test_chips_use_trading_day_window_not_last_rows(tmp_path):
                 [days[0], days[4], days[8]])                     # 第 9 個交易日前那筆不能算進來
     con.execute("INSERT INTO institutional VALUES ('6214', ?, 0, 0)", [days[0]])
     con.close()
-    assert "法人 5 日 +6 張" in handle("3147", db, uni, payload)
+    assert "法人 5 日      +6 張" in handle("3147", db, uni, payload)

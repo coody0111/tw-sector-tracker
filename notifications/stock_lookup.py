@@ -1,13 +1,17 @@
 """Telegram 查股（2026-11-02 Cody）：打股號或名稱回一則精簡個股資訊；另有 /推薦 /一字鎖 /熱度 /報告。
-只讀 DB 與 data/recommend_payload.json，不跑任何資料更新。回覆是純文字（不用 parse_mode），內容不必跳脫。"""
+只讀 DB 與 data/recommend_payload.json，不跑任何資料更新。
+回覆用 parse_mode=HTML：標題粗體、數字放 <pre> 等寬區塊、標籤依顯示寬度對齊（2026-11-03 Cody：排版太醜）。
+所有資料內容都要 escape。"""
 import json
 import os
+from html import escape
 from pathlib import Path
 
 import duckdb
 import pandas as pd
 
 from recommend.data import DB_PATH, EVENTS_PATH, UNIVERSE_PATH, adj_multiplier, event_factors
+from recommend.telegram_format import _pad, _width
 
 PAYLOAD_PATH = Path("data/recommend_payload.json")
 SITE_URL = os.environ.get("SITE_URL", "https://coody0111.github.io/tw-sector-tracker/").rstrip("/") + "/"
@@ -97,58 +101,77 @@ def _asof_value(con, col: str, table: str, sid: str, d):
     return None if r is None else r[0]
 
 
+LABEL_W = 11        # 標籤欄顯示寬度（中文 2 格）；「11/02 收盤」「離 52 週高」寬 10，留 1 格空白
+VALUE_W = 9         # 數值欄靠右
+
+
+def _line(label: str, value: str, note: str = "") -> str:
+    return (_pad(label, LABEL_W) + _pad(value, VALUE_W, right=True) + (f"  {note}" if note else "")).rstrip()
+
+
+def _block(groups: list) -> str:
+    """groups：[[(標籤, 數值, 備註), ...], ...]；組跟組之間空一行，整段放 <pre>。"""
+    text = "\n\n".join("\n".join(_line(*r) for r in g) for g in groups)
+    return f"<pre>{escape(text)}</pre>"
+
+
+def _lots(n: int) -> str:
+    return f"{n:+,}" if n else "0"
+
+
+def _sum_window(con, table: str, col: str, sid: str, days: list):
+    if not days:
+        return None
+    v = con.execute(f"SELECT sum({col}) FROM {table} WHERE stock_id = ? AND date = ANY(?)", [sid, days]).fetchone()[0]
+    return v or 0
+
+
 def stock_card(row: pd.Series, con, payload: dict, events_path: str = EVENTS_PATH,
                universe_ids: dict | None = None) -> str:
-    """精簡版 8 行：行情、均線、位置、法人與外資、大戶與融資、營收、系統標記。籌碼日期跟行情不同天時標出來。"""
+    """標題（股號名稱、族群）＋等寬區塊四組：行情、趨勢、籌碼、營收＋系統標記。籌碼日期跟行情不同天時在備註標「至 MM/DD」。"""
     sid = row["stock_id"]
     universe_ids = universe_ids or {}
+    title = f"<b>{escape(sid)} {escape(row['stock_name'])}</b>  {escape(row['meta_sector'])}"
     px = con.execute("SELECT date, close, change_pct, volume FROM daily_prices WHERE stock_id = ? "
                      "ORDER BY date DESC LIMIT ?", [sid, HISTORY_DAYS]).df().iloc[::-1].reset_index(drop=True)
-    head = f"{sid} {row['stock_name']}｜{row['meta_sector']}"
     if px.empty:
-        return f"{head}\n沒有行情資料。"
+        return f"{title}\n沒有行情資料。"
     c, last = _adjusted(px, sid, events_path), px.iloc[-1]
     day = _md(last["date"])
     vr = last["volume"] / px["volume"].iloc[-21:-1].mean() if len(px) > 21 else None
     ma60 = c.iloc[-60:].mean() if len(c) >= 60 else None
-    lines = [
-        f"{head}｜{day} 收盤",
-        f"{last['close']:,.2f}  {_pct(last['change_pct'], 2)}  量 {int(last['volume']):,} 張"
-        + ("" if vr is None else f"（量比 {vr:.1f}）"),
-        f"距 10EMA {_pct((c.iloc[-1] / _ema(c, 10) - 1) * 100)}｜20EMA {_pct((c.iloc[-1] / _ema(c, 20) - 1) * 100)}｜"
-        + ("季線資料不足" if ma60 is None else ("季線上" if c.iloc[-1] >= ma60 else "季線下")),
-        f"離 52 週高 {_pct((c.iloc[-1] / c.iloc[-250:].max() - 1) * 100)}｜21 日 "
-        + (_pct((c.iloc[-1] / c.iloc[-22] - 1) * 100) if len(c) > 21 else "—"),
-    ]
+    quote = [(f"{day} 收盤", f"{last['close']:,.2f}", _pct(last["change_pct"], 2)),
+             ("成交量", f"{int(last['volume']):,} 張", "" if vr is None else f"量比 {vr:.1f}")]
+    trend = [("距 10EMA", _pct((c.iloc[-1] / _ema(c, 10) - 1) * 100), ""),
+             ("距 20EMA", _pct((c.iloc[-1] / _ema(c, 20) - 1) * 100), ""),
+             ("季線", "—" if ma60 is None else ("站上" if c.iloc[-1] >= ma60 else "跌破"), ""),
+             ("離 52 週高", _pct((c.iloc[-1] / c.iloc[-250:].max() - 1) * 100), ""),
+             ("21 日", _pct((c.iloc[-1] / c.iloc[-22] - 1) * 100) if len(c) > 21 else "—", "")]
     peers = list(universe_ids.get(row.get("exchange"), [sid]))
     inst_days = _days(con, "institutional", peers, WINDOW)
-    inst = con.execute("SELECT sum(foreign_net + trust_net) FROM institutional WHERE stock_id = ? AND date = ANY(?)",
-                       [sid, inst_days]).fetchone()[0] if inst_days else None
-    inst_txt = "法人 5 日 —" if not inst_days else (
-        f"法人 5 日 {int((inst or 0) / 1000):+,} 張" + _asof(inst_days[0], day))
+    inst = _sum_window(con, "institutional", "foreign_net + trust_net", sid, inst_days)
     fh_days = _days(con, "foreign_holdings", peers, WINDOW + 1)
-    fh = [_asof_value(con, "foreign_pct", "foreign_holdings", sid, d) for d in (fh_days[:1] + fh_days[-1:])]         if len(fh_days) == WINDOW + 1 else [None, None]
-    fh_txt = "外資持股 —" if None in fh else (
-        f"外資持股 {_pct(fh[0] - fh[1], 2, 'pp')}" + _asof(fh_days[0], day))
-    lines.append(f"{inst_txt}｜{fh_txt}".replace("-", "−"))
-    big = con.execute("SELECT date, week_chg FROM shareholder WHERE stock_id = ? ORDER BY date DESC LIMIT 1", [sid]).df()
+    fh = ([_asof_value(con, "foreign_pct", "foreign_holdings", sid, d) for d in (fh_days[0], fh_days[-1])]
+          if len(fh_days) == WINDOW + 1 else [None, None])
     mg_days = _days(con, "margin", peers, WINDOW)
-    mg = con.execute("SELECT sum(margin_change) FROM margin WHERE stock_id = ? AND date = ANY(?)",
-                     [sid, mg_days]).fetchone()[0] if mg_days else None
-    big_txt = "大戶週增 —" if big.empty or pd.isna(big["week_chg"].iloc[0]) else (
-        f"大戶週增 {_pct(big['week_chg'].iloc[0], 2, 'pp')}（集保 {_md(big['date'].iloc[0])}）")
-    mg_txt = "融資 5 日 —" if not mg_days else f"融資 5 日 {int(mg or 0):+,} 張" + _asof(mg_days[0], day)
-    lines.append(f"{big_txt}｜{mg_txt}".replace("-", "−"))
+    mg = _sum_window(con, "margin", "margin_change", sid, mg_days)
+    big = con.execute("SELECT date, week_chg FROM shareholder WHERE stock_id = ? ORDER BY date DESC LIMIT 1", [sid]).df()
+    has_big = not big.empty and pd.notna(big["week_chg"].iloc[0])
+    chips = [("法人 5 日", "—" if inst is None else f"{_lots(int(inst / 1000))} 張", _asof(inst_days[0], day) if inst_days else ""),
+             ("外資持股", "—" if None in fh else _pct(fh[0] - fh[1], 2, "pp"), _asof(fh_days[0], day) if fh_days else ""),
+             ("大戶週增", _pct(big["week_chg"].iloc[0], 2, "pp") if has_big else "—",
+              f"集保 {_md(big['date'].iloc[0])}" if has_big else ""),
+             ("融資 5 日", "—" if mg is None else f"{_lots(int(mg))} 張", _asof(mg_days[0], day) if mg_days else "")]
     rev = con.execute("SELECT revenue_month, reported_yoy_pct FROM monthly_revenue WHERE stock_id = ? "
                       "ORDER BY revenue_month DESC LIMIT 1", [sid]).df()
-    lines.append("營收 —" if rev.empty else
-                 f"營收 {int(str(rev['revenue_month'].iloc[0])[5:7])} 月 年增 {_pct(rev['reported_yoy_pct'].iloc[0])}")
-    lines.append(f"標記：{_marks(sid, row['meta_sector'], payload)}")
-    return "\n".join(lines)
+    revenue = [("營收年增", "—", "") if rev.empty else
+               ("營收年增", _pct(rev["reported_yoy_pct"].iloc[0]), f"{int(str(rev['revenue_month'].iloc[0])[5:7])} 月")]
+    body = _block([quote, trend, chips, revenue]).replace("-", "−")
+    return f"{title}\n{body}\n標記：{escape(_marks(sid, row['meta_sector'], payload))}"
 
 
 def _asof(d, price_day: str) -> str:
-    return "" if _md(d) == price_day else f"（至 {_md(d)}）"
+    return "" if _md(d) == price_day else f"至 {_md(d)}"
 
 
 def lookup(query: str, db_path: str = DB_PATH, universe_path: str = UNIVERSE_PATH,
@@ -156,9 +179,9 @@ def lookup(query: str, db_path: str = DB_PATH, universe_path: str = UNIVERSE_PAT
     universe = pd.read_csv(universe_path, dtype=str, encoding="utf-8-sig")
     hits = find_stocks(query, universe)
     if hits.empty:
-        return f"找不到「{query}」。\n{HELP}"
+        return f"找不到「{escape(query)}」。\n{HELP}"
     if len(hits) > 1:
-        names = "、".join(f"{r.stock_id} {r.stock_name}" for r in hits.head(MAX_CANDIDATES).itertuples())
+        names = "、".join(f"{r.stock_id} {escape(r.stock_name)}" for r in hits.head(MAX_CANDIDATES).itertuples())
         more = f" 等 {len(hits)} 檔" if len(hits) > MAX_CANDIDATES else ""
         return f"有 {len(hits)} 檔符合，請打股號：{names}{more}"
     try:
@@ -172,30 +195,52 @@ def lookup(query: str, db_path: str = DB_PATH, universe_path: str = UNIVERSE_PAT
         con.close()
 
 
+def _table(head: list, rows: list) -> str:
+    """head／rows 每格 (文字, 寬度, 靠右)；放 <pre>，中文依顯示寬度對齊。"""
+    fmt = lambda cells: " ".join(_pad(t, w, r) for t, w, r in cells).rstrip()
+    return "<pre>" + escape("\n".join([fmt(head)] + [fmt(r) for r in rows])) + "</pre>"
+
+
+def _name(s: str, w: int) -> str:
+    """名稱超過欄寬就截斷，避免把後面的欄位推歪。"""
+    out = ""
+    for ch in s:
+        if _width(out + ch) > w:
+            break
+        out += ch
+    return out
+
+
 def _cmd_recommend(p: dict) -> str:
     if not p:
         return "還沒有推薦資料。"
     new = [c for g in p.get("new") or [] for c in g["cards"]]
-    names = "、".join(f"{c['stock_id']} {c['stock_name']}" for c in new[:15]) or "沒有新訊號"
-    return (f"{_md(p['trade_date'])} 推薦\n新訊號 {len(new)} 檔：{names}\n"
-            f"仍有效 {len(p.get('active') or [])} 檔｜已失效 {len(p.get('invalid') or [])} 檔\n{SITE_URL}recommend.html")
+    head = f"<b>{_md(p['trade_date'])} 推薦</b>"
+    rows = [[(c["stock_id"], 6, False), (_name(c["stock_name"], 10), 10, False), (_name(c.get("meta_sector") or "", 14), 14, False)]
+            for c in new[:15]]
+    body = _table([("股號", 6, False), ("名稱", 10, False), ("族群", 14, False)], rows) if new else "今天沒有新訊號"
+    tail = f"新訊號 {len(new)}｜仍有效 {len(p.get('active') or [])}｜已失效 {len(p.get('invalid') or [])}"
+    return f"{head}\n{body}\n{tail}\n{SITE_URL}recommend.html"
 
 
 def _cmd_one_word(p: dict) -> str:
     rows = p.get("one_word") or []
     if not rows:
         return "近 10 個交易日沒有一字鎖。"
-    lines = [f"{r['stock_id']} {r['stock_name']} {_md(r['last_date'])} {r['count']}次"
-             + (f" 連{r['streak']}" if r["streak"] > 1 else "") + f" 量{r['volume']:,}張" for r in rows]
-    return "近 10 個交易日一字鎖：\n" + "\n".join(lines) + f"\n{SITE_URL}recommend.html"
+    body = _table([("股號", 6, False), ("名稱", 8, False), ("最後", 5, False), ("次", 2, True), ("連", 2, True), ("量(張)", 7, True)],
+                  [[(r["stock_id"], 6, False), (_name(r["stock_name"], 8), 8, False), (_md(r["last_date"]), 5, False),
+                    (str(r["count"]), 2, True), (str(r["streak"]), 2, True), (f"{r['volume']:,}", 7, True)] for r in rows])
+    return f"<b>近 10 個交易日一字鎖</b>\n{body}\n{SITE_URL}recommend.html"
 
 
 def _cmd_heat(p: dict) -> str:
     top = ((p.get("heat") or {}).get("top") or [])[:5]
     if not top:
         return "還沒有熱度資料。"
-    lines = [f"{s['rank']}. {s['sector']} 熱度{s['score']:.0f} 21日{_pct(s.get('ret21'))} {s['status']}" for s in top]
-    return "族群熱度前 5：\n" + "\n".join(lines) + f"\n{SITE_URL}index.html#heat"
+    body = _table([("#", 2, True), ("族群", 14, False), ("熱度", 4, True), ("21日", 7, True), ("狀態", 6, False)],
+                  [[(str(s["rank"]), 2, True), (_name(s["sector"], 14), 14, False), (f"{s['score']:.0f}", 4, True),
+                    (_pct(s.get("ret21")), 7, True), (s["status"], 6, False)] for s in top])
+    return f"<b>族群熱度前 5</b>\n{body.replace('-', '−')}\n{SITE_URL}index.html#heat"
 
 
 def _cmd_report(p: dict) -> str:

@@ -6163,3 +6163,20 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 
 ### 請 Debugger 驗證
 - [ ] pytest 全跑；把 _is_lock_error 暫時換回 "lock" in msg，確認這個測試會失敗（驗完還原）
+
+## [2026-11-03] 查股回覆排版（Cody：排版很醜）
+
+### 改了什麼
+- 異動檔案：notifications/stock_lookup.py、scripts/telegram_bot.py、tests/test_stock_lookup.py
+- 回覆改 parse_mode=HTML：
+  - 個股：粗體標題（股號 名稱）＋族群；<pre> 等寬區塊分四組（行情／趨勢／籌碼／營收），標籤寬 11、數值寬 9 靠右，依顯示寬度對齊（用 recommend/telegram_format 的 _pad/_width）；備註（量比、集保日、「至 MM/DD」）放右邊；最後一行「標記」。0 張顯示「0」不帶正號。
+  - /推薦、/一字鎖、/熱度：<pre> 表格，名稱超過欄寬截斷；族群欄寬 14（「雲端/系統整合」寬 13）。
+  - 所有資料（名稱、族群、查詢字串）都 escape。
+  - bot 送出改帶 parse_mode="HTML"。
+- **常駐程式要重啟才會用新版**（排程 TW-Sector-TelegramBot），驗完我再處理。
+
+### 請 Debugger 驗證
+- [ ] pytest 全跑
+- [ ] 用真 DB 看 handle("3147")、handle("8099")、handle("/一字鎖")、handle("/熱度") 的 <pre> 欄位有對齊（含 4 字名稱、−號、千分位）
+- [ ] HTML 合法：只有 <b>、<pre>，其他 < > & 都已 escape（Telegram HTML 解析失敗會整則送不出去）
+- [ ] 不要啟動程式或呼叫 Telegram API

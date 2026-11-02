@@ -65,3 +65,9 @@ def test_main_and_index_wiring():
     assert "heat=_latest_heat()" in inspect.getsource(main.run)
     gen = inspect.getsource(index_generator.generate)
     assert "render_heat_section(heat)" in gen and "HEAT_SECTION_CSS" in gen and 'href="heat.html"' not in gen
+
+
+def test_section_css_colors_up_down_inside_hx():
+    from export.heat_section import HEAT_SECTION_CSS
+    for rule in (".hx .up{color:var(--up)}", ".hx .down{color:var(--down)}", ".hx .muted{color:var(--ink-3)}"):
+        assert rule in HEAT_SECTION_CSS                        # index 沒有全域 .up/.down（bug-reports 2026-11-02）

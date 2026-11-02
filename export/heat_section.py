@@ -12,6 +12,7 @@ START, END = "<!--heat-section:start-->", "<!--heat-section:end-->"
 HEAT_SECTION_CSS = r"""
 .hx{margin:0 0 8px;padding:0 16px 8px}
 .hx .section-head{padding:18px 0 6px;align-items:flex-end}
+.hx .up{color:var(--up)}.hx .down{color:var(--down)}.hx .muted{color:var(--ink-3)}
 .hx-note{margin:0 0 10px;color:var(--ink-2);font-size:.76rem;line-height:1.55}
 .hx-movers{display:flex;flex-wrap:wrap;gap:6px 18px;margin:0 0 10px;font-size:.8rem;color:var(--ink-2)}
 .hx-movers b{color:var(--ink);font-weight:650}

@@ -159,7 +159,9 @@ def stock_card(row: pd.Series, con, payload: dict, events_path: str = EVENTS_PAT
         return f"{title}\n沒有行情資料。"
     c, last = _adjusted(px, sid, events_path), px.iloc[-1]
     day = _md(last["date"])
-    vr = last["volume"] / px["volume"].iloc[-21:-1].mean() if len(px) > 21 else None
+    traded = px["volume"].iloc[:-1]
+    traded = traded[traded > 0].tail(20)          # 量比分母只算有成交的日子，停牌日（量 0）不拉低平均，同 recommend.features
+    vr = last["volume"] / traded.mean() if len(traded) == 20 else None
     ma60 = c.iloc[-60:].mean() if len(c) >= 60 else None
     quote = [(f"{day} 收盤", f"{last['close']:,.2f}", _pct(last["change_pct"], 2)),
              ("成交量", f"{int(last['volume']):,} 張", "" if vr is None else f"量比 {vr:.1f}")]

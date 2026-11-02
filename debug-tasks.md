@@ -6282,3 +6282,14 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 
 ### 請 Debugger 驗證
 - [ ] pytest 全跑
+
+## [2026-11-03] 查股量比排除停牌日（code review #10；#8 不用改）
+
+### 改了什麼
+- 異動檔案：notifications/stock_lookup.py、tests/test_stock_lookup.py
+- #10：量比分母改成「今天以前最近 20 個有成交（量 > 0）的日子」平均，停牌日不再拉低分母、讓量比虛高；不足 20 天不顯示量比。跟 recommend.features 的 vr 同口徑。
+- #8（回補用平日當交易日）：重看後發現 `_iter_weekdays` 本來就走 config.is_trading_day（先查官方行事曆，沒涵蓋才退回週末＋假日清單），review 時看錯，不用改。每次都會嘗試「今天」是因為今天的行事曆還沒公布，屬正常。
+
+### 請 Debugger 驗證
+- [ ] pytest 全跑（test_volume_ratio_ignores_suspended_days）
+- [ ] 真 DB 找一檔近期有停牌的股票（例如 3064 缺 10/12～10/22 那檔）比對改前改後量比

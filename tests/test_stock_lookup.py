@@ -164,3 +164,13 @@ def test_window_note_counts_market_missing_days(tmp_path):
     out = handle("3147", db, uni, payload)
     line = next(l for l in out.split("\n") if l.startswith("法人 5 日"))
     assert line.endswith("缺1天") and "+280 張" in line
+
+
+def test_volume_ratio_ignores_suspended_days(tmp_path):
+    """前 20 天裡有 5 天停牌（量 0）：量比分母只算有成交的日子，不被拉低（code review 2026-11-03 #10）。"""
+    db, uni, payload = _setup(tmp_path)
+    con = duckdb.connect(db)
+    days = [r[0] for r in con.execute("SELECT date FROM daily_prices ORDER BY date DESC LIMIT 6").fetchall()]
+    con.execute("UPDATE daily_prices SET volume = 0 WHERE date = ANY(?)", [days[1:]])
+    con.close()
+    assert "量比 3.0" in handle("3147", db, uni, payload)

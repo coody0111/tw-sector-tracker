@@ -76,7 +76,7 @@ def test_windows_lock_message_is_retried(monkeypatch):
     assert duck.connect_rw("x.db", sleep=lambda s: None) == "con" and len(calls) == 3
 
 
-def test_real_lock_from_another_process(tmp_path):
+def test_waits_for_other_process_reader(tmp_path):
     """另一個程序開唯讀連線 1 秒：connect_rw 要等它放掉後成功（Windows、Linux 訊息不同，用真的程序測）。"""
     import subprocess
     import sys

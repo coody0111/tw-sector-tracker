@@ -6154,3 +6154,12 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 ### 請 Debugger 驗證
 - [ ] pytest 全跑（含 subprocess 那個測試）
 - [ ] 用 DB 複本再跑一次你上次的持有 1.5 秒／不放兩個情境
+
+## [2026-11-03] 測試改名：真程序鎖測試名稱不含 lock
+
+### 改了什麼
+- 異動檔案：tests/test_duck_retry.py
+- 回應 bug-reports 2026-11-02 🟡：`test_real_lock_from_another_process` 改名 `test_waits_for_other_process_reader`，tmp 資料夾路徑不再含 lock，退回舊判斷時這個測試也會失敗。
+
+### 請 Debugger 驗證
+- [ ] pytest 全跑；把 _is_lock_error 暫時換回 "lock" in msg，確認這個測試會失敗（驗完還原）

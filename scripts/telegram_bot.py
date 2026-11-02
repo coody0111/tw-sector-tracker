@@ -62,8 +62,10 @@ def poll_once(token: str, chat_id: str, offset: int, send=send_telegram_message,
         if text is None:
             logger.info("略過一則訊息（非指定聊天室或非文字）")
         else:
-            send(text, chat_id=chat_id)
-            logger.info("已回覆一則查詢")
+            if send(text, chat_id=chat_id):
+                logger.info("已回覆一則查詢")
+            else:
+                logger.warning("回覆送出失敗（不重送，請 Cody 再查一次）")
         save_offset(offset)
     return offset
 

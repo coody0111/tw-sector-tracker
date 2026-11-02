@@ -13,6 +13,7 @@ PAYLOAD_PATH = Path("data/recommend_payload.json")
 SITE_URL = os.environ.get("SITE_URL", "https://coody0111.github.io/tw-sector-tracker/").rstrip("/") + "/"
 MAX_CANDIDATES = 8
 HISTORY_DAYS = 260
+WINDOW = 5                 # 法人、融資、外資持股都看 5 個交易日
 BUSY = "資料庫正在更新，請 1～2 分鐘後再試。"
 HELP = ("查股：直接打股號或名稱，例如 3147、大綜。\n"
         "指令：/推薦 /一字鎖 /熱度 /報告")
@@ -79,9 +80,28 @@ def _adjusted(px: pd.DataFrame, sid: str, events_path: str) -> pd.Series:
     return px["close"] * adj_multiplier(x, event_factors(events[events["stock_id"] == sid], x)).to_numpy()
 
 
-def stock_card(row: pd.Series, con, payload: dict, events_path: str = EVENTS_PATH) -> str:
+def _days(con, table: str, peers: list, n: int) -> list:
+    """籌碼的 n 個交易日窗口（新到舊）：同市場（上市／上櫃）這張表最新的資料日往回數 daily_prices 的交易日。
+    表裡只存有變動的日子，不能用 LIMIT n 筆（bug-reports 2026-11-02：8272 跨了 8 個交易日）；窗口內沒資料的日子算 0。"""
+    last = con.execute(f"SELECT max(date) FROM {table} WHERE stock_id = ANY(?)", [peers]).fetchone()[0]
+    if last is None:
+        return []
+    return [r[0] for r in con.execute("SELECT DISTINCT date FROM daily_prices WHERE date <= ? ORDER BY date DESC LIMIT ?",
+                                      [last, n]).fetchall()]
+
+
+def _asof_value(con, col: str, table: str, sid: str, d):
+    """sid 在 d（含）之前最後一筆的值；沒有就 None。"""
+    r = con.execute(f"SELECT {col} FROM {table} WHERE stock_id = ? AND date <= ? ORDER BY date DESC LIMIT 1",
+                    [sid, d]).fetchone()
+    return None if r is None else r[0]
+
+
+def stock_card(row: pd.Series, con, payload: dict, events_path: str = EVENTS_PATH,
+               universe_ids: dict | None = None) -> str:
     """精簡版 8 行：行情、均線、位置、法人與外資、大戶與融資、營收、系統標記。籌碼日期跟行情不同天時標出來。"""
     sid = row["stock_id"]
+    universe_ids = universe_ids or {}
     px = con.execute("SELECT date, close, change_pct, volume FROM daily_prices WHERE stock_id = ? "
                      "ORDER BY date DESC LIMIT ?", [sid, HISTORY_DAYS]).df().iloc[::-1].reset_index(drop=True)
     head = f"{sid} {row['stock_name']}｜{row['meta_sector']}"
@@ -100,20 +120,24 @@ def stock_card(row: pd.Series, con, payload: dict, events_path: str = EVENTS_PAT
         f"離 52 週高 {_pct((c.iloc[-1] / c.iloc[-250:].max() - 1) * 100)}｜21 日 "
         + (_pct((c.iloc[-1] / c.iloc[-22] - 1) * 100) if len(c) > 21 else "—"),
     ]
-    inst = con.execute("SELECT date, foreign_net + trust_net AS net FROM institutional WHERE stock_id = ? "
-                       "ORDER BY date DESC LIMIT 5", [sid]).df()
-    fh = con.execute("SELECT date, foreign_pct FROM foreign_holdings WHERE stock_id = ? ORDER BY date DESC LIMIT 6",
-                     [sid]).df()
-    inst_txt = "法人 5 日 —" if inst.empty else (
-        f"法人 5 日 {int(inst['net'].sum() / 1000):+,} 張" + _asof(inst["date"].iloc[0], day))
-    fh_txt = "外資持股 —" if len(fh) < 6 else (
-        f"外資持股 {_pct(fh['foreign_pct'].iloc[0] - fh['foreign_pct'].iloc[-1], 2, 'pp')}" + _asof(fh["date"].iloc[0], day))
+    peers = list(universe_ids.get(row.get("exchange"), [sid]))
+    inst_days = _days(con, "institutional", peers, WINDOW)
+    inst = con.execute("SELECT sum(foreign_net + trust_net) FROM institutional WHERE stock_id = ? AND date = ANY(?)",
+                       [sid, inst_days]).fetchone()[0] if inst_days else None
+    inst_txt = "法人 5 日 —" if not inst_days else (
+        f"法人 5 日 {int((inst or 0) / 1000):+,} 張" + _asof(inst_days[0], day))
+    fh_days = _days(con, "foreign_holdings", peers, WINDOW + 1)
+    fh = [_asof_value(con, "foreign_pct", "foreign_holdings", sid, d) for d in (fh_days[:1] + fh_days[-1:])]         if len(fh_days) == WINDOW + 1 else [None, None]
+    fh_txt = "外資持股 —" if None in fh else (
+        f"外資持股 {_pct(fh[0] - fh[1], 2, 'pp')}" + _asof(fh_days[0], day))
     lines.append(f"{inst_txt}｜{fh_txt}".replace("-", "−"))
     big = con.execute("SELECT date, week_chg FROM shareholder WHERE stock_id = ? ORDER BY date DESC LIMIT 1", [sid]).df()
-    mg = con.execute("SELECT date, margin_change FROM margin WHERE stock_id = ? ORDER BY date DESC LIMIT 5", [sid]).df()
+    mg_days = _days(con, "margin", peers, WINDOW)
+    mg = con.execute("SELECT sum(margin_change) FROM margin WHERE stock_id = ? AND date = ANY(?)",
+                     [sid, mg_days]).fetchone()[0] if mg_days else None
     big_txt = "大戶週增 —" if big.empty or pd.isna(big["week_chg"].iloc[0]) else (
         f"大戶週增 {_pct(big['week_chg'].iloc[0], 2, 'pp')}（集保 {_md(big['date'].iloc[0])}）")
-    mg_txt = "融資 5 日 —" if mg.empty else f"融資 5 日 {int(mg['margin_change'].sum()):+,} 張" + _asof(mg["date"].iloc[0], day)
+    mg_txt = "融資 5 日 —" if not mg_days else f"融資 5 日 {int(mg or 0):+,} 張" + _asof(mg_days[0], day)
     lines.append(f"{big_txt}｜{mg_txt}".replace("-", "−"))
     rev = con.execute("SELECT revenue_month, reported_yoy_pct FROM monthly_revenue WHERE stock_id = ? "
                       "ORDER BY revenue_month DESC LIMIT 1", [sid]).df()
@@ -142,7 +166,8 @@ def lookup(query: str, db_path: str = DB_PATH, universe_path: str = UNIVERSE_PAT
     except duckdb.Error:                 # 排程正在寫 DB 時拿不到鎖
         return BUSY
     try:
-        return stock_card(hits.iloc[0], con, _load_payload(payload_path))
+        ids = universe.groupby("exchange")["stock_id"].apply(list).to_dict() if "exchange" in universe else {}
+        return stock_card(hits.iloc[0], con, _load_payload(payload_path), universe_ids=ids)
     finally:
         con.close()
 

@@ -111,3 +111,16 @@ def test_offset_roundtrip(tmp_path):
     assert bot.read_offset(p) == 0
     bot.save_offset(42, p)
     assert bot.read_offset(p) == 42
+
+
+def test_chips_use_trading_day_window_not_last_rows(tmp_path):
+    """institutional 只存有買賣超的日子：5 日要用交易日窗口，不能加最近 5 筆（bug-reports 2026-11-02）。"""
+    db, uni, payload = _setup(tmp_path)
+    con = duckdb.connect(db)
+    con.execute("DELETE FROM institutional")
+    days = [r[0] for r in con.execute("SELECT DISTINCT date FROM daily_prices ORDER BY date DESC").fetchall()]
+    con.execute("INSERT INTO institutional VALUES ('3147', ?, 1000, 0), ('3147', ?, 5000, 0), ('3147', ?, 7000, 0)",
+                [days[0], days[4], days[8]])                     # 第 9 個交易日前那筆不能算進來
+    con.execute("INSERT INTO institutional VALUES ('6214', ?, 0, 0)", [days[0]])
+    con.close()
+    assert "法人 5 日 +6 張" in handle("3147", db, uni, payload)

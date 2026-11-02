@@ -6204,3 +6204,21 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 - [ ] pytest 全跑（含 test_wide_values_widen_column_and_divider）
 - [ ] 真 DB：2303、2330、3147、8272 的數值右緣對齊、分割線等長
 - [ ] dbf50de（分割線）如果還沒驗，這次一起
+
+## [2026-11-03] 數據檢驗 1：行情缺漏改用官方交易日曆（code review #1 #2 #4 #9）
+
+### 改了什麼
+- 異動檔案：screener/data_integrity.py、main.py（`_price_health_warning`）、tests/test_data_integrity.py
+- 邏輯說明（Cody：照順序修）：
+  - `trading_days_between`：用 data/trading_calendar.csv（scrapers.trading_calendar.calendar_status）列出兩天之間的交易日；中間有一天日曆沒涵蓋就回 None → 退回舊的「跨度＋連假緩衝」規則。
+  - `find_gaps`：相鄰兩天夾著任何官方交易日就算斷層（只缺 1 天也抓）；`missing_days` 列出缺的日期。
+  - `window_is_reliable`：(date_then, date_now] 的官方交易日數 ≤ N 才可信（多了＝中間缺資料）。get_rolling_returns 自動受惠。
+  - `check_price_continuity`：另外檢查「最新一天之後、今天以前日曆上還有交易日」（落後）、「當天筆數 < 近期每日中位數 80%」（只抓到一部分）；訊息拿掉過時的 `--reimport`。
+  - main.py Telegram 警告改成列出缺哪幾天、落後幾天、哪幾天只抓到一部分。
+  - 用目前 DB 跑過：連續性正常（最新 11/2，59 個交易日），沒有誤報。
+- 所有函式多一個 `is_trading` 參數（預設真日曆），舊測試明確傳 NO_CAL 測退回規則，新測試用假日曆。
+
+### 請 Debugger 驗證
+- [ ] pytest 全跑：注意 tests/test_database.py::test_get_rolling_returns_price_ratio 等用真實日期的測試現在會吃真日曆（我推算應該照過，請確認）
+- [ ] 用 DB 複本刪掉某一天行情 → check_price_continuity 要列出那天；刪掉某天一半股票 → 列為只抓到一部分
+- [ ] get_rolling_returns 在真 DB 上被擋下的窗口數跟改前比，不應暴增（暴增代表日曆或資料對不上）

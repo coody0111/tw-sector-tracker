@@ -15,8 +15,14 @@ from screener.data_integrity import (
     check_price_continuity,
     find_gaps,
     max_span_days,
+    missing_days,
     window_is_reliable,
 )
+
+
+def NO_CAL(d):
+    """日曆沒涵蓋：測舊的「跨度＋連假緩衝」退回規則。"""
+    return None
 
 
 def test_max_span_days_accounts_for_weekends_and_holidays():
@@ -35,28 +41,28 @@ def test_max_span_days_rejects_non_positive():
 
 def test_window_is_reliable_accepts_normal_week():
     """正常的 5 個交易日：週五→隔週五，跨 7 個日曆天。"""
-    assert window_is_reliable(dt.date(2026, 8, 28), dt.date(2026, 8, 21), 5)
+    assert window_is_reliable(dt.date(2026, 8, 28), dt.date(2026, 8, 21), 5, NO_CAL)
 
 
 def test_window_is_reliable_tolerates_a_long_weekend():
     """含連假的 5 個交易日仍要放行，不能因為國定假日就把正常資料判成有洞。"""
-    assert window_is_reliable(dt.date(2026, 8, 28), dt.date(2026, 8, 16), 5)
+    assert window_is_reliable(dt.date(2026, 8, 28), dt.date(2026, 8, 16), 5, NO_CAL)
 
 
 def test_window_is_reliable_rejects_the_jinju_case():
     """本回歸的主角：跨 29 個日曆天卻標成「近5日」，必須擋下。"""
-    assert not window_is_reliable(dt.date(2026, 8, 28), dt.date(2026, 7, 30), 5)
+    assert not window_is_reliable(dt.date(2026, 8, 28), dt.date(2026, 7, 30), 5, NO_CAL)
 
 
 def test_window_is_reliable_rejects_missing_dates():
     """資料不足（取不到窗口起點）一律視為不可信，不能當成 0% 或直接算。"""
-    assert not window_is_reliable(dt.date(2026, 8, 28), None, 5)
-    assert not window_is_reliable(None, dt.date(2026, 8, 21), 5)
+    assert not window_is_reliable(dt.date(2026, 8, 28), None, 5, NO_CAL)
+    assert not window_is_reliable(None, dt.date(2026, 8, 21), 5, NO_CAL)
 
 
 def test_window_is_reliable_rejects_reversed_dates():
     """起點比終點還晚（資料排序異常）不該被當成合理窗口。"""
-    assert not window_is_reliable(dt.date(2026, 8, 21), dt.date(2026, 8, 28), 5)
+    assert not window_is_reliable(dt.date(2026, 8, 21), dt.date(2026, 8, 28), 5, NO_CAL)
 
 
 def test_find_gaps_ignores_weekends():
@@ -67,21 +73,21 @@ def test_find_gaps_ignores_weekends():
         dt.date(2026, 8, 25),
         dt.date(2026, 8, 26),
     ]
-    assert find_gaps(dates) == []
+    assert find_gaps(dates, NO_CAL) == []
 
 
 def test_find_gaps_reports_real_hole():
     """真的缺一段（8/06→8/25）要被抓出來，並回報斷層的前後兩端。"""
     dates = [dt.date(2026, 8, 4), dt.date(2026, 8, 6), dt.date(2026, 8, 25)]
-    assert find_gaps(dates) == [(dt.date(2026, 8, 6), dt.date(2026, 8, 25))]
+    assert find_gaps(dates, NO_CAL) == [(dt.date(2026, 8, 6), dt.date(2026, 8, 25))]
 
 
 def test_find_gaps_handles_unsorted_and_short_input():
-    assert find_gaps([]) == []
-    assert find_gaps([dt.date(2026, 8, 28)]) == []
+    assert find_gaps([], NO_CAL) == []
+    assert find_gaps([dt.date(2026, 8, 28)], NO_CAL) == []
     # 未排序輸入也要得到相同結果
     unsorted_dates = [dt.date(2026, 8, 25), dt.date(2026, 8, 4), dt.date(2026, 8, 6)]
-    assert find_gaps(unsorted_dates) == [(dt.date(2026, 8, 6), dt.date(2026, 8, 25))]
+    assert find_gaps(unsorted_dates, NO_CAL) == [(dt.date(2026, 8, 6), dt.date(2026, 8, 25))]
 
 
 def _con_with_dates(dates):
@@ -101,12 +107,12 @@ def test_check_price_continuity_flags_gap():
     dates = [today - dt.timedelta(days=n) for n in (0, 1, 40, 41)]
     con = _con_with_dates(dates)
     try:
-        result = check_price_continuity(con, lookback_days=90)
+        result = check_price_continuity(con, lookback_days=90, is_trading=NO_CAL)
     finally:
         con.close()
     assert result["ok"] is False
     assert result["gaps"]
-    assert "缺漏" in result["message"]
+    assert "缺" in result["message"]
 
 
 def test_check_price_continuity_passes_on_clean_data():
@@ -115,7 +121,7 @@ def test_check_price_continuity_passes_on_clean_data():
     dates = [today - dt.timedelta(days=n) for n in range(0, 10)]
     con = _con_with_dates(dates)
     try:
-        result = check_price_continuity(con, lookback_days=90)
+        result = check_price_continuity(con, lookback_days=90, is_trading=NO_CAL)
     finally:
         con.close()
     assert result["ok"] is True
@@ -127,8 +133,76 @@ def test_check_price_continuity_handles_empty_table():
     """空表要回 ok=False 而不是假裝正常（reimport 炸掉後就是這個狀態）。"""
     con = _con_with_dates([])
     try:
-        result = check_price_continuity(con, lookback_days=90)
+        result = check_price_continuity(con, lookback_days=90, is_trading=NO_CAL)
     finally:
         con.close()
     assert result["ok"] is False
     assert result["latest"] is None
+
+
+# ── 有官方交易日曆時（2026-11-03 code review：只缺 1 天也要抓到）──────────────
+
+def _cal(holidays=()):
+    """假日曆：週一到週五是交易日，holidays 另外休市。"""
+    return lambda d: d.weekday() < 5 and d not in set(holidays)
+
+
+def test_calendar_find_gaps_catches_single_missing_day():
+    dates = [dt.date(2026, 10, 19), dt.date(2026, 10, 20), dt.date(2026, 10, 22)]   # 缺 10/21（三）
+    gaps = find_gaps(dates, _cal())
+    assert gaps == [(dt.date(2026, 10, 20), dt.date(2026, 10, 22))]
+    assert missing_days(gaps, _cal()) == [dt.date(2026, 10, 21)]
+
+
+def test_calendar_find_gaps_skips_real_holidays():
+    hol = [dt.date(2026, 10, 23), dt.date(2026, 10, 26)]
+    assert find_gaps([dt.date(2026, 10, 22), dt.date(2026, 10, 27)], _cal(hol)) == []
+
+
+def test_calendar_window_counts_exact_trading_days():
+    cal = _cal()
+    assert window_is_reliable(dt.date(2026, 10, 30), dt.date(2026, 10, 23), 5, cal)        # 剛好 5 個交易日
+    assert not window_is_reliable(dt.date(2026, 10, 30), dt.date(2026, 10, 21), 5, cal)    # 7 個：中間缺了 2 天
+
+
+def test_calendar_unknown_days_fall_back_to_span_rule():
+    half = lambda d: None if d >= dt.date(2026, 11, 1) else d.weekday() < 5
+    assert window_is_reliable(dt.date(2026, 11, 6), dt.date(2026, 10, 30), 5, half)       # 退回跨度規則
+
+
+def _con_with_counts(rows):
+    con = duckdb.connect()
+    con.execute("CREATE TABLE daily_prices (stock_id VARCHAR, date DATE, close DOUBLE)")
+    con.executemany("INSERT INTO daily_prices VALUES (?, ?, 1.0)",
+                    [(str(i), d) for d, n in rows for i in range(n)])
+    return con
+
+
+def test_check_reports_missing_stale_and_partial():
+    days = [dt.date(2026, 10, d) for d in (19, 20, 22, 23, 26, 27)]       # 缺 10/21；10/27 只有 3 筆
+    con = _con_with_counts([(d, 10) for d in days[:-1]] + [(days[-1], 3)])
+    try:
+        r = check_price_continuity(con, is_trading=_cal(), today=dt.date(2026, 10, 29))
+    finally:
+        con.close()
+    assert r["ok"] is False and r["missing"] == [dt.date(2026, 10, 21)]
+    assert r["stale"] == [dt.date(2026, 10, 28), dt.date(2026, 10, 29)]
+    assert r["partial"] == [(dt.date(2026, 10, 27), 3)]
+    assert "2026-10-21" in r["message"] and "只抓到一部分" in r["message"] and "--reimport" not in r["message"]
+
+
+def test_check_clean_with_calendar():
+    days = [dt.date(2026, 10, d) for d in (26, 27, 28, 29, 30)]
+    con = _con_with_counts([(d, 10) for d in days])
+    try:
+        r = check_price_continuity(con, is_trading=_cal(), today=dt.date(2026, 11, 1))   # 11/1 週日
+    finally:
+        con.close()
+    assert r["ok"] is True and r["stale"] == [] and r["partial"] == []
+
+
+def test_main_warning_lists_days():
+    import main
+    msg = main._price_health_warning({"latest": dt.date(2026, 10, 27), "gaps": [1], "missing": [dt.date(2026, 10, 21)],
+                                      "stale": [dt.date(2026, 10, 28)], "partial": [(dt.date(2026, 10, 27), 3)]})
+    assert "缺 10/21" in msg and "落後 1 個交易日" in msg and "只抓到一部分：10/27" in msg

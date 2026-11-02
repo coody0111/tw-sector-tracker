@@ -571,6 +571,22 @@ def _update_fundamentals() -> None:
 RECOMMEND_PAYLOAD_PATH = Path("data/recommend_payload.json")
 
 
+def _price_health_warning(health: dict) -> str:
+    """行情體檢結果 → Telegram 警告一句（缺哪幾天、落後幾天、哪幾天只抓到一部分）。"""
+    parts = []
+    if health.get("missing"):
+        parts.append("缺 " + "、".join(d.strftime("%m/%d") for d in health["missing"]))
+    elif health.get("gaps"):
+        parts.append(f"{len(health['gaps'])} 處缺漏")
+    if health.get("stale"):
+        parts.append(f"最新只到 {health['latest']:%m/%d}，落後 {len(health['stale'])} 個交易日")
+    if health.get("partial"):
+        parts.append("只抓到一部分：" + "、".join(d.strftime("%m/%d") for d, _ in health["partial"]))
+    if not health.get("latest"):
+        parts.append("近期完全沒有行情")
+    return "行情資料" + "；".join(parts) + "，近N日指標會不準或顯示無資料，需回補"
+
+
 def _latest_heat() -> dict | None:
     """最近一次推薦發布時算的族群熱度（族群績效頁預設依它排序；收盤 15:00 時是前一個訊號日的）。"""
     try:
@@ -1134,9 +1150,7 @@ def run(trade_date: date = None, realtime: bool = False, push: bool = True, summ
             logger.info(_health["message"])
         else:
             logger.warning(_health["message"])
-            _run_warnings.append(
-                f"行情資料有 {len(_health['gaps'])} 處交易日缺漏，近N日指標會顯示為無資料，需回補"
-            )
+            _run_warnings.append(_price_health_warning(_health))
     except Exception as exc:
         logger.warning("行情連續性體檢失敗（不影響本次產出）：%s", exc)
 

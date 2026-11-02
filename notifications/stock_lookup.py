@@ -103,12 +103,11 @@ def _asof_value(con, col: str, table: str, sid: str, d):
 
 LABEL_W = 11        # 標籤欄顯示寬度（中文 2 格）；「11/02 收盤」「離 52 週高」寬 10，留 1 格空白
 VALUE_W = 9         # 數值欄靠右
-CARD_W = 32         # 分割線長度：標籤＋數值＋最長的備註「集保 10/30」
 SEP = "-"           # 用半形；「─」在部分手機字型算 2 格寬，線會比內容長
 
 
-def _line(label: str, value: str, note: str = "") -> str:
-    return (_pad(label, LABEL_W) + _pad(value, VALUE_W, right=True) + (f"  {note}" if note else "")).rstrip()
+def _line(label: str, value: str, note: str = "", value_w: int = VALUE_W) -> str:
+    return (_pad(label, LABEL_W) + _pad(value, value_w, right=True) + (f"  {note}" if note else "")).rstrip()
 
 
 def _ascii_minus(text: str) -> str:
@@ -117,8 +116,13 @@ def _ascii_minus(text: str) -> str:
 
 
 def _block(groups: list) -> str:
-    """groups：[[(標籤, 數值, 備註), ...], ...]；組跟組之間用分割線（2026-11-03 Cody），整段放 <pre>。"""
-    text = f"\n{SEP * CARD_W}\n".join("\n".join(_line(*r) for r in g) for g in groups)
+    """groups：[[(標籤, 數值, 備註), ...], ...]；組跟組之間用分割線（2026-11-03 Cody），整段放 <pre>。
+    數值欄寬至少 VALUE_W，大型股（法人 -206,512 張）放不下就依這則最寬的數值加寬；分割線跟最長的一行一樣長。"""
+    rows = [r for g in groups for r in g]
+    vw = max([VALUE_W] + [_width(r[1]) for r in rows])
+    lines = [[_line(*r, value_w=vw) for r in g] for g in groups]
+    sep = SEP * max(_width(l) for g in lines for l in g)
+    text = f"\n{sep}\n".join("\n".join(g) for g in lines)
     return f"<pre>{escape(_ascii_minus(text))}</pre>"
 
 

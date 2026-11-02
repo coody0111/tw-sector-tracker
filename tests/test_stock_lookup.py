@@ -136,3 +136,18 @@ def test_chips_use_trading_day_window_not_last_rows(tmp_path):
     con.execute("INSERT INTO institutional VALUES ('6214', ?, 0, 0)", [days[0]])
     con.close()
     assert "法人 5 日      +6 張" in handle("3147", db, uni, payload)
+
+
+def test_wide_values_widen_column_and_divider(tmp_path):
+    """大型股法人 -206,512 張放不下預設欄寬：整則加寬，數值右緣對齊、分割線跟最長一行一樣長（bug-reports 2026-11-03 🟡1）。"""
+    from recommend.telegram_format import _width
+    db, uni, payload = _setup(tmp_path)
+    con = duckdb.connect(db)
+    con.execute("UPDATE institutional SET foreign_net = -41302400, trust_net = 0")
+    con.close()
+    out = handle("3147", db, uni, payload)
+    body = out[out.index("<pre>") + 5:out.index("</pre>")].split("\n")
+    assert "法人 5 日  -206,512 張" in body
+    assert max(_width(l) for l in body) == _width(next(l for l in body if l.startswith("-")))
+    seps = [l for l in body if l.startswith("-")]
+    assert len(seps) == 3 and len(set(seps)) == 1

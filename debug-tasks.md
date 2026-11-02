@@ -6192,3 +6192,15 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 ### 請 Debugger 驗證
 - [ ] pytest 全跑
 - [ ] 真 DB：handle("2330")（全負數）、handle("3147")、/熱度、/一字鎖 分割線長度與內容一致、數字欄對齊
+
+## [2026-11-03] 查股：數值欄依最寬值加寬
+
+### 改了什麼
+- 異動檔案：notifications/stock_lookup.py、tests/test_stock_lookup.py
+- 回應 bug-reports 2026-11-03 🟡1：個股卡數值欄寬＝max(9, 這則最寬的數值)，大型股（2303 法人 -206,512 張、成交量 129,476 張）不再凸出；分割線長度改成跟最長一行一樣（拿掉固定 CARD_W）。
+- 🟡2（U+2212 寬度）：上一則 dbf50de 已把 <pre> 內負號改半形，這項應已不存在。
+
+### 請 Debugger 驗證
+- [ ] pytest 全跑（含 test_wide_values_widen_column_and_divider）
+- [ ] 真 DB：2303、2330、3147、8272 的數值右緣對齊、分割線等長
+- [ ] dbf50de（分割線）如果還沒驗，這次一起

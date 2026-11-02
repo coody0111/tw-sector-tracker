@@ -5879,3 +5879,44 @@ Telegram 用正式 payload 換上這份 heat；Chrome headless 看 1440／375。
 ### 結論
 - [ ] 需要修改後再確認
 - [x] 可以繼續下一個任務（「3 個新族群上不了排行」請 Cody 決定要不要處理）
+
+## [2026-11-02] 報告 - 族群熱度整合進族群績效（68c4cf5）
+
+### 🔴 數據問題（需立刻修）
+- 無（數字和原熱度頁同一份 payload["heat"]，只是換位置顯示）
+
+### 🔴 程式問題（需立刻修）
+- 問題：熱度區的漲跌沒有紅綠色，「新進／持平」、狀態也沒有變淡。
+  位置：export/heat_section.py 的 `_signed`／`_change`／`_status`（用 class `up`／`down`／`muted`）＋ HEAT_SECTION_CSS
+  說明：
+  - 原熱度頁的這幾個 class 是推薦頁 PAGE_CSS 提供的。index 沒有全域的 `.up`、`.down`、`.muted`，只有限定範圍的 `.ht-rank-delta.up`、`.signal-chip.muted` 等，而 HEAT_SECTION_CSS 也沒補 `.hx .up` 這類規則。
+  - 結果：5 日、21 日、法人買超占比、外資變化、大戶週增、名次 ▲▼ 全部顯示成一般文字色，只剩 +／− 符號能分辨。
+  - 重現：用目前 docs/index.html 的副本跑 patch_index，再用 headless Chrome 截圖（亮色、暗色都一樣）。
+  - 正式重產的 index 用的是同一份 HEAT_SECTION_CSS，所以也一樣。
+  - 「拉回中」有顏色，因為 `.hx-pull` 有定義。
+  - 建議在 HEAT_SECTION_CSS 補上 `.hx .up{color:var(--up)}.hx .down{color:var(--down)}.hx .muted{color:var(--ink-3)}`。
+  - 測試沒抓到，因為測試只檢查 class 有沒有出現在 HTML 裡。
+
+### 🟡 建議改善
+- 今晚 23:30 走插入路徑時，舊 index 自己的選單還有「族群熱度」，連到 heat.html 會轉址回 index.html#heat，可以正常使用。下次重產 index 就會拿掉，不用處理。
+- 已知取捨（交接已註明）：方塊上的「熱度 N」與排序要等下次重產 index 才更新，跟熱度表可能差一天。今晚還多一點：熱度表會用新的 4 族群（payload 重算），但方塊仍是 22:00 產的舊分類「軟體/雲端」，明天 09:00 重產後一致。
+
+### ✅ 驗證通過
+- pytest：952 passed。
+- patch_index（用目前 docs/index.html 的副本，5.96 MB，沒有標記、有 1 個 page-shell）：
+  - 第 1 次走插入路徑，回傳 True。插入後標記 start／end 各 1 個，樣式 1 份，`id="heat"` 1 個。
+  - 第 2 次只換標記之間的內容，結果跟第 1 次逐字相同，沒有重複。
+  - 第 3 次換成只有 3 筆的熱度資料，表格剩 3 列，標記仍各 1 個。
+  - 插入點以外的內容跟原檔逐字相同。
+  - 重複 id 只有 drawerTitle，原檔本來就有 2 個，不是這次造成的。
+- 版面（headless Chrome 截圖，用 master 的 recommend_payload.json 熱度資料）：
+  - 熱度區在市場現況之上。
+  - 展開第 1 列（LED 10 檔）後成員表正常，▸／▾ 會切換。
+  - 手機 375px：用 iframe 實測 viewport 375、scrollWidth 375，頁面不會左右捲動，13 欄表格在 .hx-wrap 內橫捲。說明文字、進榜／掉出會換行。
+  - 亮色主題：文字、表頭、展開列底色都看得清楚。
+- 正式重產路徑：main.py 已經把 `heat=_latest_heat()` 傳給 generate_index_html。docs/index.html 本來就在 `_push_html` 的 add 清單，patch 後會跟著推送。heat.html 也還在清單內，內容是轉址頁。
+- heat.html 轉址到 index.html#heat（meta refresh＋location.replace＋canonical）。選單（ui_theme）和 index 自己的選單都已拿掉「族群熱度」。Telegram 熱度連結改成 index.html#heat。
+
+### 結論
+- [x] 需要修改後再確認（顏色 class 補上即可；數字本身正確，今晚 23:30 跑也不會出錯，只是沒有紅綠色）
+- [ ] 可以繼續下一個任務

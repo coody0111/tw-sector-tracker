@@ -718,6 +718,12 @@ def _run_and_publish(day: date, prev: dict | None, push: bool, missing: list | N
     payload["inputs_complete"] = not missing
     payload["missing"] = missing or []
     payload.update(_taiex_vs_ma20(day))
+    try:
+        from recommend.market import market_margin_ratio
+        payload["margin_ratio"] = market_margin_ratio(day)          # 大盤融資維持率(估)，只顯示（2026-11-03）
+    except Exception as exc:
+        logger.warning("大盤融資維持率計算失敗（頁面不顯示）：%s", exc)
+        payload["margin_ratio"] = None
     added = sorted(_new_ids(payload) - _new_ids(prev)) if prev else []
     payload["update_added"] = added
     # 前一版沒有 inputs_complete＝舊流程（收盤 15:00、籌碼晚一天）出的，Cody 沒看過完整版 → 當第一次發完整訊息（2026-10-27）

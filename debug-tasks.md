@@ -6258,3 +6258,17 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 ### 請 Debugger 驗證
 - [ ] pytest 全跑
 - [ ] DB 複本造兩個備註並列的情況，回報 2303 最長一行寬度
+
+## [2026-11-03] 大盤融資維持率(估) 顯示在推薦頁與每日報告
+
+### 改了什麼
+- 異動檔案：recommend/market.py（market_margin_ratio、margin_note、MARGIN_LOW=150）、main.py（_run_and_publish 存 payload["margin_ratio"]）、export/recommend_generator.py（大盤條下方一行）、recommend/report.py（低於 150% 才進今日重點；market 帶 margin_ratio）、export/report_generator.py（大盤區多一格「融資維持率」）、tests/test_margin_ratio.py、docs/superpowers/specs/2026-11-01-daily-report.md
+- 算法同每週籌碼報告 maintenance()：day 以前 5 個融資日裡，最近一個上市＋上櫃都到齊（market_day_complete）的日子；20 日均價估融資成本。
+- 只顯示、不擋訊號；低於 150% 才加斷頭潮說明（回測只有 2 次事件，樣本少）。
+- 真 DB：11/02 = 158.6%（上市 151.7、上櫃 182.3）；10/30 = 158.2%，跟週報一致；2025-04-09 = 129.7%。
+
+### 請 Debugger 驗證
+- [ ] pytest 全跑
+- [ ] 真 DB 抽 2 天手算對 market_margin_ratio
+- [ ] 舊 payload（沒有 margin_ratio）產推薦頁、每日報告不報錯、不顯示
+- [ ] 每日報告大盤區手機寬度多一格不爆版

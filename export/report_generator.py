@@ -7,6 +7,7 @@ from pathlib import Path
 
 from export.recommend_generator import CAPITAL_KEY, DEFAULT_CAPITAL, STOP, _alerts, _e, _shares
 from export.ui_theme import SHARED_CSS, render_topbar
+from recommend.market import MARGIN_LOW
 
 WEEKDAYS = "一二三四五六日"
 
@@ -65,6 +66,14 @@ def _stat(label: str, value: str, note: str, cls: str = "") -> str:
     return f'<div class="stat"><span>{label}</span><b class="{cls}">{value}</b><em>{_e(note)}</em></div>'
 
 
+def _margin_stat(r: dict | None) -> str:
+    """大盤融資維持率(估)：低於 150% 在說明標「斷頭潮」，只顯示、不擋訊號（2026-11-03）。"""
+    if not r or r.get("all") is None:
+        return ""
+    note = f"估計值，{r['date'][5:7]}/{r['date'][8:10]}" + ("，斷頭潮" if r["all"] < MARGIN_LOW else "")
+    return _stat("融資維持率", _num(r["all"], ".1f", "%"), note)       # 不套紅綠：紅綠在這裡是漲跌，不是好壞
+
+
 def _market(m: dict) -> str:
     chg, pct, gap = m.get("taiex_change"), m.get("taiex_change_pct"), m.get("taiex_ma20_gap")
     move = "—" if chg is None or pct is None else f"{chg:+,.2f}（{pct:+.2f}%）"
@@ -77,7 +86,7 @@ def _market(m: dict) -> str:
             + _stat("對 20 日線", _num(gap_pct, "+.1f", "%"), side, _dir(gap))
             + _stat("站上 20 日線", _num(None if above is None else above * 100, ".1f", "%"), "股票池")
             + _stat("突破失敗率", _num(None if fail is None else fail * 100, ".0f", "%"), f"近 {m.get('fail_n', 0)} 筆")
-            + _stat("漲停／跌停", limits, "股票池") + "</div></section>")
+            + _stat("漲停／跌停", limits, "股票池") + _margin_stat(m.get("margin_ratio")) + "</div></section>")
 
 
 def _bars(rows: list, top: float) -> str:

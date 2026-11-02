@@ -6,7 +6,7 @@ import pandas as pd
 
 from recommend.daily import KEEP_DAYS
 from recommend.data import DB_PATH, UNIVERSE_PATH
-from recommend.market import ma60_note
+from recommend.market import ma60_note, margin_note
 
 TOP_SECTORS = 5
 TOP_BIG = 3
@@ -120,10 +120,11 @@ def build_report(payload: dict, chips: dict | None) -> dict:
         "date": payload["trade_date"],
         "tone": tone,
         "title": f"大盤{tone}，{signal}" if tone else signal,
-        "points": [x for x in (ma60_note(payload), _market_point(payload), _chips_point(chips),
+        "points": [x for x in (ma60_note(payload), margin_note(payload, always=False), _market_point(payload), _chips_point(chips),
                                _signal_point(payload, len(new))) if x],
         "market": {**payload["header"], **{k: payload.get(k) for k in
-                                           ("taiex_close", "taiex_change", "taiex_change_pct", "taiex_ma20_gap")}},
+                                           ("taiex_close", "taiex_change", "taiex_change_pct", "taiex_ma20_gap")},
+                   "margin_ratio": payload.get("margin_ratio")},
         "chips": chips,
         "big_holders": _big_holders(payload),
         "sectors": ((payload.get("heat") or {}).get("top") or [])[:TOP_SECTORS],

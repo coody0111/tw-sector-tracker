@@ -49,3 +49,56 @@ def _fail_rate(f: pd.DataFrame, signals: pd.DataFrame, day: pd.Timestamp) -> tup
     if len(fails) < FAIL_MIN_N:
         return None, len(fails)
     return sum(fails) / len(fails), len(fails)
+
+
+# ── 大盤融資維持率(估)（2026-11-03 Cody：做）──────────────────────────────
+# 回測（scratchpad bt_margin.py，2024-12-31～2026-10-30，439 天）：中位數約 180%；低於 150% 只有 8 天、
+# 來自 2 次事件（2025-04 關稅、2026-07 底），之後 20 日加權都漲 8～18%。樣本太少，只顯示、不擋訊號。
+MARGIN_LOW = 150
+MARGIN_LOOKBACK = 5        # 往回找最近一天兩邊市場融資都到齊的日子
+
+
+def market_margin_ratio(day, db_path: str | None = None, universe_path: str | None = None) -> dict | None:
+    """day（含）以前最近一個融資到齊日的大盤融資維持率(估)：全部／上市／上櫃。算不出來回 None。
+    公式同每週籌碼報告（recommend.weekly_chips.maintenance）：融資市值合計 ÷ 以 20 日均價估的融資金額合計。"""
+    import duckdb
+
+    from recommend.data import DB_PATH, UNIVERSE_PATH
+    from recommend.weekly_chips import AVG_DAYS, maintenance
+    from screener.data_integrity import market_day_complete
+
+    uni = pd.read_csv(universe_path or UNIVERSE_PATH, dtype=str, encoding="utf-8-sig")[["stock_id", "stock_name", "exchange"]]
+    ids = {ex: set(uni.loc[uni["exchange"] == ex, "stock_id"]) for ex in ("TWSE", "TPEx")}
+    con = duckdb.connect(db_path or DB_PATH, read_only=True)
+    try:
+        dates = [r[0] for r in con.execute("SELECT DISTINCT date FROM margin WHERE date <= ? ORDER BY date DESC LIMIT ?",
+                                           [str(day)[:10], MARGIN_LOOKBACK]).fetchall()]
+        d = next((x for x in dates if all(market_day_complete(con, "margin", x, ids[ex]) for ex in ids)), None)
+        if d is None:
+            return None
+        days = [r[0] for r in con.execute("SELECT DISTINCT date FROM daily_prices WHERE date <= ? ORDER BY date DESC LIMIT ?",
+                                          [d, AVG_DAYS]).fetchall()]
+        px = con.execute("SELECT stock_id, avg(close) AS avg, arg_max(close, date) AS close FROM daily_prices "
+                         "WHERE date >= ? AND date <= ? GROUP BY 1", [min(days), d]).df()
+        bal = con.execute("SELECT stock_id, margin_balance AS balance FROM margin WHERE date = ?", [d]).df()
+    finally:
+        con.close()
+    m = maintenance(px.merge(bal, on="stock_id").merge(uni, on="stock_id"))
+    if m["all"] is None:
+        return None
+    return {"date": pd.Timestamp(d).date().isoformat(), "all": m["all"], "twse": m["twse"], "tpex": m["tpex"]}
+
+
+def margin_note(payload: dict, always: bool = True) -> str | None:
+    """「大盤融資維持率(估) 158.2%（10/30）。」；低於 150% 加斷頭潮說明。always=False 時只在低於 150% 才回。"""
+    r = payload.get("margin_ratio") or {}
+    v = r.get("all")
+    if v is None:
+        return None
+    low = v < MARGIN_LOW
+    if not (always or low):
+        return None
+    head = f"大盤融資維持率(估) {v:.1f}%（{r['date'][5:7]}/{r['date'][8:10]}）"
+    if low:
+        return head + f"：低於 {MARGIN_LOW}%＝斷頭潮，過去 2 次之後 20 日都反彈（樣本少，不是買進訊號）。"
+    return head + "。"

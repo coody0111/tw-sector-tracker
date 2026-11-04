@@ -294,14 +294,21 @@ _GIT_NET = {
 }
 
 
-def _push_html(trade_date: date) -> bool:
+def _push_html(trade_date: date, failures: list | None = None) -> bool:
     """回傳這次是否真的把 HTML 推上遠端。任何一步失敗（沒有變動、rebase 衝突、
     網路問題、git 指令本身出錯）都算沒有推送成功，回傳 False——呼叫端（run()）靠這個
     回傳值決定 summary 的 git_pushed 欄位，不能只看「有沒有呼叫 push()」這個意圖
     （見 finding 6：silent push 失敗卻讓 Telegram 收盤訊息誤報「網站已更新」）。
     個別 git 步驟失敗時仍維持原本 swallow-and-log 的行為，只是額外多記一個
-    success flag。"""
+    success flag。
+
+    failures：真的失敗（不含「沒有變動」）時把原因 append 進去，排程靠它發 Telegram
+    （2026-11-04：盤中改成每輪都推，推不上去要讓 Cody 知道；index.lock 殘留也會在這裡現形）。"""
     success = True
+
+    def _fail(reason: str) -> None:
+        if failures is not None:
+            failures.append(reason)
     try:
         import os
         files_to_add = ["docs/index.html", "docs/chips.html"]
@@ -357,12 +364,14 @@ def _push_html(trade_date: date) -> bool:
                     "git pull --rebase 有衝突，已中止 rebase；本機 commit 已保留，"
                     "請手動 `git pull` 解衝突後再 push。"
                 )
+                _fail("git pull 有衝突，已中止，要手動處理")
             else:
                 # 非衝突原因失敗（無 upstream／網路斷）：沒有 rebase 可 abort
                 logger.warning(
                     "git pull --rebase 失敗（可能無 upstream 或網路問題）；"
                     "本機 commit 已保留，未 push。"
                 )
+                _fail("git pull 失敗或逾時（網路？）")
             return False
         push = run_tree(["git", "push"], **_GIT_NET)
         if push.returncode != 0:
@@ -370,6 +379,7 @@ def _push_html(trade_date: date) -> bool:
         logger.info("Pushed to GitHub Pages.")
     except Exception as exc:
         logger.warning("Git push failed: %s", exc)
+        _fail("逾時" if isinstance(exc, subprocess.TimeoutExpired) else type(exc).__name__)
         success = False
     return success
 
@@ -984,6 +994,7 @@ def run(trade_date: date = None, realtime: bool = False, push: bool = True, summ
     flow_watch = []
     chips_html_written = False
     push_succeeded = False
+    push_failures: list = []  # _push_html 真的失敗的原因（排程拿去發 Telegram）
     recommend_payload = None
     if trade_date is None:
         trade_date = date.today()
@@ -1595,7 +1606,7 @@ def run(trade_date: date = None, realtime: bool = False, push: bool = True, summ
         # 不算失敗，不再往 _run_warnings 塞「--no-push」這種正常設計行為當成異常
         # （見 finding 3：那個 append 曾經讓「資料異常」欄位在每次盤中通知都被誤報，
         # git_pushed 欄位本身已經足夠表達「這次有沒有推」，不需要在 warnings 重複一份）。
-        push_succeeded = _push_html(trade_date) if push else False
+        push_succeeded = _push_html(trade_date, push_failures) if push else False
 
     # 8. 慢步驟（只在收盤模式跑，盤中兩個函式都會直接 return）：
     #    集保回補有新週時單週 20-35 分鐘、董監持股逐股查詢 38 分鐘以上。以前排在 step 7
@@ -1614,6 +1625,7 @@ def run(trade_date: date = None, realtime: bool = False, push: bool = True, summ
             git_pushed=push_succeeded,
             started_at=_started_at, finished_at=_finished_at, warnings=_run_warnings,
         )
+        summary["push_failed"] = "、".join(push_failures) or None
         try:
             Path(summary_path).parent.mkdir(parents=True, exist_ok=True)
             with open(summary_path, "w", encoding="utf-8") as f:

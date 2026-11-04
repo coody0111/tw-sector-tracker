@@ -172,7 +172,9 @@ def test_push_html_returns_false_when_no_html_changes(monkeypatch):
 
     monkeypatch.setattr("main.subprocess.run", fake_run)
     monkeypatch.setattr("main.run_tree", fake_run)  # git pull／push 走 run_tree（有逾時）
-    assert _push_html(date(2026, 8, 26)) is False
+    failures = []
+    assert _push_html(date(2026, 8, 26), failures) is False
+    assert failures == []  # 沒變動不算失敗，不該發推送失敗通知
 
 
 def test_push_html_returns_true_when_push_succeeds(monkeypatch):
@@ -235,7 +237,9 @@ def test_push_html_returns_false_when_push_times_out(monkeypatch):
 
     monkeypatch.setattr("main.subprocess.run", fake_run)
     monkeypatch.setattr("main.run_tree", fake_run)
-    assert _push_html(date(2026, 8, 26)) is False
+    failures = []
+    assert _push_html(date(2026, 8, 26), failures) is False
+    assert failures == ["逾時"]
     assert seen["timeout"] == main.GIT_NET_TIMEOUT_SEC
     assert seen["stdin"] is sp.DEVNULL
 

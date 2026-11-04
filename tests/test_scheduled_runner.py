@@ -90,6 +90,27 @@ def test_windows_stale_lock_from_exited_process_is_taken_over(tmp_path, monkeypa
     assert ExecutionLock(str(lock_path)).acquire() is False
 
 
+def test_push_failure_notifies_once_then_recovery(tmp_path, monkeypatch):
+    sent = []
+    monkeypatch.setattr(sr, "send_telegram_message", lambda text: sent.append(text) or True)
+    flag = tmp_path / "push_failing"
+    failed = {"trade_date": "2026-11-05", "push_failed": "逾時", "git_pushed": False}
+
+    assert sr.notify_push_state(failed, flag) == "failed"
+    assert sr.notify_push_state(failed, flag) is None  # 連續失敗不重複發
+    assert sr.notify_push_state({"push_failed": None, "git_pushed": False}, flag) is None  # 沒變動≠恢復
+    assert sr.notify_push_state({"push_failed": None, "git_pushed": True}, flag) == "recovered"
+    assert not flag.exists()
+    assert len(sent) == 2 and "逾時" in sent[0]
+
+
+def test_push_failure_flag_not_set_when_telegram_fails(tmp_path, monkeypatch):
+    monkeypatch.setattr(sr, "send_telegram_message", lambda text: False)
+    flag = tmp_path / "push_failing"
+    assert sr.notify_push_state({"push_failed": "逾時"}, flag) is None
+    assert not flag.exists()  # 沒送到，下一輪要再試
+
+
 def test_stuck_lock_notifies_once_per_pid(tmp_path, monkeypatch):
     """2026-11-04：鎖卡住時只寫 log，排程停擺一整天沒人知道。超過最長逾時要發一次通知，同一個 PID 不重複發。"""
     lock_path = tmp_path / "scheduler.lock"
@@ -134,7 +155,7 @@ def test_execution_lock_refuses_when_held_by_live_process_with_permission_error(
     assert lock.acquire() is False
 
 
-def test_run_main_py_intraday_mode_includes_realtime_and_no_push_flags(monkeypatch, tmp_path):
+def test_run_main_py_intraday_mode_pushes(monkeypatch, tmp_path):
     captured = {}
 
     class FakeCompleted:
@@ -152,7 +173,7 @@ def test_run_main_py_intraday_mode_includes_realtime_and_no_push_flags(monkeypat
     result = run_main_py("intraday", summary_path)
 
     assert "--realtime" in captured["cmd"]
-    assert "--no-push" in captured["cmd"]
+    assert "--no-push" not in captured["cmd"]  # 2026-11-04 起盤中每輪都推上網站
     assert "--summary-json" in captured["cmd"]
     assert summary_path in captured["cmd"]
     assert captured["cwd"] is not None  # main.py 用相對路徑，必須固定 cwd=專案根目錄

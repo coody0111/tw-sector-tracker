@@ -6354,3 +6354,25 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 
 ### 特別注意
 - 11/03 22:00 卡住的 git 程序（25528 那串）還在，等 Cody 決定要不要結束。
+
+## [2026-11-04] 盤中每 10 分鐘推上網站＋推送失敗發 Telegram
+
+### 改了什麼
+- 異動檔案：main.py, scripts/run_scheduled.py, scripts/install_scheduler.ps1, docs/scheduler.md（§15）, tests/test_main.py, tests/test_scheduled_runner.py
+- Cody 要求：盤中網站也要更新、每 10 分鐘。原本盤中帶 `--no-push`，網站整個盤中都是舊的。
+- run_scheduled：intraday 拿掉 `--no-push`；`_INTRADAY_TIMEOUT_SEC` 900→540。
+- main.py `_push_html(trade_date, failures=None)`：真的失敗（pull 衝突、pull 失敗/逾時、push/add/commit 例外）才 append 原因；「沒有變動」不算。summary 多 `push_failed`（原因字串或 None）。
+- run_scheduled `notify_push_state`：失敗發一次、恢復發一次，旗標 `logs/push_failing`；Telegram 沒送到不改旗標。也涵蓋 🟡2 的 index.lock 殘留（git add 失敗會走到這裡）。
+- install_scheduler.ps1：Repetition 15→10 分鐘。正式排程要 Cody 用系統管理員改（我這邊 Access denied）。
+
+### 資料來源相關
+- 無。
+
+### 請 Debugger 驗證
+- [ ] pytest 全過（新：push 失敗/恢復通知兩支、沒變動不算失敗、逾時 failures==["逾時"]）
+- [ ] install_scheduler.ps1 仍是 UTF-8 BOM＋CRLF
+- [ ] 盤中每輪推送：中間有人（Developer／Debugger session）在動 git 時，`pull --rebase --autostash` 會不會撞 index.lock 或沖掉未 commit 的改動
+- [ ] preopen 的 summary 沒有 push_failed 欄位時不會誤發
+
+### 特別注意
+- 每天多約 36 筆自動 commit。

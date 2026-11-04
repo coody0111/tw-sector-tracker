@@ -154,7 +154,7 @@ class ExecutionLock:
             pass
 
 
-_INTRADAY_TIMEOUT_SEC = 900
+_INTRADAY_TIMEOUT_SEC = 540   # 每 10 分鐘一輪（一輪約 2.5 分）；超過 9 分鐘就砍，別擋到下一輪
 _CLOSE_TIMEOUT_SEC = 5400
 _PREOPEN_TIMEOUT_SEC = 3000   # 新一週集保約 20～35 分鐘＋推薦重跑；平日 08:00 那次要在 09:00 前結束
 _TIMEOUTS = {"intraday": _INTRADAY_TIMEOUT_SEC, "close": _CLOSE_TIMEOUT_SEC, "preopen": _PREOPEN_TIMEOUT_SEC}
@@ -165,7 +165,7 @@ def run_main_py(mode: str, summary_path: str, timeout: int = _INTRADAY_TIMEOUT_S
     兩種模式都帶 --summary-json。回傳 {returncode, stdout, stderr}。"""
     cmd = [sys.executable, str(_PROJECT_ROOT / "main.py")]
     if mode == "intraday":
-        cmd += ["--realtime", "--no-push"]
+        cmd += ["--realtime"]  # 2026-11-04 Cody：盤中每輪都推上網站（原本 --no-push，網站整個盤中都是舊的）
     elif mode == "preopen":
         cmd += ["--publish-recommend"]
     cmd += ["--summary-json", summary_path]
@@ -365,6 +365,35 @@ def _notify_failure(mode: str, error: str, duration_seconds: float) -> None:
         logger.error("執行失敗，且 Telegram 設定缺失，無法通知：%s", error)
 
 
+_PUSH_FAILING_PATH = _PROJECT_ROOT / "logs" / "push_failing"
+
+
+def notify_push_state(summary: dict, flag_path: Path = _PUSH_FAILING_PATH) -> str | None:
+    """網站推送失敗發一次 Telegram，恢復時再發一次；中間每輪都失敗不重複發（盤中 10 分鐘一輪會洗版）。
+    回傳發了哪一種（"failed"／"recovered"／None）。"""
+    failed = summary.get("push_failed")
+    if failed and not flag_path.exists():
+        text = f"網站推送失敗（{summary.get('trade_date', '')}）：{failed}\n恢復時會再通知。"
+        kind = "failed"
+    elif not failed and summary.get("git_pushed") and flag_path.exists():
+        text = "網站推送已恢復。"
+        kind = "recovered"
+    else:
+        return None
+    try:
+        sent = send_telegram_message(text)
+    except TelegramConfigError as exc:
+        logger.error("Telegram 設定缺失，無法通知推送狀態：%s", exc)
+        return None
+    if not sent:
+        return None  # 沒送到就不改旗標，下一輪再試
+    if kind == "failed":
+        flag_path.write_text(str(failed), encoding="utf-8")
+    else:
+        flag_path.unlink(missing_ok=True)
+    return kind
+
+
 _STUCK_NOTIFIED_PATH = _PROJECT_ROOT / "logs" / "scheduler.lock.notified"
 _STUCK_LOCK_SEC = max(_TIMEOUTS.values()) + 600  # 比最長的一輪還久＝持鎖的程序卡住了
 
@@ -454,6 +483,7 @@ def main() -> int:
             return 1
 
         try:
+            notify_push_state(summary)
             if mode == "intraday":
                 prev_state = load_notification_state(str(_STATE_PATH))
                 if should_notify_intraday(summary, prev_state):

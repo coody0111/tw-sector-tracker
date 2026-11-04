@@ -582,3 +582,14 @@ TW-Sector-Preopen（2026-10-26 加，見 §2.2b）
 - 打股號或名稱 → 精簡 8 行（`notifications/stock_lookup.py`）；指令 /推薦 /一字鎖 /熱度 /報告 讀 `data/recommend_payload.json`。
 - 只讀 DB；排程正在寫 DB 時回「資料庫正在更新，請 1～2 分鐘後再試」。電腦睡眠時不回，醒來後補回。
 - log 在 `logs/telegram_bot.log`，不寫 Token 和訊息內文。
+
+## 15. 盤中每 10 分鐘推上網站（2026-11-04）
+
+Cody 要求盤中網站也要更新。本節取代前面「盤中每 15 分鐘」「盤中 `--no-push`、不建 Git commit」的描述：
+
+- `TW-Sector-Intraday`：09:00～15:00 每 10 分鐘一輪（約 36 輪），`main.py --realtime`（不帶 `--no-push`），每輪有變動就 commit＋push。
+- 盤中逾時 540 秒，避免一輪卡住擋到下一輪（排程 IgnoreNew）。
+- git pull／push 有 120 秒逾時，逾時連整棵程序樹結束（`subproc.run_tree`）；要帳密直接失敗。
+- 推送真的失敗（不含「沒有變動」）→ Telegram 發一次「網站推送失敗」，恢復時再發「已恢復」；連續失敗不重複發（旗標 `logs/push_failing`）。
+- 執行鎖被同一個活著的 PID 持有超過最長逾時＋10 分鐘 → Telegram 發一次（`logs/scheduler.lock.notified`）。
+- 改間隔後要重跑 `scripts/install_scheduler.ps1`（或直接改 `TW-Sector-Intraday` 觸發條件的 Repetition）。

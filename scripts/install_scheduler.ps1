@@ -1,5 +1,5 @@
 ﻿<#
-建立 Windows 工作排程器的兩個排程工作：TW-Sector-Intraday（盤中每15分鐘）、
+建立 Windows 工作排程器的兩個排程工作：TW-Sector-Intraday（盤中每10分鐘，2026-11-04 起每輪推上網站）、
 TW-Sector-DailyClose（收盤 15:00）。見 docs/scheduler.md §10。
 
 用法：以系統管理員權限開 PowerShell，執行：
@@ -44,7 +44,7 @@ $IntradayAction = New-ScheduledTaskAction -Execute $PythonwPath `
 $IntradayTrigger = New-ScheduledTaskTrigger -Weekly `
     -DaysOfWeek Monday,Tuesday,Wednesday,Thursday,Friday -At "09:00"
 $rep = (New-ScheduledTaskTrigger -Once -At "09:00" `
-    -RepetitionInterval (New-TimeSpan -Minutes 15) `
+    -RepetitionInterval (New-TimeSpan -Minutes 10) `
     -RepetitionDuration (New-TimeSpan -Hours 6)).Repetition
 $IntradayTrigger.Repetition = $rep
 
@@ -53,7 +53,7 @@ $IntradaySettings = New-ScheduledTaskSettingsSet `
 
 Register-ScheduledTask -TaskName "TW-Sector-Intraday" `
     -Action $IntradayAction -Trigger $IntradayTrigger -Settings $IntradaySettings `
-    -Description "台股盤中籌碼監控，每15分鐘執行一次（09:00-15:00）" -Force
+    -Description "台股盤中更新並推上網站，每10分鐘執行一次（09:00-15:00）" -Force
 
 Write-Host "已建立 TW-Sector-Intraday"
 

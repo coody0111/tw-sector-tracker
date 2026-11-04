@@ -604,9 +604,9 @@ def _publish_env(monkeypatch, tmp_path, prev, waiting=(), sh_asof="2026-10-16", 
     monkeypatch.setattr(m, "_backfill_shareholder", lambda weeks=4: calls.append("shareholder"))
     monkeypatch.setattr(m, "_refresh_twse_events", lambda start: True)
     monkeypatch.setattr(m, "generate_recommend_html", lambda p: calls.append("html"))
-    monkeypatch.setattr(m, "_push_html", lambda d: calls.append(("push", d.isoformat())) or True)
+    monkeypatch.setattr(m, "_push_html", lambda d, failures=None: calls.append(("push", d.isoformat())) or True)
     monkeypatch.setattr(m, "_taiex_vs_ma20", lambda d: {"taiex_above_ma20": False, "taiex_ma20_gap": -0.039})
-    monkeypatch.setattr(m, "_publish_weekly_chips", lambda push: None)
+    monkeypatch.setattr(m, "_publish_weekly_chips", lambda push, failures=None: None)
     monkeypatch.setattr(pub, "latest_price_date", lambda: date.fromisoformat(day))
     monkeypatch.setattr(pub, "missing_inputs", lambda d, f: list(waiting))
     monkeypatch.setattr(pub, "shareholder_asof", lambda d: sh_asof)
@@ -678,6 +678,19 @@ def test_publish_first_time_for_new_signal_day(monkeypatch, tmp_path):
     saved = json.loads(path.read_text(encoding="utf-8"))
     assert saved["inputs_complete"] is True and saved["taiex_above_ma20"] is False and saved["taiex_ma20_gap"] == -0.039
     assert calls == ["chips", "shareholder", "html", ("push", "2026-10-23")]
+
+
+def test_publish_reports_push_failure_for_telegram(monkeypatch, tmp_path):
+    """2026-11-04 Debugger 🟡2：preopen 推不上去也要進 summary 的 push_failed（11/03 出事的就是 preopen）。"""
+    days, prev_cards = [], []
+    m, path, calls = _publish_env(monkeypatch, tmp_path, _prev_payload(trade_date="2026-10-22"))
+    _fake_run_daily(monkeypatch, days, prev_cards)
+    monkeypatch.setattr(m, "_push_html", lambda d, failures=None: failures.append("逾時") or False)
+    monkeypatch.setattr(m, "_publish_weekly_chips",
+                        lambda push, failures=None: failures.append("週報逾時") or None)
+    out = m.publish_recommend(summary_path=str(tmp_path / "s.json"))
+    assert out["git_pushed"] is False and out["push_failed"] == "逾時、週報逾時"
+    assert json.loads((tmp_path / "s.json").read_text(encoding="utf-8"))["push_failed"] == "逾時、週報逾時"
 
 
 def test_publish_skips_when_already_published_with_complete_inputs(monkeypatch, tmp_path):

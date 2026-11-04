@@ -111,7 +111,7 @@ def _env(monkeypatch, tmp_path, ready=True):
     monkeypatch.setattr(m, "RECOMMEND_PAYLOAD_PATH", tmp_path / "none.json")
     built, pushed = [], []
     monkeypatch.setattr("export.weekly_chips_generator.generate", lambda w: built.append(w))
-    monkeypatch.setattr(m, "_push_html", lambda d: pushed.append(d) or True)
+    monkeypatch.setattr(m, "_push_html", lambda d, failures=None: pushed.append(d) or True)
     return m, built, pushed
 
 

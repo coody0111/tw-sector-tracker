@@ -675,14 +675,17 @@ def publish_recommend(push: bool = True, summary_path: str | None = None) -> dic
         else:
             out = _run_and_publish(day, prev if same_day else None, push, waiting)
     finally:
-        out["weekly_chips"] = _publish_weekly_chips(push)
+        weekly_failures: list = []
+        out["weekly_chips"] = _publish_weekly_chips(push, weekly_failures)
+        if weekly_failures:
+            out["push_failed"] = "、".join([r for r in (out.get("push_failed"), *weekly_failures) if r])
         if summary_path:
             Path(summary_path).parent.mkdir(parents=True, exist_ok=True)
             Path(summary_path).write_text(json.dumps(out, ensure_ascii=False, default=str), encoding="utf-8")
     return out
 
 
-def _publish_weekly_chips(push: bool) -> dict | None:
+def _publish_weekly_chips(push: bool, push_failures: list | None = None) -> dict | None:
     """每週籌碼報告（2026-11-01 Cody）：集保新資料日還沒通知過就回傳報告給排程發 Telegram，
     發送成功才由排程寫 NOTIFIED_PATH（手動跑、逾時、發送失敗都能在下次排程補發）。頁面已產生就不重產。
     回傳 None 代表這次不用通知；失敗只記 log，不影響推薦發布。"""
@@ -715,7 +718,7 @@ def _publish_weekly_chips(push: bool) -> dict | None:
         wc.save_weekly(weekly, wc.WEEKLY_PATH)
         logger.info("每週籌碼報告 %s 已產生", day)
         if push:
-            _push_html(d)
+            _push_html(d, push_failures)
         return weekly
     except Exception as exc:
         logger.error("每週籌碼報告產生失敗（下次排程重試）：%s", exc)
@@ -767,9 +770,11 @@ def _run_and_publish(day: date, prev: dict | None, push: bool, missing: list | N
     logger.info("個股推薦 %s 發布（%s）：新訊號 %d 檔、有效中 %d、失效 %d；比前一版多 %s、撤回 %s",
                 day, "第一次" if first else "資料更新", sum(g["count"] for g in payload["new"]),
                 len(payload["active"]), len(payload["invalid"]), added or "無", [w["stock_id"] for w in withdrawn] or "無")
-    pushed = _push_html(day) if push else False
+    push_failures: list = []
+    pushed = _push_html(day, push_failures) if push else False
     return {"mode": "publish", "updated": True, "first": first, "added": added, "withdrawn": withdrawn,
-            "waiting": missing or [], "recommend": payload, "git_pushed": pushed}
+            "waiting": missing or [], "recommend": payload, "git_pushed": pushed,
+            "push_failed": "、".join(push_failures) or None}   # preopen 推不上去也要通知（11/03 出事的就是這條）
 
 
 FUNDAMENTALS_STAMP_PATH = Path("data/fundamentals_last_update.txt")

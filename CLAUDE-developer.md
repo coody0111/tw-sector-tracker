@@ -231,6 +231,7 @@ con.close()
 2. `bug-reports.md`（有沒有待修的問題）
 3. `git log --oneline -5`（確認最近做了什麼）
 4. `docs/superpowers/specs/` 底下有沒有還沒對應 `docs/superpowers/plans/` 計畫的 spec（代表有已核准但還沒拆解成實作任務的設計，換平台/換機器接續工作時容易漏掉）
+5. （桌電才做）`git fetch` → `git log --oneline master..origin/laptop`：筆電有新東西就照「💻 筆電開發流程 → 回到桌電」審完合進來
 
 然後告訴 Cody：目前狀態是什麼、有沒有未完成的事。
 
@@ -316,10 +317,18 @@ codex CLI session）另外開發功能。它跟 master worktree **共用同一�
 7. 收工：`git push origin laptop`，告訴 Cody「筆電改完了，在 laptop 分支 `<hash>`」。
 
 ### 回到桌電（Developer 收筆電的東西）
-1. `git fetch` → `git status -sb` 確認 master 乾淨、沒有落後。
-2. `git merge origin/laptop`（衝突多在 `debug-tasks.md`／`bug-reports.md`，兩段都留；`docs/*.html` 用 master 的）。
-3. 照「完成任務後」流程：同步 debug worktree → 交給 Debugger 驗 `debug-tasks.md` 最下面那則 → ✅ 才 push master。
-4. push 後筆電下次開工的第 1 步會把 master 合回 laptop。
+**桌電 Developer 每次開工、以及 Cody 說「筆電好了」時都要查**：`git fetch` →
+`git log --oneline master..origin/laptop`。有新 commit 就照下面收進來，不用等 Cody 再交代。
+1. `git status -sb` 確認 master 乾淨、沒有落後。
+2. **先審再合**：`git diff master...origin/laptop` 逐檔看，任何一項不合格就不合、回報 Cody：
+   - 有沒有動到 `docs/*.html`、`.env`、`data/`、排程設定（不該出現）
+   - 資料相關改動有沒有照「資料來源規則」（上市／上櫃、每日流程／回補不混用）
+   - 新功能／修 bug 有沒有附測試；`debug-tasks.md` 有沒有寫交接
+   - 明顯的 bug、寫死的值、吞掉例外
+3. `git merge origin/laptop`（衝突多在 `debug-tasks.md`／`bug-reports.md`，兩段都留；`docs/*.html` 用 master 的）。
+4. 照「完成任務後」流程：同步 debug worktree → 交給 Debugger 驗 `debug-tasks.md` 筆電那則 → ✅ 才 push master。
+   🔴 → 在桌電 master 上修（或請 Cody 回筆電修），照一般流程再交一次。
+5. push 後筆電下次開工的第 1 步會把 master 合回 laptop。
 
 ### 原則
 - 同一時間只有一台在改程式。

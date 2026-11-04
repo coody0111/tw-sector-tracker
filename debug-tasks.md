@@ -6376,3 +6376,23 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 
 ### 特別注意
 - 每天多約 36 筆自動 commit。
+
+## [2026-11-04] preopen／週報推送失敗也進 push_failed（回應 afd4a73 🟡2）＋筆電分支收件規則
+
+### 改了什麼
+- 異動檔案：main.py, tests/test_main.py, tests/test_weekly_chips.py, tests/test_recommend_page.py, CLAUDE-developer.md
+- `_run_and_publish`：`_push_html(day, push_failures)`，回傳 dict 多 `push_failed`。
+- `_publish_weekly_chips(push, push_failures=None)`：週報推送失敗也 append；`publish_recommend` 把兩邊原因用「、」合併寫進 summary。
+- 測試 fake 的 `_push_html`／`_publish_weekly_chips` 簽名加 `failures=None`；test_recommend_page 的原始碼字串比對跟著改。
+- CLAUDE-developer.md：桌電開工第 5 步查 `origin/laptop` 有沒有新 commit；收筆電東西前先審 diff（不該動的檔、資料來源規則、測試、交接）。
+- 🟡1（repo 成長）等 Cody 決定；🟡3（autostash 把 staged 變 unstaged、index.lock 訊息只寫 CalledProcessError）這次沒改。
+
+### 資料來源相關
+- 無。
+
+### 請 Debugger 驗證
+- [ ] pytest 全過（新：test_publish_reports_push_failure_for_telegram）
+- [ ] preopen 推送正常時 push_failed 是 None，不會誤發
+
+### 特別注意
+-

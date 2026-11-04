@@ -7,7 +7,7 @@ from pathlib import Path
 
 from export.recommend_generator import CAPITAL_KEY, DEFAULT_CAPITAL, STOP, _alerts, _e, _shares
 from export.ui_theme import SHARED_CSS, render_topbar
-from recommend.market import MARGIN_LOW
+from recommend.market import MARGIN_CALL_WAVE, MARGIN_LOW
 
 WEEKDAYS = "一二三四五六日"
 
@@ -71,6 +71,8 @@ def _margin_stat(r: dict | None) -> str:
     if not r or r.get("all") is None:
         return ""
     note = f"估計值，{r['date'][5:7]}/{r['date'][8:10]}" + ("，斷頭潮" if r["all"] < MARGIN_LOW else "")
+    if r.get("calls") is not None:   # 今日追繳(估) 檔數（2026-11-04）
+        note += f"，追繳 {r['calls']} 檔" + ("（追繳潮）" if r["calls"] >= MARGIN_CALL_WAVE else "")
     return _stat("融資維持率", _num(r["all"], ".1f", "%"), note)       # 不套紅綠：紅綠在這裡是漲跌，不是好壞
 
 

@@ -6396,3 +6396,26 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 
 ### 特別注意
 -
+
+## [2026-11-04] 今日追繳(估) 檔數：推薦頁、每日報告、Telegram（只顯示）
+
+### 改了什麼
+- 異動檔案：recommend/market.py, export/report_generator.py, tests/test_margin_ratio.py, docs/CONTEXT.md
+- `market_margin_ratio` 多回 `calls`：`maintenance()` 的 danger（維持率(估) < 130%、有融資）裡，近 20 日均成交值 ≥ `MIN_TURNOVER20`（1 億）的檔數。px 查詢多抓 `avg(volume*1000*close) AS turnover`。
+- `margin_call_note`：「今日追繳(估) N 檔」；≥ `MARGIN_CALL_WAVE`（10）加「＝追繳潮：2025 年以來 2 次，之後 20 日多數反彈（樣本少，不是買進訊號）」。
+- `margin_note`：推薦頁（always）一律接在維持率後面；報告重點／Telegram（always=False）只在 < 150% 或追繳潮時出現。斷頭潮＋追繳潮同時出現時「不是買進訊號」只寫一次。
+- 每日報告「融資維持率」卡片說明多「，追繳 N 檔」，追繳潮加「（追繳潮）」。
+- 回測依據：scratchpad bt_margin_call.py（444 天，≥10 檔只有 16 天，全在 2025-04、2026-07、2026-11-03/04）。實際 DB 11/04 算出 14 檔，跟回測一致。
+- 門檻 10 是看分布定的；Cody 選了顯示位置（推薦頁＋每日報告＋Telegram 只在追繳潮）。
+
+### 資料來源相關
+- 上市／上櫃都用 daily_prices（每日流程官方行情）＋ margin，融資成數上市 0.6、上櫃 0.5（同 weekly_chips.FINANCING）。
+- 價格用原始價（跟現有大盤維持率一致；回測用還原價，除權息日可能差一點）。
+
+### 請 Debugger 驗證
+- [ ] pytest 全過（新：流動性過濾、note 文字、追繳潮在 always=False 才出現、報告卡片）
+- [ ] 用正式 DB 抽查 11/03、11/04 的檔數跟回測（21、14）一致，抽幾檔手算
+- [ ] 舊的 recommend_payload.json 沒有 calls 欄時頁面不壞
+
+### 特別注意
+- 11/04 上市維持率(估) 144.6%、全部 150.6%，追繳 14 檔＝追繳潮，今晚之後的報告會出現這行。

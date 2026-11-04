@@ -313,8 +313,15 @@ codex CLI session）另外開發功能。它跟 master worktree **共用同一�
 3. 不要跑會 push 的 `python main.py`（筆電 `data/` 是另一份，推上去會蓋掉桌電的網頁）；要看效果用 `--no-push`。
 4. 不要改 `docs/*.html`（自動產生的，桌電每 10 分鐘會重產，一定衝突）。
 5. 不要動排程、`.env`、DB。
-6. 筆電沒有 Debugger：照樣寫 `debug-tasks.md` 交接（append 到最後），交接標題註明「筆電」。
-7. 收工：`git push origin laptop`，告訴 Cody「筆電改完了，在 laptop 分支 `<hash>`」。
+6. 驗證交給**筆電的 Debugger**（筆電的 `../tw-sector-tracker-debug` worktree，`laptop-debug` 分支）：
+   - `debug-tasks.md` append 交接，標題註明「筆電」：`## [YYYY-MM-DD] 筆電：任務名稱`
+   - `git -C ../tw-sector-tracker-debug merge --ff-only laptop`（筆電的 Debugger 跟的是 **laptop**，不是 master）
+   - `ListAgents` 找 `tw-sector-tracker-debug` 開頭的 session → `SendMessage`：
+     「請驗 debug-tasks.md 最下面的『筆電：任務名稱』，commit `<hash>`，laptop-debug 已 merge laptop」
+   - 收到回報：`git merge laptop-debug`（只有 `bug-reports.md`）→ `git -C ../tw-sector-tracker-debug merge --ff-only laptop`
+   - 🔴 → 在 laptop 修，再交一次；同一個問題 3 輪沒過就找 Cody。
+7. **全部 ✅ 才** `git push origin laptop`（`laptop-debug` 永遠不 push），告訴 Cody
+   「筆電改完、筆電 Debugger 驗過，在 laptop 分支 `<hash>`」。
 
 ### 回到桌電（Developer 收筆電的東西）
 **桌電 Developer 每次開工、以及 Cody 說「筆電好了」時都要查**：`git fetch` →
@@ -324,12 +331,33 @@ codex CLI session）另外開發功能。它跟 master worktree **共用同一�
    - 有沒有動到 `docs/*.html`、`.env`、`data/`、排程設定（不該出現）
    - 資料相關改動有沒有照「資料來源規則」（上市／上櫃、每日流程／回補不混用）
    - 新功能／修 bug 有沒有附測試；`debug-tasks.md` 有沒有寫交接
+   - **每一則「筆電：」交接在 `bug-reports.md` 都有筆電 Debugger 的報告，而且結論是全部 ✅**（沒有就不合，回報 Cody）
    - 明顯的 bug、寫死的值、吞掉例外
 3. `git merge origin/laptop`（衝突多在 `debug-tasks.md`／`bug-reports.md`，兩段都留；`docs/*.html` 用 master 的）。
-4. 照「完成任務後」流程：同步 debug worktree → 交給 Debugger 驗 `debug-tasks.md` 筆電那則 → ✅ 才 push master。
+4. 要不要桌電 Debugger 再驗一次：
+   - **要**：合併有衝突要手動解；筆電報告裡有「筆電驗不到」；或改到資料相關程式（scrapers／processors／screener／storage／recommend 的計算、
+     `main.py` 的資料流程）——筆電 `data/` 是另一份，資料要用桌電的 DB 驗（見 CLAUDE-debugger.md「git pull 拉不到 data/」）。
+     照「完成任務後」流程交給桌電 Debugger，✅ 才 push master。
+   - **不用**：乾淨合併、只改頁面／文件／通知文字之類 → 跑 `git -C ../tw-sector-tracker-debug merge --ff-only master` 後直接 push。
    🔴 → 在桌電 master 上修（或請 Cody 回筆電修），照一般流程再交一次。
 5. push 後筆電下次開工的第 1 步會把 master 合回 laptop。
 
 ### 原則
 - 同一時間只有一台在改程式。
-- 筆電的程式沒經過 Debugger 驗證，不會進 master／不會上網站。
+- 筆電的程式沒經過 Debugger 驗證，不會推上 laptop、不會進 master、不會上網站。
+
+### 筆電第一次設定（照跑）
+```bash
+cd ~/Desktop/tw-sector-tracker
+git fetch
+git checkout -b laptop origin/master        # 已經有 laptop 就：git checkout laptop && git merge origin/master
+cp CLAUDE-developer.md CLAUDE.md
+git worktree list                           # 看筆電有沒有 tw-sector-tracker-debug
+# (a) 沒有 debug worktree：
+git worktree add -b laptop-debug ../tw-sector-tracker-debug laptop
+# (b) 已經有（以前的 debug 分支）：先 `git -C ../tw-sector-tracker-debug status -s` 確認乾淨（不乾淨先問 Cody），再
+git -C ../tw-sector-tracker-debug switch -c laptop-debug laptop
+cp CLAUDE-debugger.md ../tw-sector-tracker-debug/CLAUDE.md
+```
+筆電的 Debugger 分支叫 `laptop-debug`，跟桌電的 `debug` 分開，**永遠不 push**。
+然後開兩個 Claude Code：一個在 `tw-sector-tracker`（Developer）、一個在 `tw-sector-tracker-debug`（Debugger）。

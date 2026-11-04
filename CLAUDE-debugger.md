@@ -182,6 +182,23 @@ master 與 debug 曾各自長出獨立 commit → 分岔成 Y 形，要手動解
 - **真的分岔了**：先確認 Developer session 停手，再在**一台**上 `git merge`，衝突大多在 append 型檔
   （`bug-reports.md`／`debug-tasks.md`）→ **兩段都留**即可，不要取捨內容。
 
+## 💻 在筆電當 Debugger（2026-11-04 Cody 要求）
+
+**先判斷自己在哪台**：`git branch --show-current` 是 `laptop-debug` → 筆電；是 `debug` → 桌電（照上面原本流程）。
+設定方式見 `CLAUDE-developer.md`「💻 筆電開發流程 → 筆電第一次設定」。
+
+筆電上整套流程一樣，只換三個地方：
+1. **跟的是 `laptop`，不是 master**：開工、收到任務時跑 `git merge --ff-only laptop`（不是 `git merge master`）。
+2. **找筆電的 Developer**：`ListAgents` 找 `tw-sector-tracker-` 開頭、不含 `debug` 的 session（工作目錄
+   `../tw-sector-tracker`，`laptop` 分支）。驗完回報、在 `laptop-debug` commit `bug-reports.md`，報告標題註明「筆電」：
+   `## [YYYY-MM-DD] 筆電報告 - 任務名稱`。
+3. **`laptop-debug` 永遠不 push**；push `laptop` 是筆電 Developer 在你回報全部 ✅ 之後做的事。
+
+**筆電驗不到的東西要寫明**：筆電 `data/` 不是正式資料。驗到需要真實 DB 的項目（資料修復、近 N 日數值、
+籌碼到齊判斷、`test_scan_patterns_returns_list` 這類需要 `data/screener.db` 的測試），在報告的 🟡 寫
+「筆電驗不到，回桌電要用正式 DB 再驗」，不要因為筆電的 DB 看起來正常就打 ✅。桌電 Developer 會依這條決定要不要
+再交給桌電 Debugger。
+
 ## 🔄 CLAUDE 檔跨機同步（筆電 ⇄ 桌電）
 
 - **`CLAUDE.md` 是本地檔、被 gitignore、不會同步**（每台各自一份，給 Claude 讀）。

@@ -6814,3 +6814,24 @@ Telegram 用正式 payload 換上這份 heat；Chrome headless 看 1440／375。
 ### 結論
 - [ ] 需要修改後再確認
 - [x] 可以繼續下一個任務
+
+## [2026-11-05] 報告 - 發佈步驟 $M 改 PowerShell 寫法（e9adc09）
+
+### 🔴 數據問題（需立刻修）
+- 無
+
+### 🔴 程式問題（需立刻修）
+- 無
+
+### 🟡 建議改善
+- 無。（備註：master 資料夾有一個未追蹤的 `.claude/skills/ui-ux-pro-max/`。排程只 `git add` 列舉出來的 docs 檔，所以不會被推走，不影響發佈。）
+
+### ✅ 驗證通過
+- `$M = 'C:\Users\Cody\Desktop\tw-sector-tracker'` 是正確的 PowerShell 寫法，而且是絕對路徑，比相對路徑更不容易跑錯資料夾；
+  底下的 `Test-Path $M/...`、`git -C $M` 都能直接用（上一份報告的假 repo 已實測 `$M` 串法）。
+- 第一次發佈的結果：`git fetch` 後 master 和 origin/master 都在 da21ec2，`origin/master..master` 是空的；
+  master 資料夾 `status -sb` 顯示 `## master...origin/master`，沒有 ahead／behind、沒有 staged 變更。
+
+### 結論
+- [ ] 需要修改後再確認
+- [x] 可以繼續下一個任務

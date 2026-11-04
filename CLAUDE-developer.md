@@ -296,3 +296,31 @@ codex CLI session）另外開發功能。它跟 master worktree **共用同一�
 - **要同步工作流規則到另一台，改的是 `CLAUDE-developer.md` / `CLAUDE-debugger.md`**（這兩個才 tracked）
   → commit + push → 另一台 `git pull` → 該台 `cp CLAUDE-developer.md CLAUDE.md` 重建本地副本。
 - ⚠️ **別直接改 `CLAUDE.md`**——那樣改的東西 gitignored、不會同步到桌電（這是踩過的雷）。
+
+## 💻 筆電開發流程（2026-11-04 Cody 要求）
+
+桌電是正式機：排程、DB（`data/`）、Debugger 都在桌電，盤中每 10 分鐘還會自動 commit＋push `docs/*.html`。
+筆電只用來改程式，程式碼靠 GitHub 傳。
+
+**先判斷自己在哪台**：`git worktree list` 有 `tw-sector-tracker-debug`、`Get-ScheduledTask -TaskName "TW-Sector-*"`
+查得到排程 → 桌電；都沒有 → 筆電。
+
+### 在筆電
+1. 開工：`git fetch` → `git checkout laptop`（第一次：`git checkout -b laptop origin/master`）→
+   `git merge origin/master`，先跟上桌電；然後 `cp CLAUDE-developer.md CLAUDE.md`。
+2. 只在 `laptop` 分支改、commit；**不要動 master、不要 push master**。
+3. 不要跑會 push 的 `python main.py`（筆電 `data/` 是另一份，推上去會蓋掉桌電的網頁）；要看效果用 `--no-push`。
+4. 不要改 `docs/*.html`（自動產生的，桌電每 10 分鐘會重產，一定衝突）。
+5. 不要動排程、`.env`、DB。
+6. 筆電沒有 Debugger：照樣寫 `debug-tasks.md` 交接（append 到最後），交接標題註明「筆電」。
+7. 收工：`git push origin laptop`，告訴 Cody「筆電改完了，在 laptop 分支 `<hash>`」。
+
+### 回到桌電（Developer 收筆電的東西）
+1. `git fetch` → `git status -sb` 確認 master 乾淨、沒有落後。
+2. `git merge origin/laptop`（衝突多在 `debug-tasks.md`／`bug-reports.md`，兩段都留；`docs/*.html` 用 master 的）。
+3. 照「完成任務後」流程：同步 debug worktree → 交給 Debugger 驗 `debug-tasks.md` 最下面那則 → ✅ 才 push master。
+4. push 後筆電下次開工的第 1 步會把 master 合回 laptop。
+
+### 原則
+- 同一時間只有一台在改程式。
+- 筆電的程式沒經過 Debugger 驗證，不會進 master／不會上網站。

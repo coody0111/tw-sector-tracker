@@ -58,12 +58,14 @@ MARGIN_LOW = 150
 MARGIN_LOOKBACK = 5        # 往回找最近一天兩邊市場融資都到齊的日子
 
 # ── 今日追繳(估) 檔數（2026-11-04 Cody：做，只顯示）──────────────────────────
-# 個股融資維持率(估) < 130%（同頁面 export/index_generator.py 的「追繳risk」）、有融資、前 20 日均成交值 ≥ 1 億的檔數。
+# 個股融資維持率(估) < 130%（weekly_chips.DANGER，同頁面 export/index_generator.py 的「追繳risk」）、有融資、
+# 近 20 個交易日（含當天，跟維持率的均價同一段）均成交值 ≥ 1 億的檔數。
 # 回測（scratchpad bt_margin_call.py，2025-01～2026-11，444 天）：一半以上的日子 0 檔；≥10 檔只有 16 天，
 # 全在 2025-04、2026-07 兩次修正（＋2026-11-03/04）。當天 ≥31 檔的個股之後 20 日 95% 上漲，但獨立事件只有 2 次，
 # 個股追繳當天買、用 6% 停損並不賺（多半先被洗掉）。所以只顯示，不擋也不產生訊號。
-MARGIN_CALL_RATIO = 130    # 法規追繳門檻
 MARGIN_CALL_WAVE = 10      # ≥10 檔標「追繳潮」
+# 說明文字寫明是哪兩次，不寫「2025 年以來 N 次」——再發生一次就會過時（2026-11-04 Debugger 🟡）
+PAST_WAVES = "前兩次（2025-04、2026-07）"
 
 
 def market_margin_ratio(day, db_path: str | None = None, universe_path: str | None = None) -> dict | None:
@@ -100,7 +102,7 @@ def market_margin_ratio(day, db_path: str | None = None, universe_path: str | No
 
 
 def _margin_calls(danger: list, px: pd.DataFrame) -> int:
-    """maintenance() 的 danger（維持率(估) < 130%、有融資）裡，前 20 日均成交值達流動性門檻的檔數。"""
+    """maintenance() 的 danger（維持率(估) < 130%、有融資）裡，近 20 日（含當天）均成交值達流動性門檻的檔數。"""
     from recommend.features import MIN_TURNOVER20
     liquid = set(px.loc[px["turnover"] >= MIN_TURNOVER20, "stock_id"])
     return sum(1 for r in danger if r["stock_id"] in liquid)
@@ -112,13 +114,13 @@ def margin_call_note(r: dict | None) -> str | None:
     if n is None:
         return None
     if n >= MARGIN_CALL_WAVE:
-        return (f"今日追繳(估) {n} 檔＝追繳潮：2025 年以來 2 次，之後 20 日多數反彈"
-                f"（樣本少，不是買進訊號）")
+        return f"今日追繳(估) {n} 檔＝追繳潮：{PAST_WAVES}之後 20 日多數反彈（樣本少，不是買進訊號）"
     return f"今日追繳(估) {n} 檔"
 
 
 def margin_note(payload: dict, always: bool = True) -> str | None:
-    """「大盤融資維持率(估) 158.2%（10/30）。」；低於 150% 加斷頭潮說明。always=False 時只在低於 150% 才回。"""
+    """「大盤融資維持率(估) 158.2%（10/30）；今日追繳(估) 3 檔。」；低於 150% 加斷頭潮說明、≥10 檔標追繳潮。
+    always=False（報告重點／Telegram）時只在低於 150% 或追繳潮才回。"""
     r = payload.get("margin_ratio") or {}
     v = r.get("all")
     if v is None:
@@ -129,9 +131,9 @@ def margin_note(payload: dict, always: bool = True) -> str | None:
         return None
     head = f"大盤融資維持率(估) {v:.1f}%（{r['date'][5:7]}/{r['date'][8:10]}）"
     if low:
-        head += f"：低於 {MARGIN_LOW}%＝斷頭潮，2025 年以來 2 次之後 20 日都反彈（樣本少，不是買進訊號）"
+        head += f"：低於 {MARGIN_LOW}%＝斷頭潮，{PAST_WAVES}之後 20 日都反彈（樣本少，不是買進訊號）"
     calls = margin_call_note(r)
-    # 只有一個說明時保留原本寫法；兩個都有時，追繳那句就不重複「樣本少」
+    # 兩個都有時，追繳那句保留「追繳潮」字樣、但不重複「樣本少」說明（2026-11-04 Debugger 🟡：原本把追繳潮也拿掉了）
     if calls and low and wave:
-        calls = f"今日追繳(估) {r['calls']} 檔"
+        calls = f"今日追繳(估) {r['calls']} 檔＝追繳潮"
     return head + (f"；{calls}" if calls else "") + "。"

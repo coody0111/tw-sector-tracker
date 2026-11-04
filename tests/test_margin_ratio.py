@@ -56,7 +56,8 @@ def test_margin_call_note_and_wave():
     assert margin_note({"margin_ratio": {**base, "calls": 3}}, always=False) is None
     assert "追繳潮" in margin_note({"margin_ratio": {**base, "calls": 14}}, always=False)
     both = margin_note({"margin_ratio": {"date": "2025-04-09", "all": 129.7, "calls": 152}})
-    assert "斷頭潮" in both and both.count("不是買進訊號") == 1
+    assert "斷頭潮" in both and "追繳潮" in both and both.count("不是買進訊號") == 1
+    assert "2025 年以來" not in both and "2025-04、2026-07" in both   # 寫明哪兩次，不寫會過時的次數
 
 
 def test_partial_margin_day_falls_back_to_previous_complete_day(tmp_path):

@@ -194,6 +194,7 @@ master 與 debug 曾各自長出獨立 commit → 分岔成 Y 形，要手動解
 
 筆電上整套流程一樣，只換三個地方：
 1. **跟的是 `laptop`，不是 master**：開工、收到任務時跑 `git merge --ff-only laptop`（不是 `git merge master`）。
+   失敗（not possible to fast-forward）＝Developer 還沒把你上一份報告合回 laptop：**等它合完再跑，不要自己 merge**。
 2. **找筆電的 Developer**：`ListAgents` 找 `tw-sector-tracker-` 開頭、不含 `debug` 的**本機** session（工作目錄
    `../tw-sector-tracker`，`laptop` 分支；Remote Control 連著時別選到桌電的）。驗完回報、在 `laptop-debug` commit `bug-reports.md`，報告標題註明「筆電」：
    `## [YYYY-MM-DD] 筆電報告 - 任務名稱`。
@@ -219,7 +220,9 @@ master 與 debug 曾各自長出獨立 commit → 分岔成 Y 形，要手動解
 > 筆電的 `D` 是 `laptop` 分支，`reset --hard origin/master` 會把筆電還沒 push 的 commit 全部丟掉。
 > 筆電開工只做：`git merge --ff-only laptop` → `cp CLAUDE-debugger.md CLAUDE.md`（跟上 origin 是筆電 Developer 的事）。
 
-先確認 debug 沒有未 push 的 commit（有就先同步回 master + push），然後：
+先確認 **master 和 debug 都沒有 ahead origin**（`git -C ~/Desktop/tw-sector-tracker status -sb`、`git status -sb`）。
+有 ahead 就**停下來**：那是還在等 ✅、沒 push 的 commit，`reset --hard` 會把它丟掉——先跟 Developer／Cody 確認。
+都沒有 ahead 才跑：
 
 ```bash
 D=~/Desktop/tw-sector-tracker          # master worktree

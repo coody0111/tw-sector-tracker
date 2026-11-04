@@ -108,6 +108,8 @@ Cody 要求：要驗證就直接交給 Debugger，不用他在兩個 terminal �
 
 **交出去**（「完成任務後」1～3 步都做完才交）：
 1. `ListAgents` 找名稱以 `tw-sector-tracker-debug` 開頭的 session（工作目錄是 `../tw-sector-tracker-debug`）。
+   **只找這台電腦上的**：Remote Control 連著時清單會有另一台的 session（列上標示種類），名字可能一樣，別傳錯台。
+   筆電的交接分支不同，見「💻 筆電開發流程」。
 2. `SendMessage` 傳：「請驗 `debug-tasks.md` 最下面的『[日期] 任務名稱』，commit `<hash>`，debug 已 merge master」。
 3. 傳完就**停止所有 git 動作**，等它回覆（兩個 session 別同時動 git）。
 4. 找不到 Debugger session → 直接告訴 Cody「要驗證，請開 Debugger」，不要自己跑測試頂替。
@@ -303,12 +305,13 @@ codex CLI session）另外開發功能。它跟 master worktree **共用同一�
 桌電是正式機：排程、DB（`data/`）、Debugger 都在桌電，盤中每 10 分鐘還會自動 commit＋push `docs/*.html`。
 筆電只用來改程式，程式碼靠 GitHub 傳。
 
-**先判斷自己在哪台**：`git worktree list` 有 `tw-sector-tracker-debug`、`Get-ScheduledTask -TaskName "TW-Sector-*"`
-查得到排程 → 桌電；都沒有 → 筆電。
+**先判斷自己在哪台**：`git worktree list` 看 debug worktree 的分支——是 `[debug]` → 桌電；是 `[laptop-debug]` → 筆電。
+（輔助：`Get-ScheduledTask -TaskName "TW-Sector-*"` 查得到排程的是桌電。兩台都有 debug worktree，別只看有沒有。）
 
 ### 在筆電
-1. 開工：`git fetch` → `git checkout laptop`（第一次：`git checkout -b laptop origin/master`）→
-   `git merge origin/master`，先跟上桌電；然後 `cp CLAUDE-developer.md CLAUDE.md`。
+1. 開工（照順序）：`git fetch` → `git checkout laptop` → `git merge laptop-debug`（先收筆電 Debugger 還沒合進來的報告）
+   → `git merge origin/master`（跟上桌電）→ `git -C ../tw-sector-tracker-debug merge --ff-only laptop`
+   → `cp CLAUDE-developer.md CLAUDE.md`。第一次用見最下面「筆電第一次設定」。
 2. 只在 `laptop` 分支改、commit；**不要動 master、不要 push master**。
 3. 不要跑會 push 的 `python main.py`（筆電 `data/` 是另一份，推上去會蓋掉桌電的網頁）；要看效果用 `--no-push`。
 4. 不要改 `docs/*.html`（自動產生的，桌電每 10 分鐘會重產，一定衝突）。
@@ -316,7 +319,7 @@ codex CLI session）另外開發功能。它跟 master worktree **共用同一�
 6. 驗證交給**筆電的 Debugger**（筆電的 `../tw-sector-tracker-debug` worktree，`laptop-debug` 分支）：
    - `debug-tasks.md` append 交接，標題註明「筆電」：`## [YYYY-MM-DD] 筆電：任務名稱`
    - `git -C ../tw-sector-tracker-debug merge --ff-only laptop`（筆電的 Debugger 跟的是 **laptop**，不是 master）
-   - `ListAgents` 找 `tw-sector-tracker-debug` 開頭的 session → `SendMessage`：
+   - `ListAgents` 找 `tw-sector-tracker-debug` 開頭的**本機** session（Remote Control 連著時別選到桌電的）→ `SendMessage`：
      「請驗 debug-tasks.md 最下面的『筆電：任務名稱』，commit `<hash>`，laptop-debug 已 merge laptop」
    - 收到回報：`git merge laptop-debug`（只有 `bug-reports.md`）→ `git -C ../tw-sector-tracker-debug merge --ff-only laptop`
    - 🔴 → 在 laptop 修，再交一次；同一個問題 3 輪沒過就找 Cody。
@@ -335,7 +338,7 @@ codex CLI session）另外開發功能。它跟 master worktree **共用同一�
    - 明顯的 bug、寫死的值、吞掉例外
 3. `git merge origin/laptop`（衝突多在 `debug-tasks.md`／`bug-reports.md`，兩段都留；`docs/*.html` 用 master 的）。
 4. 要不要桌電 Debugger 再驗一次：
-   - **要**：合併有衝突要手動解；筆電報告裡有「筆電驗不到」；或改到資料相關程式（scrapers／processors／screener／storage／recommend 的計算、
+   - **要**：合併有衝突要手動解；筆電報告裡有「筆電驗不到」；改到 `tests/`、`config.py`；或改到資料相關程式（scrapers／processors／screener／storage／recommend 的計算、
      `main.py` 的資料流程）——筆電 `data/` 是另一份，資料要用桌電的 DB 驗（見 CLAUDE-debugger.md「git pull 拉不到 data/」）。
      照「完成任務後」流程交給桌電 Debugger，✅ 才 push master。
    - **不用**：乾淨合併、只改頁面／文件／通知文字之類 → 跑 `git -C ../tw-sector-tracker-debug merge --ff-only master` 後直接 push。

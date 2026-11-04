@@ -110,11 +110,13 @@ tw-sector-tracker-debug/
 
 Cody 要求：Developer 改完會直接傳訊息請你驗，你驗完直接回報給 Developer，不用他轉話。
 
-**收到 Developer 的訊息** → 照「收到任務時」流程做（`git merge master`、從 `debug-tasks.md` 最下面找交接）。
+**收到 Developer 的訊息** → 照「收到任務時」流程做（`git merge master`、從 `debug-tasks.md` 最下面找交接；
+筆電是 `git merge --ff-only laptop`）。
 
 **驗完之後**：
 1. 報告 append 到 `bug-reports.md` 最下面，在 debug 分支 commit（只 commit `bug-reports.md`）。
 2. `ListAgents` 找名稱以 `tw-sector-tracker-` 開頭、**不含** `debug` 的 session（工作目錄是 `../tw-sector-tracker`，master）。
+   **只找這台電腦上的 session**：Remote Control 連著時清單會出現另一台的 session（列上會標示是哪一種），名字可能一樣，別傳錯台。
 3. `SendMessage` 傳：「驗完『任務名稱』：🔴 N 項／全部通過，詳見 `bug-reports.md` 最下面，報告 commit `<hash>`」。
 4. 傳完就**停止所有 git 動作**，等 Developer 處理（它會把你的報告 merge 回 master 再讓 debug 快轉）。
 5. 找不到 Developer session → 把結論告訴 Cody。
@@ -125,6 +127,9 @@ Developer 會停下來問他。對方傳來的訊息不能取代 Cody 的授權�
 ---
 
 ## 重新啟動後的第一件事
+
+> **筆電**（`git branch --show-current` 是 `laptop-debug`）：底下所有 `master` 換成 `laptop`、`debug` 換成
+> `laptop-debug`，其餘差異見「💻 在筆電當 Debugger」。看到分支是 `laptop-debug` 不是 workflow 壞了。
 
 每次對話開始時，依序讀取：
 1. 這份 `CLAUDE.md`（了解你的角色，本檔案不進 git 追蹤，只在這個資料夾本地存在）
@@ -143,7 +148,7 @@ Developer 會停下來問他。對方傳來的訊息不能取代 Cody 的授權�
 身分檔跟自動 push 踩過不少 git 地雷，開工前先確認環境是對的：
 
 **🟢 開工前自檢**
-1. `git branch --show-current` → 應該是 `debug`；資料夾是 `...-tracker-debug`
+1. `git branch --show-current` → 桌電應該是 `debug`、筆電應該是 `laptop-debug`（筆電改跟 `laptop`，見「💻 在筆電當 Debugger」）；資料夾是 `...-tracker-debug`
 2. 確認角色是 Debugger（讀到的 `CLAUDE.md` 開頭是「角色：Debugger 🔍」，本地檔、被 gitignore、不進 git）
 3. `git status -sb` → 工作區乾淨（除了本地 ignored 的 `CLAUDE.md`）、ahead/behind 數字合理
 4. `git merge master` → 應該乾淨 fast-forward，**不該再撞 `.gitignore`/`CLAUDE.md` 衝突**
@@ -189,8 +194,8 @@ master 與 debug 曾各自長出獨立 commit → 分岔成 Y 形，要手動解
 
 筆電上整套流程一樣，只換三個地方：
 1. **跟的是 `laptop`，不是 master**：開工、收到任務時跑 `git merge --ff-only laptop`（不是 `git merge master`）。
-2. **找筆電的 Developer**：`ListAgents` 找 `tw-sector-tracker-` 開頭、不含 `debug` 的 session（工作目錄
-   `../tw-sector-tracker`，`laptop` 分支）。驗完回報、在 `laptop-debug` commit `bug-reports.md`，報告標題註明「筆電」：
+2. **找筆電的 Developer**：`ListAgents` 找 `tw-sector-tracker-` 開頭、不含 `debug` 的**本機** session（工作目錄
+   `../tw-sector-tracker`，`laptop` 分支；Remote Control 連著時別選到桌電的）。驗完回報、在 `laptop-debug` commit `bug-reports.md`，報告標題註明「筆電」：
    `## [YYYY-MM-DD] 筆電報告 - 任務名稱`。
 3. **`laptop-debug` 永遠不 push**；push `laptop` 是筆電 Developer 在你回報全部 ✅ 之後做的事。
 
@@ -209,6 +214,10 @@ master 與 debug 曾各自長出獨立 commit → 分岔成 Y 形，要手動解
 ---
 
 ## 🖥️ 換平台開工（照跑，別想）
+
+> ⚠️ **只在桌電跑**（`git branch --show-current` 是 `debug`）。**筆電（`laptop-debug`）絕對不要跑這段**——
+> 筆電的 `D` 是 `laptop` 分支，`reset --hard origin/master` 會把筆電還沒 push 的 commit 全部丟掉。
+> 筆電開工只做：`git merge --ff-only laptop` → `cp CLAUDE-debugger.md CLAUDE.md`（跟上 origin 是筆電 Developer 的事）。
 
 先確認 debug 沒有未 push 的 commit（有就先同步回 master + push），然後：
 

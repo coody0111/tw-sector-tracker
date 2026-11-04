@@ -6461,3 +6461,22 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 
 ### 特別注意
 - 這筆是第一次走新流程：驗完我會照「發佈到 master」發佈。
+
+## [2026-11-05] dev 流程文件修 🟡1～3（回應 3e887d1）
+
+### 改了什麼
+- 異動檔案：CLAUDE-developer.md, CLAUDE-debugger.md
+- 🟡1：開工自檢第 3 步排除整個 `docs`（`':(exclude)docs'`），收盤的 docs/reports、docs/weekly json 不再誤報。
+- 🟡2：發佈改用 `if ($?)` 串，任何一步失敗就停；新增第 4 步「fetch 後 `origin/master..master` 要是空的」，不是空的馬上重跑 fetch→merge origin/master→push，避免排程 pull --rebase 攤平。
+- 🟡3：CLAUDE-debugger.md 71、81 行「跟 master 同步追蹤」改成 dev。
+- 🟡4（Debugger 更新自己的 CLAUDE.md）：已問 Cody，等他回覆。
+
+### 資料來源相關
+- 無。
+
+### 請 Debugger 驗證
+- [ ] 措辭與指令正確（PowerShell `if ($?)` 串法可用）
+- [ ] 第 4 步的檢查在假 repo 情境下能抓到 push 失敗
+
+### 特別注意
+-

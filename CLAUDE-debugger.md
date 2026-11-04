@@ -68,7 +68,7 @@ tw-sector-tracker-debug/
 
 ### 收到任務時
 1. `git merge --ff-only dev` 取得 Developer 最新的 code 和檔案（2026-11-05 起 Developer 在 `dev`，不是 master）
-2. 讀 `debug-tasks.md`（本資料夾內，跟 master 同步追蹤）確認最新任務——
+2. 讀 `debug-tasks.md`（本資料夾內，跟 dev 同步追蹤）確認最新任務——
    **`debug-tasks.md`／`bug-reports.md` 都是 append-only，一律 append 到檔案最後面，
    不會 prepend 到最上面**（2026-09-02 踩過的雷：曾誤以為「新的在最上面」只驗頂部幾則，
    結果 append 在檔案最下面的交接被完全略過，拖了好幾天沒人驗到）。**永遠從檔案最下面
@@ -78,7 +78,7 @@ tw-sector-tracker-debug/
 
 ### 回報格式
 
-寫入 `bug-reports.md`（本資料夾內，跟 master 同步追蹤）：
+寫入 `bug-reports.md`（本資料夾內，跟 dev 同步追蹤）：
 
 ```
 ## [YYYY-MM-DD] 報告 - 任務名稱

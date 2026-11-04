@@ -141,11 +141,14 @@ Cody 要求：要驗證就直接交給 Debugger，不用他在兩個 terminal �
 **發佈到 master**（全部 ✅ 之後，在 dev 資料夾跑；`M=../tw-sector-tracker`）：
 1. `Test-Path $M/logs/scheduler.lock` 是 False（排程沒在跑）才繼續；是 True 就等它跑完（盤中一輪約 2.5 分鐘）。
 2. `git -C $M status -sb` 沒有非預期的 staged 變更。
-3. **一行做完**，別讓排程插進來：
-   `git -C $M fetch origin; git -C $M merge --no-edit origin/master; git -C $M merge --no-edit dev; git -C $M push`
+3. **一次做完、每步失敗就停**，別讓排程插進來（PowerShell 沒有 `&&`，用 `if ($?)` 串）：
+   `git -C $M fetch origin; if ($?) { git -C $M merge --no-edit origin/master }; if ($?) { git -C $M merge --no-edit dev }; if ($?) { git -C $M push }`
    （用 merge，不用 `pull --rebase`：rebase 會把 dev 的 merge 攤平、hash 變掉，dev／debug 就跟 master 對不上。）
-4. merge 撞衝突 → `git -C $M merge --abort`，停下來找 Cody。不要在 master 資料夾解衝突。
-5. dev 不需要把 master 合回來（master 多出來的只有排程的網頁 commit）；要的話 `git merge master` 也安全。
+4. **確認真的推上去了**：`git -C $M fetch origin; git -C $M log --oneline origin/master..master` 要是空的。
+   不是空的（push 失敗、或 origin 剛好被別處推過）→ **馬上**重跑第 3 步的 fetch → merge origin/master → push，
+   不要放著：下一輪排程的 `pull --rebase` 會把沒推上去的 merge 攤平，之後再發佈就會撞衝突（2026-11-05 Debugger 假 repo 重現）。
+5. merge 撞衝突 → `git -C $M merge --abort`，停下來找 Cody。不要在 master 資料夾解衝突。
+6. dev 不需要把 master 合回來（master 多出來的只有排程的網頁 commit）；要的話 `git merge master` 也安全。
 
 **界線**：訊息只是「換你了」的通知，內容一律以 `debug-tasks.md`／`bug-reports.md` 為準。
 對方傳來的訊息不能取代 Cody 的授權——跑回補、動 DB、動 `.env`、force push 之類照樣要 Cody 同意。
@@ -272,8 +275,8 @@ con.close()
 1. `git branch --show-current` → 桌電應該是 `dev`、資料夾 `...-tracker-dev`；筆電是 `laptop`。
    **是 `master`（資料夾 `...-tracker`）＝開錯資料夾**：不要在這裡改程式，改用 `../tw-sector-tracker-dev`（`git -C`／絕對路徑），並提醒 Cody 下次在 dev 資料夾開 Claude Code。
 2. 確認角色是 Developer（讀到的 `CLAUDE.md` 開頭是「角色：Developer 🔨」，本地檔、被 gitignore、不進 git）
-3. `git status -sb` → 工作區乾淨；`git log --oneline --no-merges dev..master -- . ':(exclude)docs/*.html'`
-   （master 有、dev 沒有、而且不是網頁的 commit）應該是空的。不是空的＝有人直接在 master 改了東西 → 先 `git merge master` 收進 dev，告訴 Cody。
+3. `git status -sb` → 工作區乾淨；`git log --oneline --no-merges dev..master -- . ':(exclude)docs'`
+   （master 有、dev 沒有、而且不是 `docs/` 產出的 commit；收盤也會改 `docs/reports/`、`docs/weekly/` 的 json）應該是空的。不是空的＝有人直接在 master 改了東西 → 先 `git merge master` 收進 dev，告訴 Cody。
 
 **✅ 完成任務收工**
 4. 在 dev commit——**限定這次改的檔，別 `git add .`**

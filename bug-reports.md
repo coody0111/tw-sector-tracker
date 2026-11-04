@@ -6398,3 +6398,57 @@ Telegram 用正式 payload 換上這份 heat；Chrome headless 看 1440／375。
 ### 結論
 - [ ] 需要修改後再確認
 - [x] 可以繼續下一個任務（正式資料請 Cody 跑 `python scripts/drop_no_trade_rows.py` 先看清單，再 `--apply`）
+
+## [2026-11-04] 報告 - 排程鎖在 Windows 探活會閃退（67579fe）
+
+### 🔴 程式問題（需立刻修）
+- 問題：鎖沒釋放的根因是 `git push` 沒有逾時，卡住整條排程；這次的修法只處理了後果（閃退），沒處理原因
+  位置：main.py 第 351 行 `subprocess.run(["git", "push"], check=True)`（同段的 `git pull --rebase` 第 325 行也沒有 timeout）
+  說明：
+  - run.log：11/03 22:00 那輪 main.py 跑到 `22:00:35 個股推薦 2026-11-03 發布（第一次）`、commit 3018176 之後就沒有下文，
+    沒有 `Pushed to GitHub Pages`／`=== Done ===`；scheduler.log 也沒有 22:00 這輪的任何結束紀錄。
+  - **那次的 push 現在（11/04 19:55）還活著**，已經卡了約 22 小時：
+    `git push`（PID 25528，父程序 22112 已不存在）→ git.exe 22040 → git remote-https 17660 → git-remote-https 24052
+    → git send-pack 16832 → git pack-objects 21208，全部建立於 11/03 22:00:36～38。
+  - 機制：main.py 的 git push 繼承了 main.py 的 stdout／stderr，而這兩條是 run_scheduled 的 `capture_output` pipe。
+    push 卡住 → main.py 跑不完 → 就算 run_scheduled 的 3000 秒逾時砍掉 main.py，Windows 上 `subprocess.run` 逾時後還會再
+    `communicate()` 等 pipe 關閉，而 pipe 還被 git 孫程序拿著 → run_scheduled 本身也卡住、鎖不釋放。
+    同一個排程工作是 IgnoreNew，所以 23:30、23:45 那兩輪連啟動都沒有（scheduler.log 一行都沒有，跟這個吻合）。
+    22892 後來是怎麼消失的我查不到（系統事件只有 01:42 睡眠、07:59 喚醒），這段是推測。
+  - 修完 67579fe 後，同樣情況再發生的結果：探活會正確判斷 PID 還活著 → 之後每一輪都寫「執行鎖被 PID 持有，本次直接結束」，
+    但**不會發 Telegram**，排程一樣全部停擺，只是 log 多一行。
+  - 建議：git pull／push 加 timeout（並在逾時時把整個程序樹結束）；鎖被持有超過合理時間（例如 > 最長逾時 5400 秒）時，
+    發一則失敗通知，不要只寫 log。
+  - 連帶影響：11/03 22:00 那輪 run_scheduled 沒拿到 summary，**11/03 的推薦／週報 Telegram 都沒發**
+    （網頁上的推薦有在 11/04 09:13 那次 push 一起推上去，origin 現在是 fa0d149）。
+  - **請 Cody 決定**：卡住的 git 程序（25528 及其子程序 22040、17660、24052、16832、21208）要不要結束。
+    它不擋 push（11/04 09:13 有推成功），但一直掛著。我沒有動任何程序。
+
+### 🟡 建議改善
+- 新測試 `test_windows_stale_lock_from_exited_process_is_taken_over` 用的是剛結束、但 `Popen` 物件還握著 handle 的 PID，
+  走的是 `OpenProcess` 成功 → `GetExitCodeProcess != STILL_ACTIVE` 那條路；真的出事時的「PID 已完全不存在」路徑沒被測到。
+  我手動測過那條路是對的（見下方），但測試可以補一支用從沒存在過的 PID（例如 99999996）。
+- PID 被重用：Windows 的 PID 重用很快，如果過期鎖剛好指到別的活著的程序，就會一直被當成「還活著」，排程永遠跳過。
+  可以在鎖檔一起存程序建立時間，或檢查執行檔名稱。發生機率不高，但跟上面一樣只寫 log，不會通知。
+- 11/04 09:10～09:13 有一次 `main.py --realtime` 而且有 push（不是 `--no-push`，scheduler.log 也沒紀錄）＝手動執行。
+  它把 09:12 的盤中快照寫成 11/04 的行情、並推上網站（加權 -3.59%、873 支）。收盤補跑會蓋掉
+  （screener/database.py 增量匯入一定會重匯最新兩天），但在 Cody 補跑 `python main.py` 之前，網站和 DB 的 11/04 是盤中資料。
+
+### ✅ 驗證通過
+- pytest：991 passed、1 skipped（skip 的是改成只在 POSIX 跑的 permission_error 那支），0 failed。
+- 重現原 bug：Python 3.11.9 對完全不存在的 PID 22892 呼叫 `os.kill(22892, 0)` → `SystemError: <class 'OSError'> returned a result with an exception set`，跟 Developer 描述一致。
+- `_win_pid_alive` 實測：
+  - 剛結束的子程序 → False；從沒存在過的 PID（99999996、4000000、65532）→ False；22892 → False
+  - 自己 → True；PID 4（System，拒絕存取）→ True
+  - 活著的子程序 → True，而且檢查完它還在跑（不會像 `os.kill(pid, 0)` 那樣把它砍掉）
+  - 0、-1、2^33 → False
+- `__main__` 的 try/except：`SystemExit` 不是 `Exception`，正常的 `sys.exit(main())` 不會被誤記成錯誤；`logger` 在模組頂端就設好，寫得進 scheduler.log。
+- 全專案（排除 tests/）只剩 run_scheduled.py 第 114 行用 `os.kill`，而且已經只在 POSIX 走到。沒有別處在 Windows 用 os.kill 探活。
+- 收盤補跑會覆蓋 11/04 的盤中資料：`_incremental_csv_files` 永遠重匯最新兩個日期，並用 DELETE＋INSERT 取代同一天的列。
+- 目前正式環境沒有 `logs/scheduler.lock`。
+- 尚未驗：今晚 20:00／22:00 preopen 的 scheduler.log 紀錄（寫報告時是 19:55）。我會等跑完再讀 log 補報，不動 git。
+
+### 結論
+- [x] 需要修改後再確認（git push 沒有逾時、鎖卡住時不通知；卡住的 git 程序請 Cody 決定）
+- [ ] 可以繼續下一個任務
+- 67579fe 本身的修法正確，可以留著。11/04 收盤請 Cody 補跑 `python main.py`。

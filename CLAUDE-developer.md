@@ -138,7 +138,7 @@ Cody 要求：要驗證就直接交給 Debugger，不用他在兩個 terminal �
    - 🟡 裡需要 Cody 做決定的設計取捨 → **停下來問 Cody**，不要自己拍板。
 3. 同一個問題來回 3 輪還沒過 → 停下來找 Cody。
 
-**發佈到 master**（全部 ✅ 之後，在 dev 資料夾跑；`M=../tw-sector-tracker`）：
+**發佈到 master**（全部 ✅ 之後，在 dev 資料夾跑；先設 `$M = 'C:\Users\Cody\Desktop\tw-sector-tracker'`，PowerShell 寫法，`M=...` 是 bash）：
 1. `Test-Path $M/logs/scheduler.lock` 是 False（排程沒在跑）才繼續；是 True 就等它跑完（盤中一輪約 2.5 分鐘）。
 2. `git -C $M status -sb` 沒有非預期的 staged 變更。
 3. **一次做完、每步失敗就停**，別讓排程插進來（PowerShell 沒有 `&&`，用 `if ($?)` 串）：

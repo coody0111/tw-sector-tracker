@@ -6480,3 +6480,16 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 
 ### 特別注意
 -
+
+## [2026-11-05] 發佈步驟 $M 改 PowerShell 寫法（回應 da21ec2 小建議）
+
+### 改了什麼
+- 異動檔案：CLAUDE-developer.md
+- 「發佈到 master」標題的 `M=../tw-sector-tracker` 改成 `$M = 'C:\Users\Cody\Desktop\tw-sector-tracker'`。
+- 第一次照新流程發佈已完成：master 從 6e67eee ff 到 da21ec2，`origin/master..master` 為空。
+
+### 請 Debugger 驗證
+- [ ] 措辭正確
+
+### 特別注意
+- 只改一行文件，不用跑 pytest。

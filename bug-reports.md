@@ -6611,3 +6611,29 @@ Telegram 用正式 payload 換上這份 heat；Chrome headless 看 1440／375。
 ### 結論
 - [x] 需要修改後再確認（🔴：「換平台開工」在筆電會 reset 掉 laptop 的 commit）
 - [ ] 可以繼續下一個任務
+
+## [2026-11-04] 報告 - 筆電流程修正複審（f653e7a，只審文件）
+
+### 🔴 程式問題（需立刻修）
+- 無（d0cfa1c 的 🔴 已修：「換平台開工」開頭加了「只在桌電跑」警告，也寫了筆電要改做什麼）
+
+### 🟡 建議改善
+- 「換平台開工」在**桌電**跑也有同樣的風險（這是原本就有的問題，不是這次改出來的）：`git -C $D reset --hard origin/master` 會把桌電 master 上
+  「等 Debugger ✅ 才 push」、還沒 push 的 Developer commit 一起丟掉。開頭那句「先確認 debug 沒有未 push 的 commit」只檢查 debug，
+  建議改成「先確認 master 跟 debug 都沒有領先 origin（`git -C $D status -sb` 沒有 ahead），有的話先問 Developer」。
+- 筆電 Debugger 開工的 `git merge --ff-only laptop`，如果在筆電 Developer 收報告（第 1 步 `git merge laptop-debug`）之前跑，
+  會因為 laptop-debug 上還有自己的報告 commit 而失敗。不會壞東西，但可以補一句「ff 失敗＝等筆電 Developer 先收報告，不要自己 merge」。
+
+### ✅ 驗證通過（逐項對照 d0cfa1c）
+- 🔴 換平台開工：有「只在桌電跑」警告，筆電替代步驟是 `merge --ff-only laptop`＋cp，沒有 reset。
+- 🟡1 判斷哪台：改成看 debug worktree 的分支名稱（`[debug]`／`[laptop-debug]`），排程只當輔助，兩台都有 debug worktree 也判得出來。
+- 🟡2 「重新啟動後的第一件事」開頭有筆電對照說明（master→laptop、debug→laptop-debug，並寫明「看到 laptop-debug 不是 workflow 壞了」）；
+  自檢第 1 步、「收到 Developer 的訊息」都寫了筆電的分支。
+- 🟡3 筆電開工順序：merge laptop-debug → merge origin/master → laptop-debug ff → cp，順序正確。
+- 🟡4 只找本機 session：Developer 的「交出去」、筆電第 6 步、Debugger 的「驗完之後」第 2 步、筆電 Debugger 第 2 步，四處都加了。
+- 🟡5 「要再驗」的條件已加上 `tests/`、`config.py`。
+- 兩份檔案裡沒有其他 `reset --hard` 指令。
+
+### 結論
+- [ ] 需要修改後再確認
+- [x] 可以繼續下一個任務（剩下 2 個 🟡，看要不要順手補）

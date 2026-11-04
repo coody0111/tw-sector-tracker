@@ -6544,3 +6544,32 @@ Telegram 用正式 payload 換上這份 heat；Chrome headless 看 1440／375。
 - [ ] 需要修改後再確認
 - [x] 可以繼續下一個任務（🟡 repo 大小請 Cody 決定；preopen 失敗通知、通知原因寫清楚建議補）
 - 正式排程 TW-Sector-Intraday 的 Repetition 查到已經是 PT10M（有人改過了），不用再改。
+
+## [2026-11-04] 報告 - preopen／週報推送失敗也進 push_failed＋筆電分支收件規則（bc75af0）
+
+### 🔴 數據問題（需立刻修）
+- 無
+
+### 🔴 程式問題（需立刻修）
+- 無
+
+### 🟡 建議改善
+- 上一則 🟡3 說的「pull --rebase 改寫本地 commit」**這次真的發生了**：我的報告 afd4a73 被改寫成 d916011（接在 5575c6e 後面），debug 因此跟 master 分岔，
+  Developer 用 46ee6ee merge 收回。我用 `git patch-id --stable` 比對，兩筆的 patch-id 都是 0e86dfce…，內容完全相同，沒有東西掉。
+  以後只要 origin 有本地沒有的 commit，同樣的事還會發生。建議 Developer 先 push 自己的 commit 再請我驗，或者讓排程只在本地沒有領先 origin 時才 pull --rebase。
+- CLAUDE-developer.md 新流程第 4 步寫「✅ 才 push master」，但盤中排程每 10 分鐘都會把 master 整個推上 origin（含還沒驗證的 commit），
+  所以盤中這條規則實際上做不到。建議寫明這個例外，或請 Cody 決定要不要讓排程只推 docs 那幾個檔（例如推到另一個分支）。
+- 收件規則的內容（審 diff：不該動的檔、資料來源規則、測試、交接）很完整，沒有其他意見。
+
+### ✅ 驗證通過
+- pytest：1000 passed、1 skipped、0 failed（新：test_publish_reports_push_failure_for_telegram）。
+- 另外寫了暫時的測試（跑完已刪除），沿用 tests/test_main.py 的 `_publish_env`：
+  - preopen 正常推送：`git_pushed=True`，回傳值和 summary 檔裡的 `push_failed` 都是 None → `notify_push_state` 不會誤發。
+  - 只有週報推送失敗：`push_failed="週報逾時"`，推薦本身那次推成功的話 `git_pushed` 仍是 True。不過有 push_failed，`notify_push_state` 照樣會發失敗通知。
+  - 已經發布過、跳過的路徑：回傳值沒有 push_failed 鍵，`.get` 是 None，不會誤發。
+- 兩邊都失敗時用「、」合併（新測試覆蓋）；`_run_and_publish` 跟週報各自用自己的 list，不會互相重複。
+- 測試 fake 的簽名、test_recommend_page 的原始碼字串比對都改了，跟實作一致。
+
+### 結論
+- [ ] 需要修改後再確認
+- [x] 可以繼續下一個任務（🟡：rebase 改寫 commit 已實際發生一次；盤中自動推送和「✅ 才 push」衝突，請 Cody 決定）

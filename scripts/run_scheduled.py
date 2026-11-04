@@ -15,6 +15,7 @@ import logging
 import os
 import subprocess
 import sys
+import time
 from datetime import date, datetime, time as dt_time
 from pathlib import Path
 
@@ -42,6 +43,7 @@ logger = logging.getLogger(__name__)
 
 # 模組層級 import：sys.path 已在上面修好，不需要延到 main() 內才 import。
 from notifications.telegram import send_telegram_message, TelegramConfigError  # noqa: E402
+from subproc import run_tree  # noqa: E402
 from recommend.weekly_chips import mark_notified  # noqa: E402
 from recommend.telegram_format import (  # noqa: E402
     compose_preopen_message, compose_recommend_message, compose_report_message, compose_weekly_message,
@@ -101,11 +103,19 @@ def _win_pid_alive(pid: int) -> bool:
 
 class ExecutionLock:
     """檔案鎖：`logs/scheduler.lock` 存持鎖程序的 PID。程序異常結束後鎖必須能自動釋放——
-    用 `os.kill(pid, 0)` 檢查該 PID 是否還活著，不活著就視為過期鎖，直接接管
-    （見 docs/scheduler.md §8.1）。"""
+    檢查該 PID 是否還活著（POSIX 用 `os.kill(pid, 0)`，Windows 用 `_win_pid_alive`），不活著就視為
+    過期鎖，直接接管（見 docs/scheduler.md §8.1）。活著但鎖太舊＝卡住，見 `_notify_if_lock_stuck`。"""
 
     def __init__(self, lock_path: str = None):
         self.lock_path = Path(lock_path) if lock_path else _LOCK_PATH
+        self.held_pid = None  # acquire() 失敗時記下持鎖的 PID
+
+    def age_seconds(self) -> float | None:
+        """鎖檔存在多久了（看檔案修改時間）；沒有鎖檔回 None。"""
+        try:
+            return time.time() - self.lock_path.stat().st_mtime
+        except OSError:
+            return None
 
     def _pid_alive(self, pid: int) -> bool:
         if os.name == "nt":
@@ -130,6 +140,7 @@ class ExecutionLock:
             except (ValueError, OSError):
                 held_pid = None
             if held_pid and self._pid_alive(held_pid):
+                self.held_pid = held_pid
                 logger.warning("執行鎖被 PID %d 持有，本次直接結束", held_pid)
                 return False
             logger.info("偵測到過期鎖（PID %s 已不存在），自動接管", held_pid)
@@ -159,8 +170,10 @@ def run_main_py(mode: str, summary_path: str, timeout: int = _INTRADAY_TIMEOUT_S
         cmd += ["--publish-recommend"]
     cmd += ["--summary-json", summary_path]
 
-    result = subprocess.run(
-        cmd, capture_output=True, text=True, timeout=timeout, cwd=str(_PROJECT_ROOT),
+    # run_tree：逾時時連 main.py 底下的 git 等孫程序一起結束，不然它們拿著 pipe，這裡會一直卡住、鎖不放
+    result = run_tree(
+        cmd, timeout=timeout, cwd=str(_PROJECT_ROOT),
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
     )
     return {"returncode": result.returncode, "stdout": result.stdout, "stderr": result.stderr}
 
@@ -352,6 +365,31 @@ def _notify_failure(mode: str, error: str, duration_seconds: float) -> None:
         logger.error("執行失敗，且 Telegram 設定缺失，無法通知：%s", error)
 
 
+_STUCK_NOTIFIED_PATH = _PROJECT_ROOT / "logs" / "scheduler.lock.notified"
+_STUCK_LOCK_SEC = max(_TIMEOUTS.values()) + 600  # 比最長的一輪還久＝持鎖的程序卡住了
+
+
+def _notify_if_lock_stuck(mode: str, lock: ExecutionLock,
+                          notified_path: Path = _STUCK_NOTIFIED_PATH) -> bool:
+    """鎖被同一個 PID 持有超過 _STUCK_LOCK_SEC 就發一次失敗通知（同一個 PID 只發一次，
+    不然每 15 分鐘洗版）。只寫 log 的話排程停擺一整天都沒人知道（2026-11-04）。回傳有沒有發。"""
+    age = lock.age_seconds()
+    if lock.held_pid is None or age is None or age < _STUCK_LOCK_SEC:
+        return False
+    try:
+        if notified_path.read_text().strip() == str(lock.held_pid):
+            return False
+    except OSError:
+        pass
+    _notify_failure(mode, f"執行鎖被 PID {lock.held_pid} 持有已 {age / 3600:.1f} 小時，"
+                          f"排程每一輪都跳過；請檢查卡住的程序", age)
+    try:
+        notified_path.write_text(str(lock.held_pid))
+    except OSError:
+        pass
+    return True
+
+
 def main() -> int:
     if len(sys.argv) < 2 or sys.argv[1] not in ("intraday", "close", "preopen", "test-notify"):
         print("Usage: python scripts/run_scheduled.py {intraday|close|preopen|test-notify}")
@@ -380,6 +418,7 @@ def main() -> int:
     lock = ExecutionLock()
     if not lock.acquire():
         logger.info("執行鎖持有中，本次跳過")
+        _notify_if_lock_stuck(mode, lock)
         return 0
 
     try:

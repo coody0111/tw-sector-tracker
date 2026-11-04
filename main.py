@@ -1,6 +1,7 @@
 import argparse
 import json
 import logging
+import os
 import random
 import subprocess
 import sys
@@ -37,6 +38,7 @@ from screener.institutional import scan_institutional
 from screener.signals import scan_volume_turnover, scan_momentum_health, scan_bullish_alignment_new_high, scan_consecutive_limit_up
 from screener.backtest import run_backtest, print_summary as print_backtest_summary, CHIPS_RULES
 from storage.duck import connect_rw
+from subproc import run_tree
 
 UNIVERSE_PATH = Path("data/stock_universe.csv")
 
@@ -282,6 +284,16 @@ def _build_run_summary(
     return summary
 
 
+# git pull／push 要連網，一定要有逾時：11/03 22:00 一次 push 卡了 22 小時，排程鎖跟著不放、11/04 整天沒跑。
+# stdin 關掉＋GIT_TERMINAL_PROMPT=0：要帳密時直接失敗，不會在 pythonw 底下等一個沒人看得到的提示。
+GIT_NET_TIMEOUT_SEC = 120
+_GIT_NET = {
+    "timeout": GIT_NET_TIMEOUT_SEC,
+    "stdin": subprocess.DEVNULL,
+    "env": {**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+}
+
+
 def _push_html(trade_date: date) -> bool:
     """回傳這次是否真的把 HTML 推上遠端。任何一步失敗（沒有變動、rebase 衝突、
     網路問題、git 指令本身出錯）都算沒有推送成功，回傳 False——呼叫端（run()）靠這個
@@ -322,8 +334,12 @@ def _push_html(trade_date: date) -> bool:
         # push 前先跟遠端同步：兩台機各自 push 會分岔，先 pull --rebase 把本機這筆接到
         # 遠端最新之後再推。--autostash 保護工作區；若 rebase 撞衝突就中止並保持乾淨，
         # 本機 commit 保留、留給人工處理，不讓自動流程卡在半完成的 rebase
-        pull = subprocess.run(["git", "pull", "--rebase", "--autostash"])
-        if pull.returncode != 0:
+        try:
+            pull_rc = run_tree(["git", "pull", "--rebase", "--autostash"], **_GIT_NET).returncode
+        except subprocess.TimeoutExpired:
+            logger.warning("git pull 超過 %d 秒沒回應，已中止", GIT_NET_TIMEOUT_SEC)
+            pull_rc = -1
+        if pull_rc != 0:
             def _rebase_in_progress() -> bool:
                 # worktree-safe：用 git rev-parse --git-path 取正確的 git 目錄
                 for name in ("rebase-merge", "rebase-apply"):
@@ -348,7 +364,9 @@ def _push_html(trade_date: date) -> bool:
                     "本機 commit 已保留，未 push。"
                 )
             return False
-        subprocess.run(["git", "push"], check=True)
+        push = run_tree(["git", "push"], **_GIT_NET)
+        if push.returncode != 0:
+            raise subprocess.CalledProcessError(push.returncode, push.args)
         logger.info("Pushed to GitHub Pages.")
     except Exception as exc:
         logger.warning("Git push failed: %s", exc)

@@ -171,6 +171,7 @@ def test_push_html_returns_false_when_no_html_changes(monkeypatch):
         return _FakeCompletedProcess(returncode=0)
 
     monkeypatch.setattr("main.subprocess.run", fake_run)
+    monkeypatch.setattr("main.run_tree", fake_run)  # git pull／push 走 run_tree（有逾時）
     assert _push_html(date(2026, 8, 26)) is False
 
 
@@ -183,6 +184,7 @@ def test_push_html_returns_true_when_push_succeeds(monkeypatch):
         return _FakeCompletedProcess(returncode=0)  # add/commit/pull/push 全部成功
 
     monkeypatch.setattr("main.subprocess.run", fake_run)
+    monkeypatch.setattr("main.run_tree", fake_run)  # git pull／push 走 run_tree（有逾時）
     assert _push_html(date(2026, 8, 26)) is True
 
 
@@ -196,6 +198,7 @@ def test_push_html_returns_false_when_git_command_raises(monkeypatch):
         raise RuntimeError("git commit failed")
 
     monkeypatch.setattr("main.subprocess.run", fake_run)
+    monkeypatch.setattr("main.run_tree", fake_run)  # git pull／push 走 run_tree（有逾時）
     assert _push_html(date(2026, 8, 26)) is False
 
 
@@ -212,7 +215,49 @@ def test_push_html_returns_false_when_pull_rebase_fails(monkeypatch):
         return _FakeCompletedProcess(returncode=0)
 
     monkeypatch.setattr("main.subprocess.run", fake_run)
+    monkeypatch.setattr("main.run_tree", fake_run)  # git pull／push 走 run_tree（有逾時）
     assert _push_html(date(2026, 8, 26)) is False
+
+
+def test_push_html_returns_false_when_push_times_out(monkeypatch):
+    """2026-11-04：git push 沒逾時卡了 22 小時、排程鎖不放。逾時要回 False，而且 push 一定帶 timeout。"""
+    import subprocess as sp
+    seen = {}
+
+    def fake_run(cmd, *args, **kwargs):
+        if cmd[:2] == ["git", "diff"]:
+            return _FakeCompletedProcess(returncode=1)
+        if cmd[:2] == ["git", "push"]:
+            seen["timeout"] = kwargs.get("timeout")
+            seen["stdin"] = kwargs.get("stdin")
+            raise sp.TimeoutExpired(cmd, kwargs.get("timeout"))
+        return _FakeCompletedProcess(returncode=0)
+
+    monkeypatch.setattr("main.subprocess.run", fake_run)
+    monkeypatch.setattr("main.run_tree", fake_run)
+    assert _push_html(date(2026, 8, 26)) is False
+    assert seen["timeout"] == main.GIT_NET_TIMEOUT_SEC
+    assert seen["stdin"] is sp.DEVNULL
+
+
+def test_push_html_pull_timeout_counts_as_pull_failure(monkeypatch):
+    import subprocess
+    calls = []
+
+    def fake_run(cmd, *args, **kwargs):
+        calls.append(cmd[:2])
+        if cmd[:2] == ["git", "diff"]:
+            return _FakeCompletedProcess(returncode=1)
+        if cmd[:2] == ["git", "pull"]:
+            raise subprocess.TimeoutExpired(cmd, kwargs.get("timeout"))
+        if cmd[:3] == ["git", "rev-parse", "--git-path"]:
+            return _FakeCompletedProcess(returncode=1)
+        return _FakeCompletedProcess(returncode=0)
+
+    monkeypatch.setattr("main.subprocess.run", fake_run)
+    monkeypatch.setattr("main.run_tree", fake_run)
+    assert _push_html(date(2026, 8, 26)) is False
+    assert ["git", "push"] not in calls
 
 
 def _stub_all_chips_fetches(monkeypatch, empty_df):

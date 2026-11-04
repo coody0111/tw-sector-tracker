@@ -6332,3 +6332,25 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 
 ### 特別注意
 - 11/04 收盤沒跑，當天收盤資料要 Cody 補跑 `python main.py`。
+
+## [2026-11-04] git pull／push 加逾時、逾時砍整棵程序樹、鎖卡住發 Telegram（回應 9b95c8a 🔴）
+
+### 改了什麼
+- 異動檔案：subproc.py（新）, main.py, scripts/run_scheduled.py, tests/test_subproc.py（新）, tests/test_main.py, tests/test_scheduled_runner.py
+- `subproc.run_tree(cmd, timeout, **popen_kwargs)`：逾時時 `taskkill /T /F`（POSIX 用 process group）結束整棵樹再拋 TimeoutExpired；砍完最多再等 pipe 10 秒。
+- main.py `_push_html`：git pull／push 改走 run_tree，`GIT_NET_TIMEOUT_SEC = 120`、stdin=DEVNULL、`GIT_TERMINAL_PROMPT=0`（要帳密直接失敗，不在 pythonw 底下等提示）。pull 逾時＝pull 失敗（照舊檢查 rebase 卡住再 abort），push 逾時／非 0 → 回 False。
+- run_scheduled `run_main_py`：改走 run_tree，main.py 逾時時連 git 孫程序一起結束，鎖才放得掉。
+- 鎖卡住通知：`_notify_if_lock_stuck`，鎖檔存在超過 `max(_TIMEOUTS)+600` 秒、持有 PID 還活著 → `_notify_failure` 一次；同一個 PID 只發一次（記在 logs/scheduler.lock.notified）。
+- 🟡 的 PID 重用、從沒存在過的 PID 測試這次沒做（重用時也會因為「鎖太舊」而發通知，至少不會沒人知道）。
+
+### 資料來源相關
+- 無。
+
+### 請 Debugger 驗證
+- [ ] pytest 全過（新：test_subproc 兩支、test_main 兩支 push/pull 逾時、test_scheduled_runner 兩支鎖卡住通知）
+- [ ] test_run_tree_timeout_kills_grandchild_holding_pipe 在 Windows 真的會在 20 秒內返回、孫程序有被砍掉
+- [ ] 正常的 push 路徑沒壞（下一次排程 push 看 run.log 有 `Pushed to GitHub Pages.`）
+- [ ] 20:00／22:00 preopen 的 scheduler.log
+
+### 特別注意
+- 11/03 22:00 卡住的 git 程序（25528 那串）還在，等 Cody 決定要不要結束。

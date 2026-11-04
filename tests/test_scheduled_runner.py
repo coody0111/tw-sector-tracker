@@ -2,6 +2,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from datetime import date, datetime, time as dt_time
 from pathlib import Path
 
@@ -89,6 +90,32 @@ def test_windows_stale_lock_from_exited_process_is_taken_over(tmp_path, monkeypa
     assert ExecutionLock(str(lock_path)).acquire() is False
 
 
+def test_stuck_lock_notifies_once_per_pid(tmp_path, monkeypatch):
+    """2026-11-04：鎖卡住時只寫 log，排程停擺一整天沒人知道。超過最長逾時要發一次通知，同一個 PID 不重複發。"""
+    lock_path = tmp_path / "scheduler.lock"
+    lock_path.write_text("4242")
+    old = time.time() - sr._STUCK_LOCK_SEC - 60
+    os.utime(lock_path, (old, old))
+    lock = ExecutionLock(str(lock_path))
+    lock.held_pid = 4242
+    sent = []
+    monkeypatch.setattr(sr, "_notify_failure", lambda mode, err, dur: sent.append(err))
+    notified = tmp_path / "notified"
+
+    assert sr._notify_if_lock_stuck("intraday", lock, notified) is True
+    assert sr._notify_if_lock_stuck("intraday", lock, notified) is False
+    assert len(sent) == 1 and "4242" in sent[0]
+
+
+def test_fresh_lock_does_not_notify(tmp_path, monkeypatch):
+    lock_path = tmp_path / "scheduler.lock"
+    lock_path.write_text("4242")
+    lock = ExecutionLock(str(lock_path))
+    lock.held_pid = 4242
+    monkeypatch.setattr(sr, "_notify_failure", lambda *a: pytest.fail("不該通知"))
+    assert sr._notify_if_lock_stuck("intraday", lock, tmp_path / "notified") is False
+
+
 @pytest.mark.skipif(os.name == "nt", reason="os.kill 探活只用在 POSIX")
 def test_execution_lock_refuses_when_held_by_live_process_with_permission_error(tmp_path, monkeypatch):
     """PermissionError from os.kill means process exists but we can't signal it — should NOT steal lock."""
@@ -115,12 +142,12 @@ def test_run_main_py_intraday_mode_includes_realtime_and_no_push_flags(monkeypat
         stdout = "ok"
         stderr = ""
 
-    def fake_run(cmd, capture_output, text, timeout, cwd=None):
+    def fake_run(cmd, timeout, cwd=None, **kwargs):
         captured["cmd"] = cmd
         captured["cwd"] = cwd
         return FakeCompleted()
 
-    monkeypatch.setattr("subprocess.run", fake_run)
+    monkeypatch.setattr(sr, "run_tree", fake_run)
     summary_path = str(tmp_path / "summary.json")
     result = run_main_py("intraday", summary_path)
 
@@ -144,7 +171,7 @@ def test_run_main_py_close_mode_excludes_realtime_and_no_push_flags(monkeypatch,
         captured["cmd"] = cmd
         return FakeCompleted()
 
-    monkeypatch.setattr("subprocess.run", fake_run)
+    monkeypatch.setattr(sr, "run_tree", fake_run)
     run_main_py("close", str(tmp_path / "summary.json"))
 
     assert "--realtime" not in captured["cmd"]
@@ -463,7 +490,7 @@ def test_run_main_py_preopen_mode_calls_publish_recommend(monkeypatch, tmp_path)
     class FakeCompleted:
         returncode, stdout, stderr = 0, "", ""
 
-    monkeypatch.setattr("subprocess.run", lambda cmd, **kw: captured.setdefault("cmd", cmd) and FakeCompleted())
+    monkeypatch.setattr(sr, "run_tree", lambda cmd, **kw: captured.setdefault("cmd", cmd) and FakeCompleted())
     run_main_py("preopen", str(tmp_path / "s.json"))
     assert "--publish-recommend" in captured["cmd"] and "--realtime" not in captured["cmd"]
 

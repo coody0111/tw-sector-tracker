@@ -6573,3 +6573,41 @@ Telegram 用正式 payload 換上這份 heat；Chrome headless 看 1440／375。
 ### 結論
 - [ ] 需要修改後再確認
 - [x] 可以繼續下一個任務（🟡：rebase 改寫 commit 已實際發生一次；盤中自動推送和「✅ 才 push」衝突，請 Cody 決定）
+
+## [2026-11-04] 報告 - 筆電 Developer／Debugger 雙 worktree 流程（5fd0b17，只審文件）
+
+### 🔴 程式問題（需立刻修）
+- 問題：CLAUDE-debugger.md「🖥️ 換平台開工（照跑，別想）」在筆電照跑，會把 laptop 分支上還沒 push 的 commit 整個丟掉
+  位置：CLAUDE-debugger.md 第 211～223 行
+  說明：那段寫 `D=~/Desktop/tw-sector-tracker` → `git -C $D reset --hard origin/master` → `git merge --ff-only master`。
+  原本的前提是 D 是 master worktree；但新流程裡，筆電的 D 是 **laptop** 分支。筆電 Debugger 換到筆電開工時照「照跑，別想」執行，
+  就會把 laptop 硬拉回 origin/master，筆電 Developer 還沒 push 的 commit 全部不見（只能從 reflog 救）。
+  新加的「💻 在筆電當 Debugger」只說「跟的是 laptop」，沒有說這段不能在筆電跑。
+  建議：這段標明「只在桌電」，筆電改成「`git merge --ff-only laptop`，不要 reset」。
+
+### 🟡 建議改善
+- 「先判斷自己在哪台」兩份檔案的判斷方式不一樣，Developer 那份在新流程下會判錯
+  - CLAUDE-developer.md 第 306 行：「`git worktree list` 有 `tw-sector-tracker-debug`、查得到排程 → 桌電；都沒有 → 筆電」。
+    但筆電現在也會有 `tw-sector-tracker-debug` worktree，所以筆電會變成「有 worktree、沒排程」，兩邊都不符合。
+  - CLAUDE-debugger.md 用分支名稱判斷（`laptop-debug`／`debug`），比較可靠。建議 Developer 那份也改成看分支（`laptop`／`master`），或只看排程。
+- CLAUDE-debugger.md 的「工作流自檢」第 1 步寫「應該是 `debug`」、看到不對就「先停下來修」；第 2 步、「重新啟動後的第一件事」、「收到任務時」也都寫 `git merge master`。
+  筆電 Debugger 會先讀到這幾段，第 185 行的筆電段落才在後面。建議在這幾處加一句「筆電見『💻 在筆電當 Debugger』」，
+  不然筆電 Debugger 一開工就會判定 workflow 壞了，或去 merge 一個筆電上很舊的本地 master（不會壞東西，但會誤導）。
+- 筆電 Developer 第 1 步 `git merge origin/master` 之前，如果 laptop-debug 上還有沒被 laptop 收進來的報告 commit，
+  之後 `laptop-debug merge --ff-only laptop` 會失敗（兩邊分岔）。建議第 1 步先 `git merge laptop-debug`，再 merge origin/master。
+- 找對方 session 只看名稱：ListAgents 在 Remote Control 連上時也會列出**別台機器**的 session，兩台的資料夾名稱又一樣，
+  筆電 Developer 可能把「請驗」傳到桌電 Debugger（反過來也可能）。目前這台的 ListAgents 只有本機 session，所以還沒發生。
+  建議兩份都加一句「只找本機（this machine）的 session」。
+- 桌電第 4 步「不用再驗」的條件寫的是「只改頁面／文件／通知文字之類」。建議補上「也沒有改到 tests/ 跟 config.py」，
+  不然只改測試門檻、或改 config 數值的 commit，可能會被歸類成不用驗。
+
+### ✅ 驗證通過
+- 筆電 Debugger 永遠不 push、push laptop 要筆電 Debugger 全部 ✅：兩份檔案寫法一致。
+- 「筆電驗不到」要寫在 🟡、不能打 ✅：跟桌電 Debugger「git pull 拉不到 data/」那條原則一致，桌電第 4 步也把它列成「要再驗」的條件。
+- 桌電收件第 2 步：每一則「筆電：」交接都要有筆電報告而且全部 ✅，否則不合。這條跟筆電第 7 步對得上。
+- 筆電第一次設定的指令：`worktree add -b laptop-debug ../tw-sector-tracker-debug laptop`、`switch -c laptop-debug laptop` 語法正確；
+  (b) 在切換前先確認工作區乾淨，不乾淨就問 Cody。
+
+### 結論
+- [x] 需要修改後再確認（🔴：「換平台開工」在筆電會 reset 掉 laptop 的 commit）
+- [ ] 可以繼續下一個任務

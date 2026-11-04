@@ -6655,3 +6655,14 @@ Telegram 用正式 payload 換上這份 heat；Chrome headless 看 1440／375。
 ### 結論
 - [ ] 需要修改後再確認
 - [x] 可以繼續下一個任務（剩 1 個 🟡：debug 的 ahead 檢查要換指令）
+
+## [2026-11-04] 報告 - 換平台檢查改用 log origin/master..（6d174e2，只審措辭）
+
+### ✅ 驗證通過
+- 先 `git fetch origin`，再用 `log origin/master..master`、`log origin/master..debug`，兩個都要是空的：指令正確。兩個 worktree 共用同一個 `.git`，fetch 在哪個 worktree 跑都一樣。
+- 註明了「debug 沒設 upstream，別用 `git status -sb` 判斷」，跟 02522fa 實測結果一致。
+- 下一行還寫「有 ahead 就停下來」，意思等於「上面兩個 log 有輸出」，讀起來不會誤會，不用再改。
+
+### 結論
+- [ ] 需要修改後再確認
+- [x] 可以繼續下一個任務

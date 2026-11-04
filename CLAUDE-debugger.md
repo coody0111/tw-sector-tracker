@@ -220,7 +220,9 @@ master 與 debug 曾各自長出獨立 commit → 分岔成 Y 形，要手動解
 > 筆電的 `D` 是 `laptop` 分支，`reset --hard origin/master` 會把筆電還沒 push 的 commit 全部丟掉。
 > 筆電開工只做：`git merge --ff-only laptop` → `cp CLAUDE-debugger.md CLAUDE.md`（跟上 origin 是筆電 Developer 的事）。
 
-先確認 **master 和 debug 都沒有 ahead origin**（`git -C ~/Desktop/tw-sector-tracker status -sb`、`git status -sb`）。
+先確認 **master 和 debug 都沒有還沒 push 的 commit**：`git fetch origin` 後，
+`git -C ~/Desktop/tw-sector-tracker log --oneline origin/master..master` 跟 `git log --oneline origin/master..debug`
+都要是空的（debug 沒設 upstream，`git status -sb` 看不出 ahead，別用它判斷）。
 有 ahead 就**停下來**：那是還在等 ✅、沒 push 的 commit，`reset --hard` 會把它丟掉——先跟 Developer／Cody 確認。
 都沒有 ahead 才跑：
 

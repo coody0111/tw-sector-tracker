@@ -6784,3 +6784,33 @@ Telegram 用正式 payload 換上這份 heat；Chrome headless 看 1440／375。
 ### 結論
 - [ ] 需要修改後再確認
 - [x] 可以繼續下一個任務（🟡1、🟡2 建議第一次正式發佈前修；🟡4 請 Cody 決定）
+
+## [2026-11-05] 報告 - dev 流程文件修 🟡1～3（fa2e809）
+
+### 🔴 數據問題（需立刻修）
+- 無
+
+### 🔴 程式問題（需立刻修）
+- 無
+
+### 🟡 建議改善
+- （小地方，可不改）「發佈到 master」標題寫 `M=../tw-sector-tracker`，這是 bash 寫法，但底下的指令都是
+  PowerShell（`Test-Path`、`if ($?)`）。照抄的話 `$M` 會是空的，`git -C` 會變成在 dev 資料夾跑。
+  建議改成 `$M = '../tw-sector-tracker'`。
+
+### ✅ 驗證通過
+- 用 PowerShell 5.1 在新的假 repo（scratchpad `ps/`，bare origin＋master＋dev worktree）實跑第 3、4 步：
+  - A 正常：`fetch → merge origin/master → merge dev → push` 全部執行，`$?`=True；第 4 步 `origin/master..master` 是空的。
+    `git fetch` 的進度會寫到 stderr，但沒有讓 `$?` 誤判成 False。
+  - B push 失敗（把 pushurl 改成不存在的路徑）：鏈最後 `$?`=False；第 4 步列出 `Merge branch 'dev'`、`feat2` →
+    **能抓到 push 失敗**。
+  - C merge 衝突（master 上有直接改同一檔的 commit）：鏈在 merge dev 停下，**push 沒有執行**（`PUSH RAN` 沒印出來），
+    之後照第 5 步 `merge --abort` 可以回到乾淨狀態。
+- 🟡1：`git log --no-merges dev..master -- . ':(exclude)docs'`：排程 commit 只改 `docs/reports/index.json` 時
+  輸出空的（不再誤報）；master 上有人直接 commit `x.py` 時會列出 `real direct edit`（真正的問題還是抓得到）。
+- 🟡3：`CLAUDE-debugger.md` 71、81 行已改成「跟 dev 同步追蹤」。
+- 🟡4：等 Cody 回覆，本地 CLAUDE.md 沒動。
+
+### 結論
+- [ ] 需要修改後再確認
+- [x] 可以繼續下一個任務

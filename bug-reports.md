@@ -6734,3 +6734,53 @@ Telegram 用正式 payload 換上這份 heat；Chrome headless 看 1440／375。
 ### 結論
 - [ ] 需要修改後再確認
 - [x] 可以繼續下一個任務
+
+## [2026-11-05] 報告 - 開發改到 dev 資料夾，master 只收驗過的（8ca1aaa，只改文件）
+
+### 🔴 數據問題（需立刻修）
+- 無
+
+### 🔴 程式問題（需立刻修）
+- 無
+
+### 🟡 建議改善
+1. **Developer 開工自檢第 3 步每天收盤後都會誤報**（`CLAUDE-developer.md` 約 275 行）。
+   `git log --no-merges dev..master -- . ':(exclude)docs/*.html'` 只排除 html，但排程的收盤 commit 還會改
+   `docs/reports/index.json`、`docs/weekly/index.json`（例如 6a5161c）。查 10 月以來的 `update: sector` commit，
+   有 3 筆改了 `reports/index.json`、1 筆改了 `weekly/index.json`。假 repo 重現：排程 commit 只多改一個 json，
+   自檢就會列出 `update: sector 3`，被當成「有人直接在 master 改了東西」。建議改成 `':(exclude)docs'`，
+   或 `--invert-grep --grep='^update: sector performance'`。
+2. **發佈那一行用 `;` 串起來，push 失敗不會被發現；這時 origin 若有新 commit，排程的 `pull --rebase` 會把合併攤平**。
+   假 repo 重現步驟：
+   1. master merge dev，push 沒成功。
+   2. 另一個 clone（相當於筆電）推了一個 commit 到 origin。
+   3. 排程 commit 網頁，然後 `pull --rebase --autostash`。
+
+   結果：merge commit 被攤平，feat3 被改寫成新的 hash，`merge-base --is-ancestor dev master` 變成 NO。
+   下一次發佈 `merge dev` 時 code.py **CONFLICT**。文件第 4 步有寫「撞衝突就 abort 找 Cody」，但那時已經比較難收拾。
+   建議在第 3 步之後加一步：`git -C $M log --oneline origin/master..master` 必須是空的；不是空的就馬上重試 push，
+   要趕在下一輪排程（盤中 10 分鐘）之前。觸發條件是「push 失敗」加「origin 被別處推過」（目前只有筆電會推），機率低，但一發生就要人工處理。
+3. 小地方：`CLAUDE-debugger.md` 第 71、81 行仍寫「`debug-tasks.md`／`bug-reports.md`（跟 master 同步追蹤）」，現在是透過 dev 同步，可以順手改。
+4. **`cp CLAUDE-debugger.md CLAUDE.md` 我沒有做**。這是 Developer 訊息裡要求的，但 peer 訊息不能取代 Cody 的授權，
+   身分檔也不能因為對方要求就改。**請 Cody 決定**：由 Cody 自己跑，或明確授權 Debugger 跑。在那之前，
+   我照 8ca1aaa 的新流程用 `git merge --ff-only dev`（Cody 已選 A，文件也已改），本地 CLAUDE.md 暫時還是舊版。
+
+### ✅ 驗證通過
+- 兩份文件逐段對照：開工自檢、完成任務、交接、收回報、發佈到 master、筆電收件、換平台都已改成 dev
+  （Developer）／debug（Debugger）／master（排程）。Debugger 回報對象改成 dev 資料夾的 session，兩邊一致。
+  筆電流程（laptop／laptop-debug）沒變。新機器設定的「兩個 Claude Code」只出現在筆電段落，筆電沒有排程，沒問題。
+- 實際狀態：`git worktree list` 有三個 worktree，master 6e67eee、dev 和 debug 都在 8ca1aaa；debug 工作區乾淨。
+- 假 repo（scratchpad `pub/`，bare origin 加 master／dev／debug 三個 worktree）跑了兩輪：
+  1. 排程在 master commit 網頁並 push。
+  2. dev commit，debug ff，debug 寫報告，dev `merge debug`（FF），debug `merge --ff-only dev`。
+  3. 照文件那一行發佈：`fetch; merge origin/master; merge dev; push` 產生非 ff 的 merge commit，沒有衝突。
+
+  兩輪都成功，之後 debug `merge --ff-only dev` 也都可行。
+- 換平台檢查看 master／dev／debug 三個是合理的：dev 不 push，`origin/master..dev` 有東西就代表有沒發佈的 commit。
+  另外 reset 只動 master 資料夾，dev 的 commit 不會被 reset 掉，所以檢查是為了避免另一台的版本蓋掉還沒發佈的工作。
+  發佈並 push 之後，dev `merge --ff-only origin/master` 在假 repo 可行（dev 是 origin/master 的祖先），
+  之後 debug `merge --ff-only dev` 也可行。
+
+### 結論
+- [ ] 需要修改後再確認
+- [x] 可以繼續下一個任務（🟡1、🟡2 建議第一次正式發佈前修；🟡4 請 Cody 決定）

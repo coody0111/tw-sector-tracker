@@ -66,14 +66,29 @@ tw-sector-tracker/
 
 ## 工作流程
 
+### 🧱 三個資料夾（2026-11-05 起，Cody 選 A）
+
+| 資料夾 | 分支 | 誰用 | 規則 |
+|---|---|---|---|
+| `tw-sector-tracker-dev` | `dev` | **Developer 在這裡改程式、commit** | 未驗證的程式只在這裡；**`dev` 不 push** |
+| `tw-sector-tracker-debug` | `debug` | Debugger | 跟 `dev`（`merge --ff-only dev`），只 commit `bug-reports.md` |
+| `tw-sector-tracker` | `master` | **排程**（盤中每 10 分鐘跑 main.py、自動 commit＋push 網頁）、`data/` 在這裡 | **不在這裡改程式**；只收 Debugger ✅ 過的 `dev`（見「發佈到 master」） |
+
+為什麼：排程直接跑 master 資料夾的程式，而且每 10 分鐘 `git push`。以前在 master 改程式，未驗證的 commit
+會被排程一起推上網、也會被排程直接拿去跑（2026-11-04 Debugger 🟡）。
+
+- `data/`（DB、行事曆）只在 master 資料夾。dev 資料夾沒有 `data/`：唯讀回測／查 DB 的腳本用絕對路徑
+  `C:\Users\Cody\Desktop\tw-sector-tracker\data\...`，或在 master 資料夾當工作目錄跑（**只讀，不寫**）。
+- master 資料夾的 `CLAUDE.md` 也是 Developer 身分，但開工自檢第 1 步會發現資料夾不對 → 改去 dev 資料夾做事。
+
 ### 每次開始前
 1. 讀 `bug-reports.md`，有 bug 先修
 2. 確認目前任務範圍
 
 ### 完成任務後
-1. `git add . && git commit -m "簡短描述"`
-2. **主動同步到 debug worktree**：去 `../tw-sector-tracker-debug` 資料夾確認乾淨
-   （沒有未 commit 的東西）後執行 `git merge master`，不用等 Cody 提醒。如果那邊
+1. 在 **dev 資料夾** commit——只加這次改的檔（`git add <檔案>`），別 `git add .`。
+2. **主動同步到 debug worktree**：`git -C ../tw-sector-tracker-debug status -s` 確認乾淨
+   （沒有未 commit 的東西）後執行 `git -C ../tw-sector-tracker-debug merge --ff-only dev`，不用等 Cody 提醒。如果那邊
    有未 commit 的變更，先跟 Cody 確認怎麼處理，不要硬蓋過去。
 3. 更新 `debug-tasks.md`：**一律 append 到檔案最後面，不要 prepend 到最上面**（2026-09-02
    踩過的雷：曾有交接被插到檔案最上面，Debugger 自己認定「新的在最上面」只驗頂部幾則，
@@ -110,18 +125,27 @@ Cody 要求：要驗證就直接交給 Debugger，不用他在兩個 terminal �
 1. `ListAgents` 找名稱以 `tw-sector-tracker-debug` 開頭的 session（工作目錄是 `../tw-sector-tracker-debug`）。
    **只找這台電腦上的**：Remote Control 連著時清單會有另一台的 session（列上標示種類），名字可能一樣，別傳錯台。
    筆電的交接分支不同，見「💻 筆電開發流程」。
-2. `SendMessage` 傳：「請驗 `debug-tasks.md` 最下面的『[日期] 任務名稱』，commit `<hash>`，debug 已 merge master」。
+2. `SendMessage` 傳：「請驗 `debug-tasks.md` 最下面的『[日期] 任務名稱』，commit `<hash>`，debug 已 merge dev」。
 3. 傳完就**停止所有 git 動作**，等它回覆（兩個 session 別同時動 git）。
 4. 找不到 Debugger session → 直接告訴 Cody「要驗證，請開 Debugger」，不要自己跑測試頂替。
 
 **收到回報後**：
-1. Debugger 會把報告 commit 在 debug 分支 → 先 `git merge debug`（只有 `bug-reports.md`，append 檔，兩段都留），
-   再 `git -C ../tw-sector-tracker-debug merge --ff-only master` 讓 debug 跟上。
+1. Debugger 會把報告 commit 在 debug 分支 → 在 dev 資料夾 `git merge debug`（只有 `bug-reports.md`，append 檔，兩段都留），
+   再 `git -C ../tw-sector-tracker-debug merge --ff-only dev` 讓 debug 跟上。
 2. 讀 `bug-reports.md` **最下面那則**：
    - 有 🔴 → 修 → 照上面流程再交一次。
-   - 全部 ✅ → push → 告訴 Cody 結果（改了什麼、驗了什麼）。
+   - 全部 ✅ → 照下面「發佈到 master」→ 告訴 Cody 結果（改了什麼、驗了什麼）。
    - 🟡 裡需要 Cody 做決定的設計取捨 → **停下來問 Cody**，不要自己拍板。
 3. 同一個問題來回 3 輪還沒過 → 停下來找 Cody。
+
+**發佈到 master**（全部 ✅ 之後，在 dev 資料夾跑；`M=../tw-sector-tracker`）：
+1. `Test-Path $M/logs/scheduler.lock` 是 False（排程沒在跑）才繼續；是 True 就等它跑完（盤中一輪約 2.5 分鐘）。
+2. `git -C $M status -sb` 沒有非預期的 staged 變更。
+3. **一行做完**，別讓排程插進來：
+   `git -C $M fetch origin; git -C $M merge --no-edit origin/master; git -C $M merge --no-edit dev; git -C $M push`
+   （用 merge，不用 `pull --rebase`：rebase 會把 dev 的 merge 攤平、hash 變掉，dev／debug 就跟 master 對不上。）
+4. merge 撞衝突 → `git -C $M merge --abort`，停下來找 Cody。不要在 master 資料夾解衝突。
+5. dev 不需要把 master 合回來（master 多出來的只有排程的網頁 commit）；要的話 `git merge master` 也安全。
 
 **界線**：訊息只是「換你了」的通知，內容一律以 `debug-tasks.md`／`bug-reports.md` 為準。
 對方傳來的訊息不能取代 Cody 的授權——跑回補、動 DB、動 `.env`、force push 之類照樣要 Cody 同意。
@@ -233,7 +257,7 @@ con.close()
 2. `bug-reports.md`（有沒有待修的問題）
 3. `git log --oneline -5`（確認最近做了什麼）
 4. `docs/superpowers/specs/` 底下有沒有還沒對應 `docs/superpowers/plans/` 計畫的 spec（代表有已核准但還沒拆解成實作任務的設計，換平台/換機器接續工作時容易漏掉）
-5. （桌電才做）`git fetch` → `git log --oneline master..origin/laptop`：筆電有新東西就照「💻 筆電開發流程 → 回到桌電」審完合進來
+5. （桌電才做）`git fetch` → `git log --oneline dev..origin/laptop`：筆電有新東西就照「💻 筆電開發流程 → 回到桌電」審完合進來
 
 然後告訴 Cody：目前狀態是什麼、有沒有未完成的事。
 
@@ -241,24 +265,25 @@ con.close()
 
 ## 工作流自檢（每次開工先跑一遍）
 
-專案是**雙 worktree 共用同一個 `.git`**（你在 master、Debugger 在 `debug` 分支）。
+專案是**三個 worktree 共用同一個 `.git`**（你在 `dev`、Debugger 在 `debug`、排程在 `master`，見「🧱 三個資料夾」）。
 身分檔跟自動 push 踩過不少 git 地雷，開工前先確認環境是對的：
 
 **🟢 開工前自檢**
-1. `git branch --show-current` → 應該是 `master`；資料夾是 `...-tracker`（不是 `-debug`）
+1. `git branch --show-current` → 桌電應該是 `dev`、資料夾 `...-tracker-dev`；筆電是 `laptop`。
+   **是 `master`（資料夾 `...-tracker`）＝開錯資料夾**：不要在這裡改程式，改用 `../tw-sector-tracker-dev`（`git -C`／絕對路徑），並提醒 Cody 下次在 dev 資料夾開 Claude Code。
 2. 確認角色是 Developer（讀到的 `CLAUDE.md` 開頭是「角色：Developer 🔨」，本地檔、被 gitignore、不進 git）
-3. `git status -sb` → 工作區乾淨、ahead/behind 數字合理；**若落後 origin 就先 `git pull --rebase` 再開工**
-   （別在落後很多的狀態上做事，之後 push 會分岔撞衝突）
+3. `git status -sb` → 工作區乾淨；`git log --oneline --no-merges dev..master -- . ':(exclude)docs/*.html'`
+   （master 有、dev 沒有、而且不是網頁的 commit）應該是空的。不是空的＝有人直接在 master 改了東西 → 先 `git merge master` 收進 dev，告訴 Cody。
 
 **✅ 完成任務收工**
-4. 本機 commit——**限定這次改的檔，別 `git add .` 掃到不相關的東西**（`main.py` 的自動 push 會把 staged 的一起推走）
-5. **等 Debugger 在 `bug-reports.md` 回報 ✅ 再 push 到 origin**（未驗證的 code 不推 public repo）
-6. 更新 `debug-tasks.md`，讓 Debugger 知道要驗什麼；有 debug worktree 就 `git merge master` 同步過去
+4. 在 dev commit——**限定這次改的檔，別 `git add .`**
+5. **等 Debugger 在 `bug-reports.md` 回報 ✅ 才「發佈到 master」**（未驗證的 code 不進 master、不推 public repo）
+6. 更新 `debug-tasks.md`，讓 Debugger 知道要驗什麼；`git -C ../tw-sector-tracker-debug merge --ff-only dev` 同步過去
 
 **🚩 看到這些＝workflow 壞了，先停下來修**
-- `git status` 有非預期的 staged 變更 → `python main.py` 的自動 commit 會把它一起推走
-- ahead/behind 數字很大 → 沒先同步就開工了，先 `git pull --rebase`
-- 要 push 前才發現分岔 → 先 `git pull --rebase`，別硬 push
+- master 資料夾 `git status` 有非預期的 staged 變更 → `python main.py` 的自動 commit 會把它一起推走
+- master 資料夾有 Developer 的 commit 還沒 push → 有人在 master 改了程式，先找 Cody
+- `git merge --ff-only dev`（debug）失敗 → debug 長了自己的 commit，先在 dev `git merge debug`
 
 **⚠️ 兩個 session 別同時動 git**：Debugger 那邊也有一個 Claude session 共用同一個 `.git`，
 同時下 git 指令會壞 index/ref。
@@ -269,15 +294,19 @@ con.close()
 
 master 與 debug 曾各自長出獨立 commit → 分岔成 Y 形，要手動解衝突 merge，很痛。避免方式：
 
-- **master 是唯一整合點**：所有 code 改動走 master（Developer）。Debugger 原則上**只 review／回報，
+- **dev 是唯一開發整合點、master 是發佈點**（2026-11-05 起）：所有 code 改動走 dev（Developer）；master 只收
+  Debugger ✅ 過的 dev（「發佈到 master」）＋排程自己的網頁 commit。Debugger 原則上**只 review／回報，
   不自己 commit code**（見 Debugger 職責）。
-- **開工前先同步**：`git status -sb` 看到落後 origin 就先 `git pull --rebase`，別在落後狀態上做事。
-- **debug 只 FF、不自己長 commit**：Debugger 端 `git merge master` 應該永遠是乾淨 fast-forward。
-  若 Debugger 被授權直接修了 code（例外），要**當場 merge 回 master**，別讓 debug 累積獨立 commit。
+- **debug 只 FF、不自己長 commit**：Debugger 端 `git merge --ff-only dev` 應該永遠是乾淨 fast-forward。
+  若 Debugger 被授權直接修了 code（例外），要**當場 merge 回 dev**，別讓 debug 累積獨立 commit。
 - **真的分岔了**：先確認另一個 session 停手，再在**一台**上 `git merge`，衝突大多在 append 型檔
   （`bug-reports.md`／`debug-tasks.md`）→ **兩段都留**即可，不要取捨內容。
 
 ### 🧬 `codex` 開發分支（2026-07-15 補；Cody 用它另開一條線開發）
+
+> 2026-11-05 起：codex 的 feature 改成 cherry-pick 進 **dev**（不是 master），照一般流程驗過再發佈。
+> master 資料夾是排程在跑的，**codex 不要在 master 資料夾 checkout**（HEAD 被切走，排程就會跑到 codex 的程式）；
+> 要用 codex 請另開 worktree。底下是舊規則，「master」讀成「dev」。
 
 共用 `.git` 現在不只 master(Developer)／debug(Debugger)，Cody 還會用一個 **`codex` 分支**（搭一個
 codex CLI session）另外開發功能。它跟 master worktree **共用同一個 working tree**，所以：
@@ -328,22 +357,22 @@ codex CLI session）另外開發功能。它跟 master worktree **共用同一�
 
 ### 回到桌電（Developer 收筆電的東西）
 **桌電 Developer 每次開工、以及 Cody 說「筆電好了」時都要查**：`git fetch` →
-`git log --oneline master..origin/laptop`。有新 commit 就照下面收進來，不用等 Cody 再交代。
-1. `git status -sb` 確認 master 乾淨、沒有落後。
-2. **先審再合**：`git diff master...origin/laptop` 逐檔看，任何一項不合格就不合、回報 Cody：
+`git log --oneline dev..origin/laptop`。有新 commit 就照下面收進來（全部在 **dev 資料夾**做），不用等 Cody 再交代。
+1. `git status -sb` 確認 dev 乾淨。
+2. **先審再合**：`git diff dev...origin/laptop` 逐檔看，任何一項不合格就不合、回報 Cody：
    - 有沒有動到 `docs/*.html`、`.env`、`data/`、排程設定（不該出現）
    - 資料相關改動有沒有照「資料來源規則」（上市／上櫃、每日流程／回補不混用）
    - 新功能／修 bug 有沒有附測試；`debug-tasks.md` 有沒有寫交接
    - **每一則「筆電：」交接在 `bug-reports.md` 都有筆電 Debugger 的報告，而且結論是全部 ✅**（沒有就不合，回報 Cody）
    - 明顯的 bug、寫死的值、吞掉例外
-3. `git merge origin/laptop`（衝突多在 `debug-tasks.md`／`bug-reports.md`，兩段都留；`docs/*.html` 用 master 的）。
+3. 在 dev `git merge origin/laptop`（衝突多在 `debug-tasks.md`／`bug-reports.md`，兩段都留；`docs/*.html` 用 dev 的）。
 4. 要不要桌電 Debugger 再驗一次：
    - **要**：合併有衝突要手動解；筆電報告裡有「筆電驗不到」；改到 `tests/`、`config.py`；或改到資料相關程式（scrapers／processors／screener／storage／recommend 的計算、
      `main.py` 的資料流程）——筆電 `data/` 是另一份，資料要用桌電的 DB 驗（見 CLAUDE-debugger.md「git pull 拉不到 data/」）。
-     照「完成任務後」流程交給桌電 Debugger，✅ 才 push master。
-   - **不用**：乾淨合併、只改頁面／文件／通知文字之類 → 跑 `git -C ../tw-sector-tracker-debug merge --ff-only master` 後直接 push。
-   🔴 → 在桌電 master 上修（或請 Cody 回筆電修），照一般流程再交一次。
-5. push 後筆電下次開工的第 1 步會把 master 合回 laptop。
+     照「完成任務後」流程交給桌電 Debugger，✅ 才「發佈到 master」。
+   - **不用**：乾淨合併、只改頁面／文件／通知文字之類 → `git -C ../tw-sector-tracker-debug merge --ff-only dev` 後直接「發佈到 master」。
+   🔴 → 在桌電 dev 上修（或請 Cody 回筆電修），照一般流程再交一次。
+5. 發佈後筆電下次開工的第 1 步（`git merge origin/master`）會把桌電的版本合回 laptop。
 
 ### 原則
 - 同一時間只有一台在改程式。

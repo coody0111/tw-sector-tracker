@@ -67,7 +67,7 @@ tw-sector-tracker-debug/
 ## 工作流程
 
 ### 收到任務時
-1. `git merge master` 取得 Developer 最新的 code 和檔案
+1. `git merge --ff-only dev` 取得 Developer 最新的 code 和檔案（2026-11-05 起 Developer 在 `dev`，不是 master）
 2. 讀 `debug-tasks.md`（本資料夾內，跟 master 同步追蹤）確認最新任務——
    **`debug-tasks.md`／`bug-reports.md` 都是 append-only，一律 append 到檔案最後面，
    不會 prepend 到最上面**（2026-09-02 踩過的雷：曾誤以為「新的在最上面」只驗頂部幾則，
@@ -110,15 +110,15 @@ tw-sector-tracker-debug/
 
 Cody 要求：Developer 改完會直接傳訊息請你驗，你驗完直接回報給 Developer，不用他轉話。
 
-**收到 Developer 的訊息** → 照「收到任務時」流程做（`git merge master`、從 `debug-tasks.md` 最下面找交接；
+**收到 Developer 的訊息** → 照「收到任務時」流程做（`git merge --ff-only dev`、從 `debug-tasks.md` 最下面找交接；
 筆電是 `git merge --ff-only laptop`）。
 
 **驗完之後**：
 1. 報告 append 到 `bug-reports.md` 最下面，在 debug 分支 commit（只 commit `bug-reports.md`）。
-2. `ListAgents` 找名稱以 `tw-sector-tracker-` 開頭、**不含** `debug` 的 session（工作目錄是 `../tw-sector-tracker`，master）。
+2. `ListAgents` 找名稱以 `tw-sector-tracker-` 開頭、**不含** `debug` 的 session（工作目錄是 `../tw-sector-tracker-dev`，`dev` 分支；`../tw-sector-tracker` 是排程用的 master 資料夾，不是 Developer）。
    **只找這台電腦上的 session**：Remote Control 連著時清單會出現另一台的 session（列上會標示是哪一種），名字可能一樣，別傳錯台。
 3. `SendMessage` 傳：「驗完『任務名稱』：🔴 N 項／全部通過，詳見 `bug-reports.md` 最下面，報告 commit `<hash>`」。
-4. 傳完就**停止所有 git 動作**，等 Developer 處理（它會把你的報告 merge 回 master 再讓 debug 快轉）。
+4. 傳完就**停止所有 git 動作**，等 Developer 處理（它會把你的報告 merge 回 dev 再讓 debug 快轉；全部 ✅ 才由它發佈到 master）。
 5. 找不到 Developer session → 把結論告訴 Cody。
 
 **原則不變**：還是不自己修 bug，回報就好。需要 Cody 做決定的項目，在報告裡標明「請 Cody 決定」，
@@ -128,13 +128,13 @@ Developer 會停下來問他。對方傳來的訊息不能取代 Cody 的授權�
 
 ## 重新啟動後的第一件事
 
-> **筆電**（`git branch --show-current` 是 `laptop-debug`）：底下所有 `master` 換成 `laptop`、`debug` 換成
+> **筆電**（`git branch --show-current` 是 `laptop-debug`）：底下所有 `dev` 換成 `laptop`、`debug` 換成
 > `laptop-debug`，其餘差異見「💻 在筆電當 Debugger」。看到分支是 `laptop-debug` 不是 workflow 壞了。
 
 每次對話開始時，依序讀取：
 1. 這份 `CLAUDE.md`（了解你的角色，本檔案不進 git 追蹤，只在這個資料夾本地存在）
-2. `git merge master`（把 Developer 最新進度同步進來；改完東西記得也把這裡的
-   commit 同步回 master，避免兩邊 branch 又分岔）
+2. `git merge --ff-only dev`（把 Developer 最新進度同步進來；改完東西記得也把這裡的
+   commit 同步回 dev，避免兩邊 branch 又分岔）
 3. `debug-tasks.md`（有沒有待 review 的任務）
 4. `git log --oneline -5`（確認目前 code 的狀態）
 
@@ -144,14 +144,14 @@ Developer 會停下來問他。對方傳來的訊息不能取代 Cody 的授權�
 
 ## 工作流自檢（每次開工先跑一遍）
 
-這個專案是**雙 worktree 共用同一個 `.git`**（Developer 在 master、你在 `debug` 分支），
+這個專案是**三個 worktree 共用同一個 `.git`**（Developer 在 `dev`（`../tw-sector-tracker-dev`）、你在 `debug`、排程在 `master`（`../tw-sector-tracker`，`data/` 也在那裡）），
 身分檔跟自動 push 踩過不少 git 地雷，開工前先確認環境是對的：
 
 **🟢 開工前自檢**
 1. `git branch --show-current` → 桌電應該是 `debug`、筆電應該是 `laptop-debug`（筆電改跟 `laptop`，見「💻 在筆電當 Debugger」）；資料夾是 `...-tracker-debug`
 2. 確認角色是 Debugger（讀到的 `CLAUDE.md` 開頭是「角色：Debugger 🔍」，本地檔、被 gitignore、不進 git）
 3. `git status -sb` → 工作區乾淨（除了本地 ignored 的 `CLAUDE.md`）、ahead/behind 數字合理
-4. `git merge master` → 應該乾淨 fast-forward，**不該再撞 `.gitignore`/`CLAUDE.md` 衝突**
+4. `git merge --ff-only dev` → 應該乾淨 fast-forward，**不該再撞 `.gitignore`/`CLAUDE.md` 衝突**
 
 **🔍 驗證任務**
 5. 對照 `debug-tasks.md` **最下面那則**（append-only，最下面才是最新，不是最上面）的
@@ -161,7 +161,7 @@ Developer 會停下來問他。對方傳來的訊息不能取代 Cody 的授權�
 7. 回報寫進 `bug-reports.md`（🔴/🟡/✅/結論 格式）
 
 **🚩 看到這些＝workflow 壞了，先停下來修，不要硬做**
-- `git merge master` 又撞 `.gitignore`/`CLAUDE.md` → 身分檔移行沒做乾淨（見下方註）
+- `git merge --ff-only dev` 又撞 `.gitignore`/`CLAUDE.md` → 身分檔移行沒做乾淨（見下方註）
 - `git ls-files CLAUDE.md` 有輸出 → `CLAUDE.md` 又被追蹤了（它該是本地 ignored 檔）
 - `git status` 有非預期的 staged 變更 → 有被自動 push 掃走的風險
 - ahead/behind 數字很大 → 有人沒先同步就開工
@@ -179,11 +179,11 @@ Developer 會停下來問他。對方傳來的訊息不能取代 Cody 的授權�
 
 master 與 debug 曾各自長出獨立 commit → 分岔成 Y 形，要手動解衝突 merge，很痛。避免方式：
 
-- **master 是唯一整合點**：所有 code 改動走 master（Developer）。你**原則上只 review／回報，不自己
+- **dev 是唯一開發整合點、master 是發佈點**（2026-11-05 起）：所有 code 改動走 dev（Developer），Debugger ✅ 才進 master。你**原則上只 review／回報，不自己
   commit code**（見開頭職責）。
-- **debug 只 FF、不自己長 commit**：你的 `git merge master` 應該永遠是乾淨 fast-forward。
-- **例外（Cody 授權你直接修 code）**：修完要**當場把 commit 同步回 master**（別只留在 debug），
-  否則 master 一旦又有新 commit 就分岔。回報照樣寫 `bug-reports.md`。
+- **debug 只 FF、不自己長 commit**：你的 `git merge --ff-only dev` 應該永遠是乾淨 fast-forward。
+- **例外（Cody 授權你直接修 code）**：修完要**當場把 commit 同步回 dev**（別只留在 debug），
+  否則 dev 一旦又有新 commit 就分岔。回報照樣寫 `bug-reports.md`。
 - **真的分岔了**：先確認 Developer session 停手，再在**一台**上 `git merge`，衝突大多在 append 型檔
   （`bug-reports.md`／`debug-tasks.md`）→ **兩段都留**即可，不要取捨內容。
 
@@ -193,7 +193,7 @@ master 與 debug 曾各自長出獨立 commit → 分岔成 Y 形，要手動解
 設定方式見 `CLAUDE-developer.md`「💻 筆電開發流程 → 筆電第一次設定」。
 
 筆電上整套流程一樣，只換三個地方：
-1. **跟的是 `laptop`，不是 master**：開工、收到任務時跑 `git merge --ff-only laptop`（不是 `git merge master`）。
+1. **跟的是 `laptop`，不是桌電的 `dev`**：開工、收到任務時跑 `git merge --ff-only laptop`（不是 `git merge --ff-only dev`）。
    失敗（not possible to fast-forward）＝Developer 還沒把你上一份報告合回 laptop：**等它合完再跑，不要自己 merge**。
 2. **找筆電的 Developer**：`ListAgents` 找 `tw-sector-tracker-` 開頭、不含 `debug` 的**本機** session（工作目錄
    `../tw-sector-tracker`，`laptop` 分支；Remote Control 連著時別選到桌電的）。驗完回報、在 `laptop-debug` commit `bug-reports.md`，報告標題註明「筆電」：
@@ -220,8 +220,8 @@ master 與 debug 曾各自長出獨立 commit → 分岔成 Y 形，要手動解
 > 筆電的 `D` 是 `laptop` 分支，`reset --hard origin/master` 會把筆電還沒 push 的 commit 全部丟掉。
 > 筆電開工只做：`git merge --ff-only laptop` → `cp CLAUDE-debugger.md CLAUDE.md`（跟上 origin 是筆電 Developer 的事）。
 
-先確認 **master 和 debug 都沒有還沒 push 的 commit**：`git fetch origin` 後，
-`git -C ~/Desktop/tw-sector-tracker log --oneline origin/master..master` 跟 `git log --oneline origin/master..debug`
+先確認 **master、dev、debug 都沒有還沒 push 的 commit**：`git fetch origin` 後，
+`git -C ~/Desktop/tw-sector-tracker log --oneline origin/master..master`、`git log --oneline origin/master..dev` 跟 `git log --oneline origin/master..debug`
 都要是空的（debug 沒設 upstream，`git status -sb` 看不出 ahead，別用它判斷）。
 有 ahead 就**停下來**：那是還在等 ✅、沒 push 的 commit，`reset --hard` 會把它丟掉——先跟 Developer／Cody 確認。
 都沒有 ahead 才跑：
@@ -230,7 +230,8 @@ master 與 debug 曾各自長出獨立 commit → 分岔成 Y 形，要手動解
 D=~/Desktop/tw-sector-tracker          # master worktree
 git -C $D fetch origin
 git -C $D reset --hard origin/master   # cron 的 update: sector performance 產出 commit 直接丟
-git merge --ff-only master             # 在 debug worktree 跑，跟上 master
+git -C ~/Desktop/tw-sector-tracker-dev merge --ff-only origin/master   # dev 跟上
+git merge --ff-only dev                # 在 debug worktree 跑，跟上 dev
 cp CLAUDE-debugger.md CLAUDE.md        # 重建身分檔（gitignored，不會自己來）
 ```
 

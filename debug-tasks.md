@@ -6438,3 +6438,26 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 
 ### 特別注意
 -
+
+## [2026-11-05] 開發改到 dev 資料夾，master 只收驗過的（Cody 選 A）
+
+### 改了什麼
+- 異動檔案：CLAUDE-developer.md, CLAUDE-debugger.md（只改文件）
+- 新 worktree `../tw-sector-tracker-dev`（分支 `dev`，從 master 6e67eee 開）。Developer 在 dev 改程式、commit；`dev` 不 push。
+- master 資料夾只給排程跑（盤中每 10 分鐘 main.py 自動 commit＋push 網頁）；Debugger ✅ 後由 Developer「發佈到 master」：
+  確認沒有 scheduler.lock → `git -C ../tw-sector-tracker fetch; merge origin/master; merge dev; push` 一行做完（用 merge 不用 rebase）。
+- Debugger：`git merge --ff-only dev`（取代 merge master）；回報對象是 `../tw-sector-tracker-dev` 的 session。
+- 筆電收件改成合進 dev；codex 改 cherry-pick 進 dev、不要在 master 資料夾 checkout。
+- 另外：11/03 卡住的 git push 程序樹（25528 等 7 個）Cody 同意後已用 taskkill 結束，.git 沒有殘留 lock。
+
+### 資料來源相關
+- 無。dev 資料夾沒有 `data/`（gitignored，在 master 資料夾），文件有寫唯讀腳本用絕對路徑。
+
+### 請 Debugger 驗證
+- [ ] 兩份文件的流程前後一致：開工自檢、完成任務、交接、收回報、發佈到 master、筆電收件、換平台
+- [ ] 「發佈到 master」那一行在 master 有排程網頁 commit 時能正常 merge（不是 ff），之後 debug `merge --ff-only dev` 仍可行
+- [ ] 換平台開工檢查改成 master／dev／debug 三個都看，是否合理
+- [ ] 你這邊：`git merge --ff-only dev` 之後 `cp CLAUDE-debugger.md CLAUDE.md` 更新身分檔
+
+### 特別注意
+- 這筆是第一次走新流程：驗完我會照「發佈到 master」發佈。

@@ -6637,3 +6637,21 @@ Telegram 用正式 payload 換上這份 heat；Chrome headless 看 1440／375。
 ### 結論
 - [ ] 需要修改後再確認
 - [x] 可以繼續下一個任務（剩下 2 個 🟡，看要不要順手補）
+
+## [2026-11-04] 報告 - 換平台 reset 前檢查 ahead／筆電 ff 失敗要等（875745c，只審措辭）
+
+### 🟡 建議改善
+- 「先確認 master 和 debug 都沒有 ahead origin（…`git status -sb`）」：用來檢查 **debug** 的這個指令沒有作用。
+  debug 分支沒有設 upstream（`git rev-parse --abbrev-ref debug@{upstream}` → `fatal: no upstream configured for branch 'debug'`），
+  所以 `git status -sb` 只會印 `## debug`，永遠不會顯示 ahead。debug 上還沒合回 master 的報告 commit，用這個指令看不出來。
+  建議 debug 那邊改成 `git log --oneline origin/master..debug`（有輸出＝有 origin 沒有的 commit，要停下來）。
+  master 用 `status -sb` 可以（有 upstream），但要先 `git -C $D fetch origin` 才準。如果 origin 的參照是舊的，ahead 只會多報、不會漏報，所以偏安全。
+
+### ✅ 驗證通過
+- 筆電 ff 失敗那句：「not possible to fast-forward」是 git 實際的訊息；原因寫成「Developer 還沒把上一份報告合回 laptop」正確；
+  「等它合完再跑，不要自己 merge」跟防分岔規則一致。
+- 「有 ahead 就停下來，先跟 Developer／Cody 確認」：方向正確，可以擋住把還沒 push、還在等 ✅ 的 commit 丟掉。
+
+### 結論
+- [ ] 需要修改後再確認
+- [x] 可以繼續下一個任務（剩 1 個 🟡：debug 的 ahead 檢查要換指令）

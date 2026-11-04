@@ -6312,3 +6312,23 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 - [ ] DB＋CSV 複本跑 `--apply`：只少 47 列，其他列、欄位、BOM 不變；再跑一次是 0
 - [ ] 刪完後查股 3064 顯示最後真的成交日；跌停家數 11/02 少掉這些假跌停
 - [ ] 不要動正式 data/
+
+## [2026-11-04] 排程鎖在 Windows 探活會閃退（11/04 盤中、收盤全沒跑）
+
+### 改了什麼
+- 異動檔案：scripts/run_scheduled.py, tests/test_scheduled_runner.py
+- 症狀：11/03 22:00 那輪留下 `logs/scheduler.lock`（PID 22892）沒釋放。之後每輪 `ExecutionLock.acquire()` 呼叫 `os.kill(22892, 0)`，Python 3.11 在 Windows 對不存在的 PID 丟 `SystemError`（不是 OSError），沒被接住 → pythonw 閃退、scheduler.log 一行都沒有。11/04 盤中 09:15～14:45、收盤 15:00（result=1）都沒跑。
+- 另一個隱患：Windows 上 `os.kill(pid, 0)` 等於 TerminateProcess，PID 活著會被直接砍掉。
+- 修法：Windows 改用 `_win_pid_alive()`（ctypes OpenProcess＋GetExitCodeProcess，拒絕存取視為活著），POSIX 維持 os.kill。`__main__` 加 try/except，未預期例外寫進 scheduler.log。
+- 過期鎖已手動刪除（19:49，確認 PID 22892 不存在）。
+
+### 資料來源相關
+- 無。
+
+### 請 Debugger 驗證
+- [ ] pytest 全過（新測試 `test_windows_stale_lock_from_exited_process_is_taken_over`；permission_error 那支改成只在 POSIX 跑）
+- [ ] 今晚 20:00／22:00 preopen 在 scheduler.log 有正常紀錄
+- [ ] 確認沒有別處在 Windows 用 os.kill 探活
+
+### 特別注意
+- 11/04 收盤沒跑，當天收盤資料要 Cody 補跑 `python main.py`。

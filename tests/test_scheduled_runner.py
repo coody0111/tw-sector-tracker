@@ -71,6 +71,25 @@ def test_execution_lock_auto_releases_stale_lock_from_dead_process(tmp_path):
     assert lock.acquire() is True
 
 
+@pytest.mark.skipif(os.name != "nt", reason="Windows 專用的探活路徑")
+def test_windows_stale_lock_from_exited_process_is_taken_over(tmp_path, monkeypatch):
+    """2026-11-04：PID 不存在時 os.kill(pid, 0) 在 Windows 丟 SystemError，排程整支閃退。
+    Windows 不能呼叫 os.kill（signal 0 等於 TerminateProcess）。"""
+    proc = subprocess.Popen([sys.executable, "-c", "pass"])
+    proc.wait()
+    lock_path = tmp_path / "scheduler.lock"
+    lock_path.write_text(str(proc.pid))
+
+    def no_kill(*_args):
+        raise AssertionError("Windows 不可呼叫 os.kill 探活")
+
+    monkeypatch.setattr("os.kill", no_kill)
+    assert ExecutionLock(str(lock_path)).acquire() is True
+    lock_path.write_text(str(os.getpid()))
+    assert ExecutionLock(str(lock_path)).acquire() is False
+
+
+@pytest.mark.skipif(os.name == "nt", reason="os.kill 探活只用在 POSIX")
 def test_execution_lock_refuses_when_held_by_live_process_with_permission_error(tmp_path, monkeypatch):
     """PermissionError from os.kill means process exists but we can't signal it — should NOT steal lock."""
     lock_path = tmp_path / "scheduler.lock"

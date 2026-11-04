@@ -71,6 +71,34 @@ def is_market_hours(now: datetime) -> bool:
     return _MARKET_OPEN <= now.time() <= _INTRADAY_POLL_END
 
 
+def _win_pid_alive(pid: int) -> bool:
+    """Windows 不能用 `os.kill(pid, 0)` 探活：signal 0 在 Windows 等於 TerminateProcess，活的會被砍掉；
+    PID 不存在時 Python 3.11 丟的是 SystemError（不是 OSError）、沒被接住，整支排程直接閃退、
+    log 一行都沒有（2026-11-03 22:00 留下過期鎖後，11/04 盤中、收盤全部沒跑）。改用 OpenProcess 查。"""
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+    kernel32.GetExitCodeProcess.argtypes = (wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD))
+    kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    PROCESS_QUERY_LIMITED_INFORMATION, ERROR_ACCESS_DENIED, STILL_ACTIVE = 0x1000, 5, 259
+
+    if pid <= 0 or pid > 0xFFFFFFFF:
+        return False
+    handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    if not handle:
+        return ctypes.get_last_error() == ERROR_ACCESS_DENIED  # 存在但沒權限查＝還活著
+    try:
+        code = wintypes.DWORD()
+        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+            return True  # 查不到結束碼就保守當作還活著，不搶鎖
+        return code.value == STILL_ACTIVE
+    finally:
+        kernel32.CloseHandle(handle)
+
+
 class ExecutionLock:
     """檔案鎖：`logs/scheduler.lock` 存持鎖程序的 PID。程序異常結束後鎖必須能自動釋放——
     用 `os.kill(pid, 0)` 檢查該 PID 是否還活著，不活著就視為過期鎖，直接接管
@@ -80,6 +108,8 @@ class ExecutionLock:
         self.lock_path = Path(lock_path) if lock_path else _LOCK_PATH
 
     def _pid_alive(self, pid: int) -> bool:
+        if os.name == "nt":
+            return _win_pid_alive(pid)
         try:
             os.kill(pid, 0)
         except ProcessLookupError:
@@ -436,4 +466,9 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except Exception:
+        # 排程用 pythonw 跑，stderr 沒地方去——沒接住的例外要寫進 scheduler.log，不然閃退了也查不到
+        logger.exception("run_scheduled 未預期錯誤，排程中止")
+        sys.exit(1)

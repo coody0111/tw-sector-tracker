@@ -6496,3 +6496,51 @@ Telegram 用正式 payload 換上這份 heat；Chrome headless 看 1440／375。
 ### 結論
 - [ ] 需要修改後再確認
 - [x] 可以繼續下一個任務（🟡 兩項看要不要排；卡住的 git 程序請 Cody 決定；22:00 推送路徑補報）
+
+## [2026-11-04] 報告 - 盤中每 10 分鐘推上網站＋推送失敗發 Telegram（9a21627）
+
+### 🔴 數據問題（需立刻修）
+- 無
+
+### 🔴 程式問題（需立刻修）
+- 無
+
+### 🟡 建議改善
+- **repo 會長得很快**（**請 Cody 決定**要不要接受，或改成例如每 30 分鐘推一次、只在內容有變時推）
+  實測：盤中那種 update commit（fa0d149、7c66f7f）一筆 thin pack 約 **235～245 KB**（docs/index.html 一份約 6 MB）。
+  每天約 36 筆 → 約 **8.6 MB／天**，一年約 250 個交易日 → 約 **2 GB／年**。目前整個 repo 的 pack 是 18.4 MB。
+  GitHub 建議 repo 不要超過 1 GB，照這個速度約 4 個月就會到；筆電 clone／pull 也會跟著變慢。
+- **preopen（推薦發布）推送失敗不會通知**——11/03 22:00 出事的正好就是 preopen
+  位置：main.py 約第 771 行 `pushed = _push_html(day) if push else False`（publish 路徑）
+  說明：這裡沒有傳 `failures`，回傳的 summary 也沒有 `push_failed`，所以 preopen 推不上去時 `notify_push_state` 看不到。
+  它不會誤發（見 ✅），但也不會發失敗通知。建議比照 run()：傳 `failures`，並把 `push_failed` 放進 publish 的 summary。
+- **盤中每 10 分鐘有第三個人在 master worktree 動 git**（兩個 session 不能同時動 git 的規則，現在多了排程這個參與者）
+  我在 scratchpad 的假 repo 實測（remote 先多一筆 commit；本地一個檔已 `git add`、一個檔只改沒 add；然後照 `_push_html` 的順序跑 add／commit -- 路徑／`pull --rebase --autostash`）：
+  - 沒 commit 的改動內容都留著，**但原本 staged 的檔案會變回 unstaged**。autostash 套回來時不保留 index，
+    Developer 如果剛好 add 到一半，之後 commit 會少東西。
+  - 只要有 `.git/index.lock`，`git add` 就失敗（rc=128）。排程這邊會走 `_fail("CalledProcessError")` 發通知，
+    但**通知內容只有例外類別名稱**，看不出是 index.lock。建議把 git 的 stderr 或「index.lock 存在」寫進原因。反過來，session 剛好在排程跑 git 的那幾秒動 git，也會撞到它的 index.lock 而失敗。
+  - pull --rebase 會改寫本地還沒推上去的 commit：只有 origin 有本地沒有的 commit 時才會發生（例如筆電推過）。
+    發生時 Developer 傳給我的 hash 就對不上了，debug 也會分岔。只有桌電在推時不會發生，風險低，但請留意。
+  - 另外，排程每輪都會把 master 上還沒驗證的 commit 一起推上 origin。這是原本收盤就有的行為，現在只是頻率從一天幾次變成每 10 分鐘。
+
+### ✅ 驗證通過
+- pytest：999 passed、1 skipped、0 failed。
+- install_scheduler.ps1：開頭是 UTF-8 BOM（ef bb bf）。repo 裡的 blob 本來就是 LF（改前改後都是），靠 `core.autocrlf=true`＋`.gitattributes text=auto` 在 checkout 時轉 CRLF，
+  debug worktree 106/106 行是 CRLF。master worktree 這份檔案目前是 LF（Developer 的編輯器寫的，下次 checkout 會轉回 CRLF）；PowerShell 5.1 跑 LF 沒問題，中文靠的是 BOM，BOM 在。
+- `notify_push_state` 實測（假的 send、旗標檔放在 scratchpad）：
+  - preopen summary 沒有 push_failed：沒推 → None；有推、旗標不存在 → None（不會誤發）
+  - 盤中失敗 → 發 failed、建旗標；連續失敗 → 不重發；「沒有變動」（push_failed=None、git_pushed=False）→ 不發、旗標保留
+  - 之後任何一輪真的推成功（包含 preopen）→ 發 recovered、刪旗標；再成功 → 不發
+  - Telegram 送不到 → 回 None、旗標不動，下一輪再試
+- 「沒有變動」不算失敗：`_push_html` 走 `No HTML changes to push.` 那條路時，不會呼叫 `_fail`。
+- 盤中頁面的標示：fa0d149（11/04 09:12 盤中）的 index.html 有「盤中資料，尚未收盤確認」；熱度區標「11/03 收盤資料」（熱度用的是收盤資料），沒有把盤中資料標成收盤。
+- **上一則（b61bbcf）的推送路徑補驗通過**：11/04 20:19～20:21 那次 `python main.py`（收盤補跑，1028 支、加權 -0.83%）已經是新程式，
+  run.log 20:21:57 有 `Pushed to GitHub Pages.`。origin 現在是 7c66f7f，包含 67579fe～0c988ba，hash 都沒變。
+  → **11/04 收盤資料已經補跑**（09:12 盤中快照已被蓋掉）。
+- 盤中逾時 540 秒：11/04 09:10 那輪約 3 分 13 秒（含 push），加上 pull、push 各最多 120 秒仍在 540 秒內。
+
+### 結論
+- [ ] 需要修改後再確認
+- [x] 可以繼續下一個任務（🟡 repo 大小請 Cody 決定；preopen 失敗通知、通知原因寫清楚建議補）
+- 正式排程 TW-Sector-Intraday 的 Repetition 查到已經是 PT10M（有人改過了），不用再改。

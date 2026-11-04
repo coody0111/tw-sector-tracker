@@ -6452,3 +6452,47 @@ Telegram 用正式 payload 換上這份 heat；Chrome headless 看 1440／375。
 - [x] 需要修改後再確認（git push 沒有逾時、鎖卡住時不通知；卡住的 git 程序請 Cody 決定）
 - [ ] 可以繼續下一個任務
 - 67579fe 本身的修法正確，可以留著。11/04 收盤請 Cody 補跑 `python main.py`。
+
+## [2026-11-04] 報告 - git pull／push 加逾時、逾時砍整棵程序樹、鎖卡住發 Telegram（b61bbcf）
+
+### 🔴 數據問題（需立刻修）
+- 無
+
+### 🔴 程式問題（需立刻修）
+- 無
+
+### 🟡 建議改善
+- `run_tree` 的「砍完最多再等 pipe 10 秒」在 Windows 遇到「孤兒孫程序」時不成立
+  位置：subproc.py `run_tree`（`with subprocess.Popen(...)` 那層）
+  重現：父程序開一個拿著同一條 stdout 的孫程序後**自己先結束**，孫程序再睡 90 秒，timeout=5 →
+  `run_tree` 要 **90.5 秒**才拋 TimeoutExpired（孫程序是自己睡完才結束，不是被砍掉的）。
+  拆開量：第一次 communicate 3.0 秒逾時 → kill 後第二次 communicate 8.0 秒逾時（有照 _DRAIN_SEC）→
+  **`Popen.__exit__` 關 pipe 時卡到 30.1 秒**（孫程序結束才放開）。父程序已經不在了，`taskkill /T` 找不到這棵樹，所以孫程序砍不掉；
+  而 Windows 上關掉一條另一個 thread 正在同步讀的 pipe，會一直等到讀取結束。
+  影響：11/03 那串 git（父程序 22112 已不在、git push 還活著）就是這種形狀。新版裡 git 本身有 120 秒逾時，main.py 逾時時也會連 git 一起砍，
+  所以要變成孤兒，得是 main.py 自己先結束、卻留下還沒結束的子程序，機率很低；但註解寫的「就不等了」目前做不到。
+  可考慮：不用 `with`，逾時後不關 pipe 直接拋（讓 reader thread 自生自滅），或把 main.py 放進 Windows Job Object（設 `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`）綁住整棵樹，連孤兒也砍得到。
+- `git pull --rebase --autostash` 被逾時強制結束，可能留下 `.git/index.lock`（或 autostash 還留在 stash、rebase 只做到一半）
+  位置：main.py `_push_html` 的 pull 逾時分支
+  說明：taskkill /F 不會讓 git 清掉自己的鎖檔。`_rebase_in_progress()` 只看 rebase-merge／rebase-apply；如果留下的是 index.lock，
+  之後每一輪 `git add` 都會失敗，只會寫「Git push failed」警告，不會發通知。另外兩個 worktree 共用同一個 `.git`，Developer 那邊的 git 也會一起被擋。
+  **這條我沒實測**（很難剛好在 pull 寫 index 的時候砍掉），是依 git 的行為推論。建議：push 失敗時，如果有 index.lock 或其他 `*.lock`，在 log 和通知裡講清楚。
+- 卡住 22 小時的那串 git（PID 25528、22040、17660、24052、16832、21208）**現在還在**。要不要結束，請 Cody 決定。
+
+### ✅ 驗證通過
+- pytest：997 passed、1 skipped、0 failed（比上次多 6 支新測試）。
+- `test_run_tree_timeout_kills_grandchild_holding_pipe`：2.08 秒（要求 < 20 秒）。
+- 實測孫程序真的被砍掉（測試本身只量時間，沒有檢查這點）：父程序跟孫程序都卡住、timeout=3 →
+  3.6 秒拋 TimeoutExpired，之後孫程序 alive=False（用 `_win_pid_alive` 查）。
+  同樣的結構改用舊的 `subprocess.run(timeout=3, capture_output=True)`，要等到孫程序自己結束（15.0 秒）才返回，跟 9b95c8a 報告推的機制一致。
+- `_push_html`：pull、push 都走 run_tree，有帶 `timeout=120`、`stdin=DEVNULL`、`GIT_TERMINAL_PROMPT=0`（env 保留 os.environ）。
+  pull 逾時會當成 pull 失敗，不會去 push；push 逾時或回傳非 0 → `_push_html` 回 False，測試有覆蓋。
+- `run_main_py` 改走 run_tree，stdout／stderr 用 PIPE 加 text，回傳的形狀不變。
+- 鎖卡住通知：門檻是 5400+600＝6000 秒，比最長那輪（close 5400 秒）還久，不會誤報正常執行。同一個 PID 只發一次（測試有覆蓋）。
+- 實際排程：11/04 20:00 preopen 已經是新程式（master 19:59 就有 b61bbcf）。main.py 在 20:01:24 正常結束，scheduler.log 20:01:25「推薦發布：沒有發布（等待資料：上市外資持股）」，
+  `logs/scheduler.lock` 已經釋放。這輪沒有推送（沒有要推的東西）。
+- 尚未驗：正常推送路徑（`Pushed to GitHub Pages.`）。要等 22:00 那輪有發布、真的推送時才看得到，我會讀 run.log 用訊息補報，不 commit。
+
+### 結論
+- [ ] 需要修改後再確認
+- [x] 可以繼續下一個任務（🟡 兩項看要不要排；卡住的 git 程序請 Cody 決定；22:00 推送路徑補報）

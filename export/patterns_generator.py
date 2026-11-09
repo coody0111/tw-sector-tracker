@@ -58,7 +58,7 @@ def _sparkline_svg(closes: list, width: int = 64, height: int = 22) -> str:
     xs = [round(i / (len(closes) - 1) * width, 1) for i in range(len(closes))]
     ys = [round(height - (c - lo) / (hi - lo) * height, 1) for c in closes]
     pts = " ".join(f"{x},{y}" for x, y in zip(xs, ys))
-    color = "#37B25C" if closes[-1] >= closes[0] else "#E6432F"
+    color = "#E6432F" if closes[-1] >= closes[0] else "#37B25C"  # 台股：紅漲綠跌
     return (f"<svg width='{width}' height='{height}' viewBox='0 0 {width} {height}' "
             f"style='display:inline-block;vertical-align:middle'>"
             f"<polyline points='{pts}' fill='none' stroke='{color}' stroke-width='1.5' "
@@ -91,16 +91,16 @@ def _composite_badge(score: int | None) -> str:
     """0-100 綜合評分徽章，含填充色進度感。"""
     if score is None:
         return "<span style='color:#293346;font-size:.72rem'>─</span>"
-    if score >= 75:
-        color, bg = "#37B25C", "rgba(6,78,59,.35)"
+    if score >= 75:  # 台股慣例：高分（偏多）紅、低分（偏空）綠
+        color, bg = "#E6432F", "rgba(127,29,29,.35)"
     elif score >= 60:
-        color, bg = "#86efac", "rgba(6,78,59,.2)"
+        color, bg = "#fca5a5", "rgba(127,29,29,.2)"
     elif score >= 45:
         color, bg = "#F0BB55", "rgba(120,53,15,.2)"
     elif score >= 30:
-        color, bg = "#fb923c", "rgba(120,53,15,.3)"
+        color, bg = "#86efac", "rgba(6,78,59,.2)"
     else:
-        color, bg = "#E6432F", "rgba(127,29,29,.25)"
+        color, bg = "#37B25C", "rgba(6,78,59,.35)"
     return (f"<span style='background:{bg};color:{color};border:1px solid {color}55;"
             f"border-radius:6px;padding:2px 10px;font-size:.72rem;font-weight:800;"
             f"letter-spacing:.02em'>{score}</span>")
@@ -152,14 +152,14 @@ def _signal_info_cell(r: dict) -> str:
     if anchor is None:
         return "<span style='color:#293346;font-size:.7rem'>─</span>"
 
-    rr_color = "#37B25C" if (rr or 0) >= 2 else ("#F0BB55" if (rr or 0) >= 1 else "#E6432F")
+    rr_color = "#E6432F" if (rr or 0) >= 2 else ("#F0BB55" if (rr or 0) >= 1 else "#37B25C")
     days_str = f"<span style='color:#636B80;font-size:.65rem'>D+{days}</span> " if days is not None else ""
     date_str = f"<span style='color:#37435C;font-size:.65rem'>{sig_dt}</span><br>" if sig_dt else ""
     levels = (
         f"<span style='font-size:.68rem'>"
         f"進<b style='color:#DADFE8'>{anchor:.2f}</b> "
-        f"停<b style='color:#E6432F'>{stop:.2f}</b> "
-        f"標<b style='color:#37B25C'>{target:.2f}</b>"
+        f"停<b style='color:#37B25C'>{stop:.2f}</b> "
+        f"標<b style='color:#E6432F'>{target:.2f}</b>"
         f"</span>"
     )
     rr_badge = (
@@ -304,12 +304,12 @@ def _meta_hits_section(results: list[dict]) -> str:
 def _backtest_row(name: str, n: int, w3: int, w5: int, w10: int, ret10: float) -> str:
     """生成一列回測資料，自動計算 2R 期望值（1:2 風險報酬比）。"""
     def _wc(w: int) -> str:
-        c = "#37B25C" if w >= 50 else ("#98A0B4" if w >= 40 else "#E6432F")
+        c = "#E6432F" if w >= 50 else ("#98A0B4" if w >= 40 else "#37B25C")
         return f"<td style='text-align:center;color:{c}'>{w}%</td>"
-    ret_c = "#37B25C" if ret10 > 0 else "#E6432F"
+    ret_c = "#E6432F" if ret10 > 0 else "#37B25C"
     sign = "+" if ret10 > 0 else ""
     ev2r = 3 * (w10 / 100) - 1          # 2R 期望值 (1:2 RR)
-    ev_c = "#37B25C" if ev2r > 0 else "#E6432F"
+    ev_c = "#E6432F" if ev2r > 0 else "#37B25C"
     ev_sign = "+" if ev2r > 0 else ""
     return (
         f"<tr><td>{name}</td>"

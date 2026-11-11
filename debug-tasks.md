@@ -6712,3 +6712,16 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 - [ ] 兩檔 diff 各只有 37 列，只改 source_note／note
 - [ ] 理由跟 f712d79^ 的 note 一字不差
 - [ ] 用這份 overrides 重跑 build_universe（tmp 目錄）產生的 note 跟現在的 stock_universe.csv 一致
+
+## [2026-11-11] 5236 凌陽創新 exchange 改 TWSE（Cody 同意，0f20a6c 報告）
+
+### 改了什麼
+- `data/stock_universe.csv`：5236 exchange TPEx → TWSE，只改這一格。
+- 查證：TWSE `fetch_daily_prices` 有 5236（凌陽創新，收 109.5），TPEx 清單沒有。DB `daily_prices` 有 2021-07-29～2026-11-11 共 1284 筆、沒斷。
+
+### 資料來源相關
+- 上市（TWSE）：+1；上櫃（TPEx）：−1。
+
+### 請 Debugger 驗證
+- [ ] diff 只有這一格
+- [ ] 標 TPEx 期間 5236 的行情為什麼還抓得到（每日流程怎麼分流）；有沒有其他依 exchange 選資料源的地方（月營收、季報、三大法人、融資、外資持股）這段期間缺 5236 的資料，需要回補的話列出來給 Cody 決定（不要自己補）

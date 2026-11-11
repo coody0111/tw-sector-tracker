@@ -7316,3 +7316,29 @@ Developer 轉述：這次修改 Cody 已同意。DB 用 2026-11-10 22:00 的正�
 ### 結論
 - [ ] 需要修改後再確認
 - [x] 可以繼續下一個任務（不需回補）
+
+## [2026-11-11] 報告 - build_universe：其他電子的 sub_sector 改成固定（ab159b7）
+
+### 🔴 數據問題（需立刻修）
+- 無
+
+### 🔴 程式問題（需立刻修）
+- 無
+
+### 🟡 建議改善
+- 小提醒（不用改）：新測試只有兩個標籤，沒修之前也有一半機率剛好排對，所以單跑一次不一定能抓到退化。要更穩可以放 4～5 個標籤，或用不同 PYTHONHASHSEED 跑 subprocess。修正本身沒問題。
+
+### ✅ 驗證通過
+- pytest 全套 **1015 passed, 1 skipped**。
+- `git diff 6c2c2a0 ab159b7 -- data/stock_universe.csv`：1041 列，**只有 8 格 sub_sector** 變，stock_name、exchange、meta、note 都 0 變。
+  - 2059 2460 3484 3609 4304 6584 8499：電子零件元件 → 其他電子零件；
+  - 6229：IC設計軟體 → IC設計。
+  - 跟交接一致，也回到 f712d79 之前的值。
+- **在 scratchpad 用 PYTHONHASHSEED = 1、2、12345 各重建一次**（dev 的 config／overrides／build 腳本，master 的 `industry_sectors.csv`，重建後刪 6236、8291）：
+  - 三次結果逐 byte 相同。
+  - 跟 commit 的 `stock_universe.csv` 內容逐欄逐列相同。逐 byte 比對有差，是因為 worktree 的換行是 CRLF，不是內容不同。
+- 修法 `sorted(subs)[0]` 跟同一行 note 的排序一致。
+
+### 結論
+- [ ] 需要修改後再確認
+- [x] 可以繼續下一個任務（可以發佈）

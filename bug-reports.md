@@ -7177,3 +7177,45 @@ Cody 的決定是 Developer 轉述的：停牌股重建後手動刪、5 檔新�
 ### 結論
 - [ ] 需要修改後再確認
 - [x] 可以繼續下一個任務（可以發佈；Cody 重建後記得刪 6236、8291）
+
+## [2026-11-11] 報告 - ⚠️ 族群分類：重建 stock_universe.csv（f712d79）
+
+Developer 轉述：重建由 Cody 授權 Developer 跑。
+
+### 🔴 數據問題（需立刻修）
+- 無
+
+### 🔴 程式問題（需立刻修）
+- 無
+
+### 🟡 建議改善
+- **舊的手寫分類理由被覆蓋掉了**：舊檔有 37 檔的 note 是人寫的理由，重建後全部變成「手動校正:既有手動校正遷移」。
+  例如「旺宏主業為FLASH，手動改歸記憶體」「中砂鑽石砂輪，手動改歸半導體材料」「台鋼建設為建設公司，非工業電腦」。
+  meta_sector 都還在（overrides 有保住），掉的只是「為什麼這樣分」。這些理由還在 git 歷史（6c80f07 的 stock_universe.csv）。
+  建議把它們搬進 `sector_overrides.csv` 的 source_note，下次重建就不會再掉。沒有程式讀 note 欄，所以不影響計算。
+- **`build_universe.py` 對「其他電子」的 sub_sector 不固定（既有問題，不是這次造成的）**：未命中任何族群時用 `subs[0]`，
+  但 `subs` 是從 set 轉成的 list，每次執行順序可能不一樣（Python 字串 hash 隨機）。
+  這次 8 檔 meta 沒變、sub_sector 卻變了，就是這個原因：2059 2460 3484 3609 4304 6584 8499 從「其他電子零件」變「電子零件元件」，6229 從「IC設計」變「IC設計軟體」。
+  每次重建都可能來回跳，diff 會有雜訊。改成 `sorted(subs)[0]` 就固定了。
+- **5 檔新股的 exchange 是空的**：
+  - 每日抓價用 `unique_ids`，不看 exchange，所以行情抓得到。
+  - 依 exchange 分流的地方（籌碼落後體檢、`_repair_price_outliers` 的 TWSE 清單、族群籌碼的分交易所分母）用 `== "TWSE"/"TPEx"` 或 groupby，空值會被略過，**不會報錯**，只是這 5 檔不會被算進籌碼覆蓋率。
+  - 建議 Cody 或 Developer 跑一次 `python scripts/update_exchange.py` 補上。注意這支腳本把「不在 TWSE 清單的」一律標 TPEx。
+    2237 華德動能-創、7835 永悅健康-創是創新板，要確認 STOCK_DAY_ALL 有沒有包含它們，沒有的話會被誤標成 TPEx。
+
+### ✅ 驗證通過
+- 逐檔比對 6c80f07 跟 f712d79 的 `data/stock_universe.csv`：
+  - **1036 → 1041**：新增 2049 2237 7689 7835 7839，沒有刪除，沒有重複股號。
+  - **6236、8291 不在檔內** ✅
+  - meta_sector 變動 **28 檔**，清單跟 31f1486 交接一致；exchange 變動 **0 檔**；stock_name 2 檔（4953、6741）；sub_sector 35 檔；note 187 檔。數字都跟 Developer 一致。
+- **跟我的獨立模擬比**（新 config＋overrides，對 master `industry_sectors.csv`；dev 用的檔跟 master 逐 byte 相同）：
+  - 1041 檔的 meta_sector **0 檔不同**。
+  - sub_sector 只有 14 檔不同，全部是「其他電子」的 fallback（我的模擬留空，build 取 `subs[0]`，見上面 🟡）。
+- **用新檔實際跑**（正式 DB 11/10 複本）：`calc_meta_signals`、`calc_meta_chips_signals`、`calc_meta_heatgrid_windows`、`calc_meta_rank_history`、`calc_meta_observation_scores` 全部正常。
+  - 47 個族群；晶圓代工、化合物半導體、測試介面都有出現。
+  - 例如測試介面的觀察分數 72.6，覆蓋率 1.0。
+- pytest 全套 **1014 passed, 1 skipped**。
+
+### 結論
+- [ ] 需要修改後再確認
+- [x] 可以繼續下一個任務（可以發佈；🟡 都不影響計算，exchange 建議盡快補）

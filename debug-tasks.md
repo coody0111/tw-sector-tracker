@@ -6725,3 +6725,15 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 ### 請 Debugger 驗證
 - [ ] diff 只有這一格
 - [ ] 標 TPEx 期間 5236 的行情為什麼還抓得到（每日流程怎麼分流）；有沒有其他依 exchange 選資料源的地方（月營收、季報、三大法人、融資、外資持股）這段期間缺 5236 的資料，需要回補的話列出來給 Cody 決定（不要自己補）
+
+## [2026-11-11] build_universe：其他電子的 sub_sector 改成固定（1c3700a 🟡）
+
+### 改了什麼
+- `scripts/build_universe.py`：未命中任何 META 時，`matched_sub` 從 `subs[0]`（set 轉 list，順序不固定）改成 `sorted(subs)[0]`，跟同一行 note 的排序一致。
+- `tests/test_build_universe.py`：新增 `test_build_unmatched_sub_sector_is_deterministic`。
+- `data/stock_universe.csv`：在 dev 重建（Cody 授權）再刪 6236、8291。diff 只有 8 檔 sub_sector：2059 2460 3484 3609 4304 6584 8499 電子零件元件→其他電子零件、6229 IC設計軟體→IC設計（剛好回到 f712d79 之前的值）。meta、exchange、note 都沒變。
+
+### 請 Debugger 驗證
+- [ ] pytest 全套
+- [ ] universe diff 只有上面 8 格
+- [ ] 換不同 PYTHONHASHSEED 重建兩次，結果相同

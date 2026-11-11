@@ -148,3 +148,20 @@ def test_build_override_removes_stock_from_ambiguous_report(tmp_path, monkeypatc
 
     report = (tmp_path / "data" / "universe_build_report.txt").read_text(encoding="utf-8")
     assert "無爭議股票" in report  # 3081 被 override 後應從爭議清單移除 → 清單空
+
+
+def test_build_unmatched_sub_sector_is_deterministic(tmp_path, monkeypatch):
+    # 未命中任何 META 的股票，sub_sector 取排序後第一個標籤，不隨 set 順序變
+    monkeypatch.chdir(tmp_path)
+    _write(tmp_path / "data" / "sectors" / "industry_sectors.csv",
+           "stock_id,stock_name,sector_name\n"
+           "9999,測試,電子零件元件\n"
+           "9999,測試,其他電子零件\n")
+
+    bu.build()
+
+    universe = pd.read_csv(tmp_path / "data" / "stock_universe.csv",
+                           dtype=str, encoding="utf-8-sig")
+    row = universe[universe["stock_id"] == "9999"].iloc[0]
+    assert row["meta_sector"] == "其他電子"
+    assert row["sub_sector"] == sorted(["電子零件元件", "其他電子零件"])[0]

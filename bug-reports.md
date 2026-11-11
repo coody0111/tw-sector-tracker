@@ -7251,3 +7251,31 @@ Developer 轉述：這次修改由 Cody 授權。
 ### 結論
 - [ ] 需要修改後再確認
 - [x] 可以繼續下一個任務（5236 另請 Cody 決定）
+
+## [2026-11-11] 報告 - 族群校正：37 檔手寫分類理由搬進 sector_overrides.csv（035db2f）
+
+Developer 轉述：這次修改 Cody 已同意。
+
+### 🔴 數據問題（需立刻修）
+- 無
+
+### 🔴 程式問題（需立刻修）
+- 無
+
+### 🟡 建議改善
+- 無。剩下 14 筆 overrides 的 source_note 還是「既有手動校正遷移」：2467 3131 3680 4503 5258 5443 5490 6187 6206 6640 6664 7734 8076 8114。
+  查過重建前的 note，這 14 檔原本就沒有手寫理由，只有空白或自動產生的「⚠️ 也在…」，所以沒得搬，這樣是對的。
+
+### ✅ 驗證通過
+- `data/sector_overrides.csv`：58 列，列順序不變。只有 `source_note` 欄有變，**正好 37 列**，meta_sector、sub_sector 都沒動。
+- 37 筆 source_note 跟 f712d79^ 的 `stock_universe.csv` note **逐字相同**，0 筆不符。
+- `data/stock_universe.csv`：1041 列，列順序不變。只有 `note` 欄有變，**正好 37 列**，股票跟 overrides 是同一批。
+  每列都等於「手動校正:」加上新的 source_note。全部 58 筆 override 的 note 也都跟 overrides 一致。
+- **在 scratchpad 暫存目錄實際跑 `scripts/build_universe.py`**：用 dev 的 config＋overrides＋現行 universe（帶 exchange）＋master 的 `industry_sectors.csv`，產出跟現在的 `stock_universe.csv` 比：
+  - stock_name、exchange、meta_sector、sub_sector、note **全部 0 差異**。
+  - 唯一差別是重建多出 6236、8291，符合 Cody「重建後手動刪」的決定。
+- 沒動程式。
+
+### 結論
+- [ ] 需要修改後再確認
+- [x] 可以繼續下一個任務

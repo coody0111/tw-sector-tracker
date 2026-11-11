@@ -130,7 +130,8 @@ def build() -> None:
 
         if meta is None:
             meta = "其他電子"
-            matched_sub = subs[0] if subs else ""
+            # 取排序後第一個：subs 來自 set，直接取 [0] 每次重建可能不同
+            matched_sub = sorted(subs)[0] if subs else ""
             note = f"⚠️ 未命中任何 META，原始: {', '.join(sorted(subs)[:3])}"
             ambiguous.append((sid, name, meta, matched_sub, note))
 

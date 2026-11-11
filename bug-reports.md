@@ -7279,3 +7279,40 @@ Developer 轉述：這次修改 Cody 已同意。
 ### 結論
 - [ ] 需要修改後再確認
 - [x] 可以繼續下一個任務
+
+## [2026-11-11] 報告 - 5236 凌陽創新 exchange 改 TWSE（90f24b2）
+
+Developer 轉述：這次修改 Cody 已同意。DB 用 2026-11-10 22:00 的正式 DB 複本，沒有 11/11 的資料。
+
+### 🔴 數據問題（需立刻修）
+- 無
+
+### 🔴 程式問題（需立刻修）
+- 無
+
+### 🟡 建議改善
+- 無。**不需要回補**：5236 在標 TPEx 的期間（64f6f05，2026-06-29 起）沒有缺任何資料，見下方。
+- 備註：標錯期間如果跑過兩種回補，會走錯路，但資料沒受影響。現在改成 TWSE，以後回補也會走對：
+  - `--backfill-yf` 會用錯代號 `5236.TWO`；
+  - `--backfill-twse` 會把它分到 FinMind 上櫃那一段。FinMind 不分上市櫃，所以結果一樣。
+
+### ✅ 驗證通過
+- `git diff 0addb3a 90f24b2 -- data/stock_universe.csv` 只有 5236 這一列的 exchange 這一格（TPEx → TWSE）✅
+- **為什麼標 TPEx 時行情還抓得到**：
+  - 每日流程用 `unique_ids`（universe 全部股號）呼叫 `fetch_realtime_prices`，兩個市場整批抓下來再用股號篩，不看 exchange。
+  - 三大法人、融資、外資持股的每日抓取和 `backfill` 補齊，也是「整個市場抓、按股號寫入」。
+    exchange 只用來判斷某天某市場是否已經有資料（`_existing_chips_dates` 的門檻）。少一檔不會改變判斷，所以 5236 照樣寫得進去。
+  - 月營收、季報（`scrapers/fundamentals.py`）是依官方來源分別抓 TWSE、TPEx 全市場，DB 裡 5236 的 exchange 本來就是 TWSE，跟 universe 無關。
+  - 真正依 universe exchange 分流的只有四處，都只影響判斷或統計，不影響資料有沒有進來：
+    - `_repair_price_outliers` 的上市清單；
+    - 籌碼落後體檢；
+    - 族群籌碼的分交易所分母；
+    - 上面兩種回補的分組。
+- **逐表查缺漏**：基準是「該日上市股（股票池內、不含 5236）列數 ≥ 中位數 80% 的日子」，時間從 2025-01-01 起。
+  - `daily_prices` 448 天、`institutional` 447 天、`margin` 445 天、`foreign_holdings` 448 天、`shareholder` 47 週：**5236 缺 0 天**。
+  - `monthly_revenue`：2025-01 起每個月都有，最新 2026-09。全庫最新也是 2026-09，10 月營收還沒進 DB。
+  - `financial_facts`：2025-Q1～2026-Q2 都有。Q3 還沒有，但全庫上市只有 296 檔有 Q3（申報期限 11/14），屬正常，不是缺漏。
+
+### 結論
+- [ ] 需要修改後再確認
+- [x] 可以繼續下一個任務（不需回補）

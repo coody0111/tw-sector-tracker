@@ -7084,3 +7084,61 @@ Telegram 用正式 payload 換上這份 heat；Chrome headless 看 1440／375。
 ### 結論
 - [ ] 需要修改後再確認
 - [x] 可以繼續下一個任務
+
+## [2026-11-11] 報告 - ⚠️ 族群分類調整：晶圓代工、測試介面、化合物半導體（8901573）
+
+### 🔴 數據問題（需立刻修）
+- 無（規則本身照 Cody 的表改對了；下面第一個 🟡 要在 Cody 重建 stock_universe.csv 之前處理）
+
+### 🔴 程式問題（需立刻修）
+- 無
+
+### 🟡 建議改善
+- **⚠️ 重建不只 28 檔變動，還會新增 7 檔股票（1036 → 1043），其中 2 檔是 7 月刻意剔除的停牌股——請 Cody 決定**
+  - 模擬（master `industry_sectors.csv` 9/1 版＋舊 config 重建）跟現在的 `stock_universe.csv` 比，除了 3232／8068／8084，
+    還有 7 檔現在**不在** universe、重建後會被加進來：
+    - **6236 中湛（→資安）、8291 尚茂（→銅箔基板）**：81ace6a（2026-07-04）以「收盤價連續 30～123 天不變、成交量近乎 0，判定停牌／瀕臨下市」手動從 universe 刪掉。
+      `build_universe.py` 沒有排除清單，`sector_overrides.csv` 也只能改族群、不能剔除，**重建會把這個手動剔除默默還原**。
+    - 2049 上銀（→機器人/自動化）、2237 華德動能-創（→電動車）、7689 大鵬科CLMX（→工業電腦）、7835 永悅健康-創、7839 達人網（→網路服務）：
+      從來沒進過 universe，是 9/1 MoneyDJ 中繼檔才有的新標籤。
+  - 這 7 檔在 DB `daily_prices` **一筆都沒有**（正式 DB 複本 11/10 22:00），重建後 exchange 欄也會是空的。
+    族群均漲跌會 dropna 掉，影響不大；但用 universe 檔數當分母的地方（例如 `observation_scores` 的 `meta_stock_count_by_exchange`）會多算。
+  - 建議（請 Cody 決定）：
+    - (A) 重建前在 `build_universe.py` 加排除清單（例如 `data/universe_exclude.csv`），把 6236、8291 放進去。
+    - (B) 重建後手動刪掉這兩列。
+    - 另外 5 檔新股要不要收，也一起決定。
+  - Developer「預期結果」的 28 檔是對的，只是漏了這 7 檔新增。
+- **`META_PRIORITY_LIST` 和 `META_SECTORS` 有三處不一致**（目前對重建沒有影響，只是埋雷）：
+  - 「第三類半導體」在 `META_SECTORS` 歸化合物半導體，但已經從 `META_PRIORITY_LIST` 整個拿掉。
+  - 「光通訊元件磊晶」在 `META_SECTORS` 歸光通訊，但 `META_PRIORITY_LIST` 的光通訊沒加。
+  - 「IC製造／IC生產」在 `META_SECTORS` 還留在晶圓代工（Developer 有寫「暫留」）。`calc_meta_performance` 只在 universe 讀不到時才用，影響範圍是備援路徑。
+    但這條路一旦走到，晶圓代工又會混進記憶體、矽晶圓廠（IC製造標籤底下有 35 檔，含旺宏、華邦電、南亞科、中砂、環球晶）。
+  - 實查：擁有這幾個標籤的股票，全部都另有命中的標籤，新 config 下**沒有任何一檔掉到「其他電子」**，所以目前不影響結果。
+    但以後 MoneyDJ 出現只有「第三類半導體」或「光通訊元件磊晶」的新股，就會落到其他電子。建議兩邊同步補上。
+- `test_optical_epi_goes_to_optical_comm` 用 `["光通訊元件磊晶", "光通訊"]`，是靠「光通訊」那個標籤過的，沒測到「光通訊元件磊晶」本身。改成只給 `["光通訊元件磊晶"]` 就會抓到上一點。
+- 7828 創新服務的 override 是 `測試介面,半導體製程設備`，sub_sector 不在測試介面的標籤裡，所以族群卡的小族群清單會出現「測試介面：半導體製程設備、探針、探針卡、測試用板卡」。
+  既有 override 也有這種寫法（例如 2467），不算錯，只是看起來怪；可考慮 sub_sector 填「探針、探針卡」。
+
+### ✅ 驗證通過
+- pytest：全套 **1013 passed, 1 skipped**；`tests/test_meta_classification.py tests/test_build_universe.py` 24 passed。
+- **獨立模擬**：自己寫腳本，用 ab6f98b（舊）跟 8901573（新）的 config＋overrides，各自對 master `industry_sectors.csv` 重建後比對：
+  - 規則造成的變動 **25 檔**，加上 MoneyDJ 標籤漂移的 3 檔（3232 PMIC→功率半導體、8068 軟體→電子通路、8084 電腦周邊→電子通路）＝ **28 檔**，跟交接一致。
+  - 晶圓代工剩 7 檔：2303 2330 2342 3707 5347 6770 6789 ✅
+  - 化合物半導體 3 檔：3105 5222 8086 ✅
+  - 測試介面 6 檔：6217 6223 6510 6515 6683 7828 ✅
+  - IC封裝 → 半導體設備 10 檔：3030 3055 3093 3490 3563 3581 7730 7751 7769 8027 ✅
+  - 3016、8028 → 半導體材料，3234 → 光通訊，6103 → MCU/嵌入式 ✅
+  - 3054、6265 → 電子通路（override）✅
+- **新族群在網站上的表現**：
+  - 用模擬出的新 universe 加上 11/10 行情，實際跑 `calc_universe_performance`。
+    - 晶圓代工 7 檔 +3.27%、化合物半導體 3 檔 +4.13%、測試介面 6 檔 +8.83%，都正常出現。
+    - 排序走 `META_PRIORITY_LIST` 的順序，所以新族群自動有位置。
+  - `export/`、`recommend/`、`processors/`、`screener/`、`notifications/` 的程式碼裡，**沒有任何寫死的族群名稱**（只在產生出來的 docs/*.html 和測試裡有）。
+  - 族群連結 `_meta_link` 是通用的 `index.html#meta=<名稱>`，沒有顏色或排序的對照表要補。
+- `calc_meta_performance` 走 `META_SECTORS`：探針、探針卡／測試用板卡 → 測試介面，化合物晶圓／砷化鎵相關／第三類半導體 → 化合物半導體，新族群會出現（但見上面 IC製造 的 🟡）。
+- `docs/CONTEXT.md` 的新增只是名詞定義，跟 config 一致。
+- 「歷史族群排名會跟著重建改變」：`calc_meta_rank_history` 用當下 universe 回看，屬預期，Developer 已註明。
+
+### 結論
+- [x] 需要修改後再確認：程式可以進 master，但**重建 stock_universe.csv 之前**，請 Cody 先決定 6236／8291 要怎麼處理（以及 5 檔新股收不收）
+- [ ] 可以繼續下一個任務

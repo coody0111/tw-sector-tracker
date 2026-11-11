@@ -18,6 +18,12 @@ def test_compound_semiconductor_separate_from_foundry():
     assert get_meta_by_priority(["砷化鎵相關", "化合物晶圓"]) == "化合物半導體"
 
 
+def test_third_gen_semiconductor_is_compound():
+    # 嘉晶：第三類半導體＋磊晶，Cody 2026-11-11 決定歸化合物半導體
+    assert get_meta_by_priority(["第三類半導體", "磊晶"]) == "化合物半導體"
+    assert get_meta_by_priority(["第三類半導體"]) == "化合物半導體"
+
+
 def test_probe_card_is_test_interface_not_packaging():
     assert get_meta_by_priority(["探針、探針卡", "IC測試"]) == "測試介面"
 
@@ -37,7 +43,7 @@ def test_wafer_and_epi_are_materials():
 
 
 def test_optical_epi_goes_to_optical_comm():
-    assert get_meta_by_priority(["光通訊元件磊晶", "光通訊"]) == "光通訊"
+    assert get_meta_by_priority(["光通訊元件磊晶"]) == "光通訊"
     assert get_meta_sector("光通訊元件磊晶") == "光通訊"
 
 

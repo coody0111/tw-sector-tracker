@@ -6666,3 +6666,24 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 ### 請 Debugger 驗證
 - [ ] pytest 全套
 - [ ] 上面的模擬結果
+
+## [2026-11-11] ⚠️ 族群分類：重建 stock_universe.csv（Cody 授權我跑）
+
+> 族群分類資料檔更新（特別標注）。
+
+### 改了什麼
+- 在 dev 跑 `python scripts/build_universe.py`（`data/sectors/industry_sectors.csv` 從 master 複製過來，gitignored，沒 commit）。
+- 依 Cody 決定手動刪掉 6236 中湛、8291 尚茂兩列。
+- 只 commit `data/stock_universe.csv`。
+
+### 我比對的結果（舊 HEAD vs 新檔，逐檔）
+- 1036 → 1041：新增 2049 2237 7689 7835 7839（exchange 空白），沒有刪除。
+- meta_sector 變動正好 28 檔（同 31f1486 交接清單）；exchange 0 檔變動。
+- stock_name 2 檔：4953 緯軟→緯致、6741 APP*-KY→91APP*-KY（MoneyDJ 名稱）。
+- sub_sector 35 檔、note 欄有變（部分舊的手寫備註被重建覆蓋，例如 2328 廣宇；meta 沒變）。
+
+### 請 Debugger 驗證
+- [ ] 獨立比對上面的數字
+- [ ] 6236、8291 不在檔內
+- [ ] 5 檔新股 exchange 空白對每日流程沒有副作用（不會報錯，只是抓不到行情）
+- [ ] 用新檔跑族群績效相關測試或抽樣計算沒問題

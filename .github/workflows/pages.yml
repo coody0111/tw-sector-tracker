@@ -38,6 +38,9 @@ jobs:
           cp docs/.nojekyll _site/
           # report.html／weekly.html 的歷史切換會讀這兩個資料夾（index.json＋每期頁面）
           cp -r docs/reports docs/weekly _site/
+      - name: Check public site
+        # 有內部文件或斷掉的相對連結就擋下部署，錯誤訊息會寫怎麼修
+        run: python3 scripts/check_pages_site.py _site
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:

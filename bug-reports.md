@@ -7416,3 +7416,74 @@ Developer 轉述：這次修改 Cody 已同意。DB 用 2026-11-10 22:00 的正�
 ### 結論
 - [ ] 需要修改後再確認
 - [x] 可以繼續下一個任務（可以發佈；發佈後再實測 reports/index.json、weekly/index.json、weekly/2026-11-20.html 是 200）
+
+## [2026-11-26] 報告 - git hook 守門（0a03a0b）
+
+### 🔴 數據問題（需立刻修）
+- 無
+
+### 🔴 程式問題（需立刻修）
+- 無（底下第一項 🟡 建議發佈前一起改）
+
+### 🟡 建議改善
+- **中文或含空白的檔名會被誤判**。位置：scripts/git_guard.py `pre_commit()` 的
+  `git diff --cached --name-only ... .split()`。
+  - git 預設 `core.quotePath`，中文檔名會被輸出成 `"docs/\344\270\255..."`（開頭是引號）；`.split()` 又會把含空白的檔名切開。
+  - 實測：scratch repo 在 master commit `docs/中文 報告.html`，被擋成「不是 docs/」（誤擋）。
+  - 反過來，`data/中文.csv`、`.env 備份` 這種檔名不會以 `data/`、`.env` 開頭，**會被放過**（漏擋）。
+  - 目前 master 的 docs/、data/ 都沒有中文或空白檔名，排程今天不會撞到，是潛在問題。
+  - 建議改成 `git diff --cached --name-only -z --diff-filter=ACMRD`，再用 `split("\0")` 切，並補一個中文檔名的測試。
+- pre-push 只看 remote ref，`git push origin debug:master` 會放行（實測 rc=0）。規則寫的是「不 push dev／debug」，這樣推等於把 debug 推進 master。要擋的話可以順便看 local ref；不擋也行，記一下。
+- `end-work.bat` 在 master 跑 `git add .` → commit。hook 裝好之後，只要工作區有 docs/ 以外的變更，這支就會被擋。這是規則想要的效果，但 Cody 用這支時會看到 ❌，建議在 CLAUDE-developer.md 或 bat 裡註明。
+- 驗證方式說明：交接寫的「`git -c core.hooksPath=githooks` 單次啟用」會被 Claude Code 的 block-no-verify hook 擋下（它把覆寫 hooksPath 當成繞過 hook，連訊息裡只是提到這個字串也會擋），agent 沒辦法用這招。我改成兩種做法，**都沒動 repo config**：
+  - scratch repo：hook 放進那個 repo 自己的 `.git/hooks`；
+  - debug worktree：直接跑 `sh githooks/pre-commit`／`sh githooks/pre-push`。
+  - 發佈後要裝 hook 的時候，Developer 下 `git config` 可能也會被同一個 hook 擋，可能要請 Cody 手動跑。
+
+### ✅ 驗證通過
+- pytest 全套 **1040 passed, 1 skipped**。
+- `githooks/*` 在 index 和工作區都是 LF（`attr/text eol=lf`）。
+- **模擬排程**（scratch repo，master 分支，跟 main.py 一樣用 pathspec commit）：
+  - `git commit -m ... -- docs/index.html docs/reports` → **過**（rc=0）。故意另外 staged 一個 main.py，hook 只看到暫存 index 裡的 docs 檔，不受影響，main.py 留在 staged。
+  - `git commit -- main.py` → **被擋**（rc=1，訊息正確）。
+  - 在 dev 分支 commit `.env`、`data/x.db` → **被擋**。
+- debug worktree：
+  - bug-reports.md 往前面加 → 擋（rc=1）
+  - 往後面加 → 過
+  - 整檔改成 CRLF 再往後加 → 過（正規化有效）
+  - 做完已還原，工作區乾淨。
+- pre-push：stdin 給 `refs/heads/debug` → 擋；`refs/heads/master` → 過。
+- Windows：Git for Windows 的 sh 找得到 python（3.11.9），中文訊息和 ❌ 正常印出，不會 crash。
+- 程式碼：`git pull --rebase`、`git merge dev`（沒有衝突的情況）都不跑 pre-commit，交接的推論正確。合併中有 MERGE_HEAD 時會跳過 append 檢查，`rev-parse` 讀的是這個 worktree 自己的狀態。
+
+### 結論
+- [x] 需要修改後再確認（建議發佈前把 `-z` 改掉；其他 🟡 請 Developer／Cody 決定）
+- [ ] 可以繼續下一個任務
+
+## [2026-11-26] 報告 - git hook 守門：處理 🟡（中文檔名、debug:master）（349af08）
+
+### 🔴 數據問題（需立刻修）
+- 無
+
+### 🔴 程式問題（需立刻修）
+- 無
+
+### 🟡 建議改善
+- end-work.bat 請 Cody 決定：它是舊流程，在 master 跑 `git add .`，hook 裝好之後只要有 docs/ 以外的變更就會被擋。
+- 安裝 hook 的 git config 指令，Claude Code 的 block-no-verify hook 可能會擋，屆時請 Cody 手動跑。
+
+### ✅ 驗證通過
+- pytest 全套 **1042 passed, 1 skipped**，新加的兩個測試也過。
+- scratch repo 實測。hook 放在那個 repo 自己的 `.git/hooks`，沒動本專案的 config：
+  - master 用 pathspec commit `docs/中文 報告.html`（中文加空白）→ **過**（上一版被誤擋）。
+  - master commit `data/中文.csv` → **被擋**，兩條規則都報（上一版漏擋）。
+  - dev commit `.env 備份` → **被擋**（上一版漏擋）。
+- 用真的 bare remote 實際 push（不是只餵 stdin）：
+  - `push origin debug:master` → **被擋**，remote 沒被建出 master 以外的東西。
+  - `push origin master` → **放行**。
+  - `push origin dev` → **被擋**。
+- diff 只動 `pre_commit` 取檔名、`pushed_protected_branches` 兩處。改 `-z` 之後也會一併過濾空字串；push 回報有重複的分支名，`sorted(set())` 會去重。
+
+### 結論
+- [ ] 需要修改後再確認
+- [x] 可以繼續下一個任務（可以發佈；end-work.bat 請 Cody 決定）

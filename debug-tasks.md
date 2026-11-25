@@ -6941,3 +6941,26 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 
 ### 特別注意
 - 無
+
+## [2026-11-26] end-work.bat 改成只檢查（不 commit、不 push）
+
+### 改了什麼
+- 異動檔案：end-work.bat
+- 舊版 `git add .`＋`git commit`＋`git push origin master`：是 11/05 三資料夾之前的流程，在 master 會被 hook 擋，
+  而且 `git add .` 正是 CLAUDE.md 禁止的寫法。Cody 同意改成只檢查：
+  1. 這個資料夾的分支＋`git status --short`
+  2. 同層的 tw-sector-tracker／-dev／-debug 三個資料夾各自 `status --short --branch`（不存在就跳過）
+  3. `git log --oneline master..dev`（還沒發佈的 dev commit）
+  4. 提示：沒 commit 的到 dev commit（指定檔案）、dev 有新 commit 交 Debugger
+- 編碼維持 UTF-8、CRLF（跟舊檔、start-*.bat 一樣）。
+
+### 資料來源相關
+- 無
+
+### 請 Debugger 驗證
+- [ ] 檔案裡沒有任何會寫入的 git 指令（add／commit／push／reset／checkout）
+- [ ] 批次語法（for 迴圈 %%W、if exist、括號）看起來正確
+- [ ] 我這邊 cmd.exe 跑不起來（`cmd /c echo hi` 就 exit 1），沒辦法實跑；你那邊能跑就跑一次，不能就註明，交給 Cody 雙擊確認
+
+### 特別注意
+- 我這邊有一次在 Write 失敗後，同一串指令接著試跑了 bat（舊版）。因為 cmd 跑不起來所以沒執行，dev／master 都確認乾淨。

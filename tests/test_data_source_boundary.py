@@ -2,13 +2,15 @@
 
 CLAUDE.md「資料來源規則」以前只靠人記；這支測試靜態掃全部程式碼（AST），回補來源的名字一出現在白名單外就失敗。
 要新增回補功能：放進 scrapers/backfill.py，main.py 的入口函式登記在下面的 BACKFILL_ENTRYPOINTS。
+靜態掃描抓不到的寫法：importlib.import_module("yfinance")、getattr 字串取函式——不要這樣寫。
 """
 import ast
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-SKIP_DIRS = {"tests", "research", "docs", ".claude", ".agents", ".git", "__pycache__", "data"}
+SKIP_DIRS = {"tests", "research", "docs", ".claude", ".agents", ".git", "__pycache__", "data",
+             ".venv", "venv", "env", "site-packages"}  # venv 建在 repo 裡時別把 yfinance 套件本身掃進來
 
 # 歷史回補才用的資料來源（FinMind 走 requests＋FINMIND_URL，yfinance 是套件）
 SOURCE_NAMES = {
@@ -73,7 +75,8 @@ def _violations():
             if name in SOURCE_NAMES or name in SOURCE_STRINGS:
                 if rel in SOURCE_ALLOWED_FILES or name in SOURCE_ALLOWED_DEFS.get(rel, set()):
                     continue
-                if rel == "main.py" and (where in BACKFILL_ENTRYPOINTS or is_import):
+                # main.py 頂層只准 import scrapers.backfill 的函式；頂層 import yfinance 等於每日流程也拿得到 yf
+                if rel == "main.py" and (where in BACKFILL_ENTRYPOINTS or (is_import and name != "yfinance")):
                     continue
                 bad.append(f"{rel}:{line} 用到回補來源 {name}（在 {where}）")
             elif name in BACKFILL_ENTRYPOINTS:
@@ -101,10 +104,12 @@ def test_boundary_detects_violations(tmp_path, monkeypatch):
     (tmp_path / "main.py").write_text(
         "def backfill_yf():\n    import yfinance\n\n"
         "def run_daily():\n    backfill_yf()\n\n"
-        "if __name__ == '__main__':\n    backfill_yf()\n", encoding="utf-8")
+        "if __name__ == '__main__':\n    backfill_yf()\n"
+        "import yfinance as yf\n", encoding="utf-8")
     monkeypatch.setattr(sys.modules[__name__], "ROOT", tmp_path)
     bad = _violations()
     assert "scrapers/twse.py:1 用到回補來源 yfinance（在 <module>）" in bad
     assert "scrapers/twse.py:2 用到回補來源 finmindtrade.com（在 <module>）" in bad
     assert "main.py:5 每日流程呼叫回補入口 backfill_yf（在 run_daily）" in bad
-    assert len(bad) == 3  # backfill_yf 裡的 import、__main__ 的呼叫都是允許的
+    assert "main.py:9 用到回補來源 yfinance（在 <module>）" in bad
+    assert len(bad) == 4  # backfill_yf 裡的 import、__main__ 的呼叫都是允許的

@@ -114,5 +114,6 @@ def test_pre_commit_chinese_filenames_not_quoted(repo, capsys):
 def test_pre_commit_skips_append_check_during_merge(repo):
     _stage(repo, "debug-tasks.md", "## [0] 另一邊\n## [1] 舊交接\n")
     head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo, capture_output=True, text=True).stdout.strip()
-    _git(repo, "update-ref", "MERGE_HEAD", head)
+    # 直接寫檔（git merge 自己也是這樣）；新版 git 不准 update-ref 寫 MERGE_HEAD（CI 上的 ubuntu git 會擋）
+    (repo / ".git" / "MERGE_HEAD").write_text(head + "\n", encoding="utf-8")
     assert pre_commit() == 0

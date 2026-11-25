@@ -6881,3 +6881,45 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 
 ### 特別注意
 - 發佈後 tests.yml 第一次在 GitHub 跑，若有 Linux 才出現的失敗，我再處理
+
+## [2026-11-26] CI 第一次跑紅：MERGE_HEAD 測試＋處理 3 項 🟡
+
+### 改了什麼
+- 異動檔案：tests/test_git_guard.py、tests/test_data_source_boundary.py、tests/test_main.py（只改測試）
+- 🔴（CI 上才出現）：GitHub 第一次跑 tests.yml，1043 passed／1 failed——
+  test_pre_commit_skips_append_check_during_merge 用 `git update-ref MERGE_HEAD`，ubuntu 的新版 git 拒絕
+  （`refusing to update pseudoref 'MERGE_HEAD'`）。改成直接寫 `.git/MERGE_HEAD` 檔（git merge 自己也是這樣）。
+- 🟡(1)：邊界測試 SKIP_DIRS 加 .venv／venv／env／site-packages。
+- 🟡(2)：test_main 的 3 支 test_update_chips_db_* 打樁 `main.init_db`，不再碰真的 data/screener.db
+  （TPEx 都回空 df，不會走到 connect_rw，已確認）。
+- 🟡(3)：main.py 頂層 `import yfinance` 不再被 is_import 放行（假專案測試多驗這條）；
+  importlib／getattr 寫法抓不到，寫進測試檔說明。
+
+### 資料來源相關
+- 無
+
+### 請 Debugger 驗證
+- [ ] pytest 全套；乾淨 clone 跑完 data/ 底下**不會**多出 screener.db
+- [ ] MERGE_HEAD 測試在本機（Windows git）也過
+- [ ] 發佈後我會看 GitHub 上 tests.yml 是綠的
+
+### 特別注意
+- 無
+
+## [2026-11-26] 修 🔴 test_scan_patterns_returns_list 依賴真 DB
+
+### 改了什麼
+- 異動檔案：tests/test_patterns.py（只改測試）
+- test_scan_patterns_returns_list 改用 tmp 的最小 DB（沿用同檔 `_seed_scan_and_track_db`，2026-07-03 有 5 天行情＋chips 表），
+  `scan_patterns("2026-07-03", db_path=...)`。不用 skip：skip 在 CI 上等於這支永遠不跑。
+
+### 資料來源相關
+- 無
+
+### 請 Debugger 驗證
+- [ ] **乾淨 clone 跑全套**（沒有 DB）→ 0 failed；跑完 data/ 底下沒有 screener.db
+- [ ] 這支單獨跑也過（`pytest tests/test_patterns.py::test_scan_patterns_returns_list`）
+- [ ] 乾淨 clone 每個測試檔各自單獨跑一次，確認沒有別支也靠「前面測試建出的 DB」才過
+
+### 特別注意
+- 無

@@ -410,10 +410,14 @@ def test_vcp_not_detected_pullback_not_contracting():
     assert detect_vcp(df) is False
 
 
-def test_scan_patterns_returns_list():
-    """Integration smoke test: scan_patterns 回傳 list，每筆有必要欄位。"""
+def test_scan_patterns_returns_list(tmp_path):
+    """Integration smoke test: scan_patterns 回傳 list，每筆有必要欄位。
+    用 tmp 的最小 DB（同 scan_and_track 測試）：以前讀真的 data/screener.db，CI／乾淨 clone 沒有 DB 就失敗，
+    之前能過只是因為 test_main 先跑、真的 init_db 建了空 DB（2026-11-26 Debugger）。"""
     from screener.patterns import scan_patterns
-    results = scan_patterns("2026-06-26")   # 用已知有資料的日期
+    db_path = tmp_path / "test.db"
+    _seed_scan_and_track_db(db_path)
+    results = scan_patterns("2026-07-03", db_path=str(db_path))
     assert isinstance(results, list)
     if results:
         r = results[0]

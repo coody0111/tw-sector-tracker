@@ -275,6 +275,8 @@ def _stub_all_chips_fetches(monkeypatch, empty_df):
     )
     for name in ("fetch_institutional_tpex", "fetch_margin_all_tpex", "fetch_foreign_holding_tpex"):
         monkeypatch.setattr(main, name, lambda *a, **k: empty_df)
+    # 不碰真的 data/screener.db（2026-11-26 Debugger：在正式資料夾跑會跟排程搶寫入鎖、乾淨 clone 會多出 DB 檔）
+    monkeypatch.setattr(main, "init_db", lambda: None)
 
 
 def test_update_chips_db_appends_price_import_failure_to_warnings(monkeypatch):
@@ -311,6 +313,7 @@ def test_update_chips_db_appends_chips_backfill_failure_to_warnings(monkeypatch)
         raise RuntimeError("回補炸了")
 
     monkeypatch.setattr(main, "backfill_chips", _boom)
+    monkeypatch.setattr(main, "init_db", lambda: None)
     monkeypatch.setattr(main, "fetch_institutional_tpex", lambda *a, **k: pd.DataFrame())
     monkeypatch.setattr(main, "fetch_margin_all_tpex", lambda *a, **k: pd.DataFrame())
     monkeypatch.setattr(main, "fetch_foreign_holding_tpex", lambda *a, **k: pd.DataFrame())

@@ -7526,3 +7526,62 @@ Developer 轉述：這次修改 Cody 已同意。DB 用 2026-11-10 22:00 的正�
 ### 結論
 - [ ] 需要修改後再確認
 - [x] 可以繼續下一個任務（可以發佈；SKIP_DIRS 加 .venv、3 支測試打樁 init_db 建議順手做）
+
+## [2026-11-26] 報告 - CI 第一次跑紅：MERGE_HEAD 測試＋處理 3 項 🟡（275013a）
+
+### 🔴 數據問題（需立刻修）
+- 無
+
+### 🔴 程式問題（需立刻修）
+- 問題：**拿掉 init_db 的副作用之後，`tests/test_patterns.py::test_scan_patterns_returns_list` 在 CI 上會失敗**。
+  位置：tests/test_patterns.py 第 413 行
+  說明：
+  - 這支測試讀真的 `data/screener.db`（`scan_patterns("2026-06-26")`），就是 CLAUDE.md 寫的「需要本機 DB」那支。
+  - 之前乾淨 clone／GitHub 上會過，是因為 `test_main.py` 排在 `test_patterns.py` 前面：那 3 支 chips 測試的真 `init_db()` **剛好先建出一個空 DB**。
+  - 這次把 init_db 打樁後，CI 就沒有 DB 了 → `IOException: Cannot open database ... in read-only mode: database does not exist`。
+  重現：
+  - 乾淨 clone 275013a、新 venv 跑全套 → **1 failed, 1043 passed, 1 skipped**。
+  - 在 0310535 單跑這支也會失敗，證明它本來就依賴 DB，只是被執行順序遮住。
+  建議：沒有 `data/screener.db` 時 `pytest.skip`；或者用 tmp 建 schema（init_db 指到 tmp_path）跑，比較有意義。
+- **更正我上一份報告**：上一份寫「沒有任何測試依賴本機 DB」是錯的。那支是靠執行順序和副作用才過的；我那時是跑全套，沒有逐支單跑。
+
+### 🟡 建議改善
+- SKIP_DIRS 加了 `env`：目前 repo 沒有叫 env／venv 的程式資料夾（已 find 確認），OK。以後別把程式資料夾取這個名字。
+
+### ✅ 驗證通過
+- 本機 debug：pytest **1044 passed, 1 skipped**（有正式 DB，所以 test_patterns 會過）。
+- MERGE_HEAD 測試在 Windows git 2.35.1 也過。直接寫 `.git/MERGE_HEAD` 的做法正確：guard 用 `rev-parse --verify MERGE_HEAD` 讀，新舊版 git 都讀得到。
+- 乾淨 clone 跑完，data/ **不再多出 screener.db** ✅（init_db 打樁生效，3 支 chips 測試都有蓋到）。
+- 邊界測試：
+  - main.py 頂層 `import yfinance` 現在會被抓，假專案測試 4 項都中。
+  - 真實 main.py 頂層的 `from scrapers.backfill import ... backfill_yfinance` 仍然放行。module 名稱拆成 scrapers／backfill，不是 yfinance，正確。
+
+### 結論
+- [x] 需要修改後再確認（test_scan_patterns_returns_list 在沒有 DB 的環境要能 skip 或自備 DB，否則發佈後 CI 會紅）
+- [ ] 可以繼續下一個任務
+
+## [2026-11-26] 報告 - 修 test_scan_patterns_returns_list 依賴真 DB（be25b80）
+
+### 🔴 數據問題（需立刻修）
+- 無
+
+### 🔴 程式問題（需立刻修）
+- 無
+
+### 🟡 建議改善
+- **這支 smoke test 現在幾乎沒驗到東西**。用 `_seed_scan_and_track_db` 的種子資料跑 `scan_patterns("2026-07-03")`，實測回傳 **0 筆**。
+  - 所以 `if results:` 底下的欄位檢查（stock_id、score、patterns、vol_ratio、分數範圍）**一次都沒跑**，現在只驗到「回傳的是 list」。
+  - 建議 seed 一檔會命中型態的股票（例如重用同檔 `_make_vcp_df` 的資料寫進 tmp DB），再把 `if results:` 改成 `assert results`。
+  - 不擋發佈：CI 會是綠的，只是這支的保護力比原本對真 DB 跑時弱。
+
+### ✅ 驗證通過
+- 乾淨 clone be25b80、新 venv、TZ=Asia/Taipei、沒有 DB／.env：全套 **1044 passed, 1 skipped, 0 failed**，跑完 data/ 底下**沒有** screener.db。
+- `pytest tests/test_patterns.py::test_scan_patterns_returns_list` 單獨跑 → 1 passed。
+- **每個 tests/test_*.py 各自單獨跑一次**，每次跑前先刪 data/screener.db：
+  - **全部沒有 failed／error**；
+  - **也沒有任何一支會建出 screener.db**。
+  - → 已經沒有別支測試要靠「前面測試建出的 DB」才過。
+
+### 結論
+- [ ] 需要修改後再確認
+- [x] 可以繼續下一個任務（可以發佈；smoke test 種子資料建議之後補強）

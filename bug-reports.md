@@ -7682,3 +7682,32 @@ Developer 轉述：這次修改 Cody 已同意。DB 用 2026-11-10 22:00 的正�
 ### 結論
 - [x] 需要修改後再確認（三支 bat 會切錯行、執行到註解片段；建議用 A 方案）
 - [ ] 可以繼續下一個任務
+
+## [2026-11-26] 報告 - .bat 切錯行：三支全改 ASCII＋測試擋（b5188e1）
+
+### 🔴 數據問題（需立刻修）
+- 無
+
+### 🔴 程式問題（需立刻修）
+- 無
+
+### 🟡 建議改善
+- 無
+
+### ✅ 驗證通過
+- **新主控台實跑**（`subprocess.run(['cmd','/d','/c',...], creationflags=CREATE_NEW_CONSOLE)`，起始 cp950，每支跑 3 次）：
+  - end-work.bat：**0 錯**，每一行 echo 都在（[1/3]～[3/3]、最後兩行提示），三個資料夾都有列出來。[3/3] 的中文 commit 訊息用 UTF-8 解碼正常，沒有 U+FFFD。
+  - start-desktop.bat／start-laptop.bat（git／start／cd 換成 `echo RUN-...`）：**0 錯**、RUN 4/4。`[3/3] Starting Debugger...` 有出現，也**不再**出現 `The system cannot find the path specified.`。
+    - 比對時列為「缺少」的只有 `%~dp0`、`%USERPROFILE%` 那幾行，是因為 echo 會展開變數，所以字串對不上，不是真的少行。
+- 指令跟上一版（809a3ba）**逐字相同**：三支拿掉 echo／rem／:: 和空行之後 diff 為空。git pull、兩個 start、for／if exist、cd /d 都沒變。
+- `.gitattributes` 加了 `*.bat text eol=crlf`，`git ls-files --eol` 顯示三支都是 `attr/text eol=crlf`、工作區 CRLF。
+- 檔案全是純 ASCII；for 區塊裡沒有半形 `)`。
+- pytest 全套 **1051 passed, 1 skipped**。
+- 反向驗證 test_bat_files.py：在根目錄暫時放 `zz_mut.bat`：
+  - 寫中文 → `test_bat_is_ascii[zz_mut.bat]` 失敗；
+  - 改成 LF 換行 → `test_bat_is_crlf[zz_mut.bat]` 失敗；
+  - 刪掉之後 7 passed。
+
+### 結論
+- [ ] 需要修改後再確認
+- [x] 可以繼續下一個任務（可以發佈）

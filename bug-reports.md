@@ -7559,3 +7559,29 @@ Developer 轉述：這次修改 Cody 已同意。DB 用 2026-11-10 22:00 的正�
 ### 結論
 - [x] 需要修改後再確認（test_scan_patterns_returns_list 在沒有 DB 的環境要能 skip 或自備 DB，否則發佈後 CI 會紅）
 - [ ] 可以繼續下一個任務
+
+## [2026-11-26] 報告 - 修 test_scan_patterns_returns_list 依賴真 DB（be25b80）
+
+### 🔴 數據問題（需立刻修）
+- 無
+
+### 🔴 程式問題（需立刻修）
+- 無
+
+### 🟡 建議改善
+- **這支 smoke test 現在幾乎沒驗到東西**。用 `_seed_scan_and_track_db` 的種子資料跑 `scan_patterns("2026-07-03")`，實測回傳 **0 筆**。
+  - 所以 `if results:` 底下的欄位檢查（stock_id、score、patterns、vol_ratio、分數範圍）**一次都沒跑**，現在只驗到「回傳的是 list」。
+  - 建議 seed 一檔會命中型態的股票（例如重用同檔 `_make_vcp_df` 的資料寫進 tmp DB），再把 `if results:` 改成 `assert results`。
+  - 不擋發佈：CI 會是綠的，只是這支的保護力比原本對真 DB 跑時弱。
+
+### ✅ 驗證通過
+- 乾淨 clone be25b80、新 venv、TZ=Asia/Taipei、沒有 DB／.env：全套 **1044 passed, 1 skipped, 0 failed**，跑完 data/ 底下**沒有** screener.db。
+- `pytest tests/test_patterns.py::test_scan_patterns_returns_list` 單獨跑 → 1 passed。
+- **每個 tests/test_*.py 各自單獨跑一次**，每次跑前先刪 data/screener.db：
+  - **全部沒有 failed／error**；
+  - **也沒有任何一支會建出 screener.db**。
+  - → 已經沒有別支測試要靠「前面測試建出的 DB」才過。
+
+### 結論
+- [ ] 需要修改後再確認
+- [x] 可以繼續下一個任務（可以發佈；smoke test 種子資料建議之後補強）

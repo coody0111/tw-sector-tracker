@@ -6964,3 +6964,26 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 
 ### 特別注意
 - 我這邊有一次在 Write 失敗後，同一串指令接著試跑了 bat（舊版）。因為 cmd 跑不起來所以沒執行，dev／master 都確認乾淨。
+
+## [2026-11-26] 三支 .bat 加 chcp 65001（中文亂碼）
+
+### 改了什麼
+- 異動檔案：end-work.bat、start-desktop.bat、start-laptop.bat（各第 2 行加 `chcp 65001 >nul`，其餘不動，CRLF）
+- 原因：桌電 OEMCP=950，bat 是 UTF-8 → echo 的中文全亂碼（實跑 end-work.bat 確認，見下）。
+
+### 「cmd 跑不起來」的真正原因（更正我跟 Debugger 之前說的「沙箱擋」）
+- `HKCU\Software\Microsoft\Command Processor\AutoRun` 的值是 `if exist  `（後面空的，像是解除安裝的工具留下的殘骸）。
+  `cmd /c echo hi` → exit 1；`cmd /d /c echo hi`（/d＝不跑 AutoRun）→ 正常印 hi。
+- 用 `cmd /d /c end-work.bat` 實跑：改之前中文亂碼（cp950）、改之後正常；三個資料夾都列出來，也正確列出 dev 的未 commit 檔。
+- 排程是 pythonw.exe 直接跑，不經過 cmd，不受影響。registry 沒動，交給 Cody 決定。
+
+### 資料來源相關
+- 無
+
+### 請 Debugger 驗證
+- [ ] diff 每支只多 1 行、仍是 CRLF、第 1 行 `@echo off` 是純 ASCII（chcp 前的行要是 ASCII）
+- [ ] 用 `cmd /d /c <完整路徑>\end-work.bat < nul` 實跑，輸出用 UTF-8 解碼中文正常
+- [ ] start-*.bat 不用實跑（會開 Claude 視窗），看語法就好
+
+### 特別注意
+- 無

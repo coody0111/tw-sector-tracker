@@ -1,4 +1,5 @@
 @echo off
+chcp 65001 >nul
 echo === tw-sector-tracker 桌電啟動 ===
 echo.
 

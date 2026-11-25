@@ -1,4 +1,5 @@
 @echo off
+chcp 65001 >nul
 echo === 下班收工（只檢查，不 commit、不 push）===
 echo.
 

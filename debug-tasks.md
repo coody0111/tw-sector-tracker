@@ -6987,3 +6987,29 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 
 ### 特別注意
 - 無
+
+## [2026-11-26] 修 🔴 .bat 切錯行：三支全改 ASCII＋測試擋
+
+### 改了什麼
+- 異動檔案：end-work.bat、start-desktop.bat、start-laptop.bat、.gitattributes、tests/test_bat_files.py（新）
+- Cody 選「全部改英文 ASCII」（不選存 Big5：agent 的編輯工具都寫 UTF-8，之後很容易又寫壞）。
+  - 三支的 echo 訊息、註解（`::` 改 `rem`）全改英文；指令一行都沒改。
+  - 第 2 行保留 `chcp 65001 >nul`：檔案已是純 ASCII，chcp 只影響顯示——讓 `git log` 的中文 commit 訊息不亂碼。
+- .gitattributes 加 `*.bat text eol=crlf`（🟡：之前靠這台 autocrlf=true）。
+- tests/test_bat_files.py：根目錄每支 .bat 必須純 ASCII、全部 CRLF，不合就失敗（訊息寫原因與改法）。
+
+### 實測（`cmd /d /c`，同一個主控台）
+- end-work.bat：每一行都在、0 個 not recognized；[3/3] 的中文 commit 訊息用 UTF-8 解碼正常。
+- 沒用新主控台測：檔案全 ASCII，code page 不影響切行。
+
+### 資料來源相關
+- 無
+
+### 請 Debugger 驗證
+- [ ] 用你上次的 CREATE_NEW_CONSOLE 方法（起始 cp950）再跑 end-work.bat：0 錯、每一行都在
+- [ ] start-*.bat 一樣換成 echo 測：不再少「[3/3] Starting Debugger...」、沒有 The system cannot find the path specified.
+- [ ] pytest 全套（含 test_bat_files.py）；故意在 bat 加一個中文字 → 測試失敗
+- [ ] 指令行（git pull／start ...／for 迴圈）跟上一版逐字相同
+
+### 特別注意
+- 無

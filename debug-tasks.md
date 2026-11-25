@@ -6905,3 +6905,21 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 
 ### 特別注意
 - 無
+
+## [2026-11-26] 修 🔴 test_scan_patterns_returns_list 依賴真 DB
+
+### 改了什麼
+- 異動檔案：tests/test_patterns.py（只改測試）
+- test_scan_patterns_returns_list 改用 tmp 的最小 DB（沿用同檔 `_seed_scan_and_track_db`，2026-07-03 有 5 天行情＋chips 表），
+  `scan_patterns("2026-07-03", db_path=...)`。不用 skip：skip 在 CI 上等於這支永遠不跑。
+
+### 資料來源相關
+- 無
+
+### 請 Debugger 驗證
+- [ ] **乾淨 clone 跑全套**（沒有 DB）→ 0 failed；跑完 data/ 底下沒有 screener.db
+- [ ] 這支單獨跑也過（`pytest tests/test_patterns.py::test_scan_patterns_returns_list`）
+- [ ] 乾淨 clone 每個測試檔各自單獨跑一次，確認沒有別支也靠「前面測試建出的 DB」才過
+
+### 特別注意
+- 無

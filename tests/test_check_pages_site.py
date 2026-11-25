@@ -35,6 +35,11 @@ def test_relative_refs_catches_fetch_and_location_prefix():
     assert relative_refs(html) == ["weekly/index.json", "weekly/"]
 
 
+def test_relative_refs_does_not_treat_js_property_as_attribute():
+    # location.href 只被第三條抓一次；img.src= 是 JS 屬性，不當 HTML 屬性
+    assert relative_refs("location.href='x.html'; img.src='y.png'") == ["x.html"]
+
+
 def test_broken_refs_flags_missing_history_folder(tmp_path):
     # 11/25 改走 Actions 時漏複製 weekly/ 的情況
     site = _site(tmp_path, {"weekly.html": "fetch('weekly/index.json'); location.href='weekly/'+v"})

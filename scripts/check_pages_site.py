@@ -17,7 +17,8 @@ ALLOWED_SUFFIXES = {".html", ".json"}
 ALLOWED_NAMES = {".nojekyll"}
 
 _REF_PATTERNS = [
-    re.compile(r"""\b(?:href|src)\s*=\s*["']([^"']*)["']"""),
+    # (?<![.\w])：只抓 HTML 屬性，不吃到 JS 的 location.href=（下面第三條另外抓）
+    re.compile(r"""(?<![.\w])(?:href|src)\s*=\s*["']([^"']*)["']"""),
     re.compile(r"""\bfetch\(\s*["']([^"']*)["']"""),
     re.compile(r"""\blocation\.href\s*=\s*["']([^"']*)["']"""),
 ]
@@ -88,4 +89,5 @@ def main(argv: list[str]) -> int:
 
 
 if __name__ == "__main__":
+    sys.stdout.reconfigure(encoding="utf-8")  # Windows 本機是 cp950，印 ✅／❌ 會 crash
     sys.exit(main(sys.argv))

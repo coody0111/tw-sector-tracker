@@ -6784,3 +6784,22 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 
 ### 特別注意
 - 新增 .css／.js／圖片要上線時，要把副檔名加進 ALLOWED_SUFFIXES，不然部署會被擋（這是刻意的）
+
+## [2026-11-25] Pages 上線前自動檢查：修 🔴 location.href 被抓兩次
+
+### 改了什麼
+- 異動檔案：scripts/check_pages_site.py、tests/test_check_pages_site.py
+- 第一條規則加 `(?<![.\w])`：只抓 HTML 屬性 `href=`／`src=`，不吃 JS 的 `location.href=`／`img.src=`
+  （location.href 由第三條專門抓，所以不會漏）。選這個而不是去重：去重會把 `img.src='y.png'` 這種 JS 屬性也當連結檢查。
+- 🟡 採納：`__main__` 加 `sys.stdout.reconfigure(encoding="utf-8")`。
+- 新測試 test_relative_refs_does_not_treat_js_property_as_attribute。
+
+### 資料來源相關
+- 無
+
+### 請 Debugger 驗證
+- [ ] pytest 全套（原本失敗的 test_relative_refs_catches_fetch_and_location_prefix 要過）
+- [ ] master docs/ 建 _site 再跑一次仍 exit 0；Windows 本機直接跑不 crash
+
+### 特別注意
+- 無

@@ -830,3 +830,34 @@ scrapers（twse / tpex / moneydj / finmind / chips）
 - 過程中兩度撞到`main.py`自動push的`git pull --rebase`衝突（都是generated `docs/*.html`
   或「同內容已在origin、重放舊commit對不上context」這種模式，不是真的邏輯打架），照既有
   慣例解掉：generated檔案取origin較新版本、內容重複的commit確認一致後保留HEAD版本。
+
+## 2026-11-25～11-26：Harness 第 1～3 步（把文字規則改成自動檢查）
+
+### 需求來源
+
+- Cody 要導入 Lauren Tan（poteto）的 agent 開發思維：能強制的就不要用講的，每次失敗都補強環境。
+- 起因：11/25 查 Pages 部署一直失敗，發現 repo 的 Pages 設定一直是 legacy，8/28 定的「內部文件不上網」
+  從沒生效（superpowers/、CONTEXT.md 都公開）；改走 Actions 時又漏了 reports/、weekly/，歷史切換 404。
+
+### 完成內容
+
+- **Pages**：repo 設定改 `build_type=workflow`（Cody 同意）；`pages.yml` 補複製 reports/、weekly/，deploy 前等 15 秒；
+  新增 `scripts/check_pages_site.py`（白名單只准 .html／.json／.nojekyll，相對連結要找得到，認 `<base href>`）。
+- **git hook**：`scripts/git_guard.py`＋`githooks/`，`core.hooksPath githooks`（桌電已裝，筆電要自己裝）。
+  擋 `.env`／`data/`、master 只收 `docs/`、交接檔只能 append、dev／debug／laptop-debug 不 push。Cody 選「直接擋」。
+- **CI**：`.github/workflows/tests.yml` push master／laptop（docs/ 以外）跑全套 pytest；
+  `tests/test_data_source_boundary.py` 靜態掃 FinMind／yfinance 只准在回補路徑；requirements 補 duckdb。
+
+### 這次學到的
+
+- CI 第一次跑就抓到 Windows 驗不到的問題（新版 git 不准 update-ref MERGE_HEAD）。
+- 「測試靠前一支測試順便建好的 DB 才過」只有在乾淨 clone、逐檔單獨跑才看得出來（test_scan_patterns_returns_list）。
+- Claude Code 的 block-no-verify hook 連文字裡出現那個旗標都會擋；agent 繞不過 git hook，只有 Cody 手動能破例。
+
+### 還沒做
+
+- end-work.bat（`git add .`＋push master）是舊流程，在 master 會被 hook 擋，等 Cody 決定停用或改寫。
+- 筆電要跑一次 `git config core.hooksPath githooks`。
+- 🟡 scan_patterns smoke test 的種子資料命中 0 筆，欄位檢查沒跑到，之後補一檔會命中型態的股票。
+- Pages 部署偶發 `No artifacts named "github-pages"`：加了 sleep 15，還要觀察；不夠就拆 build／deploy 兩個 job。
+- Harness 第 4 步（Feature Map、agent 專用指令、skill eval）先不做，前三步穩了再說。

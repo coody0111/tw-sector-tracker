@@ -7342,3 +7342,26 @@ Developer 轉述：這次修改 Cody 已同意。DB 用 2026-11-10 22:00 的正�
 ### 結論
 - [ ] 需要修改後再確認
 - [x] 可以繼續下一個任務（可以發佈）
+
+## [2026-11-25] 報告 - Pages 補上歷史資料夾＋部署等待（c1c9e27）
+
+### 🔴 數據問題（需立刻修）
+- 無
+
+### 🔴 程式問題（需立刻修）
+- 無
+
+### 🟡 建議改善
+- `sleep 15` 是治標。今天 4 次 push 失敗都是 `No artifacts named "github-pages"`，但 14:51 手動觸發沒加 sleep 也成功了，所以時間差可能不是每次都會發生。先這樣上線可以；如果之後 15 秒還是偶爾失敗，再考慮改成 build／deploy 分兩個 job（GitHub 官方範本的寫法）。
+- 線上要等這筆進 master 後才能驗 200，發佈後請 Developer 跑一次底下的 curl 清單。
+
+### ✅ 驗證通過
+- YAML 能正常解析，步驟順序對：checkout → configure-pages → Prepare → upload → sleep → deploy。跟 origin/master 比，只多了 `cp -r reports weekly` 和 sleep 兩段。
+- 在 scratchpad 照 Prepare 步驟建一次 _site：裡面有 docs/*.html、.nojekyll、reports/、weekly/；**沒有** superpowers/、adr/、*.md。reports/、weekly/ 底下只有 .html/.json。
+- 掃過所有 html 的相對引用，只有 *.html、reports/、weekly/ 和 index.json，全部在 _site 裡，沒有漏掉的檔案。
+- 線上現況（還沒發佈這筆）：Pages 設定 `build_type=workflow`；report.html、weekly.html 是 200；**reports/index.json、weekly/index.json、weekly/2026-11-20.html 是 404**，確認是這筆要修的問題。superpowers/specs/、CONTEXT.md、DESIGN.md 已經 404 ✅。
+- pytest **1015 passed, 1 skipped**。
+
+### 結論
+- [ ] 需要修改後再確認
+- [x] 可以繼續下一個任務（可以發佈；發佈後再實測 3 個 URL 是 200）

@@ -6737,3 +6737,26 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 - [ ] pytest 全套
 - [ ] universe diff 只有上面 8 格
 - [ ] 換不同 PYTHONHASHSEED 重建兩次，結果相同
+
+## [2026-11-25] Pages 改走 GitHub Actions 後補上歷史資料夾＋部署等待
+
+### 改了什麼
+- 異動檔案：.github/workflows/pages.yml
+- 背景：repo 的 Pages 設定一直是 legacy（branch master /docs），跟 pages.yml 兩條部署在搶，
+  pages.yml 一半失敗；而且 legacy 會把整個 docs/（superpowers/、CONTEXT.md）放上網。
+  Cody 同意後已把 Pages 設定改成 `build_type=workflow`（repo 設定，不在 git 裡），內部文件已實測 404。
+- 改成 Actions 後發現 `reports/`、`weekly/` 子資料夾沒被複製 → report.html／weekly.html 的歷史切換 404。
+  → Prepare 步驟加 `cp -r docs/reports docs/weekly _site/`（兩個資料夾只有 .html/.json）。
+- 手動觸發時 deploy 仍報 `No artifacts named "github-pages"`：上傳 14:51:01.44 成功、0.5 秒後 deploy 就去查。
+  → upload 和 deploy 之間加 `sleep 15`。
+
+### 資料來源相關
+- 無
+
+### 請 Debugger 驗證
+- [ ] YAML 語法正確、步驟順序對
+- [ ] _site 會含 docs/*.html、reports/、weekly/，不含 superpowers/、adr/、*.md
+- [ ] 發佈後實測：reports/index.json、weekly/index.json、weekly/2026-11-20.html 是 200；superpowers/specs/*.md、CONTEXT.md 是 404
+
+### 特別注意
+- 現在線上的 report.html／weekly.html 歷史切換是壞的（等這筆上 master 才會好），請優先驗

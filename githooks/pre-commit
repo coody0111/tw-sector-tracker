@@ -1,0 +1,6 @@
+#!/bin/sh
+# 規則在 scripts/git_guard.py。這個 worktree 還沒拿到它、或找不到 python 時放行，
+# 免得擋到排程的自動 commit（排程跑在 master 資料夾）。
+[ -f scripts/git_guard.py ] || exit 0
+PY=$(command -v python || command -v python3) || { echo "⚠️ git_guard：找不到 python，這次沒檢查"; exit 0; }
+exec "$PY" scripts/git_guard.py pre-commit

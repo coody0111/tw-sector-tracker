@@ -6803,3 +6803,33 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 
 ### 特別注意
 - 無
+
+## [2026-11-26] git hook 守門（harness 第二步：把 CLAUDE.md 的 git 規則改成直接擋）
+
+### 改了什麼
+- 異動檔案：scripts/git_guard.py（新）、githooks/pre-commit、githooks/pre-push（新，sh 轉接）、
+  tests/test_git_guard.py（新）、.gitattributes（githooks/* 用 LF）、CLAUDE-developer.md（工作流自檢加 🪝 一段、筆電設定加安裝指令）
+- Cody 決定：違規**直接擋**（不是只警告）。規則：
+  - pre-commit：不能 commit `.env*`（`.env.example` 除外）、`data/`；master 只收 `docs/`；
+    `debug-tasks.md`／`bug-reports.md` 必須是 append（比 HEAD 版跟 staged 版，CRLF 正規化；合併中有 MERGE_HEAD 時不檢查）
+  - pre-push：remote ref 是 dev／debug／laptop-debug 就擋
+- 轉接檔在「這個 worktree 還沒有 git_guard.py」或「找不到 python」時放行＋印警告，避免擋到排程。
+- **還沒安裝**：`git config core.hooksPath githooks` 是整個 repo 共用設定，等發佈到 master 後我再裝。
+
+### 排程相容性（請特別確認）
+- 排程在 master 跑 `git commit -m ... -- <docs 檔案>`（pathspec commit，git 用暫存 index，hook 讀得到）→ 全是 docs/，會過。
+- 排程的 `git pull --rebase` 不跑 pre-commit；`git push` 推 master → 放行。
+- 發佈的 `git merge dev` 不跑 pre-commit（沒裝 pre-merge-commit）→ 不會被「master 只收 docs/」擋。
+
+### 資料來源相關
+- 無
+
+### 請 Debugger 驗證
+- [ ] pytest 全套（含 tests/test_git_guard.py）
+- [ ] 用 `git -c core.hooksPath=githooks ...` 單次啟用（**不要**改 repo config）在 debug worktree 實測：
+  prepend bug-reports.md 被擋、append 會過、`git push --dry-run origin debug` 被擋
+- [ ] 模擬排程：在 scratchpad 建 repo、master 分支、pathspec commit docs/ 檔 → 會過；commit main.py → 被擋
+- [ ] Windows 上 sh 轉接檔能找到 python、輸出中文不 crash
+
+### 特別注意
+- Claude Code 本身有 block-no-verify hook，agent 不能用略過 hook 的旗標繞過；只有 Cody 手動可以。

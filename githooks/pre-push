@@ -1,0 +1,5 @@
+#!/bin/sh
+# 規則在 scripts/git_guard.py（stdin 是 git 給的 ref 清單，原樣傳過去）。
+[ -f scripts/git_guard.py ] || exit 0
+PY=$(command -v python || command -v python3) || { echo "⚠️ git_guard：找不到 python，這次沒檢查"; exit 0; }
+exec "$PY" scripts/git_guard.py pre-push "$@"

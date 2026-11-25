@@ -291,6 +291,12 @@ con.close()
 **⚠️ 兩個 session 別同時動 git**：Debugger 那邊也有一個 Claude session 共用同一個 `.git`，
 同時下 git 指令會壞 index/ref。
 
+**🪝 git hook 會直接擋的（2026-11-26 起，規則在 `scripts/git_guard.py`）**：
+commit `.env`／`data/`、在 master commit `docs/` 以外的檔、`debug-tasks.md`／`bug-reports.md` 不是 append、
+push `dev`／`debug`／`laptop-debug`。被擋就照錯誤訊息修，**不要加 `--no-verify` 繞過**（那是 Cody 的決定）。
+每台電腦裝一次：`git config core.hooksPath githooks`（三個 worktree 共用）。
+要加新規則：改 `git_guard.py`＋測試，別只在這份文件多寫一行。
+
 ---
 
 ## 🔒 防分岔鐵律（2026-07-09 踩過合併地獄後定）
@@ -393,6 +399,7 @@ git worktree add -b laptop-debug ../tw-sector-tracker-debug laptop
 # (b) 已經有（以前的 debug 分支）：先 `git -C ../tw-sector-tracker-debug status -s` 確認乾淨（不乾淨先問 Cody），再
 git -C ../tw-sector-tracker-debug switch -c laptop-debug laptop
 cp CLAUDE-debugger.md ../tw-sector-tracker-debug/CLAUDE.md
+git config core.hooksPath githooks          # git hook（見「工作流自檢」🪝）
 ```
 筆電的 Debugger 分支叫 `laptop-debug`，跟桌電的 `debug` 分開，**永遠不 push**。
 然後開兩個 Claude Code：一個在 `tw-sector-tracker`（Developer）、一個在 `tw-sector-tracker-debug`（Debugger）。

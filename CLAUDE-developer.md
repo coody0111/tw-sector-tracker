@@ -41,6 +41,11 @@ tw-sector-tracker/
 - 才會用到 FinMind（TPEx 部分）或 yfinance
 - 注意各來源的欄位格式不同，處理時要分開轉換
 
+**🧪 測試會擋（2026-11-26 起）**：`tests/test_data_source_boundary.py` 靜態掃全部程式碼，FinMind／yfinance
+只准出現在 `scrapers/backfill.py` 跟 `main.py` 的回補入口（只能從命令列呼叫）。新回補功能要登記進那支測試的白名單。
+GitHub Actions（`.github/workflows/tests.yml`）在發佈到 master／push laptop 時跑全套 pytest。
+下面三個問題測試抓不到（例如同一批 CSV 被回補覆蓋、欄位轉換），還是要自己判斷：
+
 **開發時每次碰到資料相關的程式碼，先確認：**
 1. 這支股票是上市還是上櫃？走的是每日流程還是歷史回補？
 2. 有沒有混用資料來源（例如回補指令跟每日流程互相覆蓋同一批資料）？

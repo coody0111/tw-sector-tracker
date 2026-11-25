@@ -1,0 +1,30 @@
+name: Tests
+
+# 程式有變才跑：排程每 10 分鐘 push 的 docs/ 網頁不觸發。
+# dev 不 push，所以這裡是發佈到 master／筆電 push laptop 時的最後一道關卡，平常驗證還是 Debugger。
+on:
+  push:
+    branches: [master, laptop]
+    paths-ignore:
+      - 'docs/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'   # 跟桌電一樣
+          cache: pip
+      - name: Install
+        run: pip install -r requirements.txt
+      - name: Pytest
+        # data/ 只有 tracked 的 stock_universe.csv、sector_overrides.csv；DB 不在 CI 上
+        env:
+          TZ: Asia/Taipei
+        run: python -m pytest -q

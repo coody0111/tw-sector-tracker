@@ -6833,3 +6833,23 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 
 ### 特別注意
 - Claude Code 本身有 block-no-verify hook，agent 不能用略過 hook 的旗標繞過；只有 Cody 手動可以。
+
+## [2026-11-26] git hook 守門：處理 🟡（中文檔名、debug:master）
+
+### 改了什麼
+- 異動檔案：scripts/git_guard.py、tests/test_git_guard.py
+- pre-commit 取 staged 清單改 `--name-only -z` ＋ `split("\0")`：中文／空白檔名不再被 quotePath 包起來。
+- pre-push 本地 ref 跟遠端 ref 都看：`push origin debug:master` 也擋。
+- 新測試：test_pre_commit_chinese_filenames_not_quoted、test_pushed_protected_branches_blocks_debug_into_master。
+- end-work.bat（`git add .` ＋ push master）沒改：它是 11/05 三資料夾前的舊流程，在 master 被擋是預期行為；要不要停用交給 Cody。
+
+### 資料來源相關
+- 無
+
+### 請 Debugger 驗證
+- [ ] pytest 全套
+- [ ] master 分支 commit `docs/中文.html` 會過、`data/中文.csv` 被擋（scratch repo）
+- [ ] `push origin debug:master` 被擋、`push origin master` 放行
+
+### 特別注意
+- 安裝 hook 的 git config 可能被 Claude Code 的 block-no-verify hook 擋，屆時請 Cody 手動跑。

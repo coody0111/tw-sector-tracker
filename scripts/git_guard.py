@@ -50,11 +50,15 @@ def is_append_only(old: str | None, new: str | None) -> bool:
 
 def pushed_protected_branches(stdin_lines: list[str]) -> list[str]:
     # pre-push 的 stdin 每行：<local ref> <local sha> <remote ref> <remote sha>
+    # 兩邊都看：`push origin debug:master` 是把沒驗過的 debug 推進 master，一樣要擋
     bad = []
     for line in stdin_lines:
         parts = line.split()
-        if len(parts) == 4 and parts[2].removeprefix("refs/heads/") in NO_PUSH_BRANCHES:
-            bad.append(parts[2].removeprefix("refs/heads/"))
+        if len(parts) != 4:
+            continue
+        for ref in (parts[0], parts[2]):
+            if ref.removeprefix("refs/heads/") in NO_PUSH_BRANCHES:
+                bad.append(ref.removeprefix("refs/heads/"))
     return bad
 
 
@@ -66,7 +70,9 @@ def _show(spec: str) -> str | None:
 def pre_commit() -> int:
     r = _git("symbolic-ref", "--short", "-q", "HEAD")
     branch = r.stdout.decode().strip() or None
-    paths = _git("diff", "--cached", "--name-only", "--diff-filter=ACMRD").stdout.decode("utf-8").split()
+    # -z：中文／含空白的檔名不會被 quotePath 包成 "docs/\344..."（不然 master 的 docs/中文.html 被誤擋、data/中文.csv 被放過）
+    out = _git("diff", "--cached", "--name-only", "-z", "--diff-filter=ACMRD").stdout.decode("utf-8")
+    paths = [p for p in out.split("\0") if p]
     errors = []
     if bad := forbidden_paths(paths):
         errors.append("❌ 不能 commit 機敏檔或資料：" + "、".join(bad))

@@ -39,9 +39,14 @@ def test_pushed_protected_branches():
         f"refs/heads/dev {z} refs/heads/dev {z}",
         f"refs/heads/x {z} refs/heads/laptop-debug {z}",
     ]
-    assert pushed_protected_branches(lines) == ["dev", "laptop-debug"]
+    assert pushed_protected_branches(lines) == ["dev", "dev", "laptop-debug"]
     assert pre_push(lines) == 1
     assert pre_push(lines[:2]) == 0
+
+
+def test_pushed_protected_branches_blocks_debug_into_master():
+    z = "0" * 40
+    assert pushed_protected_branches([f"refs/heads/debug {z} refs/heads/master {z}"]) == ["debug"]
 
 
 # ---- pre_commit 整合：在 tmp 建真的 git repo ----
@@ -95,6 +100,15 @@ def test_pre_commit_master_only_docs(repo, capsys):
     _stage(repo, "main.py", "print(1)\n")
     assert pre_commit() == 1
     assert "master 資料夾只收排程產出的 docs/" in capsys.readouterr().out
+
+
+def test_pre_commit_chinese_filenames_not_quoted(repo, capsys):
+    _git(repo, "checkout", "-q", "-b", "master")
+    _stage(repo, "docs/週報 測試.html", "<html></html>")
+    assert pre_commit() == 0
+    _stage(repo, "data/中文.csv", "x\n")
+    assert pre_commit() == 1
+    assert "data/中文.csv" in capsys.readouterr().out
 
 
 def test_pre_commit_skips_append_check_during_merge(repo):

@@ -36,10 +36,15 @@ jobs:
           mkdir -p _site
           cp docs/*.html _site/
           cp docs/.nojekyll _site/
+          # report.html／weekly.html 的歷史切換會讀這兩個資料夾（index.json＋每期頁面）
+          cp -r docs/reports docs/weekly _site/
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: '_site'
+      - name: Wait for artifact
+        # 上傳完 0.5 秒內 deploy 去查常查不到（"No artifacts named github-pages"），等一下再部署
+        run: sleep 15
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4

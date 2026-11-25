@@ -7613,3 +7613,34 @@ Developer 轉述：這次修改 Cody 已同意。DB 用 2026-11-10 22:00 的正�
 ### 結論
 - [ ] 需要修改後再確認
 - [x] 可以繼續下一個任務（可以發佈）
+
+## [2026-11-26] 報告 - end-work.bat 改成只檢查（1a0f816）
+
+### 🔴 數據問題（需立刻修）
+- 無
+
+### 🔴 程式問題（需立刻修）
+- 無
+
+### 🟡 建議改善
+- **我這邊也沒辦法實跑**：Bash 跟 PowerShell 都試過，用完整路徑 `C:\Windows\system32\cmd.exe /c echo hi` 也是 exit 1，判斷是沙箱擋 cmd.exe。**請 Cody 雙擊確認一次。**
+- 檔案是 UTF-8、沒有 BOM、也沒有 `chcp 65001`。cmd 預設是 cp950，中文 echo 可能顯示成亂碼。
+  - 舊版 end-work.bat、start-desktop.bat、start-laptop.bat 都一樣（三支都沒有 chcp），所以不是這次才有的問題。
+  - Cody 雙擊時如果看到亂碼，可以在 `@echo off` 下一行加 `chcp 65001 >nul`。
+
+### ✅ 驗證通過
+- 沒有任何會寫入的 git 指令。用 regex 掃 add／commit／push／reset／checkout／merge／rebase／stash／rm／clean／pull 都沒命中。只有 `branch --show-current`、`status --short`、`-C ... status --short --branch`、`log --oneline master..dev` 四種唯讀指令；`git add .` 只出現在註解和 echo 文字裡。
+- 批次語法看起來正確：
+  - `for %%W in (...) do (` 跟 `if exist "..\%%W\.git" (` 的括號成對。
+  - 區塊裡的 echo 沒有半形 `)`，不會提早結束區塊；外面 echo 用的是全形（），也安全。
+  - `cd /d "%~dp0"` 讓三個資料夾的相對路徑正確。
+- `if exist "..\%%W\.git"`：dev／debug 是 worktree，`.git` 是**檔案**，master 才是資料夾。實查三個都存在，`if exist` 對檔案也成立，不會被漏掉。
+- 在 bash 照同樣邏輯跑一次，模擬它會輸出什麼：
+  - debug 乾淨；master 有一個 untracked `.claude/skills/ui-ux-pro-max/`；dev 乾淨。
+  - `master..dev` 列出 1a0f816（就是這筆還沒發佈）。
+  - 輸出內容跟提示文字對得上。
+- 換行是 CRLF（工作區），跟交接說的一致。
+
+### 結論
+- [ ] 需要修改後再確認
+- [x] 可以繼續下一個任務（可以發佈；請 Cody 雙擊實跑一次，順便看中文有沒有亂碼）

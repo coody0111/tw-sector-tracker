@@ -6853,3 +6853,31 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 
 ### 特別注意
 - 安裝 hook 的 git config 可能被 Claude Code 的 block-no-verify hook 擋，屆時請 Cody 手動跑。
+
+## [2026-11-26] CI 跑 pytest＋資料來源邊界測試（harness 第三步）
+
+### 改了什麼
+- 異動檔案：.github/workflows/tests.yml（新）、tests/test_data_source_boundary.py（新）、requirements.txt、CLAUDE-developer.md
+- tests.yml：push master／laptop（`paths-ignore: docs/**`，排程網頁 push 不觸發）、workflow_dispatch；
+  ubuntu＋Python 3.11、`pip install -r requirements.txt`、`python -m pytest -q`，TZ=Asia/Taipei。
+- requirements.txt 補 `duckdb==1.5.3`（程式一直有用、清單裡沒有；版本跟桌電一樣）。
+- test_data_source_boundary.py：AST 靜態掃全部 .py（略過 tests/research/docs/.claude/.agents/data）
+  - 回補來源名字（yfinance、backfill_yfinance、backfill_twse_monthly、_fetch_finmind_history、
+    _fetch_yfinance_one_stock、FINMIND_URL、FINMIND_TOKEN、字串 finmindtrade.com）只准在
+    scrapers/backfill.py、scrapers/chips.py（只限 FINMIND_TOKEN 定義）、main.py 的 backfill_twse／backfill_yf／_full_rebuild 與頂層 import
+  - 那三個回補入口只准在 main.py 的 `if __name__ == "__main__"` 分派裡被呼叫
+  - 第二個測試用 tmp 假專案確認掃描器真的抓得到 3 種違規（不是空轉）
+- CLAUDE-developer.md「資料來源規則」加一段：哪些已由測試擋、哪些還要自己判斷。
+
+### 資料來源相關
+- 沒改任何資料程式；只是把「每日流程不能用 FinMind／yfinance」變成測試
+
+### 請 Debugger 驗證
+- [ ] pytest 全套（含新測試；真實程式碼上 test_backfill_sources_stay_in_backfill_paths 要過）
+- [ ] **模擬 CI**：scratchpad `git clone` 一份乾淨的 dev（沒有 data/ 的 DB、沒有 .env），新 venv 裝 requirements.txt、
+      設 TZ=Asia/Taipei 跑 pytest。哪些測試依賴本機 DB／.env／網路而失敗，請列出來（我沒辦法自己跑，這是 CI 上線前最大的未知數）
+- [ ] 故意在 scrapers/twse.py 加 `import yfinance` → 新測試失敗、訊息看得懂
+- [ ] tests.yml 語法、觸發條件（docs/ only 的 push 不跑）
+
+### 特別注意
+- 發佈後 tests.yml 第一次在 GitHub 跑，若有 Linux 才出現的失敗，我再處理

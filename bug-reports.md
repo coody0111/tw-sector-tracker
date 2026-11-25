@@ -7644,3 +7644,70 @@ Developer 轉述：這次修改 Cody 已同意。DB 用 2026-11-10 22:00 的正�
 ### 結論
 - [ ] 需要修改後再確認
 - [x] 可以繼續下一個任務（可以發佈；請 Cody 雙擊實跑一次，順便看中文有沒有亂碼）
+
+## [2026-11-26] 報告 - 三支 .bat 加 chcp 65001（f3dfa4b）
+
+### 🔴 數據問題（需立刻修）
+- 無
+
+### 🔴 程式問題（需立刻修）
+- 問題：**UTF-8 的 .bat 在 cmd 會切錯行，註解和 echo 的片段被當成指令執行**。加 chcp 65001 只修好顯示，沒修好這個。
+  位置：end-work.bat（1a0f816 起）、start-desktop.bat、start-laptop.bat
+  重現方式：
+  - 用 Python `subprocess.run(['cmd','/d','/c',<bat>], creationflags=CREATE_NEW_CONSOLE)` 開**全新主控台**跑，最接近 Cody 雙擊（新主控台一開始是 cp950）。
+  - 檔案用 bytes 讀寫，確定是 CRLF。start-*.bat 的 git／start／cd 先換成 `echo RUN-...`，不會真的執行。
+  結果：
+  | 檔案 | 版本 | 錯誤 | 少掉的行 |
+  |---|---|---|---|
+  | end-work.bat | ade22b0（沒有 chcp） | 每次 3 個「不是內部或外部命令」 | `[1/3] 這個資料夾：`、最後一行 `dev 有新 commit：交給 Debugger…` |
+  | end-work.bat | f3dfa4b（有 chcp） | 每次 3 個 `'dev'`／`'��個資料夾：'`／`'�全部' is not recognized` | 同上兩行 |
+  | start-desktop／laptop | f3dfa4b | 4 個指令都有執行 | `[3/3] 啟動 Debugger...`，最後還多出一行 `The system cannot find the path specified.` |
+  說明：
+  - `'dev'` 是從第 8～9 行 `::` 註解切出來的片段，也就是**註解內容被執行**了。第 8 行註解裡剛好有「git add . + push master」，這次切到的是 dev，但切在哪裡全看位元組怎麼對齊。改到中文就可能切到別處，這是最危險的地方。
+  - 為什麼 Developer 那邊「改之後正常」：我在同一個主控台連跑，第 1 次 3 個錯、第 2～8 次 0 個錯。因為第 1 次跑完主控台已經是 65001，之後就不會在檔案中途切換 codepage。雙擊一定是新主控台，所以**每次都會中**。
+  - 這也更正我上一份報告（ade22b0）：那次只看語法就打 ✅，沒實跑，漏掉了。
+  建議（在 CRLF 的前提下實測過，請 Developer／Cody 選一個）：
+  - **A. 存成 cp950（Big5）、拿掉 chcp、✅ 改成 OK** → **0 錯、每一行都在**，中文顯示正常。唯一的亂碼是 git log 印出的 UTF-8 commit 訊息。缺點：git diff／Claude 的編輯工具都預設 UTF-8，之後改檔要記得維持 Big5，可以在 .gitattributes 加 `*.bat working-tree-encoding=cp950 eol=crlf`。
+  - B. bat 內容只用 ASCII（英文訊息），最穩，但 Cody 要看英文。
+  - 已經實測不行的：保留 UTF-8＋chcp，只把 `::` 改成 `rem`、或只拿掉 ✅、或兩個都做 → 還是 3 個錯。
+
+### 🟡 建議改善
+- `.gitattributes` 沒有 `*.bat eol=crlf`：index 存的是 LF，只是靠這台的 `core.autocrlf=true` 才在工作區變成 CRLF。換到 autocrlf 不是 true 的機器，bat 會變成 LF，cmd 切行會更糟（我誤用 sed 產出 LF 版測過，9 個錯）。建議加上去。
+
+### ✅ 驗證通過
+- diff 每支只多 1 行 `chcp 65001 >nul`；工作區是 CRLF；第 1 行 `@echo off` 是純 ASCII。
+- AutoRun 更正屬實：`HKCU\...\Command Processor\AutoRun = "if exist  "`；`cmd /c echo hi` exit 1，`cmd /d /c echo hi` 正常。我只讀了 registry，沒動。
+- 中文顯示：有 chcp 的版本用 UTF-8 解碼，echo 的中文正常（被切錯的行除外）。
+
+### 結論
+- [x] 需要修改後再確認（三支 bat 會切錯行、執行到註解片段；建議用 A 方案）
+- [ ] 可以繼續下一個任務
+
+## [2026-11-26] 報告 - .bat 切錯行：三支全改 ASCII＋測試擋（b5188e1）
+
+### 🔴 數據問題（需立刻修）
+- 無
+
+### 🔴 程式問題（需立刻修）
+- 無
+
+### 🟡 建議改善
+- 無
+
+### ✅ 驗證通過
+- **新主控台實跑**（`subprocess.run(['cmd','/d','/c',...], creationflags=CREATE_NEW_CONSOLE)`，起始 cp950，每支跑 3 次）：
+  - end-work.bat：**0 錯**，每一行 echo 都在（[1/3]～[3/3]、最後兩行提示），三個資料夾都有列出來。[3/3] 的中文 commit 訊息用 UTF-8 解碼正常，沒有 U+FFFD。
+  - start-desktop.bat／start-laptop.bat（git／start／cd 換成 `echo RUN-...`）：**0 錯**、RUN 4/4。`[3/3] Starting Debugger...` 有出現，也**不再**出現 `The system cannot find the path specified.`。
+    - 比對時列為「缺少」的只有 `%~dp0`、`%USERPROFILE%` 那幾行，是因為 echo 會展開變數，所以字串對不上，不是真的少行。
+- 指令跟上一版（809a3ba）**逐字相同**：三支拿掉 echo／rem／:: 和空行之後 diff 為空。git pull、兩個 start、for／if exist、cd /d 都沒變。
+- `.gitattributes` 加了 `*.bat text eol=crlf`，`git ls-files --eol` 顯示三支都是 `attr/text eol=crlf`、工作區 CRLF。
+- 檔案全是純 ASCII；for 區塊裡沒有半形 `)`。
+- pytest 全套 **1051 passed, 1 skipped**。
+- 反向驗證 test_bat_files.py：在根目錄暫時放 `zz_mut.bat`：
+  - 寫中文 → `test_bat_is_ascii[zz_mut.bat]` 失敗；
+  - 改成 LF 換行 → `test_bat_is_crlf[zz_mut.bat]` 失敗；
+  - 刪掉之後 7 passed。
+
+### 結論
+- [ ] 需要修改後再確認
+- [x] 可以繼續下一個任務（可以發佈）

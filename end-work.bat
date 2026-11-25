@@ -1,18 +1,21 @@
 @echo off
-echo === 下班收工（只檢查，不 commit、不 push）===
+chcp 65001 >nul
+rem ASCII only: cmd reads .bat in the console code page (cp950 here), so UTF-8 Chinese
+rem mis-splits lines and runs fragments as commands. tests/test_bat_files.py enforces this.
+echo === End of day (check only, no commit / no push) ===
 echo.
 
-:: 專案位置 = 這支 bat 所在目錄，不再依機器寫死絕對路徑
+rem Project folder = where this .bat lives (no hard-coded machine path)
 cd /d "%~dp0"
 
-:: 2026-11-26 起不再 git add . + push master：master 只收 Debugger 驗過的 dev（git hook 也會擋），
-:: 程式改動在 dev 資料夾 commit，走「dev → Debugger → 發佈到 master」。
-echo [1/3] 這個資料夾：
+rem Since 2026-11-26 this no longer commits or pushes: master only takes dev after Debugger OK
+rem (the git hook blocks it too). Commit code in the dev folder: dev, Debugger, publish to master.
+echo [1/3] This folder:
 git branch --show-current
 git status --short
 echo.
 
-echo [2/3] 三個資料夾（有沒有忘了 commit 的東西）：
+echo [2/3] All three folders (anything not committed?):
 for %%W in (tw-sector-tracker tw-sector-tracker-dev tw-sector-tracker-debug) do (
     if exist "..\%%W\.git" (
         echo --- %%W
@@ -21,10 +24,10 @@ for %%W in (tw-sector-tracker tw-sector-tracker-dev tw-sector-tracker-debug) do 
 )
 echo.
 
-echo [3/3] 還沒發佈到 master 的 dev commit：
+echo [3/3] dev commits not yet published to master:
 git log --oneline master..dev
 echo.
-echo 有東西沒 commit：到 dev 資料夾 commit（git add 指定檔案，不要 git add .）
-echo dev 有新 commit：交給 Debugger，全部 ✅ 才發佈到 master（見 CLAUDE.md「發佈到 master」）
+echo Uncommitted changes: commit them in the dev folder (git add the files, never git add .)
+echo New dev commits: hand to Debugger; publish to master only after all OK (CLAUDE.md "publish to master")
 echo.
 pause

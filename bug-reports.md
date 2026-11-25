@@ -7396,3 +7396,23 @@ Developer 轉述：這次修改 Cody 已同意。DB 用 2026-11-10 22:00 的正�
 ### 結論
 - [x] 需要修改後再確認（只有測試／去重那一項）
 - [ ] 可以繼續下一個任務
+
+## [2026-11-25] 報告 - Pages 上線前檢查：修 location.href 被抓兩次（5f8878b）
+
+### 🔴 數據問題（需立刻修）
+- 無
+
+### 🔴 程式問題（需立刻修）
+- 無
+
+### 🟡 建議改善
+- 無。選 lookbehind 不選去重的理由合理：去重的話，`img.src='y.png'` 這種 JS 屬性也會被當成連結檢查。
+
+### ✅ 驗證通過
+- pytest 全套 **1026 passed, 1 skipped**。原本固定失敗的 `test_relative_refs_catches_fetch_and_location_prefix` 現在會過，新測試也過。
+- 用 master（c659be0）的 docs/ 重建 _site，**沒設 PYTHONIOENCODING，直接在 Windows cp950 主控台跑** → 印出 `✅ _site 檢查通過：35 個檔案`、exit 0，不會 crash。刪掉 chips.html 再跑 → `❌` 正常印出、exit 1。
+- 新舊 regex 比對：在 master 全部 35 個檔案上，新規則少抓的 ref 都已經由 location.href 規則抓到，**沒有漏掉任何連結**。
+
+### 結論
+- [ ] 需要修改後再確認
+- [x] 可以繼續下一個任務（可以發佈；發佈後再實測 reports/index.json、weekly/index.json、weekly/2026-11-20.html 是 200）

@@ -7459,3 +7459,31 @@ Developer 轉述：這次修改 Cody 已同意。DB 用 2026-11-10 22:00 的正�
 ### 結論
 - [x] 需要修改後再確認（建議發佈前把 `-z` 改掉；其他 🟡 請 Developer／Cody 決定）
 - [ ] 可以繼續下一個任務
+
+## [2026-11-26] 報告 - git hook 守門：處理 🟡（中文檔名、debug:master）（349af08）
+
+### 🔴 數據問題（需立刻修）
+- 無
+
+### 🔴 程式問題（需立刻修）
+- 無
+
+### 🟡 建議改善
+- end-work.bat 請 Cody 決定：它是舊流程，在 master 跑 `git add .`，hook 裝好之後只要有 docs/ 以外的變更就會被擋。
+- 安裝 hook 的 git config 指令，Claude Code 的 block-no-verify hook 可能會擋，屆時請 Cody 手動跑。
+
+### ✅ 驗證通過
+- pytest 全套 **1042 passed, 1 skipped**，新加的兩個測試也過。
+- scratch repo 實測。hook 放在那個 repo 自己的 `.git/hooks`，沒動本專案的 config：
+  - master 用 pathspec commit `docs/中文 報告.html`（中文加空白）→ **過**（上一版被誤擋）。
+  - master commit `data/中文.csv` → **被擋**，兩條規則都報（上一版漏擋）。
+  - dev commit `.env 備份` → **被擋**（上一版漏擋）。
+- 用真的 bare remote 實際 push（不是只餵 stdin）：
+  - `push origin debug:master` → **被擋**，remote 沒被建出 master 以外的東西。
+  - `push origin master` → **放行**。
+  - `push origin dev` → **被擋**。
+- diff 只動 `pre_commit` 取檔名、`pushed_protected_branches` 兩處。改 `-z` 之後也會一併過濾空字串；push 回報有重複的分支名，`sorted(set())` 會去重。
+
+### 結論
+- [ ] 需要修改後再確認
+- [x] 可以繼續下一個任務（可以發佈；end-work.bat 請 Cody 決定）

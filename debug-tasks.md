@@ -6760,3 +6760,46 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 
 ### 特別注意
 - 現在線上的 report.html／weekly.html 歷史切換是壞的（等這筆上 master 才會好），請優先驗
+
+## [2026-11-25] Pages 上線前自動檢查（harness 第一步：把文字規則改成確定性檢查）
+
+### 改了什麼
+- 異動檔案：scripts/check_pages_site.py（新）、tests/test_check_pages_site.py（新）、.github/workflows/pages.yml
+- 邏輯說明：pages.yml 在 Prepare 之後、Upload 之前跑 `python3 scripts/check_pages_site.py _site`，任一條不過就讓部署失敗：
+  1. 白名單：_site 只能有 .html／.json／.nojekyll（擋 superpowers/、adr/、*.md）。
+  2. 相對連結：每頁的 href／src／fetch('…')／location.href='…' 指到的檔案或資料夾都要在 _site 裡；
+     有 `<base href>` 的頁面（reports/、weekly/ 歷史頁是 `<base href="../">`）從 base 解析；跑出 _site 也算錯。
+     略過外部網址、#錨點、/ 開頭、`${}` 樣板。
+- 只用標準庫（runner 沒裝 requirements）；錯誤訊息寫下一步怎麼修。
+- 起因：8/28「內部文件不上 Pages」只寫在 yml 註解，沒有檢查 → 公開到 11/25；11/25 又漏複製 reports/、weekly/。
+
+### 資料來源相關
+- 無
+
+### 請 Debugger 驗證
+- [ ] pytest 全套（含新的 tests/test_check_pages_site.py）
+- [ ] 照 Prepare 步驟用 **master** 的 docs/ 建 _site 跑一次 → exit 0（我在 scratchpad 用 dev 的 docs/ 跑過：正確版 0、拿掉 reports/weekly 的版本 1、整個 docs/ 的版本 1）
+- [ ] 誤判：線上真的能點的連結不會被報錯（特別是歷史頁的 `<base href="../">` 導覽列）
+- [ ] pages.yml 步驟順序：Prepare → Check → Upload → sleep → Deploy
+
+### 特別注意
+- 新增 .css／.js／圖片要上線時，要把副檔名加進 ALLOWED_SUFFIXES，不然部署會被擋（這是刻意的）
+
+## [2026-11-25] Pages 上線前自動檢查：修 🔴 location.href 被抓兩次
+
+### 改了什麼
+- 異動檔案：scripts/check_pages_site.py、tests/test_check_pages_site.py
+- 第一條規則加 `(?<![.\w])`：只抓 HTML 屬性 `href=`／`src=`，不吃 JS 的 `location.href=`／`img.src=`
+  （location.href 由第三條專門抓，所以不會漏）。選這個而不是去重：去重會把 `img.src='y.png'` 這種 JS 屬性也當連結檢查。
+- 🟡 採納：`__main__` 加 `sys.stdout.reconfigure(encoding="utf-8")`。
+- 新測試 test_relative_refs_does_not_treat_js_property_as_attribute。
+
+### 資料來源相關
+- 無
+
+### 請 Debugger 驗證
+- [ ] pytest 全套（原本失敗的 test_relative_refs_catches_fetch_and_location_prefix 要過）
+- [ ] master docs/ 建 _site 再跑一次仍 exit 0；Windows 本機直接跑不 crash
+
+### 特別注意
+- 無

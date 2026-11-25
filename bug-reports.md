@@ -7365,3 +7365,34 @@ Developer 轉述：這次修改 Cody 已同意。DB 用 2026-11-10 22:00 的正�
 ### 結論
 - [ ] 需要修改後再確認
 - [x] 可以繼續下一個任務（可以發佈；發佈後再實測 3 個 URL 是 200）
+
+## [2026-11-25] 報告 - Pages 上線前自動檢查（9841d36）
+
+### 🔴 數據問題（需立刻修）
+- 無
+
+### 🔴 程式問題（需立刻修）
+- 問題：新測試 `test_relative_refs_catches_fetch_and_location_prefix` **固定失敗**（不是偶發）。
+  位置：scripts/check_pages_site.py `_REF_PATTERNS`；tests/test_check_pages_site.py 第 35 行
+  說明：第一條規則 `\b(?:href|src)\s*=` 也會吃到 `location.href='weekly/'`，因為 `.` 和 `href` 之間算字邊界。這樣同一個 ref 被第一條和第三條規則各抓一次，回傳 `['weekly/', 'weekly/index.json', 'weekly/']`，跟測試預期的 `["weekly/index.json", "weekly/"]` 不合。
+  實際檢查不受影響：`broken_refs` 有用 `set` 去重。兩種改法擇一：`relative_refs` 回傳前保序去重，或把第一條改成 `(?<![.\w])(?:href|src)\s*=`。
+  重現：`python -m pytest -q tests/test_check_pages_site.py` → 1 failed, 9 passed。全套是 **1 failed, 1024 passed, 1 skipped**。
+
+### 🟡 建議改善
+- 在 Windows 本機跑，**通過時**會 crash：最後一行 print 的 `✅` 在 cp950 主控台編不出來，丟 `UnicodeEncodeError`、exit 1。失敗訊息的 `❌` 大概也一樣。runner 是 Linux UTF-8，CI 不受影響，但本機自己檢查會誤以為沒過。可以在 main 開頭加 `sys.stdout.reconfigure(encoding="utf-8")`。（這次驗證是用 `PYTHONIOENCODING=utf-8` 跑的。）
+- 有兩種情況會漏抓，目前沒踩到，記一下就好：
+  - 連結指到資料夾（例如 `href="reports/"`）只檢查資料夾在不在，但 Pages 上沒有 index.html 會 404。現在的 `reports/`、`weekly/` 都是 `'reports/'+sel.value+'.html'` 這種前綴，沒問題。
+  - Windows 檔名不分大小寫，本機會放過大小寫打錯的連結，Linux runner 才會擋下來。
+
+### ✅ 驗證通過
+- 用 **master（c659be0）** 的 docs/ 照 Prepare 步驟建 _site（35 個檔案，reports/ 18 頁＋index.json，weekly/ 4 頁＋index.json），跑檢查 → **exit 0** ✅。
+- 歷史頁 `<base href="../">` 沒有誤報：reports/、weekly/ 底下頁面的導覽列（chips.html、heat.html、index.html…）跟 `reports/index.json`，都是從根目錄解析，全部找得到。
+- 故意弄壞的版本都擋得下來：
+  - 拿掉 weekly/ → exit 1
+  - 混入 CONTEXT.md、superpowers/ → 列出 `CONTEXT.md`、`superpowers/mockups/README.md`
+  - 刪掉 chips.html → 列出每一頁斷掉的連結
+- pages.yml 順序：Prepare → Check → Upload → sleep → Deploy ✅。runner 用 `python3`（ubuntu-latest 是 3.12），`list[str]` 這種型別寫法可以跑。
+
+### 結論
+- [x] 需要修改後再確認（只有測試／去重那一項）
+- [ ] 可以繼續下一個任務

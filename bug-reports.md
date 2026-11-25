@@ -7487,3 +7487,42 @@ Developer 轉述：這次修改 Cody 已同意。DB 用 2026-11-10 22:00 的正�
 ### 結論
 - [ ] 需要修改後再確認
 - [x] 可以繼續下一個任務（可以發佈；end-work.bat 請 Cody 決定）
+
+## [2026-11-26] 報告 - CI 跑 pytest＋資料來源邊界測試（0310535）
+
+### 🔴 數據問題（需立刻修）
+- 無
+
+### 🔴 程式問題（需立刻修）
+- 無
+
+### 🟡 建議改善
+- **邊界測試會掃進 repo 裡的 venv**。`SKIP_DIRS` 沒有 `.venv`／`venv`／`site-packages`。
+  - 我第一次模擬時把 venv 建在 clone 裡面，`test_backfill_sources_stay_in_backfill_paths` 就把 `.venv/Lib/site-packages/yfinance/*` 幾百行全報成違規。
+  - CI 是裝到系統 site-packages，**不會撞到**；但誰在 repo 裡建 `.venv`，本機就會紅。建議加進 SKIP_DIRS。
+- **（既有問題，不是這次造成的）有 3 個測試會開真的 `data/screener.db`**：
+  - `test_update_chips_db_appends_price_import_failure_to_warnings`
+  - `test_update_chips_db_appends_chips_backfill_failure_to_warnings`
+  - `test_update_chips_db_warnings_stays_none_safe_when_not_passed`
+  - `_update_chips_db()` 第一行就呼叫真的 `init_db()`，沒有打樁。乾淨 clone 跑完會多出一個 1.3MB 的 `data/screener.db`（我已逐支跑確認是這 3 支）。
+  - CI 上無害（用完就丟）。但在 master／dev 資料夾跑 pytest，會對正式 DB 做 init_db；排程剛好拿著 DuckDB 寫入鎖時，這 3 支會失敗。建議 monkeypatch `main.init_db`。
+- **靜態掃描抓不到的寫法**（記一下，現在的程式沒有這種寫法）：
+  - `importlib.import_module("yfinance")`：字串不在 SOURCE_STRINGS 裡 → 實測**沒抓到**。
+  - main.py 頂層 import 一律放行：如果在 main.py 頂層 `import yfinance as yf`，再在每日函式用 `yf.download()`，就不會被抓（`yf` 不在名單）。
+  - 別的新檔案 `import yfinance as yf` 會被抓（import 那一行就算違規）✅，實測過。
+
+### ✅ 驗證通過
+- 本機 debug：pytest 全套 **1044 passed, 1 skipped**。
+- **模擬 CI**：
+  - 做法：`git clone --no-local --branch dev` 到 scratchpad（0310535）。data/ 只有 tracked 的 `stock_universe.csv`、`sector_overrides.csv`；沒有 `.env`（只有 `.env.example`）。
+  - 新建 venv（Python 3.11.9）、`pip install -r requirements.txt` 成功，沒有缺套件，duckdb 補上後齊了。
+  - 設 `TZ=Asia/Taipei`、移除 FINMIND_TOKEN 後跑 → **1044 passed, 1 skipped**。
+  - **沒有任何測試依賴本機 DB／.env／網路而失敗。** 唯一 skip 是 `test_scheduled_runner.py:140`（os.kill 只在 POSIX 能用），到 Linux CI 上反而會跑。
+  - 注意：Windows 上設 `PYTHONIOENCODING=utf-8` 會讓 `test_direct_subprocess_invocation_test_notify_...` 失敗：子程序輸出 utf-8，父程序用 cp950 解碼。這是我模擬時多加的環境變數造成的，Linux CI 不會遇到。
+- 在 clone 的 `scrapers/twse.py` 第一行加 `import yfinance` → 新測試失敗，訊息是「scrapers/twse.py:1 用到回補來源 yfinance（在 <module>）」，下面接修正指引，看得懂。改完已還原。
+- `backfill_chips` 沒列進 SOURCE_NAMES 是對的：它走 TWSE／TPEx 官方報表，不是 FinMind。
+- tests.yml 解析正常。觸發：push master／laptop、`paths-ignore: docs/**`、workflow_dispatch。排程只 commit docs/，所以不會觸發；發佈時有程式改動才會跑 ✅。
+
+### 結論
+- [ ] 需要修改後再確認
+- [x] 可以繼續下一個任務（可以發佈；SKIP_DIRS 加 .venv、3 支測試打樁 init_db 建議順手做）

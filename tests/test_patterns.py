@@ -417,15 +417,26 @@ def test_scan_patterns_returns_list(tmp_path):
     from screener.patterns import scan_patterns
     db_path = tmp_path / "test.db"
     _seed_scan_and_track_db(db_path)
+    # 8888：21 個交易日的窄幅整理（同 test_box_consolidation_detected 的收盤序列），一定命中「箱型整理」，
+    # 讓下面的欄位檢查真的跑到（只有 9999 那 5 天時 scan_patterns 回 0 筆，2026-11-26 Debugger 🟡）
+    closes = [99.0, 100.0, 101.0, 100.5] * 5 + [100.2]
+    days = pd.bdate_range(end="2026-07-03", periods=len(closes))
+    con = duckdb.connect(str(db_path))
+    for d, c in zip(days, closes):
+        con.execute("INSERT INTO daily_prices VALUES ('8888', ?, ?, ?, ?, ?, 1000, 0.0)",
+                    [d.date(), c, c + 1, c - 1, c])
+    con.close()
+
     results = scan_patterns("2026-07-03", db_path=str(db_path))
     assert isinstance(results, list)
-    if results:
-        r = results[0]
-        for key in ("stock_id", "stock_name", "score", "patterns", "vol_ratio"):
-            assert key in r, f"Missing key: {key}"
-        assert isinstance(r["patterns"], list)
-        # Score range sanity check
-        assert -20 <= r["score"] <= 20
+    hit = [r for r in results if r["stock_id"] == "8888"]
+    assert hit, "8888 應命中箱型整理"
+    r = hit[0]
+    for key in ("stock_id", "stock_name", "score", "patterns", "vol_ratio"):
+        assert key in r, f"Missing key: {key}"
+    assert isinstance(r["patterns"], list) and "箱型整理" in r["patterns"]
+    # Score range sanity check
+    assert -20 <= r["score"] <= 20
 
 
 import duckdb

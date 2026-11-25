@@ -6923,3 +6923,21 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 
 ### 特別注意
 - 無
+
+## [2026-11-26] scan_patterns smoke test 種子補一檔會命中的股票（處理 🟡）
+
+### 改了什麼
+- 異動檔案：tests/test_patterns.py（只改測試）
+- test_scan_patterns_returns_list 在 tmp DB 多塞 8888：21 個交易日（`pd.bdate_range` 到 2026-07-03），
+  收盤用 test_box_consolidation_detected 的窄幅序列，high/low = close ±1。
+- 改成 `assert hit`（8888 一定在結果裡）＋「箱型整理」在 patterns，欄位檢查不再被 `if results:` 跳過。
+
+### 資料來源相關
+- 無
+
+### 請 Debugger 驗證
+- [ ] 這支單獨跑會過，而且真的進到欄位檢查（例如暫時把 8888 刪掉，應該失敗）
+- [ ] pytest 全套
+
+### 特別注意
+- 無

@@ -133,9 +133,10 @@ def check_price_continuity(con, lookback_days: int = 90, is_trading: IsTrading =
     """
     today = today or date.today()
     since = today - timedelta(days=lookback_days)
+    # 上限 today：healthcheck 盤中把 today 設成昨天時，已寫進去的今天即時行情不該被算成「只抓到一部分」
     rows = con.execute(
-        "SELECT date, count(*) FROM daily_prices WHERE date >= ? GROUP BY date ORDER BY date",
-        [since],
+        "SELECT date, count(*) FROM daily_prices WHERE date >= ? AND date <= ? GROUP BY date ORDER BY date",
+        [since, today],
     ).fetchall()
     dates = [r[0] for r in rows]
     gaps = find_gaps(dates, is_trading)

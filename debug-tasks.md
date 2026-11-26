@@ -7013,3 +7013,51 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 
 ### 特別注意
 - 無
+
+## [2026-11-26] 資料健康檢查指令 scripts/healthcheck.py（harness 第 4 步之一：給 agent 的 Control CLI）
+
+### 改了什麼
+- 異動檔案：scripts/healthcheck.py（新）、tests/test_healthcheck.py（新）、CLAUDE-developer.md（「📊 定期確認資料是否正常」）
+- 取代 CLAUDE.md 那段手抄的 max(date) 程式＋文字門檻。只讀（read_only），組合既有的
+  `check_price_continuity`、`chips_freshness`，再加集保、月營收、董監持股。每項 ok／warn／fail＋next_step：
+  - 行情：缺交易日／只抓到一部分／最新落後 → fail。15 點前今天不算該有。缺 ≤2 天建議 `--backfill-official <第一天>`，
+    否則 `--backfill-yf 20`（註明要 Cody 同意）
+  - 籌碼：各市場落後 > 1 個交易日 → fail，建議 `--backfill-chips 14`
+  - 集保：> 14 天 warn；月營收／董監：落後 > 2 個月，或剛好 2 個月且過 12 號 → warn
+- `--json`（給 agent）、`--data-dir`（dev 沒有 data/）；exit 0／1／2，DB 被排程鎖住回 3。
+- 實跑（master data，13:21 盤中）：5 項全 ✅、exit 0；沒給 --data-dir 在 dev 跑 → 提示加 --data-dir、exit 2。
+
+### 資料來源相關
+- 只讀 DB，不抓任何資料
+
+### 請 Debugger 驗證
+- [ ] pytest 全套（含 tests/test_healthcheck.py）
+- [ ] 用 master 的 data/ 實跑 `--json` 跟一般輸出；結果跟手動查 max(date) 一致
+- [ ] 拿 11/19 那種情況（scratch 複製一份 DB，刪掉某天一部分股票）→ 行情 fail、next_step 是 --backfill-official 那天
+- [ ] 盤中跑：今天的即時行情筆數比較少時，會不會被誤判成「只抓到一部分」（我沒處理這個，請確認實際會不會）
+- [ ] next_step 裡的指令旗標都真的存在（--backfill-official／--backfill-chips／--backfill-shareholder／--update-fundamentals／--update-insider-holdings）
+
+### 特別注意
+- 這是 harness 第 4 步第一項。Cody 說「繼續實作」，所以沒等前三步跑滿一兩週。
+
+## [2026-11-26] healthcheck：修 🔴 盤中今天被算成 partial＋2 項 🟡
+
+### 改了什麼
+- 異動檔案：screener/data_integrity.py、scripts/healthcheck.py、tests/test_healthcheck.py
+- 🔴：`check_price_continuity` 查詢加上限 `date <= today`。healthcheck 15 點前傳 today=昨天，盤中已寫進去的今天不再進 partial。
+  **main.py 開跑前體檢**（main.py:1186，`check_price_continuity(_con)`，today=date.today()）：上限就是今天，DB 不會有未來日期，查到的資料跟以前一樣 → 不受影響。
+- 🟡(1)：15 點後、平日、日曆還沒收今天（calendar_status=None）、而且沒有今天的行情 → warn（附「先查排程有沒有跑」）。
+- 🟡(2)：--backfill-yf 的 next_step 寫明「20 個月」。
+- 新測試：盤中今天只有 10 筆 → ok；日曆不知道今天＋15 點後沒行情 → warn、早上 → ok；yf 文字含「20 個月」。
+- 實跑（13:27 盤中，master data）：行情「最新 2026-11-25，連續」，5 項 ✅。
+
+### 資料來源相關
+- 無（只讀）
+
+### 請 Debugger 驗證
+- [ ] pytest 全套（含 test_data_integrity.py，確認上限沒影響既有測試）
+- [ ] 你的 560 筆模擬（now=13:21）→ 現在應該 ok
+- [ ] main.py 體檢行為不變
+
+### 特別注意
+- 無

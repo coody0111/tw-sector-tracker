@@ -7758,3 +7758,37 @@ Developer 轉述：這次修改 Cody 已同意。DB 用 2026-11-10 22:00 的正�
 ### 結論
 - [x] 需要修改後再確認（盤中 partial 誤判）
 - [ ] 可以繼續下一個任務
+
+## [2026-11-26] 報告 - healthcheck：修盤中今天被算成 partial＋2 項 🟡（2f598bb）
+
+### 🔴 數據問題（需立刻修）
+- 無
+
+### 🔴 程式問題（需立刻修）
+- 無
+
+### 🟡 建議改善
+- 15:00～排程收盤那輪寫完之前（約幾分鐘），今天還沒有行情、日曆也還沒更新，所以會報 warn。這是正確的提醒，next_step 也叫人先查排程，可以接受，記一下就好。
+- 週末補查前一個交易日：週五排程整輪沒跑、日曆也沒收週五時，週六／週日跑 healthcheck 會是 ok。新 warn 只看「今天是平日」，所以抓不到。比較少見，要補的話可以改成檢查「最近一個平日」。
+- 既有行為、沒變：main.py 盤中那幾輪開跑前的體檢，`today=date.today()`，今天如果只抓到一部分照樣會被算成 partial（新舊版都是）。這是 10/27 那次想抓的情況，應該是刻意的，只是跟 healthcheck「15 點前不算今天」的口徑不同，提一下。
+
+### ✅ 驗證通過
+- pytest 全套 **1069 passed, 1 skipped**（含 test_data_integrity.py、新增的 healthcheck 測試）。
+- **main.py 體檢行為不變**：
+  - main.py:1186 呼叫 `check_price_continuity(_con)`，today 用預設的 `date.today()`。
+  - 把 master daily_prices（8/1 起）載入 in-memory，舊版（4ddb1e6 的 data_integrity.py）跟新版在同一份資料上比對：
+    - 正常資料：都是 `ok=True、latest=11-26`，partial／stale／missing 都是空的；
+    - 今天只留 560 筆：都報 `partial=[(11-26, 560)]`。
+  - master DB 裡日期晚於今天的列＝0，所以上限 `date <= today` 不會擋掉任何資料。
+- 我上次的 560 筆模擬：
+  - now=13:21 → **ok「最新 2026-11-25，連續」** ✅；
+  - now=16:00 → 照樣 fail＋`--backfill-official 2026-11-26` ✅。
+- 新 warn：今天整天沒有行情時，
+  - 15:30 → warn，附「先查排程有沒有跑」；
+  - 10:00 → ok；
+  - 週六 → ok。
+- `--backfill-yf` 的 next_step 已寫明「20 個月」。
+
+### 結論
+- [ ] 需要修改後再確認
+- [x] 可以繼續下一個任務（可以發佈）

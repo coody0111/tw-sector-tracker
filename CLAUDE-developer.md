@@ -198,20 +198,14 @@ python main.py --backfill-yf 20 --workers 3
 
 ## 📊 定期確認資料是否正常（2026-09-07 建立）
 
-Cody 或 Debugger 要確認「資料庫現在到底新不新、有沒有洞」時，跑這段（read-only，不會動 DB）：
+Cody 或 Debugger 要確認「資料庫現在到底新不新、有沒有洞」時跑（2026-11-26 起；只讀，不會動 DB）：
 
-```python
-import duckdb, pandas as pd
-con = duckdb.connect('data/screener.db', read_only=True)
-for tbl, date_col in [
-    ("daily_prices", "date"), ("institutional", "date"), ("margin", "date"),
-    ("foreign_holdings", "date"), ("shareholder", "date"),
-    ("insider_holdings", "report_date"), ("monthly_revenue", "revenue_month"),
-]:
-    latest = con.execute(f"SELECT max({date_col}) FROM {tbl}").fetchone()[0]
-    print(tbl, "->", latest)
-con.close()
 ```
+python scripts/healthcheck.py                 # master 資料夾
+python scripts/healthcheck.py --json --data-dir C:\Users\Cody\Desktop\tw-sector-tracker\data   # dev／debug 資料夾、給 agent
+```
+每項 ✅／⚠️／❌，有問題會附「下一步跑什麼」。exit code 0 正常、1 警告、2 異常、3 DB 正被排程寫入（稍後再跑）。
+它會抓缺交易日、只抓到一部分的日子（11/19 那種）、最新一天落後；門檻寫在 `scripts/healthcheck.py` 最上面。
 
 ### 各資料源預期更新頻率、現在是不是自動的
 
@@ -223,8 +217,8 @@ con.close()
 | 官方月營收/季報 | `monthly_revenue`/`financial_facts` | 月營收月更、季報季更 | ✅ 自動（`_update_fundamentals_db`，只在收盤模式跑，成本低每天都跑） |
 | 董監持股 | `insider_holdings` | 月更 | ✅ 自動（`_update_insider_holdings_db`，只在收盤模式跑，DB 最新一期已是上個月就跳過（2026-10-21 修正舊 gate 永遠不成立的 bug），避免每天觸發那個 38 分鐘起跳的逐股查詢；跟集保回補一起排在頁面 push 之後才跑，收盤排程上限 90 分鐘） |
 
-**判斷「這個資料是不是缺很久」的粗略基準**：跟今天日期比，行情/籌碼三表落後 > 3 個交易日、
-集保落後 > 2 週、月營收/季報/董監落後 > 1 個月，就該懷疑排程沒正常跑（先查
+**判斷「這個資料是不是缺很久」**：看 `healthcheck.py` 的結果就好（門檻在程式裡，不在這份文件）。
+落後的話就該懷疑排程沒正常跑（先查
 `logs/run.log`／`Get-ScheduledTaskInfo -TaskName "TW-Sector-*"` 的 `LastRunTime`/
 `LastTaskResult`，`LastTaskResult` 不是 `0` 就代表那次執行有問題）。
 

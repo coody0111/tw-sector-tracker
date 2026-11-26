@@ -7013,3 +7013,29 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 
 ### 特別注意
 - 無
+
+## [2026-11-26] 資料健康檢查指令 scripts/healthcheck.py（harness 第 4 步之一：給 agent 的 Control CLI）
+
+### 改了什麼
+- 異動檔案：scripts/healthcheck.py（新）、tests/test_healthcheck.py（新）、CLAUDE-developer.md（「📊 定期確認資料是否正常」）
+- 取代 CLAUDE.md 那段手抄的 max(date) 程式＋文字門檻。只讀（read_only），組合既有的
+  `check_price_continuity`、`chips_freshness`，再加集保、月營收、董監持股。每項 ok／warn／fail＋next_step：
+  - 行情：缺交易日／只抓到一部分／最新落後 → fail。15 點前今天不算該有。缺 ≤2 天建議 `--backfill-official <第一天>`，
+    否則 `--backfill-yf 20`（註明要 Cody 同意）
+  - 籌碼：各市場落後 > 1 個交易日 → fail，建議 `--backfill-chips 14`
+  - 集保：> 14 天 warn；月營收／董監：落後 > 2 個月，或剛好 2 個月且過 12 號 → warn
+- `--json`（給 agent）、`--data-dir`（dev 沒有 data/）；exit 0／1／2，DB 被排程鎖住回 3。
+- 實跑（master data，13:21 盤中）：5 項全 ✅、exit 0；沒給 --data-dir 在 dev 跑 → 提示加 --data-dir、exit 2。
+
+### 資料來源相關
+- 只讀 DB，不抓任何資料
+
+### 請 Debugger 驗證
+- [ ] pytest 全套（含 tests/test_healthcheck.py）
+- [ ] 用 master 的 data/ 實跑 `--json` 跟一般輸出；結果跟手動查 max(date) 一致
+- [ ] 拿 11/19 那種情況（scratch 複製一份 DB，刪掉某天一部分股票）→ 行情 fail、next_step 是 --backfill-official 那天
+- [ ] 盤中跑：今天的即時行情筆數比較少時，會不會被誤判成「只抓到一部分」（我沒處理這個，請確認實際會不會）
+- [ ] next_step 裡的指令旗標都真的存在（--backfill-official／--backfill-chips／--backfill-shareholder／--update-fundamentals／--update-insider-holdings）
+
+### 特別注意
+- 這是 harness 第 4 步第一項。Cody 說「繼續實作」，所以沒等前三步跑滿一兩週。

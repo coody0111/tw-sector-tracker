@@ -47,6 +47,12 @@ def check_prices(con, now: datetime, is_trading=calendar_status) -> dict:
     as_of = now.date() if now.hour >= PRICE_READY_HOUR else now.date() - timedelta(days=1)
     r = check_price_continuity(con, today=as_of, is_trading=is_trading)
     if r["ok"]:
+        # 日曆還沒收今天（排程整輪沒跑時也不會更新）→ _stale_days 不算今天；平日 15 點後沒行情要提醒
+        today = now.date()
+        if (as_of == today and today.weekday() < 5 and is_trading(today) is None
+                and r["latest"] is not None and r["latest"] < today):
+            return _result("行情", "warn", f"最新 {r['latest']}，今天（平日）還沒有行情；日曆也還沒確認今天有沒有開盤",
+                           "先查排程有沒有跑（logs/run.log、Get-ScheduledTaskInfo）；真的有開盤再 --backfill-official 今天")
         return _result("行情", "ok", f"最新 {r['latest']}，連續")
     parts = []
     if r["missing"]:
@@ -62,7 +68,7 @@ def check_prices(con, now: datetime, is_trading=calendar_status) -> dict:
         step = f"python main.py --backfill-official {bad_days[0]}"
     else:
         step = ("python main.py --backfill-yf 20 --workers 3"
-                "（整段換成 Yahoo 資料，先看 CLAUDE.md「資料跑掉時」；要 Cody 同意）")
+                "（20 個月，整段換成 Yahoo 資料，先看 CLAUDE.md「資料跑掉時」；要 Cody 同意）")
     return _result("行情", "fail", "；".join(parts), step)
 
 

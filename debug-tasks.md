@@ -7039,3 +7039,25 @@ TWSE 1,085 檔 / 2026-07），但 TPEx 整批一筆都沒進去，資料處於�
 
 ### 特別注意
 - 這是 harness 第 4 步第一項。Cody 說「繼續實作」，所以沒等前三步跑滿一兩週。
+
+## [2026-11-26] healthcheck：修 🔴 盤中今天被算成 partial＋2 項 🟡
+
+### 改了什麼
+- 異動檔案：screener/data_integrity.py、scripts/healthcheck.py、tests/test_healthcheck.py
+- 🔴：`check_price_continuity` 查詢加上限 `date <= today`。healthcheck 15 點前傳 today=昨天，盤中已寫進去的今天不再進 partial。
+  **main.py 開跑前體檢**（main.py:1186，`check_price_continuity(_con)`，today=date.today()）：上限就是今天，DB 不會有未來日期，查到的資料跟以前一樣 → 不受影響。
+- 🟡(1)：15 點後、平日、日曆還沒收今天（calendar_status=None）、而且沒有今天的行情 → warn（附「先查排程有沒有跑」）。
+- 🟡(2)：--backfill-yf 的 next_step 寫明「20 個月」。
+- 新測試：盤中今天只有 10 筆 → ok；日曆不知道今天＋15 點後沒行情 → warn、早上 → ok；yf 文字含「20 個月」。
+- 實跑（13:27 盤中，master data）：行情「最新 2026-11-25，連續」，5 項 ✅。
+
+### 資料來源相關
+- 無（只讀）
+
+### 請 Debugger 驗證
+- [ ] pytest 全套（含 test_data_integrity.py，確認上限沒影響既有測試）
+- [ ] 你的 560 筆模擬（now=13:21）→ 現在應該 ok
+- [ ] main.py 體檢行為不變
+
+### 特別注意
+- 無

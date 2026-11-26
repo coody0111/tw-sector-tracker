@@ -69,12 +69,29 @@ def test_prices_many_missing_suggests_yf_with_warning(con):
     _prices(con, days, skip=set(days[-10:-5]))
     r = hc.check_prices(con, THU_AFTER_CLOSE, _weekday)
     assert r["status"] == "fail" and "--backfill-yf" in r["next_step"] and "Cody" in r["next_step"]
+    assert "20 個月" in r["next_step"]
 
 
 def test_prices_today_not_expected_before_15(con):
     _prices(con, _days(date(2026, 11, 25), 40))     # 只到昨天
     assert hc.check_prices(con, THU_MORNING, _weekday)["status"] == "ok"
     assert hc.check_prices(con, THU_AFTER_CLOSE, _weekday)["status"] == "fail"
+
+
+def test_prices_intraday_today_rows_not_partial(con):
+    # 盤中今天只寫進一部分（即時行情），15 點前不該被算成「只抓到一部分」（2026-11-26 Debugger 🔴）
+    _prices(con, _days(date(2026, 11, 25), 40))
+    _prices(con, [date(2026, 11, 26)], n=10)
+    assert hc.check_prices(con, THU_MORNING, _weekday)["status"] == "ok"
+
+
+def test_prices_warn_when_calendar_unknown_and_no_rows_today(con):
+    # 日曆還沒收今天（None）：stale 不算今天；15 點後平日沒行情要 warn
+    _prices(con, _days(date(2026, 11, 25), 40))
+    unknown_today = lambda d: None if d == date(2026, 11, 26) else d.weekday() < 5  # noqa: E731
+    r = hc.check_prices(con, THU_AFTER_CLOSE, unknown_today)
+    assert r["status"] == "warn" and "還沒有行情" in r["detail"]
+    assert hc.check_prices(con, THU_MORNING, unknown_today)["status"] == "ok"
 
 
 def test_chips_lag(con):
